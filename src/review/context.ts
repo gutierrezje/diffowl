@@ -3,11 +3,28 @@ import { readFile, stat } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
-import { execa } from "execa";
 import picomatch from "picomatch";
 import type tsType from "typescript";
-import { getLastCommitDiff, getStagedDiff, parseGitDiffLine, type DiffFile, type DiffResult } from "../git/diff.js";
+import { getLastCommitDiff, getStagedDiff, parseGitDiffLine, type DiffFile } from "../git/diff.js";
 import type { DiffOwlConfig } from "../config.js";
+import { buildReferenceContexts } from "./context-references.js";
+import type {
+  AstSymbolContext,
+  ChangedFileContext,
+  RelatedFileContext,
+  ReviewContext,
+} from "./context-types.js";
+
+export { renderReviewContext } from "./context-render.js";
+export type {
+  AstSymbolContext,
+  ChangedFileContext,
+  ReferenceContext,
+  ReferenceMatch,
+  RelatedFileContext,
+  RenderReviewContextOptions,
+  ReviewContext,
+} from "./context-types.js";
 
 type tsNode = tsType.Node;
 type tsIdentifier = tsType.Identifier;
@@ -30,76 +47,10 @@ function tryLoadUserTypescript(): any {
   return cachedTs;
 }
 
-const MAX_DIFF_CHARS = 40_000;
 const MAX_FILE_CHARS = 12_000;
 const MAX_RELATED_FILE_CHARS = 6_000;
 const MAX_AST_SYMBOL_CHARS = 8_000;
-const MAX_QUICK_DIFF_CHARS = 12_000;
-const MAX_QUICK_SYMBOL_CHARS = 4_000;
-const MAX_QUICK_FILE_CHARS = 4_000;
-const MAX_REFERENCES_PER_TERM = 8;
-const MAX_REFERENCE_TERMS = 8;
-const MAX_REFERENCE_LINE_CHARS = 220;
-const MAX_BATCH_REFERENCE_MATCHES = 200;
 const LOCKFILE_EXCLUDES = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb"];
-
-export interface ReviewContext {
-  mode: "last-commit" | "staged";
-  diff: DiffResult;
-  changedFiles: ChangedFileContext[];
-  skippedFiles: DiffFile[];
-  relatedFiles: RelatedFileContext[];
-  references: ReferenceContext[];
-  diagnostics: string[];
-}
-
-export interface ChangedFileContext {
-  file: DiffFile;
-  imports: string[];
-  symbols: string[];
-  changedLines: number[];
-  astSymbols: AstSymbolContext[];
-  content?: string;
-  truncated: boolean;
-  skippedReason?: string | undefined;
-}
-
-export interface AstSymbolContext {
-  name: string;
-  kind: string;
-  startLine: number;
-  endLine: number;
-  text: string;
-  truncated: boolean;
-}
-
-export interface RelatedFileContext {
-  path: string;
-  reason: string;
-  content: string;
-  truncated: boolean;
-}
-
-export interface ReferenceContext {
-  term: string;
-  matches: ReferenceMatch[];
-}
-
-export interface ReferenceMatch {
-  path: string;
-  line: number;
-  text: string;
-}
-
-interface ReferenceSearchOutcome {
-  label: string;
-  matches: ReferenceMatch[];
-  error?: string;
-}
-
-export interface RenderReviewContextOptions {
-  quick?: boolean;
-}
 
 export async function buildReviewContext(
   mode: "last-commit" | "staged",
@@ -125,136 +76,6 @@ export async function buildReviewContext(
     references,
     diagnostics,
   };
-}
-
-export function renderReviewContext(
-  context: ReviewContext,
-  options: RenderReviewContextOptions = {},
-): string {
-  const quick = Boolean(options.quick);
-  const lines: string[] = [];
-
-  lines.push("## Local Review Context");
-  lines.push("");
-  lines.push(`Mode: ${context.mode}`);
-  if (quick) {
-    lines.push("Review depth: quick");
-  }
-  lines.push("");
-  lines.push("### Changed Files");
-  lines.push(context.diff.summary || "No changed files detected.");
-  if (context.skippedFiles.length > 0) {
-    lines.push("");
-    lines.push("Skipped by include/exclude rules:");
-    lines.push(context.skippedFiles.map((file) => `- ${file.path}`).join("\n"));
-  }
-  if (context.diagnostics.length > 0) {
-    lines.push("");
-    lines.push("Context diagnostics:");
-    lines.push(context.diagnostics.map((diagnostic) => `- ${diagnostic}`).join("\n"));
-  }
-  lines.push("");
-  lines.push("### Diff");
-  lines.push(
-    fence(
-      truncateText(
-        filterDiffRaw(
-          context.diff.raw,
-          new Set(context.changedFiles.map((fileContext) => fileContext.file.path)),
-        ),
-        quick ? MAX_QUICK_DIFF_CHARS : MAX_DIFF_CHARS,
-      ).text,
-      "diff",
-    ),
-  );
-  lines.push("");
-
-  for (const fileContext of context.changedFiles) {
-    lines.push(`### File Context: ${fileContext.file.path}`);
-    lines.push(
-      `Status: ${fileContext.file.status}; additions: ${fileContext.file.additions}; deletions: ${fileContext.file.deletions}`,
-    );
-
-    if (fileContext.imports.length > 0) {
-      lines.push("");
-      lines.push("Imports:");
-      lines.push(fileContext.imports.map((line) => `- ${line}`).join("\n"));
-    }
-
-    if (fileContext.symbols.length > 0) {
-      lines.push("");
-      lines.push("Symbols:");
-      lines.push(fileContext.symbols.map((symbol) => `- ${symbol}`).join("\n"));
-    }
-
-    lines.push("");
-    if (fileContext.changedLines.length > 0) {
-      lines.push(`Changed lines: ${summarizeLines(fileContext.changedLines)}`);
-      lines.push("");
-    }
-
-    if (fileContext.astSymbols.length > 0) {
-      lines.push("Changed TypeScript AST symbols:");
-      for (const symbol of quick ? fileContext.astSymbols.slice(0, 5) : fileContext.astSymbols) {
-        lines.push(`#### ${symbol.kind} ${symbol.name} (${symbol.startLine}-${symbol.endLine})`);
-        lines.push(
-          fence(
-            truncateText(symbol.text, quick ? MAX_QUICK_SYMBOL_CHARS : MAX_AST_SYMBOL_CHARS).text,
-            languageForPath(fileContext.file.path),
-          ),
-        );
-        if (symbol.truncated) {
-          lines.push("_Symbol content truncated._");
-        }
-        lines.push("");
-      }
-    }
-
-    if (fileContext.content && fileContext.astSymbols.length === 0) {
-      lines.push(
-        fence(
-          quick
-            ? truncateText(fileContext.content, MAX_QUICK_FILE_CHARS).text
-            : fileContext.content,
-          languageForPath(fileContext.file.path),
-        ),
-      );
-      if (fileContext.truncated) {
-        lines.push("_File content truncated._");
-      }
-    } else if (fileContext.content) {
-      lines.push("_Full file content omitted because changed TypeScript AST symbols are shown._");
-    } else {
-      lines.push(`_File content skipped: ${fileContext.skippedReason ?? "unavailable"}._`);
-    }
-    lines.push("");
-  }
-
-  if (!quick && context.relatedFiles.length > 0) {
-    lines.push("### Related Test Files");
-    for (const related of context.relatedFiles) {
-      lines.push(`#### ${related.path}`);
-      lines.push(`Reason: ${related.reason}`);
-      lines.push(fence(related.content, languageForPath(related.path)));
-      if (related.truncated) {
-        lines.push("_File content truncated._");
-      }
-      lines.push("");
-    }
-  }
-
-  if (!quick && context.references.length > 0) {
-    lines.push("### Reference Hints");
-    for (const reference of context.references) {
-      lines.push(`Term: ${reference.term}`);
-      for (const match of reference.matches) {
-        lines.push(`- ${match.path}:${match.line}: ${match.text}`);
-      }
-      lines.push("");
-    }
-  }
-
-  return lines.join("\n").trim();
 }
 
 async function buildChangedFileContext(
@@ -327,182 +148,6 @@ async function buildRelatedFileContexts(files: DiffFile[]): Promise<RelatedFileC
   return related;
 }
 
-async function buildReferenceContexts(
-  changedFiles: ChangedFileContext[],
-  skippedFiles: DiffFile[],
-  diagnostics: string[],
-): Promise<ReferenceContext[]> {
-  const terms = new Set<string>();
-  const ignoredPaths = new Set([
-    ...changedFiles.map((file) => file.file.path),
-    ...skippedFiles.map((file) => file.path),
-  ]);
-
-  for (const file of changedFiles) {
-    terms.add(basename(file.file.path, extname(file.file.path)));
-    for (const symbol of file.symbols.slice(0, 4)) {
-      terms.add(symbol);
-    }
-  }
-
-  const validTerms = [...terms]
-    .filter((value) => value.length >= 3)
-    .slice(0, MAX_REFERENCE_TERMS);
-
-  if (validTerms.length === 0) {
-    return [];
-  }
-
-  const allMatches = await findBatchReferences(validTerms, ignoredPaths, diagnostics);
-
-  const references: ReferenceContext[] = [];
-  for (const term of validTerms) {
-    const matches = allMatches
-      .filter((match) => match.text.includes(term))
-      .slice(0, MAX_REFERENCES_PER_TERM);
-
-    if (matches.length > 0) {
-      references.push({ term, matches });
-    }
-  }
-
-  return references;
-}
-
-async function findBatchReferences(
-  terms: string[],
-  ignoredPaths: Set<string>,
-  diagnostics: string[],
-): Promise<ReferenceMatch[]> {
-  const outcomes = await Promise.all([
-    findBatchReferencesWithOutcome("git grep", () =>
-      findBatchReferencesWithGitGrep(terms, ignoredPaths),
-    ),
-    findBatchReferencesWithOutcome("ripgrep", () =>
-      findBatchReferencesWithRipgrep(terms, ignoredPaths),
-    ),
-  ]);
-  const failures = outcomes.filter((outcome) => outcome.error);
-
-  for (const failure of failures) {
-    const suffix =
-      failures.length === outcomes.length ? "" : " Continuing with available reference results.";
-    diagnostics.push(`Reference search with ${failure.label} failed: ${failure.error}.${suffix}`);
-  }
-
-  const seen = new Set<string>();
-  const combined: ReferenceMatch[] = [];
-
-  for (const outcome of outcomes) {
-    for (const match of outcome.matches) {
-      const key = `${match.path}:${match.line}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        combined.push(match);
-      }
-    }
-  }
-
-  if (combined.length > MAX_BATCH_REFERENCE_MATCHES) {
-    diagnostics.push(
-      `Reference search found ${combined.length} matches; only the first ${MAX_BATCH_REFERENCE_MATCHES} are included.`,
-    );
-  }
-
-  return combined.slice(0, MAX_BATCH_REFERENCE_MATCHES);
-}
-
-async function findBatchReferencesWithOutcome(
-  label: string,
-  search: () => Promise<ReferenceMatch[]>,
-): Promise<ReferenceSearchOutcome> {
-  try {
-    return { label, matches: await search() };
-  } catch (err) {
-    return { label, matches: [], error: formatReferenceSearchError(err) };
-  }
-}
-
-function formatReferenceSearchError(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return String(err);
-}
-
-async function findBatchReferencesWithGitGrep(
-  terms: string[],
-  ignoredPaths: Set<string>,
-): Promise<ReferenceMatch[]> {
-  try {
-    const args = ["grep", "-n", "--fixed-strings"];
-    for (const term of terms) {
-      args.push("-e", term);
-    }
-    args.push("--");
-
-    const { stdout } = await execa("git", args, { timeout: 2000 });
-    return parseBatchReferenceLines(stdout, ignoredPaths);
-  } catch (err) {
-    if (isNoMatchesExit(err)) return [];
-    throw err;
-  }
-}
-
-function isNoMatchesExit(err: unknown): boolean {
-  return typeof err === "object" && err !== null && "exitCode" in err && err.exitCode === 1;
-}
-
-async function findBatchReferencesWithRipgrep(
-  terms: string[],
-  ignoredPaths: Set<string>,
-): Promise<ReferenceMatch[]> {
-  try {
-    const args = [
-      "--line-number",
-      "--fixed-strings",
-      "--glob",
-      "!node_modules/**",
-      "--glob",
-      "!dist/**",
-      "--glob",
-      "!.diffowl/**",
-      "--glob",
-      "!.git/**",
-      "--glob",
-      "!*lock*",
-    ];
-    for (const term of terms) {
-      args.push("-e", term);
-    }
-
-    const { stdout } = await execa("rg", args, { timeout: 2000 });
-    return parseBatchReferenceLines(stdout, ignoredPaths);
-  } catch (err) {
-    if (isNoMatchesExit(err)) return [];
-    throw err;
-  }
-}
-
-function parseBatchReferenceLines(stdout: string, ignoredPaths: Set<string>): ReferenceMatch[] {
-  return stdout
-    .split("\n")
-    .filter(Boolean)
-    .map(parseReferenceLine)
-    .filter((match): match is ReferenceMatch => Boolean(match))
-    .filter((match) => !ignoredPaths.has(match.path))
-    .slice(0, MAX_BATCH_REFERENCE_MATCHES); // Bound memory and parsing overhead per search tool
-}
-
-function parseReferenceLine(line: string): ReferenceMatch | undefined {
-  const match = line.match(/^(.+?):(\d+):(.*)$/);
-  if (!match) return undefined;
-
-  return {
-    path: match[1]!,
-    line: Number(match[2]),
-    text: match[3]!.trim().slice(0, MAX_REFERENCE_LINE_CHARS),
-  };
-}
-
 function shouldReviewFile(path: string, config: DiffOwlConfig): boolean {
   if (LOCKFILE_EXCLUDES.includes(path)) return false;
 
@@ -512,28 +157,6 @@ function shouldReviewFile(path: string, config: DiffOwlConfig): boolean {
   }
 
   return !config.exclude.some((pattern) => picomatch.isMatch(path, pattern));
-}
-
-function filterDiffRaw(rawDiff: string, includedPaths: Set<string>): string {
-  if (includedPaths.size === 0) {
-    return "No included file diffs.";
-  }
-
-  const lines: string[] = [];
-  let includeCurrentFile = false;
-
-  for (const line of rawDiff.split("\n")) {
-    const gitDiffPaths = parseGitDiffLine(line);
-    if (gitDiffPaths) {
-      includeCurrentFile = includedPaths.has(gitDiffPaths.pathB);
-    }
-
-    if (includeCurrentFile) {
-      lines.push(line);
-    }
-  }
-
-  return lines.join("\n");
 }
 
 async function readTextFile(
@@ -650,7 +273,10 @@ function getNamedDeclarationNode(ts: typeof tsType, node: tsNode): tsNode | unde
   return undefined;
 }
 
-function hasIdentifierName(ts: typeof tsType, node: tsNode): node is tsNode & { name: tsIdentifier } {
+function hasIdentifierName(
+  ts: typeof tsType,
+  node: tsNode,
+): node is tsNode & { name: tsIdentifier } {
   const name = (node as { name?: tsNode }).name;
   return Boolean(name && ts.isIdentifier(name));
 }
@@ -775,10 +401,6 @@ function getChangedLinesByFile(rawDiff: string): Map<string, number[]> {
   return changed;
 }
 
-function summarizeLines(lines: number[]): string {
-  return [...new Set(lines)].sort((a, b) => a - b).join(", ");
-}
-
 function testCandidates(path: string): string[] {
   const dir = dirname(path);
   const ext = extname(path);
@@ -799,20 +421,6 @@ function truncateText(text: string, maxChars: number): { text: string; truncated
     text: `${text.slice(0, maxChars)}\n... [truncated ${text.length - maxChars} chars]`,
     truncated: true,
   };
-}
-
-function fence(content: string, language = ""): string {
-  return `\`\`\`${language}\n${content.replaceAll("```", "'''")}\n\`\`\``;
-}
-
-function languageForPath(path: string): string {
-  const ext = extname(path).slice(1);
-  if (ext === "ts" || ext === "tsx") return "ts";
-  if (ext === "js" || ext === "jsx") return "js";
-  if (ext === "json") return "json";
-  if (ext === "md") return "md";
-  if (ext === "yml" || ext === "yaml") return "yaml";
-  return "";
 }
 
 function isTypeScriptPath(path: string): boolean {

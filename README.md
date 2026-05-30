@@ -1,6 +1,14 @@
 # DiffOwl
 
-> **Local AI Code Review Agent powered by [OpenCode](https://opencode.ai)**
+```text
+,___,
+(O,O)
+/)_)
+" "
+```
+
+> **Local AI Code Review Agent**
+> 
 > Build-time quality reviews, running locally, on your own terms.
 
 DiffOwl is a lightweight CLI that integrates into your Git workflow to provide high-quality code reviews locally. Instead of rebuilding LLM integrations or managing provider keys from scratch, DiffOwl orchestrates a headless [OpenCode Server](https://opencode.ai/docs/server/) session and delegates the repository analysis to the local agent, which uses its own advanced reasoning and file tools.
@@ -45,7 +53,7 @@ pnpm install && pnpm run build && pnpm link --global
 npm install && npm run build && npm link -g
 ```
 
-### Developing & Dogfooding
+### Developing
 
 When making edits to `src/**`, rebuild to update your globally linked CLI and git hooks:
 
@@ -177,4 +185,4 @@ rules:
 
 ## License
 
-MIT © [Jesus](https://github.com/jesus)
+MIT © [Jesus Gutierrez](https://github.com/gutierrezje)
