@@ -28,6 +28,8 @@ describe("config", () => {
         "server:",
         "  port: 4096",
         "  auto_start: true",
+        "context:",
+        "  depth: default",
         "min_confidence: low",
         "include:",
         "  - '**/*'",
@@ -62,6 +64,27 @@ describe("config", () => {
     const config = await loadConfig();
 
     expect(config.min_confidence).toBe("medium");
+  });
+
+  it("loads valid context depth and defaults invalid depth", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
+    tempDirs.push(root);
+    await writeFile(
+      join(root, ".diffowl.yml"),
+      ["model: provider/model", "context:", "  depth: deep"].join("\n"),
+      "utf-8",
+    );
+    process.chdir(root);
+
+    expect((await loadConfig()).context.depth).toBe("deep");
+
+    await writeFile(
+      join(root, ".diffowl.yml"),
+      ["model: provider/model", "context:", "  depth: noisy"].join("\n"),
+      "utf-8",
+    );
+
+    expect((await loadConfig()).context.depth).toBe("default");
   });
 
   it("reports malformed yaml instead of silently using defaults", async () => {

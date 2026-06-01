@@ -12,15 +12,14 @@ export function renderReviewContext(
   context: ReviewContext,
   options: RenderReviewContextOptions = {},
 ): string {
-  const quick = Boolean(options.quick);
+  const depth = options.depth ?? context.depth;
+  const shallow = depth === "shallow";
   const lines: string[] = [];
 
   lines.push("## Local Review Context");
   lines.push("");
   lines.push(`Mode: ${context.mode}`);
-  if (quick) {
-    lines.push("Review depth: quick");
-  }
+  lines.push(`Review depth: ${depth}`);
   lines.push("");
   lines.push("### Changed Files");
   lines.push(context.diff.summary || "No changed files detected.");
@@ -43,7 +42,7 @@ export function renderReviewContext(
           context.diff.raw,
           new Set(context.changedFiles.map((fileContext) => fileContext.file.path)),
         ),
-        quick ? MAX_QUICK_DIFF_CHARS : MAX_DIFF_CHARS,
+        shallow ? MAX_QUICK_DIFF_CHARS : MAX_DIFF_CHARS,
       ).text,
       "diff",
     ),
@@ -76,11 +75,11 @@ export function renderReviewContext(
 
     if (fileContext.astSymbols.length > 0) {
       lines.push("Changed TypeScript AST symbols:");
-      for (const symbol of quick ? fileContext.astSymbols.slice(0, 5) : fileContext.astSymbols) {
+      for (const symbol of shallow ? fileContext.astSymbols.slice(0, 5) : fileContext.astSymbols) {
         lines.push(`#### ${symbol.kind} ${symbol.name} (${symbol.startLine}-${symbol.endLine})`);
         lines.push(
           fence(
-            truncateText(symbol.text, quick ? MAX_QUICK_SYMBOL_CHARS : MAX_AST_SYMBOL_CHARS).text,
+            truncateText(symbol.text, shallow ? MAX_QUICK_SYMBOL_CHARS : MAX_AST_SYMBOL_CHARS).text,
             languageForPath(fileContext.file.path),
           ),
         );
@@ -98,7 +97,7 @@ export function renderReviewContext(
     ) {
       lines.push(
         fence(
-          quick
+          shallow
             ? truncateText(fileContext.content, MAX_QUICK_FILE_CHARS).text
             : fileContext.content,
           languageForPath(fileContext.file.path),
@@ -117,7 +116,39 @@ export function renderReviewContext(
     lines.push("");
   }
 
-  if (!quick && context.relatedFiles.length > 0) {
+  if (context.deep) {
+    lines.push("### Deep TypeScript Context");
+    if (context.deep.astOutlines.length > 0) {
+      lines.push("AST outline:");
+      for (const outline of context.deep.astOutlines) {
+        lines.push(`#### ${outline.path}`);
+        for (const symbol of outline.symbols) {
+          lines.push(`- ${symbol.kind} ${symbol.name} (${symbol.startLine}-${symbol.endLine})`);
+        }
+        if (outline.truncated) {
+          lines.push("_AST outline truncated._");
+        }
+        lines.push("");
+      }
+    }
+
+    if (context.deep.impactGraph.length > 0) {
+      lines.push("Static impact graph:");
+      for (const graph of context.deep.impactGraph) {
+        lines.push(`#### ${graph.symbol} (${graph.file})`);
+        lines.push("Callers:");
+        lines.push(formatImpactEdges(graph.callers));
+        lines.push("Callees:");
+        lines.push(formatImpactEdges(graph.callees));
+        if (graph.truncated) {
+          lines.push("_Impact graph truncated._");
+        }
+        lines.push("");
+      }
+    }
+  }
+
+  if (!shallow && context.relatedFiles.length > 0) {
     lines.push("### Related Test Files");
     for (const related of context.relatedFiles) {
       lines.push(`#### ${related.path}`);
@@ -130,7 +161,7 @@ export function renderReviewContext(
     }
   }
 
-  if (!quick && context.references.length > 0) {
+  if (!shallow && context.references.length > 0) {
     lines.push("### Reference Hints");
     for (const reference of context.references) {
       lines.push(`Term: ${reference.term}`);
@@ -142,6 +173,14 @@ export function renderReviewContext(
   }
 
   return lines.join("\n").trim();
+}
+
+function formatImpactEdges(edges: { symbol: string; file: string; line: number }[]): string {
+  if (edges.length === 0) {
+    return "- None found";
+  }
+
+  return edges.map((edge) => `- ${edge.symbol} (${edge.file}:${edge.line})`).join("\n");
 }
 
 function filterDiffRaw(rawDiff: string, includedPaths: Set<string>): string {

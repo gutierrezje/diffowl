@@ -21,6 +21,9 @@ const config: DiffOwlConfig = {
     port: 4096,
     auto_start: true,
   },
+  context: {
+    depth: "default",
+  },
   timeout: 300,
   min_confidence: "medium",
   include: ["**/*"],
@@ -183,7 +186,7 @@ describe("buildReviewContext", () => {
     expect(rendered).not.toContain("packages:");
   });
 
-  it("renders a smaller quick context without related files or references", async () => {
+  it("renders a smaller shallow context without related files or references", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
     tempDirs.push(root);
     process.chdir(root);
@@ -222,13 +225,88 @@ describe("buildReviewContext", () => {
     );
     await execa("git", ["add", "src/example.ts"]);
 
-    const context = await buildReviewContext("staged", config);
-    const rendered = renderReviewContext(context, { quick: true });
+    const context = await buildReviewContext("staged", config, "shallow");
+    const rendered = renderReviewContext(context);
 
-    expect(rendered).toContain("Review depth: quick");
+    expect(context.relatedFiles).toHaveLength(0);
+    expect(context.references).toHaveLength(0);
+    expect(rendered).toContain("Review depth: shallow");
     expect(rendered).toContain("Changed TypeScript AST symbols");
     expect(rendered).not.toContain("Related Test Files");
     expect(rendered).not.toContain("Reference Hints");
+  });
+
+  it("renders deep TypeScript AST outline and impact graph", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
+    tempDirs.push(root);
+    process.chdir(root);
+
+    await execa("git", ["init"]);
+    await mkdir("src");
+    await writeFile(
+      "src/example.ts",
+      [
+        "export function formatTotal(value: number) {",
+        "  return value.toFixed(2);",
+        "}",
+        "",
+        "export function calculateTotal(value: number) {",
+        "  return formatTotal(value + 1);",
+        "}",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    await writeFile(
+      "src/consumer.ts",
+      [
+        "import { calculateTotal } from './example.js';",
+        "",
+        "export function renderTotal(value: number) {",
+        "  return calculateTotal(value);",
+        "}",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    await execa("git", ["add", "."]);
+    await execa("git", [
+      "-c",
+      "user.name=DiffOwl Test",
+      "-c",
+      "user.email=diffowl@example.test",
+      "commit",
+      "-m",
+      "initial",
+    ]);
+
+    await writeFile(
+      "src/example.ts",
+      [
+        "export function formatTotal(value: number) {",
+        "  return value.toFixed(2);",
+        "}",
+        "",
+        "export function calculateTotal(value: number) {",
+        "  return formatTotal(value + 2);",
+        "}",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    await execa("git", ["add", "src/example.ts"]);
+
+    const context = await buildReviewContext("staged", config, "deep");
+    const rendered = renderReviewContext(context);
+
+    expect(context.deep?.astOutlines[0]?.symbols.map((symbol) => symbol.name)).toContain(
+      "calculateTotal",
+    );
+    expect(rendered).toContain("Review depth: deep");
+    expect(rendered).toContain("Deep TypeScript Context");
+    expect(rendered).toContain("Static impact graph");
+    expect(rendered).toContain("renderTotal (src/consumer.ts");
+    expect(rendered).toContain("formatTotal (src/example.ts");
   });
 
   it("summarizes consecutive changed lines as ranges for added files", async () => {
@@ -360,11 +438,19 @@ async function makeReferenceSearchPath(root: string): Promise<string> {
 
   if (process.platform === "win32") {
     await writeFile(join(binDir, "git.cmd"), `@"${gitPath}" %*\r\n`, "utf-8");
-    await writeFile(join(binDir, "rg.cmd"), "@echo ripgrep forced failure 1>&2\r\n@exit /b 2\r\n", "utf-8");
+    await writeFile(
+      join(binDir, "rg.cmd"),
+      "@echo ripgrep forced failure 1>&2\r\n@exit /b 2\r\n",
+      "utf-8",
+    );
   } else {
     const gitShim = join(binDir, "git");
     const rgShim = join(binDir, "rg");
-    await writeFile(gitShim, `#!/bin/sh\nexec '${gitPath.replaceAll("'", "'\\''")}' "$@"\n`, "utf-8");
+    await writeFile(
+      gitShim,
+      `#!/bin/sh\nexec '${gitPath.replaceAll("'", "'\\''")}' "$@"\n`,
+      "utf-8",
+    );
     await writeFile(rgShim, "#!/bin/sh\necho ripgrep forced failure >&2\nexit 2\n", "utf-8");
     await chmod(gitShim, 0o755);
     await chmod(rgShim, 0o755);

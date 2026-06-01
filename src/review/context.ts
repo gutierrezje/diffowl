@@ -3,14 +3,20 @@ import { readFile, stat } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
+import { execa } from "execa";
 import picomatch from "picomatch";
 import type tsType from "typescript";
 import { getLastCommitDiff, getStagedDiff, parseGitDiffLine, type DiffFile } from "../git/diff.js";
-import type { DiffOwlConfig } from "../config.js";
+import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
 import { buildReferenceContexts } from "./context-references.js";
 import type {
+  AstOutlineContext,
+  AstOutlineSymbol,
   AstSymbolContext,
   ChangedFileContext,
+  DeepReviewContext,
+  ImpactGraphContext,
+  ImpactGraphEdge,
   RelatedFileContext,
   ReviewContext,
 } from "./context-types.js";
@@ -18,6 +24,9 @@ import type {
 export { renderReviewContext } from "./context-render.js";
 export type {
   AstSymbolContext,
+  DeepReviewContext,
+  ImpactGraphContext,
+  ImpactGraphEdge,
   ChangedFileContext,
   ReferenceContext,
   ReferenceMatch,
@@ -53,11 +62,16 @@ const MAX_AST_SYMBOL_CHARS = 8_000;
 const MAX_INLINE_FILE_CHARS = 2_000;
 const MAX_INLINE_FILE_LINES = 80;
 const MIN_CHANGED_RATIO_FOR_INLINE_CONTENT = 0.4;
+const MAX_DEEP_AST_SYMBOLS_PER_FILE = 60;
+const MAX_DEEP_GRAPH_SYMBOLS = 12;
+const MAX_DEEP_GRAPH_EDGES = 8;
+const MAX_PROJECT_TS_FILES = 200;
 const LOCKFILE_EXCLUDES = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb"];
 
 export async function buildReviewContext(
   mode: "last-commit" | "staged",
   config: DiffOwlConfig,
+  depth: ReviewContextDepth = config.context.depth,
 ): Promise<ReviewContext> {
   const diff = mode === "staged" ? await getStagedDiff() : await getLastCommitDiff();
   const reviewableFiles = diff.files.filter((file) => shouldReviewFile(file.path, config));
@@ -66,17 +80,26 @@ export async function buildReviewContext(
   const changedFiles = await Promise.all(
     reviewableFiles.map((file) => buildChangedFileContext(file, changedLines.get(file.path) ?? [])),
   );
-  const relatedFiles = await buildRelatedFileContexts(reviewableFiles);
   const diagnostics: string[] = [];
-  const references = await buildReferenceContexts(changedFiles, skippedFiles, diagnostics);
+  const relatedFiles = depth === "shallow" ? [] : await buildRelatedFileContexts(reviewableFiles);
+  const references =
+    depth === "shallow"
+      ? []
+      : await buildReferenceContexts(changedFiles, skippedFiles, diagnostics);
+  const deep =
+    depth === "deep"
+      ? await buildDeepReviewContext(changedFiles, skippedFiles, config, diagnostics)
+      : undefined;
 
   return {
     mode,
+    depth,
     diff,
     changedFiles,
     skippedFiles,
     relatedFiles,
     references,
+    deep,
     diagnostics,
   };
 }
@@ -227,6 +250,221 @@ function shouldRenderFullFileContent(file: DiffFile, content: string): boolean {
 
   const changedLineCount = file.additions + file.deletions;
   return changedLineCount / totalLines >= MIN_CHANGED_RATIO_FOR_INLINE_CONTENT;
+}
+
+async function buildDeepReviewContext(
+  changedFiles: ChangedFileContext[],
+  skippedFiles: DiffFile[],
+  config: DiffOwlConfig,
+  diagnostics: string[],
+): Promise<DeepReviewContext | undefined> {
+  const tsChangedFiles = changedFiles.filter(
+    (file) => file.file.status !== "deleted" && isTypeScriptPath(file.file.path) && file.content,
+  );
+  const unsupportedFiles = changedFiles.filter(
+    (file) => file.file.status !== "deleted" && !isTypeScriptPath(file.file.path),
+  );
+
+  if (unsupportedFiles.length > 0) {
+    diagnostics.push(
+      `Deep static graph analysis is TypeScript-only; ${unsupportedFiles.length} unsupported changed file(s) use default context.`,
+    );
+  }
+
+  if (tsChangedFiles.length === 0) {
+    return undefined;
+  }
+
+  const activeTs = tryLoadUserTypescript();
+  if (!activeTs) {
+    diagnostics.push("Deep TypeScript analysis skipped because TypeScript could not be loaded.");
+    return undefined;
+  }
+
+  const astOutlines = tsChangedFiles.map((file) =>
+    buildAstOutline(activeTs, file.file.path, file.content!),
+  );
+  const projectFiles = await collectProjectTypeScriptFiles(config, skippedFiles, diagnostics);
+  const declarations = await collectProjectDeclarations(activeTs, projectFiles, diagnostics);
+  const impactGraph = buildImpactGraph(activeTs, tsChangedFiles, declarations);
+
+  return { astOutlines, impactGraph };
+}
+
+function buildAstOutline(ts: typeof tsType, path: string, content: string): AstOutlineContext {
+  const sourceFile = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, true);
+  const symbols: AstOutlineSymbol[] = [];
+
+  const visit = (node: tsNode) => {
+    const namedNode = getNamedDeclarationNode(ts, node);
+    if (namedNode) {
+      symbols.push({
+        kind: getDeclarationKind(ts, namedNode),
+        name: getDeclarationName(ts, namedNode),
+        startLine:
+          sourceFile.getLineAndCharacterOfPosition(namedNode.getStart(sourceFile)).line + 1,
+        endLine: sourceFile.getLineAndCharacterOfPosition(namedNode.getEnd()).line + 1,
+      });
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+  return {
+    path,
+    symbols: symbols.slice(0, MAX_DEEP_AST_SYMBOLS_PER_FILE),
+    truncated: symbols.length > MAX_DEEP_AST_SYMBOLS_PER_FILE,
+  };
+}
+
+interface ProjectDeclaration {
+  name: string;
+  file: string;
+  line: number;
+  text: string;
+}
+
+async function collectProjectTypeScriptFiles(
+  config: DiffOwlConfig,
+  skippedFiles: DiffFile[],
+  diagnostics: string[],
+): Promise<string[]> {
+  try {
+    const { stdout } = await execa("git", ["ls-files", "*.ts", "*.tsx"], { timeout: 3000 });
+    const skippedPaths = new Set(skippedFiles.map((file) => file.path));
+    const files = stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .filter((path) => !path.endsWith(".d.ts"))
+      .filter((path) => !skippedPaths.has(path))
+      .filter((path) => shouldReviewFile(path, config))
+      .slice(0, MAX_PROJECT_TS_FILES);
+
+    if (files.length === MAX_PROJECT_TS_FILES) {
+      diagnostics.push(
+        `Deep TypeScript analysis scanned the first ${MAX_PROJECT_TS_FILES} tracked TS files only.`,
+      );
+    }
+
+    return files;
+  } catch (err) {
+    diagnostics.push(
+      `Deep TypeScript analysis could not list project files: ${err instanceof Error ? err.message : String(err)}.`,
+    );
+    return [];
+  }
+}
+
+async function collectProjectDeclarations(
+  ts: typeof tsType,
+  files: string[],
+  diagnostics: string[],
+): Promise<ProjectDeclaration[]> {
+  const declarations: ProjectDeclaration[] = [];
+
+  for (const file of files) {
+    const result = await readTextFile(file, MAX_FILE_CHARS);
+    if (!result.content) continue;
+
+    const sourceFile = ts.createSourceFile(file, result.content, ts.ScriptTarget.Latest, true);
+    const visit = (node: tsNode) => {
+      const namedNode = getNamedDeclarationNode(ts, node);
+      if (namedNode) {
+        declarations.push({
+          name: getDeclarationName(ts, namedNode),
+          file,
+          line: sourceFile.getLineAndCharacterOfPosition(namedNode.getStart(sourceFile)).line + 1,
+          text: namedNode.getText(sourceFile),
+        });
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+  }
+
+  if (declarations.length === 0 && files.length > 0) {
+    diagnostics.push("Deep TypeScript analysis found no project declarations to graph.");
+  }
+
+  return declarations;
+}
+
+function buildImpactGraph(
+  ts: typeof tsType,
+  changedFiles: ChangedFileContext[],
+  declarations: ProjectDeclaration[],
+): ImpactGraphContext[] {
+  const declarationsByName = new Map<string, ProjectDeclaration[]>();
+  for (const declaration of declarations) {
+    const existing = declarationsByName.get(declaration.name) ?? [];
+    existing.push(declaration);
+    declarationsByName.set(declaration.name, existing);
+  }
+
+  const graph: ImpactGraphContext[] = [];
+  for (const changedFile of changedFiles) {
+    for (const changedSymbol of changedFile.astSymbols.slice(0, MAX_DEEP_GRAPH_SYMBOLS)) {
+      const callers = declarations
+        .filter(
+          (declaration) =>
+            !(
+              declaration.file === changedFile.file.path && declaration.name === changedSymbol.name
+            ) && declaration.text.includes(changedSymbol.name),
+        )
+        .map(toImpactGraphEdge)
+        .slice(0, MAX_DEEP_GRAPH_EDGES);
+      const callees = extractCalledNames(ts, changedFile.file.path, changedSymbol.text)
+        .flatMap((name) => declarationsByName.get(name) ?? [])
+        .filter(
+          (declaration) =>
+            !(
+              declaration.file === changedFile.file.path && declaration.name === changedSymbol.name
+            ),
+        )
+        .map(toImpactGraphEdge)
+        .slice(0, MAX_DEEP_GRAPH_EDGES);
+
+      graph.push({
+        symbol: changedSymbol.name,
+        file: changedFile.file.path,
+        callers,
+        callees,
+        truncated:
+          callers.length === MAX_DEEP_GRAPH_EDGES || callees.length === MAX_DEEP_GRAPH_EDGES,
+      });
+    }
+  }
+
+  return graph;
+}
+
+function extractCalledNames(ts: typeof tsType, path: string, text: string): string[] {
+  const sourceFile = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
+  const names = new Set<string>();
+
+  const visit = (node: tsNode) => {
+    if (ts.isCallExpression(node)) {
+      const expression = node.expression;
+      if (ts.isIdentifier(expression)) {
+        names.add(expression.text);
+      } else if (ts.isPropertyAccessExpression(expression)) {
+        names.add(expression.name.text);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+  return [...names];
+}
+
+function toImpactGraphEdge(declaration: ProjectDeclaration): ImpactGraphEdge {
+  return {
+    symbol: declaration.name,
+    file: declaration.file,
+    line: declaration.line,
+  };
 }
 
 function extractAstSymbols(

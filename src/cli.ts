@@ -9,6 +9,7 @@ import {
   saveConfig,
   configExists,
   type DiffOwlConfig,
+  type ReviewContextDepth,
   type ReviewConfidence,
 } from "./config.js";
 import {
@@ -67,7 +68,7 @@ program
   .description("Review the last commit or staged changes")
   .option("--staged", "Review staged changes instead of last commit")
   .option("--hook", "Running from git hook (non-blocking mode)")
-  .option("--quick", "Use a smaller local-only review prompt")
+  .option("--depth <depth>", "Review context depth: shallow, default, or deep")
   .action(async (options) => {
     const totalStart = performance.now();
     const timings: ReviewTiming[] = [];
@@ -89,6 +90,7 @@ program
 
     const config = await loadConfigOrExit();
     const mode = options.staged ? "staged" : "last-commit";
+    const depth = resolveReviewDepth(options.depth, config);
 
     if (mode === "last-commit") {
       const hasCommitsStart = performance.now();
@@ -119,7 +121,7 @@ program
 
     try {
       const contextStart = performance.now();
-      const reviewContext = await buildReviewContext(mode, config);
+      const reviewContext = await buildReviewContext(mode, config, depth);
       recordCliTiming(timings, "context-build", "Local review context build", contextStart);
 
       if (mode === "staged" && reviewContext.diff.files.length === 0) {
@@ -129,7 +131,7 @@ program
       }
 
       const contextRenderStart = performance.now();
-      const localContext = renderReviewContext(reviewContext, { quick: Boolean(options.quick) });
+      const localContext = renderReviewContext(reviewContext, { depth });
       recordCliTiming(timings, "context-render", "Local review context render", contextRenderStart);
 
       if (reviewContext.diagnostics.length > 0) {
@@ -153,7 +155,7 @@ program
         mode,
         config,
         localContext,
-        quick: Boolean(options.quick),
+        depth,
         onProgress: (event) => {
           spinner.text = formatReviewProgress(event);
         },
@@ -219,6 +221,20 @@ function formatReviewProgress(event: ReviewProgressEvent): string {
     case "timing":
       return event.message;
   }
+}
+
+function resolveReviewDepth(value: unknown, config: DiffOwlConfig): ReviewContextDepth {
+  if (value === undefined) {
+    return config.context.depth;
+  }
+
+  if (value === "shallow" || value === "default" || value === "deep") {
+    return value;
+  }
+
+  console.error(chalk.red(`Invalid review depth: ${String(value)}`));
+  console.error(chalk.dim("Expected one of: shallow, default, deep"));
+  process.exit(1);
 }
 
 function recordCliTiming(

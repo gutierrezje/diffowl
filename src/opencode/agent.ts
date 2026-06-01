@@ -65,18 +65,20 @@ export function buildReviewPrompt(
   include?: string[],
   exclude?: string[],
   localContext?: string,
-  quick = false,
+  depth: "shallow" | "default" | "deep" = "default",
 ): string {
   const modeInstruction =
     mode === "staged" ? "Review the currently staged changes." : "Review the last commit.";
+  const depthInstruction =
+    depth === "shallow"
+      ? " Shallow mode is enabled: do not call tools. Produce the best structured review you can from the provided context only."
+      : depth === "deep"
+        ? " Deep mode is enabled: use the provided static impact context first, then call tools for targeted verification when needed."
+        : " Only call tools for narrow follow-up questions when the provided context is insufficient.";
 
   let prompt = `${modeInstruction}
 
-DiffOwl has already collected the diff and likely-relevant local context below. Use this context first.${
-    quick
-      ? " Quick mode is enabled: do not call tools. Produce the best structured review you can from the provided context only."
-      : " Only call tools for narrow follow-up questions when the provided context is insufficient."
-  }
+DiffOwl has already collected the diff and likely-relevant local context below. Use this context first.${depthInstruction}
 
 Then provide your review following the format in your instructions.`;
 

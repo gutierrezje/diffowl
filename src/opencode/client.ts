@@ -1,7 +1,7 @@
 import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk";
 import { isServerRunning, ensureServer } from "./server.js";
 import { REVIEW_AGENT_PROMPT, buildReviewPrompt } from "./agent.js";
-import type { DiffOwlConfig } from "../config.js";
+import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
 
 export type ReviewSeverity = "error" | "warning" | "info";
 
@@ -27,7 +27,7 @@ export interface ReviewOptions {
   mode: "last-commit" | "staged";
   config: DiffOwlConfig;
   localContext?: string;
-  quick?: boolean;
+  depth: ReviewContextDepth;
   onProgress?: (event: ReviewProgressEvent) => void;
 }
 
@@ -50,7 +50,7 @@ export interface ReviewTiming {
  * Creates a session, sends the review prompt, and returns a structured report.
  */
 export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
-  const { mode, config, localContext, quick, onProgress } = options;
+  const { mode, config, localContext, depth, onProgress } = options;
   const port = config.server.port;
   const timings: ReviewTiming[] = [];
 
@@ -87,7 +87,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
     config.include,
     config.exclude,
     localContext,
-    quick,
+    depth,
   );
   recordTiming(timings, onProgress, "prompt-build", "Review prompt build", promptStart);
 
@@ -156,12 +156,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
     };
 
     // Safety timeout from config (default 5 minutes)
-    safetyTimeout = setTimeout(
-      () => {
-        settle("reject", new Error("Review timed out."));
-      },
-      config.timeout * 1000,
-    );
+    safetyTimeout = setTimeout(() => {
+      settle("reject", new Error("Review timed out."));
+    }, config.timeout * 1000);
 
     (async () => {
       try {

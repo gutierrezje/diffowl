@@ -8,7 +8,7 @@
 ```
 
 > **Local AI Code Review Agent**
-> 
+>
 > Build-time quality reviews, running locally, on your own terms.
 
 DiffOwl is a lightweight CLI that integrates into your Git workflow to provide high-quality code reviews locally. Instead of rebuilding LLM integrations or managing provider keys from scratch, DiffOwl orchestrates a headless [OpenCode Server](https://opencode.ai/docs/server/) session and delegates the repository analysis to the local agent, which uses its own advanced reasoning and file tools.
@@ -20,6 +20,7 @@ DiffOwl is a lightweight CLI that integrates into your Git workflow to provide h
 - **Powered by OpenCode**: Integrates seamlessly with OpenCode's local environment, supporting 75+ AI models, tool use, and codebase indexing.
 - **First-Class TypeScript Support**: Automatically extracts modified TypeScript AST nodes (functions, classes, interfaces) to feed rich, structured context to the AI reviewer. To keep installation lightweight, the compiler is dynamically loaded from your project workspace at runtime, saving ~50MB of base package bloat.
 - **Non-Blocking Git Hooks**: Runs asynchronously in the background. It will never slow down or block your `git commit` or `git push` operations.
+- **Review Depth Profiles**: Choose `shallow`, `default`, or `deep` context strategies to match fast hooks, normal reviews, or TypeScript impact analysis.
 - **Intelligent File Filtering**: Supports `include` and `exclude` glob patterns to focus reviews on source directories while skipping build artifacts, lockfiles, and node modules.
 - **Project-Specific Rules**: Inject custom guidelines directly into the reviewer's system prompt (e.g., "Check for SQL injection", "Ensure TypeScript types are explicit").
 - **Interactive Model Selector**: Automatically queries OpenCode to present a clean, interactive list of your connected providers and models.
@@ -92,7 +93,13 @@ Runs a code review on your repository.
 - **Default**: Reviews the changes in the **last commit**.
 - `--staged`: Reviews currently **staged changes** instead of the last commit.
 - `--hook`: Runs in background, non-blocking mode (used by Git hook).
-- `--quick`: Runs in quick review mode. This disables AI tool-calling, relying entirely on the pre-collected local diff context for a faster review.
+- `--depth <depth>`: Overrides configured review depth. Valid values: `shallow`, `default`, `deep`.
+
+Review depth controls how much local context DiffOwl preloads before handing the review to OpenCode:
+
+- `shallow`: Diff-centered, smaller prompt, no AI tool follow-up. Best for fast local loops.
+- `default`: Diff plus changed TypeScript AST symbols, small file excerpts, related tests, and reference hints.
+- `deep`: Default context plus TypeScript AST outlines and static impact graph hints for changed symbols.
 
 ```bash
 # Review last commit
@@ -100,6 +107,9 @@ diffowl
 
 # Review staged files
 diffowl review --staged
+
+# Run a deeper TypeScript impact review
+diffowl review --staged --depth deep
 ```
 
 ### `diffowl model`
@@ -126,7 +136,7 @@ diffowl hook install
 diffowl hook uninstall
 ```
 
-*Runs reviews asynchronously in the background via `nohup` (`--quick` mode enabled), saving execution output to `.diffowl/hook.log` and the latest report to `.diffowl/reviews/latest.md`. It returns control to your terminal instantly (ensuring `git commit` has zero delay) and avoids clobbering any existing post-commit hook scripts.*
+_Runs reviews asynchronously in the background, saving execution output to `.diffowl/hook.log` and the latest report to `.diffowl/reviews/latest.md`. Hook reviews use the configured `context.depth`, return control to your terminal instantly, and avoid clobbering any existing post-commit hook scripts._
 
 ### `diffowl server start | stop | status`
 
@@ -157,6 +167,10 @@ model: opencode-go/big-pickle
 server:
   port: 4096
   auto_start: true
+
+# Local review context strategy: shallow, default, or deep
+context:
+  depth: default
 
 # Minimum confidence level of findings to report: low, medium, or high
 min_confidence: medium

@@ -11,10 +11,11 @@ describe("buildReviewPrompt", () => {
     expect(prompt).toContain("Only call tools for narrow follow-up");
   });
 
-  it("disables tool follow-up in quick mode", () => {
-    const prompt = buildReviewPrompt("staged", [], undefined, undefined, "LOCAL CONTEXT", true);
+  it("asks for targeted verification in deep mode", () => {
+    const prompt = buildReviewPrompt("staged", [], undefined, undefined, "LOCAL CONTEXT", "deep");
 
-    expect(prompt).toContain("Quick mode is enabled");
-    expect(prompt).toContain("do not call tools");
+    expect(prompt).toContain("Deep mode is enabled");
+    expect(prompt).toContain("static impact context");
+    expect(prompt).toContain("targeted verification");
   });
 });

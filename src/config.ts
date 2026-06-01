@@ -4,12 +4,16 @@ import { join, dirname } from "node:path";
 import { parse, stringify } from "yaml";
 
 export type ReviewConfidence = "low" | "medium" | "high";
+export type ReviewContextDepth = "shallow" | "default" | "deep";
 
 export interface DiffOwlConfig {
   model: string;
   server: {
     port: number;
     auto_start: boolean;
+  };
+  context: {
+    depth: ReviewContextDepth;
   };
   timeout: number; // seconds
   min_confidence: ReviewConfidence;
@@ -23,6 +27,9 @@ const DEFAULT_CONFIG: DiffOwlConfig = {
   server: {
     port: 4096,
     auto_start: true,
+  },
+  context: {
+    depth: "default",
   },
   timeout: 300, // 5 minutes
   min_confidence: "medium",
@@ -55,6 +62,13 @@ function validateMinConfidence(value: unknown): ReviewConfidence {
   return DEFAULT_CONFIG.min_confidence;
 }
 
+function validateContextDepth(value: unknown): ReviewContextDepth {
+  if (value === "shallow" || value === "default" || value === "deep") {
+    return value;
+  }
+  return DEFAULT_CONFIG.context.depth;
+}
+
 function findConfigPath(): string {
   // Look in current directory first, then walk up
   let dir = process.cwd();
@@ -80,6 +94,11 @@ export async function loadConfig(): Promise<DiffOwlConfig> {
       ...DEFAULT_CONFIG,
       ...parsed,
       server: { ...DEFAULT_CONFIG.server, ...parsed.server },
+      context: {
+        ...DEFAULT_CONFIG.context,
+        ...parsed.context,
+        depth: validateContextDepth(parsed.context?.depth),
+      },
       timeout: validateTimeout(parsed.timeout),
       min_confidence: validateMinConfidence(parsed.min_confidence),
     };

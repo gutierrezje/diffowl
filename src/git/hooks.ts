@@ -30,9 +30,10 @@ export async function installHook(): Promise<string> {
   // Check if hook already exists and is not ours
   if (existsSync(hookPath)) {
     const existing = await readFile(hookPath, "utf-8");
-    const base = existing.includes(HOOK_MARKER) || existing.includes("# commitdog-managed")
-      ? removeManagedSection(existing)
-      : existing.trimEnd();
+    const base =
+      existing.includes(HOOK_MARKER) || existing.includes("# commitdog-managed")
+        ? removeManagedSection(existing)
+        : existing.trimEnd();
     const hookSection = generateManagedSection(command);
     const updated =
       base && !isOnlyShebangs(base) ? `${base}\n\n${hookSection}` : generateHookScript(command);
@@ -146,7 +147,7 @@ export async function runHookReview(): Promise<void> {
 
     const subprocess = execa(
       process.execPath,
-      [fileURLToPath(import.meta.url), "review", "--hook", "--quick"],
+      [fileURLToPath(import.meta.url), "review", "--hook"],
       {
         detached: true,
         cleanup: false,
@@ -171,8 +172,8 @@ export async function runHookReview(): Promise<void> {
 
 /**
  * Check if the installed hook matches what the current generator would produce.
- * Returns stale=true if the managed section differs (e.g., missing --quick flag,
- * outdated binary path, or changed script logic).
+ * Returns stale=true if the managed section differs (e.g., outdated binary path
+ * or changed script logic).
  */
 export async function checkHookStale(): Promise<HookStatus> {
   let hooksDir: string;
@@ -216,7 +217,11 @@ export async function checkHookStale(): Promise<HookStatus> {
   }
 
   if (actual.trim() !== expected.trim()) {
-    return { installed: true, stale: true, reason: "Managed section differs from current generator" };
+    return {
+      installed: true,
+      stale: true,
+      reason: "Managed section differs from current generator",
+    };
   }
 
   return { installed: true, stale: false };
@@ -264,13 +269,16 @@ function uniqueDirs(paths: string[]): string[] {
   return [...dirs];
 }
 
-
 async function resolveCommand(command: string): Promise<string> {
   const isWin = process.platform === "win32";
   try {
     if (isWin) {
       const { stdout } = await execa("where", [command]);
-      const lines = stdout.trim().split("\r\n").map(l => l.trim()).filter(Boolean);
+      const lines = stdout
+        .trim()
+        .split("\r\n")
+        .map((l) => l.trim())
+        .filter(Boolean);
       return lines[0] || command;
     } else {
       const { stdout } = await execa("which", [command]);
@@ -335,9 +343,13 @@ fi`;
 DIFFOWL_LOG_DIR=".diffowl"
 DIFFOWL_LOG_FILE="$DIFFOWL_LOG_DIR/hook.log"
 mkdir -p "$DIFFOWL_LOG_DIR"
-${pathPrefix ? `PATH=${shellQuote(pathPrefix)}":$PATH"
+${
+  pathPrefix
+    ? `PATH=${shellQuote(pathPrefix)}":$PATH"
 export PATH
-` : ""}
+`
+    : ""
+}
 
 ${runBlock}
 ${HOOK_END_MARKER}
