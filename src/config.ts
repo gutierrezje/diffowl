@@ -21,6 +21,7 @@ export interface DiffOwlConfig {
   include: string[];
   exclude: string[];
   rules: string[];
+  skip_doc_only: boolean;
 }
 
 const DEFAULT_CONFIG: DiffOwlConfig = {
@@ -45,6 +46,7 @@ const DEFAULT_CONFIG: DiffOwlConfig = {
     "**/.git/**",
   ],
   rules: [],
+  skip_doc_only: false,
 };
 
 const CONFIG_FILENAME = ".diffowl.yml";
@@ -80,6 +82,7 @@ export const DiffOwlConfigSchema = z
     include: stringArraySchema.default(DEFAULT_CONFIG.include),
     exclude: stringArraySchema.default(DEFAULT_CONFIG.exclude),
     rules: stringArraySchema.default(DEFAULT_CONFIG.rules),
+    skip_doc_only: z.boolean().default(DEFAULT_CONFIG.skip_doc_only),
   })
   .strict();
 

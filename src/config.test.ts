@@ -62,6 +62,21 @@ describe("config", () => {
     expect(config.server.port).toBe(4096);
     expect(config.min_confidence).toBe("medium");
     expect(config.context.depth).toBe("default");
+    expect(config.skip_doc_only).toBe(false);
+  });
+
+  it("loads skip_doc_only when set", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
+    tempDirs.push(root);
+    await writeFile(
+      join(root, ".diffowl.yml"),
+      ["model: provider/model", "skip_doc_only: true"].join("\n"),
+      "utf-8",
+    );
+    process.chdir(root);
+
+    const config = await loadConfig();
+    expect(config.skip_doc_only).toBe(true);
   });
 
   it("loads valid context depth", async () => {

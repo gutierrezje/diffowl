@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseDiff } from "./diff.js";
+import { parseDiff, isDocFile, isDocOnlyDiff } from "./diff.js";
 
 describe("parseDiff", () => {
   it("parses standard unquoted paths and counts additions and deletions", () => {
@@ -203,5 +203,61 @@ describe("parseDiff", () => {
     const file = result.files[0]!;
     expect(file.path).toBe("src/cli.ts");
     expect(file.status).toBe("modified");
+  });
+});
+
+describe("isDocFile", () => {
+  it("returns true for markdown files", () => {
+    expect(isDocFile("README.md")).toBe(true);
+    expect(isDocFile("docs/guide.md")).toBe(true);
+  });
+
+  it("returns true for text files", () => {
+    expect(isDocFile("LICENSE.txt")).toBe(true);
+    expect(isDocFile("notes.txt")).toBe(true);
+  });
+
+  it("returns true for well-known doc filenames", () => {
+    expect(isDocFile("LICENSE")).toBe(true);
+    expect(isDocFile("CHANGELOG")).toBe(true);
+    expect(isDocFile("CONTRIBUTING.md")).toBe(true);
+    expect(isDocFile("CODE_OF_CONDUCT")).toBe(true);
+  });
+
+  it("returns false for source files", () => {
+    expect(isDocFile("src/index.ts")).toBe(false);
+    expect(isDocFile("main.js")).toBe(false);
+    expect(isDocFile("package.json")).toBe(false);
+  });
+});
+
+describe("isDocOnlyDiff", () => {
+  it("returns true when all files are docs", () => {
+    const diff = {
+      files: [
+        { path: "README.md", status: "modified" as const, additions: 2, deletions: 1 },
+        { path: "LICENSE", status: "added" as const, additions: 1, deletions: 0 },
+      ],
+      raw: "",
+      summary: "",
+    };
+    expect(isDocOnlyDiff(diff)).toBe(true);
+  });
+
+  it("returns false when any file is not a doc", () => {
+    const diff = {
+      files: [
+        { path: "README.md", status: "modified" as const, additions: 2, deletions: 1 },
+        { path: "src/index.ts", status: "modified" as const, additions: 5, deletions: 3 },
+      ],
+      raw: "",
+      summary: "",
+    };
+    expect(isDocOnlyDiff(diff)).toBe(false);
+  });
+
+  it("returns false for an empty diff", () => {
+    const diff = { files: [], raw: "", summary: "" };
+    expect(isDocOnlyDiff(diff)).toBe(false);
   });
 });

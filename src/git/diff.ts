@@ -1,4 +1,5 @@
 import { execa } from "execa";
+import { basename } from "node:path";
 
 export interface DiffResult {
   files: DiffFile[];
@@ -272,4 +273,32 @@ function statusSymbol(status: DiffFile["status"]): string {
     default:
       return "~";
   }
+}
+
+const DOC_FILE_PATTERNS = [
+  /\.md$/i,
+  /\.txt$/i,
+  /\.rst$/i,
+  /\.adoc$/i,
+  /^LICENSE/i,
+  /^CHANGELOG/i,
+  /^CONTRIBUTING/i,
+  /^README/i,
+  /^CODE_OF_CONDUCT/i,
+  /^AUTHORS/i,
+  /^COPYING/i,
+  /^PATENTS/i,
+  /^SECURITY/i,
+  /^PRIVACY/i,
+  /^FAQ/i,
+  /^TODO/i,
+];
+
+export function isDocFile(path: string): boolean {
+  const base = basename(path);
+  return DOC_FILE_PATTERNS.some((pattern) => pattern.test(base));
+}
+
+export function isDocOnlyDiff(diff: DiffResult): boolean {
+  return diff.files.length > 0 && diff.files.every((file) => isDocFile(file.path));
 }

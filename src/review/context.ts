@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import { execa } from "execa";
 import picomatch from "picomatch";
 import type tsType from "typescript";
-import { getLastCommitDiff, getStagedDiff, parseGitDiffLine, type DiffFile } from "../git/diff.js";
+import { getLastCommitDiff, getStagedDiff, parseGitDiffLine, type DiffFile, type DiffResult } from "../git/diff.js";
 import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
 import { buildReferenceContexts } from "./context-references.js";
 import type {
@@ -72,11 +72,12 @@ export async function buildReviewContext(
   mode: "last-commit" | "staged",
   config: DiffOwlConfig,
   depth: ReviewContextDepth = config.context.depth,
+  diff?: DiffResult,
 ): Promise<ReviewContext> {
-  const diff = mode === "staged" ? await getStagedDiff() : await getLastCommitDiff();
-  const reviewableFiles = diff.files.filter((file) => shouldReviewFile(file.path, config));
-  const skippedFiles = diff.files.filter((file) => !shouldReviewFile(file.path, config));
-  const changedLines = getChangedLinesByFile(diff.raw);
+  const diffResult = diff ?? (mode === "staged" ? await getStagedDiff() : await getLastCommitDiff());
+  const reviewableFiles = diffResult.files.filter((file) => shouldReviewFile(file.path, config));
+  const skippedFiles = diffResult.files.filter((file) => !shouldReviewFile(file.path, config));
+  const changedLines = getChangedLinesByFile(diffResult.raw);
   const changedFiles = await Promise.all(
     reviewableFiles.map((file) => buildChangedFileContext(file, changedLines.get(file.path) ?? [])),
   );
@@ -94,7 +95,7 @@ export async function buildReviewContext(
   return {
     mode,
     depth,
-    diff,
+    diff: diffResult,
     changedFiles,
     skippedFiles,
     relatedFiles,

@@ -29,6 +29,7 @@ const config: DiffOwlConfig = {
   include: ["**/*"],
   exclude: [],
   rules: [],
+  skip_doc_only: false,
 };
 
 describe("buildReviewContext", () => {

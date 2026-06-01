@@ -31,7 +31,7 @@ import {
   checkRecentHookFailure,
   runHookReview,
 } from "./git/hooks.js";
-import { isGitRepo, hasCommits } from "./git/diff.js";
+import { isGitRepo, hasCommits, getLastCommitDiff, getStagedDiff, isDocOnlyDiff } from "./git/diff.js";
 import { buildReviewContext, renderReviewContext } from "./review/context.js";
 import {
   printHeader,
@@ -116,6 +116,18 @@ program
       console.log();
     }
 
+    const diff = mode === "staged" ? await getStagedDiff() : await getLastCommitDiff();
+    if (config.skip_doc_only && isDocOnlyDiff(diff)) {
+      console.warn(chalk.yellow("Documentation-only changes detected. Skipping review."));
+      const skipContent = buildDocOnlySkipMarkdown(diff);
+      const reportPath = await writeMarkdownReport(skipContent);
+      console.log(chalk.dim(`Report saved: ${reportPath}`));
+      if (options.hook) {
+        await writeHookStatus(0);
+      }
+      process.exit(0);
+    }
+
     const spinner = ora({
       text: "Building local review context...",
       color: "cyan",
@@ -123,7 +135,7 @@ program
 
     try {
       const contextStart = performance.now();
-      const reviewContext = await buildReviewContext(mode, config, depth);
+      const reviewContext = await buildReviewContext(mode, config, depth, diff);
       recordCliTiming(timings, "context-build", "Local review context build", contextStart);
 
       if (mode === "staged" && reviewContext.diff.files.length === 0) {
@@ -539,4 +551,16 @@ function filterFindingsByChangedFiles(
     // Drop it unconditionally, since confidence is not a guarantee of correctness.
     return changedFiles.has(f.file);
   });
+}
+
+function buildDocOnlySkipMarkdown(diff: { files: { path: string; additions: number; deletions: number }[] }): string {
+  const lines: string[] = [];
+  lines.push("### Summary");
+  lines.push("Documentation-only changes detected. No code review performed.");
+  lines.push("");
+  lines.push("### Changed Files");
+  for (const file of diff.files) {
+    lines.push(`- ${file.path} (+${file.additions}/-${file.deletions})`);
+  }
+  return lines.join("\n");
 }
