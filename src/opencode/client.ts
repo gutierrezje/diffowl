@@ -454,21 +454,63 @@ export function permissionResponseForDepth(
 }
 
 function looksReadOnlyShellCommand(text: string): boolean {
-  return /\b(git\s+(diff|grep|log|show|status|ls-files)|rg|grep|sed\s+-n|cat|ls|find|pwd|wc|head|tail|nl)\b/.test(
-    text,
+  const command = extractShellCommand(text);
+  return Boolean(
+    command &&
+    /^(git\s+(diff|grep|log|show|status|ls-files)|rg|grep|sed\s+-n|cat|ls|find|pwd|wc|head|tail|nl)(\s|$)/.test(
+      command,
+    ),
   );
 }
 
 function looksVerificationShellCommand(text: string): boolean {
-  return /\b((pnpm|npm|yarn|bun)\s+(run\s+)?(test|typecheck|lint|vitest)|vitest|tsc\s+--noemit|oxlint|oxfmt\s+--check)\b/.test(
-    text,
+  const command = extractShellCommand(text);
+  if (!command || hasMutatingVerificationFlag(command)) {
+    return false;
+  }
+
+  return (
+    /^(vitest|tsc\s+--noemit|oxlint|oxfmt\s+--check)(\s|$)/.test(command) ||
+    /^(pnpm|npm|yarn|bun)\s+(run\s+)?(test|typecheck|lint|vitest)(\s|$)/.test(command)
   );
 }
 
 function looksMutatingShellCommand(text: string): boolean {
-  return /\b(rm|mv|cp|chmod|chown|mkdir|touch|tee|git\s+(add|commit|checkout|reset|clean|push|pull|merge|rebase)|npm\s+install|pnpm\s+(install|add)|yarn\s+(install|add)|bun\s+(install|add)|apply_patch|sed\s+-i|perl\s+-pi|oxfmt\s+--write)\b|[<>]/.test(
-    text,
+  const command = extractShellCommand(text);
+  return Boolean(
+    command &&
+    (/\b(rm|mv|cp|chmod|chown|mkdir|touch|tee|git\s+(add|commit|checkout|reset|clean|push|pull|merge|rebase)|npm\s+install|pnpm\s+(install|add)|yarn\s+(install|add)|bun\s+(install|add)|apply_patch|sed\s+-i|perl\s+-pi|oxfmt\s+--write)\b/.test(
+      command,
+    ) ||
+      hasUnquotedRedirection(command)),
   );
+}
+
+function extractShellCommand(text: string): string {
+  return text
+    .replace(/^(bash|shell)\s*/i, "")
+    .trim()
+    .toLowerCase();
+}
+
+function hasMutatingVerificationFlag(command: string): boolean {
+  return /(^|\s)(--fix|--write|--update|-u)(\s|$)|\b(test|typecheck|lint|vitest):\w+/.test(command);
+}
+
+function hasUnquotedRedirection(command: string): boolean {
+  let quote: "'" | '"' | undefined;
+  for (let index = 0; index < command.length; index++) {
+    const char = command[index];
+    if ((char === "'" || char === '"') && command[index - 1] !== "\\") {
+      quote = quote === char ? undefined : (quote ?? char);
+      continue;
+    }
+
+    if (!quote && (char === "<" || char === ">")) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function extractPermissionRequest(payload: any, sessionId: string): PermissionRequest | undefined {
