@@ -95,11 +95,11 @@ Runs a code review on your repository.
 - `--hook`: Runs in background, non-blocking mode (used by Git hook).
 - `--depth <depth>`: Overrides configured review depth. Valid values: `shallow`, `default`, `deep`.
 
-Review depth controls how much local context DiffOwl preloads before handing the review to OpenCode:
+Review depth controls both how much local context DiffOwl preloads and how much exploration the reviewer is expected to do:
 
-- `shallow`: Diff-centered, smaller prompt, no AI tool follow-up. Best for fast local loops.
-- `default`: Diff plus changed TypeScript AST symbols, small file excerpts, related tests, and reference hints.
-- `deep`: Default context plus TypeScript AST outlines and static impact graph hints for changed symbols.
+- `shallow`: Cheap, surface-level review. Uses a smaller diff-centered prompt with no AI tool follow-up. It is expected to miss deeper issues, but can catch obvious local bugs such as off-by-one errors, inverted conditions, unsafe null handling, missing awaits, and implementation anti-patterns visible in the diff.
+- `default`: Normal review. Includes changed TypeScript AST symbols, small file excerpts, related tests, and reference hints. Tool use is encouraged for targeted exploration when context is incomplete, especially before claiming fields, branches, validation, or wiring are missing or ignored.
+- `deep`: High-effort TypeScript impact review. Adds AST outlines and static impact graph hints for changed symbols. Tool exploration is mandatory before final findings, with emphasis on callers, callees, related tests, config, and cross-module behavior that may be affected further down the call graph.
 
 ```bash
 # Review last commit

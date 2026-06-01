@@ -69,6 +69,18 @@ function validateContextDepth(value: unknown): ReviewContextDepth {
   return DEFAULT_CONFIG.context.depth;
 }
 
+function validateContext(value: unknown): DiffOwlConfig["context"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return DEFAULT_CONFIG.context;
+  }
+
+  return {
+    ...DEFAULT_CONFIG.context,
+    ...(value as Partial<DiffOwlConfig["context"]>),
+    depth: validateContextDepth((value as Partial<DiffOwlConfig["context"]>).depth),
+  };
+}
+
 function findConfigPath(): string {
   // Look in current directory first, then walk up
   let dir = process.cwd();
@@ -94,11 +106,7 @@ export async function loadConfig(): Promise<DiffOwlConfig> {
       ...DEFAULT_CONFIG,
       ...parsed,
       server: { ...DEFAULT_CONFIG.server, ...parsed.server },
-      context: {
-        ...DEFAULT_CONFIG.context,
-        ...parsed.context,
-        depth: validateContextDepth(parsed.context?.depth),
-      },
+      context: validateContext(parsed.context),
       timeout: validateTimeout(parsed.timeout),
       min_confidence: validateMinConfidence(parsed.min_confidence),
     };

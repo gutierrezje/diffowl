@@ -2,6 +2,8 @@ model: opencode-go/kimi-k2.6
 server:
   port: 4096
   auto_start: true
+context:
+  depth: default
 timeout: 300
 min_confidence: medium
 include:

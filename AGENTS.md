@@ -34,6 +34,7 @@ Local AI code review CLI. Orchestrates headless OpenCode server, delegates repo 
 - CLI errors: `chalk.red` + `process.exit(1)`. Hook mode exits 0 even on failure.
 - Report timestamps use `ISOString().replace(/[:.]/g, "-")`.
 - Static verification: Always run `pnpm run lint` (which executes both oxlint and `tsc --noEmit`) before committing. Unit tests are heavily mocked and will miss simple ReferenceErrors.
+- /tdd skill always for any moderate to large change
 
 ## Anti-Patterns / Gotchas
 

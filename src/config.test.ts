@@ -87,6 +87,22 @@ describe("config", () => {
     expect((await loadConfig()).context.depth).toBe("default");
   });
 
+  it("defaults scalar context config without spreading malformed properties", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
+    tempDirs.push(root);
+    await writeFile(
+      join(root, ".diffowl.yml"),
+      "model: provider/model\ncontext: default\n",
+      "utf-8",
+    );
+    process.chdir(root);
+
+    const config = await loadConfig();
+
+    expect(config.context).toEqual({ depth: "default" });
+    expect(Object.keys(config.context)).toEqual(["depth"]);
+  });
+
   it("reports malformed yaml instead of silently using defaults", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
     tempDirs.push(root);

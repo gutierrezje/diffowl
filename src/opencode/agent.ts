@@ -69,16 +69,12 @@ export function buildReviewPrompt(
 ): string {
   const modeInstruction =
     mode === "staged" ? "Review the currently staged changes." : "Review the last commit.";
-  const depthInstruction =
-    depth === "shallow"
-      ? " Shallow mode is enabled: do not call tools. Produce the best structured review you can from the provided context only."
-      : depth === "deep"
-        ? " Deep mode is enabled: use the provided static impact context first, then call tools for targeted verification when needed."
-        : " Only call tools for narrow follow-up questions when the provided context is insufficient.";
 
   let prompt = `${modeInstruction}
 
-DiffOwl has already collected the diff and likely-relevant local context below. Use this context first.${depthInstruction}
+DiffOwl has already collected the diff and likely-relevant local context below. Use this context first.
+
+${reviewDepthInstruction(depth)}
 
 Then provide your review following the format in your instructions.`;
 
@@ -99,4 +95,31 @@ Then provide your review following the format in your instructions.`;
   }
 
   return prompt;
+}
+
+function reviewDepthInstruction(depth: "shallow" | "default" | "deep"): string {
+  switch (depth) {
+    case "shallow":
+      return [
+        "Review depth: shallow.",
+        "Do not call tools. This is a cheap, surface-level review from the provided context only.",
+        "Look for obvious local bugs such as off-by-one errors, inverted conditions, unsafe null handling, missing awaits, and implementation anti-patterns visible in the diff.",
+        "Do not claim a field, branch, call path, or validation is missing or ignored unless the provided context directly proves it. If relevant snippets are truncated, either skip the finding or mark it low confidence.",
+      ].join("\n");
+    case "deep":
+      return [
+        "Review depth: deep.",
+        "Use the provided static impact context first, then call tools before finalizing findings.",
+        "Trace changed symbols through callers, callees, related tests, config, and any code paths that could be affected by the decision.",
+        "Deep findings should be about behavior that may only become clear down the call graph, across module boundaries, or through interaction with existing contracts.",
+        "For any finding that says something is missing, ignored, unreachable, or not handled, verify it by inspecting the relevant implementation with tools.",
+      ].join("\n");
+    case "default":
+      return [
+        "Review depth: default.",
+        "Use tools for targeted exploration when the provided context is not enough.",
+        "This mode should catch more than surface-level diff bugs, including ignored fields, missed wiring, incorrect assumptions about adjacent code, and behavior mismatches around changed symbols.",
+        "Before reporting that a field, branch, validation, call, or config value is missing or ignored, inspect the relevant nearby definitions or call sites with tools when they are not fully present in the context.",
+      ].join("\n");
+  }
 }
