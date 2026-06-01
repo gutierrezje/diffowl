@@ -47,6 +47,7 @@ export interface ReviewTiming {
 
 type ToolPolicy = Record<string, boolean>;
 type PermissionResponse = "once" | "always" | "reject";
+type OpencodeDirectoryOptions = { query: { directory: string } };
 
 const FALLBACK_TOOL_IDS = [
   "apply_patch",
@@ -81,6 +82,7 @@ interface PermissionRequest {
 export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
   const { mode, config, localContext, depth, onProgress } = options;
   const port = config.server.port;
+  const directoryOptions = opencodeDirectoryOptions();
   const timings: ReviewTiming[] = [];
 
   let client;
@@ -102,6 +104,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
   // Create a new session for this review
   const sessionStart = performance.now();
   const session = await client.session.create({
+    ...directoryOptions,
     body: {},
   });
   const sessionId = (session.data as any).id;
@@ -137,180 +140,183 @@ export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
     signal: eventsController.signal,
   });
   recordTiming(timings, onProgress, "event-stream", "OpenCode event stream connection", eventStart);
-  const responsePromise = new Promise<string>((resolve, reject) => {
-    let settled = false;
-    let safetyTimeout: ReturnType<typeof setTimeout>;
-    const assistantMessageIds = new Set<string>();
-    const textPartsByMessageId = new Map<string, string>();
+  const responsePromise = handledAwaitable(
+    new Promise<string>((resolve, reject) => {
+      let settled = false;
+      let safetyTimeout: ReturnType<typeof setTimeout>;
+      const assistantMessageIds = new Set<string>();
+      const textPartsByMessageId = new Map<string, string>();
 
-    const settle = (outcome: "resolve" | "reject", value: string | Error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(safetyTimeout);
-      eventsController.abort();
+      const settle = (outcome: "resolve" | "reject", value: string | Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(safetyTimeout);
+        eventsController.abort();
 
-      if (outcome === "resolve") {
-        resolve(value as string);
-      } else {
-        reject(value);
-      }
-    };
-
-    let lastCheckedLength = 0;
-
-    const acceptAssistantText = (text: string) => {
-      // We intentionally do NOT stream partial chunks to stdout.
-      // Instead we accumulate the full response and then parse the JSON payload.
-      if (text.length > fullResponse.length) {
-        fullResponse = text;
-        onProgress?.({
-          type: "output",
-          message: `Review response received (${fullResponse.length} chars).`,
-          characters: fullResponse.length,
-        });
-      }
-
-      // Throttle/debounce: Only call looksLikeCompleteStructuredReview if:
-      // - The fullResponse length has increased by more than 500 characters since the last check, OR
-      // - The last character of the trimmed text is '}'.
-      const trimmed = fullResponse.trim();
-      const endsWithBrace = trimmed.endsWith("}");
-      const lengthDelta = fullResponse.length - lastCheckedLength;
-
-      if (lengthDelta > 500 || endsWithBrace) {
-        lastCheckedLength = fullResponse.length;
-        if (looksLikeCompleteStructuredReview(fullResponse)) {
-          settle("resolve", fullResponse);
-          return true;
+        if (outcome === "resolve") {
+          resolve(value as string);
+        } else {
+          reject(value);
         }
-      }
+      };
 
-      return false;
-    };
+      let lastCheckedLength = 0;
 
-    // Safety timeout from config (default 5 minutes)
-    safetyTimeout = setTimeout(() => {
-      settle("reject", new Error("Review timed out."));
-    }, config.timeout * 1000);
+      const acceptAssistantText = (text: string) => {
+        // We intentionally do NOT stream partial chunks to stdout.
+        // Instead we accumulate the full response and then parse the JSON payload.
+        if (text.length > fullResponse.length) {
+          fullResponse = text;
+          onProgress?.({
+            type: "output",
+            message: `Review response received (${fullResponse.length} chars).`,
+            characters: fullResponse.length,
+          });
+        }
 
-    (async () => {
-      try {
-        for await (const event of sseResult.stream) {
-          if (settled) break;
+        // Throttle/debounce: Only call looksLikeCompleteStructuredReview if:
+        // - The fullResponse length has increased by more than 500 characters since the last check, OR
+        // - The last character of the trimmed text is '}'.
+        const trimmed = fullResponse.trim();
+        const endsWithBrace = trimmed.endsWith("}");
+        const lengthDelta = fullResponse.length - lastCheckedLength;
 
-          const payload = (event as any).payload;
-          if (!payload) continue;
-
-          const permission = extractPermissionRequest(payload, sessionId);
-          if (permission) {
-            void replyToPermissionRequest(client, permission, depth, onProgress).catch((err) => {
-              onProgress?.({
-                type: "session",
-                message: `OpenCode permission reply failed: ${
-                  err instanceof Error ? err.message : String(err)
-                }`,
-                sessionId,
-              });
-            });
-            continue;
-          }
-
-          // Look for message part updates from our session
-          if (
-            payload.type === "message.part.updated" &&
-            payload.properties?.part?.sessionID === sessionId
-          ) {
-            const part = payload.properties.part;
-
-            if (part.type === "tool") {
-              const state = part.state?.status ?? "unknown";
-              const title =
-                part.state && "title" in part.state && typeof part.state.title === "string"
-                  ? part.state.title
-                  : part.tool;
-              onProgress?.({
-                type: "tool",
-                message: `${title} (${state})`,
-                tool: part.tool,
-                status: state,
-              });
-            }
-
-            if (part.type === "text" && part.text && typeof part.text === "string") {
-              textPartsByMessageId.set(part.messageID, part.text);
-              if (assistantMessageIds.has(part.messageID) && acceptAssistantText(part.text)) {
-                break;
-              }
-            }
-          }
-
-          // Also check for message error
-          if (
-            payload.type === "message.updated" &&
-            payload.properties?.info?.sessionID === sessionId
-          ) {
-            const msg = payload.properties?.info;
-            if (msg?.role === "assistant") {
-              assistantMessageIds.add(msg.id);
-
-              const text = textPartsByMessageId.get(msg.id);
-              if (text && acceptAssistantText(text)) {
-                break;
-              }
-
-              if (msg.error) {
-                settle("reject", new Error(msg.error.data?.message || "Review failed"));
-                break;
-              }
-            }
-          }
-
-          if (payload.type === "session.status" && payload.properties?.sessionID === sessionId) {
-            const status = payload.properties.status;
-            const message =
-              status.type === "retry"
-                ? `OpenCode retrying: ${status.message}`
-                : `OpenCode session ${status.type}.`;
-            onProgress?.({ type: "session", message, sessionId });
-          }
-
-          // Check for session going completely idle
-          if (
-            payload.type === "session.idle" &&
-            payload.properties?.sessionID === sessionId &&
-            fullResponse.length > 0
-          ) {
-            onProgress?.({ type: "idle", message: "OpenCode session is idle." });
+        if (lengthDelta > 500 || endsWithBrace) {
+          lastCheckedLength = fullResponse.length;
+          if (looksLikeCompleteStructuredReview(fullResponse)) {
             settle("resolve", fullResponse);
-            break;
+            return true;
           }
         }
 
-        // If the stream ends without throwing and without emitting `session.idle`,
-        // we must still settle. Otherwise the caller can hang indefinitely.
-        if (!settled) {
-          if (fullResponse.length > 0) {
-            settle("resolve", fullResponse);
-          } else {
-            settle(
-              "reject",
-              new Error("OpenCode event stream ended before any review text was received."),
-            );
+        return false;
+      };
+
+      // Safety timeout from config (default 5 minutes)
+      safetyTimeout = setTimeout(() => {
+        settle("reject", new Error("Review timed out."));
+      }, config.timeout * 1000);
+
+      (async () => {
+        try {
+          for await (const event of sseResult.stream) {
+            if (settled) break;
+
+            const payload = (event as any).payload;
+            if (!payload) continue;
+
+            const permission = extractPermissionRequest(payload, sessionId);
+            if (permission) {
+              void replyToPermissionRequest(client, permission, depth, onProgress).catch((err) => {
+                onProgress?.({
+                  type: "session",
+                  message: `OpenCode permission reply failed: ${
+                    err instanceof Error ? err.message : String(err)
+                  }`,
+                  sessionId,
+                });
+              });
+              continue;
+            }
+
+            // Look for message part updates from our session
+            if (
+              payload.type === "message.part.updated" &&
+              payload.properties?.part?.sessionID === sessionId
+            ) {
+              const part = payload.properties.part;
+
+              if (part.type === "tool") {
+                const state = part.state?.status ?? "unknown";
+                const title =
+                  part.state && "title" in part.state && typeof part.state.title === "string"
+                    ? part.state.title
+                    : part.tool;
+                onProgress?.({
+                  type: "tool",
+                  message: `${title} (${state})`,
+                  tool: part.tool,
+                  status: state,
+                });
+              }
+
+              if (part.type === "text" && part.text && typeof part.text === "string") {
+                textPartsByMessageId.set(part.messageID, part.text);
+                if (assistantMessageIds.has(part.messageID) && acceptAssistantText(part.text)) {
+                  break;
+                }
+              }
+            }
+
+            // Also check for message error
+            if (
+              payload.type === "message.updated" &&
+              payload.properties?.info?.sessionID === sessionId
+            ) {
+              const msg = payload.properties?.info;
+              if (msg?.role === "assistant") {
+                assistantMessageIds.add(msg.id);
+
+                const text = textPartsByMessageId.get(msg.id);
+                if (text && acceptAssistantText(text)) {
+                  break;
+                }
+
+                if (msg.error) {
+                  settle("reject", new Error(msg.error.data?.message || "Review failed"));
+                  break;
+                }
+              }
+            }
+
+            if (payload.type === "session.status" && payload.properties?.sessionID === sessionId) {
+              const status = payload.properties.status;
+              const message =
+                status.type === "retry"
+                  ? `OpenCode retrying: ${status.message}`
+                  : `OpenCode session ${status.type}.`;
+              onProgress?.({ type: "session", message, sessionId });
+            }
+
+            // Check for session going completely idle
+            if (
+              payload.type === "session.idle" &&
+              payload.properties?.sessionID === sessionId &&
+              fullResponse.length > 0
+            ) {
+              onProgress?.({ type: "idle", message: "OpenCode session is idle." });
+              settle("resolve", fullResponse);
+              break;
+            }
+          }
+
+          // If the stream ends without throwing and without emitting `session.idle`,
+          // we must still settle. Otherwise the caller can hang indefinitely.
+          if (!settled) {
+            if (fullResponse.length > 0) {
+              settle("resolve", fullResponse);
+            } else {
+              settle(
+                "reject",
+                new Error("OpenCode event stream ended before any review text was received."),
+              );
+            }
+          }
+        } catch (streamErr) {
+          if (!settled && !eventsController.signal.aborted) {
+            settle("reject", streamErr instanceof Error ? streamErr : new Error(String(streamErr)));
           }
         }
-      } catch (streamErr) {
-        if (!settled && !eventsController.signal.aborted) {
-          settle("reject", streamErr instanceof Error ? streamErr : new Error(String(streamErr)));
-        }
-      }
-    })();
-  });
+      })();
+    }),
+  );
 
   // Send the review prompt
   onProgress?.({ type: "session", message: "Sending review prompt.", sessionId });
   const promptSendStart = performance.now();
   await client.session.prompt({
     path: { id: sessionId },
+    ...directoryOptions,
     body: {
       system: REVIEW_AGENT_PROMPT,
       model: { providerID, modelID },
@@ -329,6 +335,18 @@ export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
   recordTiming(timings, onProgress, "parse-review", "Review JSON parsing", parseStart);
 
   return { ...report, timings };
+}
+
+export function opencodeDirectoryOptions(): OpencodeDirectoryOptions {
+  return { query: { directory: process.cwd() } };
+}
+
+export function handledAwaitable<T>(promise: Promise<T>): Promise<T> {
+  promise.catch(() => {
+    // The caller still awaits the original promise. This only prevents Node from
+    // terminating if it rejects before the later await is attached.
+  });
+  return promise;
 }
 
 export async function buildToolPolicy(

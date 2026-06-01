@@ -143,6 +143,8 @@ describe("buildReviewContext", () => {
       expect(rendered).toContain("src/consumer.ts");
       expect(context.diagnostics[0]).toContain("Reference search with ripgrep failed");
       expect(context.diagnostics[0]).toContain("Continuing with available reference results");
+      expect(context.diagnostics[0]).not.toContain("--line-number");
+      expect(context.diagnostics[0]).not.toContain("-e calculateTotal");
       expect(rendered).toContain("Context diagnostics");
     } finally {
       process.env["PATH"] = originalPath;

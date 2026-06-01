@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildToolPolicy,
+  handledAwaitable,
+  opencodeDirectoryOptions,
   permissionResponseForDepth,
   parseStructuredReview,
   looksLikeCompleteStructuredReview,
@@ -96,6 +98,22 @@ describe("buildToolPolicy", () => {
     expect(policy["edit"]).toBe(false);
     expect(policy["write"]).toBe(false);
     expect(policy["apply_patch"]).toBe(false);
+  });
+});
+
+describe("opencodeDirectoryOptions", () => {
+  it("pins OpenCode operations to the current working directory", () => {
+    expect(opencodeDirectoryOptions()).toEqual({
+      query: { directory: process.cwd() },
+    });
+  });
+});
+
+describe("handledAwaitable", () => {
+  it("preserves rejection for the eventual await", async () => {
+    const promise = handledAwaitable(Promise.reject(new Error("boom")));
+
+    await expect(promise).rejects.toThrow("boom");
   });
 });
 

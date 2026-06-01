@@ -203,6 +203,7 @@ program
       }
       if (options.hook) {
         await writeHookStatus(1);
+        process.exit(0);
       }
       process.exit(1);
     }

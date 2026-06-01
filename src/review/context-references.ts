@@ -109,6 +109,18 @@ async function findBatchReferencesWithOutcome(
 }
 
 function formatReferenceSearchError(err: unknown): string {
+  if (err && typeof err === "object") {
+    const timedOut = "timedOut" in err && err.timedOut === true;
+    const duration = "durationMs" in err && typeof err.durationMs === "number" ? err.durationMs : 0;
+    if (timedOut) {
+      return duration > 0 ? `timed out after ${duration}ms` : "timed out";
+    }
+
+    if ("exitCode" in err && typeof err.exitCode === "number") {
+      return `exited with code ${err.exitCode}`;
+    }
+  }
+
   if (err instanceof Error) return err.message;
   return String(err);
 }
