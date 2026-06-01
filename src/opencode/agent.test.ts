@@ -24,7 +24,6 @@ describe("buildReviewPrompt", () => {
     );
 
     expect(prompt).toContain("Review depth: shallow");
-    expect(prompt).toContain("Do not call tools");
     expect(prompt).toContain("surface-level review");
     expect(prompt).toContain("If relevant snippets are truncated");
   });
@@ -34,7 +33,7 @@ describe("buildReviewPrompt", () => {
 
     expect(prompt).toContain("Review depth: deep");
     expect(prompt).toContain("static impact context");
-    expect(prompt).toContain("call tools before finalizing findings");
+    expect(prompt).toContain("explore with available tools before finalizing findings");
     expect(prompt).toContain("down the call graph");
   });
 });

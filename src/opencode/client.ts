@@ -45,6 +45,35 @@ export interface ReviewTiming {
   ms: number;
 }
 
+type ToolPolicy = Record<string, boolean>;
+type PermissionResponse = "once" | "always" | "reject";
+
+const FALLBACK_TOOL_IDS = [
+  "apply_patch",
+  "bash",
+  "edit",
+  "glob",
+  "grep",
+  "question",
+  "read",
+  "skill",
+  "task",
+  "todowrite",
+  "webfetch",
+  "write",
+];
+
+const READ_SEARCH_TOOLS = new Set(["glob", "grep", "read"]);
+const DEEP_TOOLS = new Set([...READ_SEARCH_TOOLS, "bash"]);
+const PERMISSION_REPLY_TIMEOUT_MS = 5_000;
+
+interface PermissionRequest {
+  id: string;
+  sessionID: string;
+  type: string;
+  title?: string;
+}
+
 /**
  * Run a code review using OpenCode serve.
  * Creates a session, sends the review prompt, and returns a structured report.
@@ -78,6 +107,10 @@ export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
   const sessionId = (session.data as any).id;
   recordTiming(timings, onProgress, "session-create", "OpenCode session creation", sessionStart);
   onProgress?.({ type: "session", message: "Created review session.", sessionId });
+
+  const toolPolicyStart = performance.now();
+  const tools = await buildToolPolicy(client, depth);
+  recordTiming(timings, onProgress, "tool-policy", "OpenCode tool policy", toolPolicyStart);
 
   // Build the review prompt
   const promptStart = performance.now();
@@ -167,6 +200,20 @@ export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
 
           const payload = (event as any).payload;
           if (!payload) continue;
+
+          const permission = extractPermissionRequest(payload, sessionId);
+          if (permission) {
+            void replyToPermissionRequest(client, permission, depth, onProgress).catch((err) => {
+              onProgress?.({
+                type: "session",
+                message: `OpenCode permission reply failed: ${
+                  err instanceof Error ? err.message : String(err)
+                }`,
+                sessionId,
+              });
+            });
+            continue;
+          }
 
           // Look for message part updates from our session
           if (
@@ -267,6 +314,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
     body: {
       system: REVIEW_AGENT_PROMPT,
       model: { providerID, modelID },
+      tools,
       parts: [{ type: "text", text: prompt }],
     },
   });
@@ -281,6 +329,188 @@ export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
   recordTiming(timings, onProgress, "parse-review", "Review JSON parsing", parseStart);
 
   return { ...report, timings };
+}
+
+export async function buildToolPolicy(
+  client: { tool?: { ids?: () => Promise<{ data: unknown }> } },
+  depth: ReviewContextDepth,
+): Promise<ToolPolicy> {
+  const available = new Set(FALLBACK_TOOL_IDS);
+  try {
+    const result = await client.tool?.ids?.();
+    if (Array.isArray(result?.data)) {
+      for (const id of result.data) {
+        if (typeof id === "string") {
+          available.add(id);
+        }
+      }
+    }
+  } catch {
+    // Fall back to known OpenCode built-ins. Unknown tools remain unavailable by omission.
+  }
+
+  const allowed = allowedToolsForDepth(depth);
+  const policy: ToolPolicy = {};
+  for (const id of available) {
+    policy[id] = allowed.has(id);
+  }
+  return policy;
+}
+
+function allowedToolsForDepth(depth: ReviewContextDepth): Set<string> {
+  if (depth === "shallow") {
+    return new Set();
+  }
+  if (depth === "deep") {
+    return DEEP_TOOLS;
+  }
+  return READ_SEARCH_TOOLS;
+}
+
+async function replyToPermissionRequest(
+  client: {
+    postSessionIdPermissionsPermissionId?: (options: {
+      path: { id: string; permissionID: string };
+      body: { response: "once" | "always" | "reject" };
+    }) => Promise<unknown>;
+    permission?: {
+      reply?: (
+        path: { requestID: string },
+        options?: { body?: { reply: "once" | "always" | "reject"; message?: string } },
+      ) => Promise<unknown>;
+    };
+  },
+  permission: PermissionRequest,
+  depth: ReviewContextDepth,
+  onProgress: ReviewOptions["onProgress"],
+): Promise<void> {
+  const response = permissionResponseForDepth(permission, depth);
+  onProgress?.({
+    type: "session",
+    message: `OpenCode permission ${response}: ${permission.title ?? permission.type}`,
+    sessionId: permission.sessionID,
+  });
+
+  await withTimeout(
+    replyWithAvailableEndpoint(client, permission, response),
+    PERMISSION_REPLY_TIMEOUT_MS,
+  );
+}
+
+async function replyWithAvailableEndpoint(
+  client: {
+    postSessionIdPermissionsPermissionId?: (options: {
+      path: { id: string; permissionID: string };
+      body: { response: "once" | "always" | "reject" };
+    }) => Promise<unknown>;
+    permission?: {
+      reply?: (
+        path: { requestID: string },
+        options?: { body?: { reply: "once" | "always" | "reject"; message?: string } },
+      ) => Promise<unknown>;
+    };
+  },
+  permission: PermissionRequest,
+  response: PermissionResponse,
+): Promise<void> {
+  if (client.permission?.reply) {
+    await client.permission.reply(
+      { requestID: permission.id },
+      { body: { reply: response, message: "DiffOwl review depth policy" } },
+    );
+    return;
+  }
+
+  if (client.postSessionIdPermissionsPermissionId) {
+    await client.postSessionIdPermissionsPermissionId({
+      path: { id: permission.sessionID, permissionID: permission.id },
+      body: { response },
+    });
+  }
+}
+
+export function permissionResponseForDepth(
+  permission: { type: string; title?: string },
+  depth: ReviewContextDepth,
+): PermissionResponse {
+  if (depth !== "deep") {
+    return "reject";
+  }
+
+  const text = `${permission.type} ${permission.title ?? ""}`.toLowerCase();
+  if (!text.includes("bash") && !text.includes("shell")) {
+    return "reject";
+  }
+
+  if (looksMutatingShellCommand(text)) {
+    return "reject";
+  }
+
+  if (looksReadOnlyShellCommand(text) || looksVerificationShellCommand(text)) {
+    return "always";
+  }
+
+  return "reject";
+}
+
+function looksReadOnlyShellCommand(text: string): boolean {
+  return /\b(git\s+(diff|grep|log|show|status|ls-files)|rg|grep|sed\s+-n|cat|ls|find|pwd|wc|head|tail|nl)\b/.test(
+    text,
+  );
+}
+
+function looksVerificationShellCommand(text: string): boolean {
+  return /\b((pnpm|npm|yarn|bun)\s+(run\s+)?(test|typecheck|lint|vitest)|vitest|tsc\s+--noemit|oxlint|oxfmt\s+--check)\b/.test(
+    text,
+  );
+}
+
+function looksMutatingShellCommand(text: string): boolean {
+  return /\b(rm|mv|cp|chmod|chown|mkdir|touch|tee|git\s+(add|commit|checkout|reset|clean|push|pull|merge|rebase)|npm\s+install|pnpm\s+(install|add)|yarn\s+(install|add)|bun\s+(install|add)|apply_patch|sed\s+-i|perl\s+-pi|oxfmt\s+--write)\b|[<>]/.test(
+    text,
+  );
+}
+
+function extractPermissionRequest(payload: any, sessionId: string): PermissionRequest | undefined {
+  if (!payload?.properties) {
+    return undefined;
+  }
+
+  if (payload.type === "permission.updated" && payload.properties.sessionID === sessionId) {
+    return {
+      id: payload.properties.id,
+      sessionID: payload.properties.sessionID,
+      type: payload.properties.type,
+      title: payload.properties.title,
+    };
+  }
+
+  if (payload.type === "permission.asked" && payload.properties.sessionID === sessionId) {
+    return {
+      id: payload.properties.id,
+      sessionID: payload.properties.sessionID,
+      type: payload.properties.permission,
+      title: payload.properties.patterns?.join(", "),
+    };
+  }
+
+  return undefined;
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error("permission reply timed out")), ms);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 function recordTiming(
