@@ -50,6 +50,9 @@ function tryLoadUserTypescript(): any {
 const MAX_FILE_CHARS = 12_000;
 const MAX_RELATED_FILE_CHARS = 6_000;
 const MAX_AST_SYMBOL_CHARS = 8_000;
+const MAX_INLINE_FILE_CHARS = 2_000;
+const MAX_INLINE_FILE_LINES = 80;
+const MIN_CHANGED_RATIO_FOR_INLINE_CONTENT = 0.4;
 const LOCKFILE_EXCLUDES = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb"];
 
 export async function buildReviewContext(
@@ -90,6 +93,7 @@ async function buildChangedFileContext(
       changedLines,
       astSymbols: [],
       truncated: false,
+      shouldRenderContent: false,
       skippedReason: "deleted file",
     };
   }
@@ -103,6 +107,7 @@ async function buildChangedFileContext(
       changedLines,
       astSymbols: [],
       truncated: false,
+      shouldRenderContent: false,
       skippedReason: contentResult.reason,
     };
   }
@@ -119,6 +124,7 @@ async function buildChangedFileContext(
     astSymbols,
     content: contentResult.content,
     truncated: contentResult.truncated,
+    shouldRenderContent: shouldRenderFullFileContent(file, contentResult.content),
   };
 }
 
@@ -195,9 +201,9 @@ function extractImports(content: string): string[] {
 function extractSymbols(content: string): string[] {
   const symbols = new Set<string>();
   const patterns = [
-    /\b(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/g,
-    /\b(?:export\s+)?(?:class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/g,
-    /\b(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=/g,
+    /^(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/gm,
+    /^(?:export\s+)?(?:class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/gm,
+    /^(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=/gm,
   ];
 
   for (const pattern of patterns) {
@@ -207,6 +213,20 @@ function extractSymbols(content: string): string[] {
   }
 
   return [...symbols].slice(0, 30);
+}
+
+function shouldRenderFullFileContent(file: DiffFile, content: string): boolean {
+  const totalLines = content.split("\n").length;
+  if (content.length <= MAX_INLINE_FILE_CHARS && totalLines <= MAX_INLINE_FILE_LINES) {
+    return true;
+  }
+
+  if (file.status === "added") {
+    return false;
+  }
+
+  const changedLineCount = file.additions + file.deletions;
+  return changedLineCount / totalLines >= MIN_CHANGED_RATIO_FOR_INLINE_CONTENT;
 }
 
 function extractAstSymbols(
@@ -267,7 +287,8 @@ function getNamedDeclarationNode(ts: typeof tsType, node: tsNode): tsNode | unde
   }
 
   if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
-    return findAncestor(node, ts.isVariableStatement) ?? node;
+    const statement = findAncestor(node, ts.isVariableStatement);
+    return statement && ts.isSourceFile(statement.parent) ? statement : undefined;
   }
 
   return undefined;

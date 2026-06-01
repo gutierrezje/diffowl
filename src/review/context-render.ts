@@ -91,7 +91,11 @@ export function renderReviewContext(
       }
     }
 
-    if (fileContext.content && fileContext.astSymbols.length === 0) {
+    if (
+      fileContext.content &&
+      fileContext.astSymbols.length === 0 &&
+      fileContext.shouldRenderContent
+    ) {
       lines.push(
         fence(
           quick
@@ -103,6 +107,8 @@ export function renderReviewContext(
       if (fileContext.truncated) {
         lines.push("_File content truncated._");
       }
+    } else if (fileContext.content && fileContext.astSymbols.length === 0) {
+      lines.push("_Full file content omitted because the diff already shows the changed hunks._");
     } else if (fileContext.content) {
       lines.push("_Full file content omitted because changed TypeScript AST symbols are shown._");
     } else {
@@ -161,7 +167,33 @@ function filterDiffRaw(rawDiff: string, includedPaths: Set<string>): string {
 }
 
 function summarizeLines(lines: number[]): string {
-  return [...new Set(lines)].sort((a, b) => a - b).join(", ");
+  const sortedLines = [...new Set(lines)].sort((a, b) => a - b);
+  const firstLine = sortedLines[0];
+  if (firstLine === undefined) {
+    return "";
+  }
+
+  const ranges: string[] = [];
+  let start = firstLine;
+  let previous = firstLine;
+
+  for (const line of sortedLines.slice(1)) {
+    if (line === previous + 1) {
+      previous = line;
+      continue;
+    }
+
+    ranges.push(formatLineRange(start, previous));
+    start = line;
+    previous = line;
+  }
+
+  ranges.push(formatLineRange(start, previous));
+  return ranges.join(", ");
+}
+
+function formatLineRange(start: number, end: number): string {
+  return start === end ? String(start) : `${start}-${end}`;
 }
 
 function truncateText(text: string, maxChars: number): { text: string; truncated: boolean } {

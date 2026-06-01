@@ -230,6 +230,127 @@ describe("buildReviewContext", () => {
     expect(rendered).not.toContain("Related Test Files");
     expect(rendered).not.toContain("Reference Hints");
   });
+
+  it("summarizes consecutive changed lines as ranges for added files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
+    tempDirs.push(root);
+    process.chdir(root);
+
+    await execa("git", ["init"]);
+    await writeFile("README.md", "# Fixture\n", "utf-8");
+    await execa("git", ["add", "."]);
+    await execa("git", [
+      "-c",
+      "user.name=DiffOwl Test",
+      "-c",
+      "user.email=diffowl@example.test",
+      "commit",
+      "-m",
+      "initial",
+    ]);
+
+    await mkdir("docs");
+    await writeFile(
+      "docs/large.md",
+      Array.from({ length: 189 }, (_, index) => `Line ${index + 1}`).join("\n"),
+      "utf-8",
+    );
+    await execa("git", ["add", "docs/large.md"]);
+
+    const context = await buildReviewContext("staged", config);
+    const rendered = renderReviewContext(context);
+
+    expect(rendered).toContain("Changed lines: 1-189");
+    expect(rendered).toContain("Full file content omitted because the diff already shows");
+    expect(rendered).not.toContain("Changed lines: 1, 2, 3");
+  });
+
+  it("omits large non-TypeScript file content when a small part changed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
+    tempDirs.push(root);
+    process.chdir(root);
+
+    await execa("git", ["init"]);
+    const originalReadme = [
+      "# Fixture",
+      "",
+      ...Array.from({ length: 160 }, (_, index) => `Stable documentation line ${index + 1}`),
+    ].join("\n");
+    await writeFile("README.md", originalReadme, "utf-8");
+    await execa("git", ["add", "."]);
+    await execa("git", [
+      "-c",
+      "user.name=DiffOwl Test",
+      "-c",
+      "user.email=diffowl@example.test",
+      "commit",
+      "-m",
+      "initial",
+    ]);
+
+    const updatedReadme = originalReadme.replace(
+      "Stable documentation line 80",
+      "Updated documentation line 80",
+    );
+    await writeFile("README.md", updatedReadme, "utf-8");
+    await execa("git", ["add", "README.md"]);
+
+    const context = await buildReviewContext("staged", config);
+    const rendered = renderReviewContext(context);
+
+    expect(rendered).toContain("Updated documentation line 80");
+    expect(rendered).toContain("Full file content omitted because the diff already shows");
+    expect(rendered).not.toContain("Stable documentation line 1\nStable documentation line 2");
+  });
+
+  it("does not list block-scoped const declarations as file symbols", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
+    tempDirs.push(root);
+    process.chdir(root);
+
+    await execa("git", ["init"]);
+    await mkdir("src");
+    await writeFile(
+      "src/example.ts",
+      [
+        "export function calculateTotal(value: number) {",
+        "  const localTax = 1;",
+        "  return value + localTax;",
+        "}",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    await execa("git", ["add", "."]);
+    await execa("git", [
+      "-c",
+      "user.name=DiffOwl Test",
+      "-c",
+      "user.email=diffowl@example.test",
+      "commit",
+      "-m",
+      "initial",
+    ]);
+
+    await writeFile(
+      "src/example.ts",
+      [
+        "export function calculateTotal(value: number) {",
+        "  const localTax = 2;",
+        "  return value + localTax;",
+        "}",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    await execa("git", ["add", "src/example.ts"]);
+
+    const context = await buildReviewContext("staged", config);
+    const symbols = context.changedFiles[0]!.symbols;
+
+    expect(symbols).toContain("calculateTotal");
+    expect(symbols).not.toContain("localTax");
+  });
 });
 
 async function makeReferenceSearchPath(root: string): Promise<string> {

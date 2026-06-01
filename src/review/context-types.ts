@@ -18,6 +18,7 @@ export interface ChangedFileContext {
   astSymbols: AstSymbolContext[];
   content?: string;
   truncated: boolean;
+  shouldRenderContent: boolean;
   skippedReason?: string | undefined;
 }
 
