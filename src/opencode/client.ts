@@ -1,4 +1,5 @@
 import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk";
+import { z } from "zod";
 import { isServerRunning, ensureServer } from "./server.js";
 import { REVIEW_AGENT_PROMPT, buildReviewPrompt } from "./agent.js";
 import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
@@ -20,6 +21,7 @@ export interface ReviewFinding {
 export interface ReviewReport {
   summary: string;
   findings: ReviewFinding[];
+  diagnostics?: string[];
   timings?: ReviewTiming[];
 }
 
@@ -75,6 +77,38 @@ interface PermissionRequest {
   title?: string;
 }
 
+const ReviewSeveritySchema = z.preprocess(
+  (value) => (typeof value === "string" ? value.toLowerCase() : value),
+  z.enum(["error", "warning", "info"]),
+);
+
+const ReviewConfidenceSchema = z
+  .preprocess(
+    (value) => (typeof value === "string" ? value.toLowerCase() : value),
+    z.enum(["low", "medium", "high"]),
+  )
+  .catch("low");
+
+const ReviewFindingLineSchema = z.preprocess(
+  (value) => (typeof value === "string" ? Number(value) : value),
+  z.number().int().positive(),
+);
+
+const ReviewFindingSchema = z.object({
+  severity: ReviewSeveritySchema,
+  file: z.string().trim().min(1),
+  line: ReviewFindingLineSchema,
+  evidence: z.string().optional(),
+  title: z.string().trim().min(1),
+  body: z.string().trim().min(1),
+  confidence: ReviewConfidenceSchema,
+});
+
+const ReviewJsonSchema = z.object({
+  summary: z.string(),
+  findings: z.array(z.unknown()),
+});
+
 /**
  * Run a code review using OpenCode serve.
  * Creates a session, sends the review prompt, and returns a structured report.
@@ -107,7 +141,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
     ...directoryOptions,
     body: {},
   });
-  const sessionId = (session.data as any).id;
+  const sessionId = extractSessionId(session);
   recordTiming(timings, onProgress, "session-create", "OpenCode session creation", sessionStart);
   onProgress?.({ type: "session", message: "Created review session.", sessionId });
 
@@ -531,26 +565,83 @@ function hasUnquotedRedirection(command: string): boolean {
   return false;
 }
 
-function extractPermissionRequest(payload: any, sessionId: string): PermissionRequest | undefined {
-  if (!payload?.properties) {
+export function extractSessionId(response: unknown): string {
+  if (!response || typeof response !== "object") {
+    throw new Error("OpenCode session response missing id.");
+  }
+
+  const data = (response as { data?: unknown }).data;
+  if (!data || typeof data !== "object") {
+    throw new Error("OpenCode session response missing id.");
+  }
+
+  const id = (data as { id?: unknown }).id;
+  if (typeof id !== "string" || id.trim() === "") {
+    throw new Error("OpenCode session response missing id.");
+  }
+
+  return id;
+}
+
+export function extractPermissionRequest(
+  payload: unknown,
+  sessionId: string,
+): PermissionRequest | undefined {
+  if (!payload || typeof payload !== "object") {
     return undefined;
   }
 
-  if (payload.type === "permission.updated" && payload.properties.sessionID === sessionId) {
+  const event = payload as { type?: unknown; properties?: unknown };
+  if (typeof event.type !== "string" || !event.properties || typeof event.properties !== "object") {
+    return undefined;
+  }
+
+  const properties = event.properties as Record<string, unknown>;
+  if (properties["sessionID"] !== sessionId) {
+    return undefined;
+  }
+
+  if (event.type === "permission.updated") {
+    const id = properties["id"];
+    const type = properties["type"];
+    if (
+      typeof id !== "string" ||
+      id.trim() === "" ||
+      typeof type !== "string" ||
+      type.trim() === ""
+    ) {
+      return undefined;
+    }
+
+    const title = properties["title"];
     return {
-      id: payload.properties.id,
-      sessionID: payload.properties.sessionID,
-      type: payload.properties.type,
-      title: payload.properties.title,
+      id,
+      sessionID: sessionId,
+      type,
+      ...(typeof title === "string" ? { title } : {}),
     };
   }
 
-  if (payload.type === "permission.asked" && payload.properties.sessionID === sessionId) {
+  if (event.type === "permission.asked") {
+    const id = properties["id"];
+    const permission = properties["permission"];
+    if (
+      typeof id !== "string" ||
+      id.trim() === "" ||
+      typeof permission !== "string" ||
+      permission.trim() === ""
+    ) {
+      return undefined;
+    }
+
+    const patterns = properties["patterns"];
     return {
-      id: payload.properties.id,
-      sessionID: payload.properties.sessionID,
-      type: payload.properties.permission,
-      title: payload.properties.patterns?.join(", "),
+      id,
+      sessionID: sessionId,
+      type: permission,
+      ...(Array.isArray(patterns) && patterns.every((pattern) => typeof pattern === "string")
+        ? { title: patterns.join(", ") }
+        : {}),
     };
   }
 
@@ -668,67 +759,44 @@ export function parseStructuredReview(raw: string): ReviewReport {
     );
   }
 
-  if (
-    !parsed ||
-    typeof parsed !== "object" ||
-    typeof (parsed as any).summary !== "string" ||
-    !Array.isArray((parsed as any).findings)
-  ) {
+  const root = ReviewJsonSchema.safeParse(parsed);
+  if (!root.success) {
     throw new Error(
       `Review JSON is missing required fields: summary or findings. Raw response preview: ${previewRawResponse(raw)}`,
     );
   }
 
-  const summary = (parsed as any).summary as string;
-  const findingsInput = (parsed as any).findings as any[];
-
   const findings: ReviewFinding[] = [];
+  const diagnostics: string[] = [];
   const seen = new Set<string>();
 
-  for (const item of findingsInput) {
-    if (!item || typeof item !== "object") continue;
-
-    const severityRaw = String(item.severity ?? "").toLowerCase();
-    const file = typeof item.file === "string" ? item.file : "";
-    const line = Number.isFinite(item.line) ? Number(item.line) : NaN;
-    const evidence = typeof item.evidence === "string" ? item.evidence : undefined;
-    const title = typeof item.title === "string" ? item.title : "";
-    const body = typeof item.body === "string" ? item.body : "";
-    const confidenceRaw = String(item.confidence ?? "").toLowerCase();
-
-    if (!file || !Number.isFinite(line) || line <= 0 || !title || !body) {
+  for (const [index, item] of root.data.findings.entries()) {
+    const finding = ReviewFindingSchema.safeParse(item);
+    if (!finding.success) {
+      diagnostics.push(`Dropped malformed finding at index ${index}.`);
       continue;
     }
 
-    if (severityRaw !== "error" && severityRaw !== "warning" && severityRaw !== "info") {
-      continue;
-    }
-
-    const confidence: ReviewConfidence =
-      confidenceRaw === "low" || confidenceRaw === "medium" || confidenceRaw === "high"
-        ? (confidenceRaw as ReviewConfidence)
-        : "high";
-
-    const key = `${severityRaw}:${file}:${line}:${title}`;
+    const key = `${finding.data.severity}:${finding.data.file}:${finding.data.line}:${finding.data.title}`;
     if (seen.has(key)) {
       continue;
     }
     seen.add(key);
-
     findings.push({
-      severity: severityRaw as ReviewSeverity,
-      file,
-      line,
-      evidence,
-      title,
-      body,
-      confidence,
+      severity: finding.data.severity,
+      file: finding.data.file,
+      line: finding.data.line,
+      ...(finding.data.evidence !== undefined ? { evidence: finding.data.evidence } : {}),
+      title: finding.data.title,
+      body: finding.data.body,
+      confidence: finding.data.confidence,
     });
   }
 
   return {
-    summary,
+    summary: root.data.summary,
     findings,
+    ...(diagnostics.length > 0 ? { diagnostics } : {}),
   };
 }
 

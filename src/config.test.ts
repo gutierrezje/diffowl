@@ -51,22 +51,20 @@ describe("config", () => {
     expect(await readFile(parentConfig, "utf-8")).toContain("provider/updated");
   });
 
-  it("defaults invalid min_confidence to medium", async () => {
+  it("defaults missing optional fields", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
     tempDirs.push(root);
-    await writeFile(
-      join(root, ".diffowl.yml"),
-      "model: provider/model\nmin_confidence: noisy\n",
-      "utf-8",
-    );
+    await writeFile(join(root, ".diffowl.yml"), "model: provider/model\n", "utf-8");
     process.chdir(root);
 
     const config = await loadConfig();
 
+    expect(config.server.port).toBe(4096);
     expect(config.min_confidence).toBe("medium");
+    expect(config.context.depth).toBe("default");
   });
 
-  it("loads valid context depth and defaults invalid depth", async () => {
+  it("loads valid context depth", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
     tempDirs.push(root);
     await writeFile(
@@ -77,17 +75,22 @@ describe("config", () => {
     process.chdir(root);
 
     expect((await loadConfig()).context.depth).toBe("deep");
-
-    await writeFile(
-      join(root, ".diffowl.yml"),
-      ["model: provider/model", "context:", "  depth: noisy"].join("\n"),
-      "utf-8",
-    );
-
-    expect((await loadConfig()).context.depth).toBe("default");
   });
 
-  it("defaults scalar context config without spreading malformed properties", async () => {
+  it("fails fast for invalid explicit values", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
+    tempDirs.push(root);
+    await writeFile(
+      join(root, ".diffowl.yml"),
+      "model: provider/model\nmin_confidence: noisy\n",
+      "utf-8",
+    );
+    process.chdir(root);
+
+    await expect(loadConfig()).rejects.toThrow("min_confidence");
+  });
+
+  it("fails fast for malformed nested config", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
     tempDirs.push(root);
     await writeFile(
@@ -97,10 +100,42 @@ describe("config", () => {
     );
     process.chdir(root);
 
-    const config = await loadConfig();
+    await expect(loadConfig()).rejects.toThrow("context");
+  });
 
-    expect(config.context).toEqual({ depth: "default" });
-    expect(Object.keys(config.context)).toEqual(["depth"]);
+  it("fails fast for invalid ports and array fields", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
+    tempDirs.push(root);
+    await writeFile(
+      join(root, ".diffowl.yml"),
+      ["model: provider/model", "server:", "  port: 70000", "include: '**/*'"].join("\n"),
+      "utf-8",
+    );
+    process.chdir(root);
+
+    await expect(loadConfig()).rejects.toThrow(/server\.port|include/);
+  });
+
+  it("fails fast for unknown config keys", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
+    tempDirs.push(root);
+    await writeFile(
+      join(root, ".diffowl.yml"),
+      "model: provider/model\nunexpected: true\n",
+      "utf-8",
+    );
+    process.chdir(root);
+
+    await expect(loadConfig()).rejects.toThrow("unexpected");
+  });
+
+  it("fails fast for invalid model format", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
+    tempDirs.push(root);
+    await writeFile(join(root, ".diffowl.yml"), "model: missing-provider-separator\n", "utf-8");
+    process.chdir(root);
+
+    await expect(loadConfig()).rejects.toThrow("model");
   });
 
   it("reports malformed yaml instead of silently using defaults", async () => {

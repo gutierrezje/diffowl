@@ -30,7 +30,8 @@
     "execa": "^9.6.1",
     "ora": "^9.4.0",
     "picomatch": "^4.0.4",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",

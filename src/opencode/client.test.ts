@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildToolPolicy,
+  extractPermissionRequest,
+  extractSessionId,
   handledAwaitable,
   opencodeDirectoryOptions,
   permissionResponseForDepth,
@@ -29,6 +31,62 @@ describe("parseStructuredReview", () => {
     expect(() => parseStructuredReview("I could not review this change.")).toThrow(
       /Raw response preview: I could not review this change\./,
     );
+  });
+
+  it("drops malformed findings and reports diagnostics", () => {
+    const report = parseStructuredReview(
+      JSON.stringify({
+        summary: "Mixed quality output.",
+        findings: [
+          {
+            severity: "warning",
+            file: "src/config.ts",
+            line: 12,
+            title: "Valid issue",
+            body: "This is a valid finding.",
+            confidence: "medium",
+          },
+          {
+            severity: "warning",
+            file: "",
+            line: 0,
+            title: "",
+            body: "",
+            confidence: "high",
+          },
+        ],
+      }),
+    );
+
+    expect(report.findings).toHaveLength(1);
+    expect(report.diagnostics).toEqual(["Dropped malformed finding at index 1."]);
+  });
+
+  it("defaults missing or invalid finding confidence to low", () => {
+    const report = parseStructuredReview(
+      JSON.stringify({
+        summary: "Confidence normalized.",
+        findings: [
+          {
+            severity: "warning",
+            file: "src/config.ts",
+            line: 12,
+            title: "Missing confidence",
+            body: "This should not become high confidence.",
+          },
+          {
+            severity: "info",
+            file: "src/cli.ts",
+            line: 20,
+            title: "Invalid confidence",
+            body: "This should be downgraded.",
+            confidence: "certain",
+          },
+        ],
+      }),
+    );
+
+    expect(report.findings.map((finding) => finding.confidence)).toEqual(["low", "low"]);
   });
 });
 
@@ -114,6 +172,80 @@ describe("handledAwaitable", () => {
     const promise = handledAwaitable(Promise.reject(new Error("boom")));
 
     await expect(promise).rejects.toThrow("boom");
+  });
+});
+
+describe("extractSessionId", () => {
+  it("returns a non-empty OpenCode session id", () => {
+    expect(extractSessionId({ data: { id: "session-1" } })).toBe("session-1");
+  });
+
+  it("throws when the OpenCode session response is missing an id", () => {
+    expect(() => extractSessionId({ data: {} })).toThrow("OpenCode session response missing id");
+    expect(() => extractSessionId({ data: { id: "" } })).toThrow(
+      "OpenCode session response missing id",
+    );
+  });
+});
+
+describe("extractPermissionRequest", () => {
+  it("extracts valid permission.updated events", () => {
+    expect(
+      extractPermissionRequest(
+        {
+          type: "permission.updated",
+          properties: {
+            id: "perm-1",
+            sessionID: "session-1",
+            type: "bash",
+            title: "rg config src",
+          },
+        },
+        "session-1",
+      ),
+    ).toEqual({
+      id: "perm-1",
+      sessionID: "session-1",
+      type: "bash",
+      title: "rg config src",
+    });
+  });
+
+  it("extracts valid permission.asked events", () => {
+    expect(
+      extractPermissionRequest(
+        {
+          type: "permission.asked",
+          properties: {
+            id: "perm-2",
+            sessionID: "session-1",
+            permission: "bash",
+            patterns: ["rg config src", "git diff"],
+          },
+        },
+        "session-1",
+      ),
+    ).toEqual({
+      id: "perm-2",
+      sessionID: "session-1",
+      type: "bash",
+      title: "rg config src, git diff",
+    });
+  });
+
+  it("ignores malformed or cross-session permission events", () => {
+    expect(
+      extractPermissionRequest(
+        { type: "permission.updated", properties: { sessionID: "session-2", type: "bash" } },
+        "session-1",
+      ),
+    ).toBeUndefined();
+    expect(
+      extractPermissionRequest(
+        { type: "permission.updated", properties: { id: "perm-1", sessionID: "session-1" } },
+        "session-1",
+      ),
+    ).toBeUndefined();
   });
 });
 

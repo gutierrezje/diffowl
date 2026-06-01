@@ -2,6 +2,7 @@ import { access, readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { parse, stringify } from "yaml";
+import { z, ZodError } from "zod";
 
 export type ReviewConfidence = "low" | "medium" | "high";
 export type ReviewContextDepth = "shallow" | "default" | "deep";
@@ -48,37 +49,59 @@ const DEFAULT_CONFIG: DiffOwlConfig = {
 
 const CONFIG_FILENAME = ".diffowl.yml";
 
-function validateTimeout(value: unknown): number {
-  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
-    return value;
-  }
-  return DEFAULT_CONFIG.timeout;
+export const ReviewConfidenceSchema = z.enum(["low", "medium", "high"]);
+export const ReviewContextDepthSchema = z.enum(["shallow", "default", "deep"]);
+export const ModelSchema = z
+  .string()
+  .trim()
+  .min(1, "model must not be empty")
+  .regex(/^[^/\s]+\/\S+$/, "model must use provider/model format");
+
+const stringArraySchema = z.array(z.string().trim().min(1));
+
+export const DiffOwlConfigSchema = z
+  .object({
+    model: ModelSchema.default(DEFAULT_CONFIG.model),
+    server: z
+      .object({
+        port: z.number().int().min(1).max(65535).default(DEFAULT_CONFIG.server.port),
+        auto_start: z.boolean().default(DEFAULT_CONFIG.server.auto_start),
+      })
+      .strict()
+      .default(DEFAULT_CONFIG.server),
+    context: z
+      .object({
+        depth: ReviewContextDepthSchema.default(DEFAULT_CONFIG.context.depth),
+      })
+      .strict()
+      .default(DEFAULT_CONFIG.context),
+    timeout: z.number().int().positive().default(DEFAULT_CONFIG.timeout),
+    min_confidence: ReviewConfidenceSchema.default(DEFAULT_CONFIG.min_confidence),
+    include: stringArraySchema.default(DEFAULT_CONFIG.include),
+    exclude: stringArraySchema.default(DEFAULT_CONFIG.exclude),
+    rules: stringArraySchema.default(DEFAULT_CONFIG.rules),
+  })
+  .strict();
+
+export function parseModel(value: unknown): string {
+  return ModelSchema.parse(value);
 }
 
-function validateMinConfidence(value: unknown): ReviewConfidence {
-  if (value === "low" || value === "medium" || value === "high") {
-    return value;
-  }
-  return DEFAULT_CONFIG.min_confidence;
+export function parseReviewContextDepth(value: unknown): ReviewContextDepth {
+  return ReviewContextDepthSchema.parse(value);
 }
 
-function validateContextDepth(value: unknown): ReviewContextDepth {
-  if (value === "shallow" || value === "default" || value === "deep") {
-    return value;
-  }
-  return DEFAULT_CONFIG.context.depth;
+function parseConfigInput(value: unknown): DiffOwlConfig {
+  return DiffOwlConfigSchema.parse(value ?? {});
 }
 
-function validateContext(value: unknown): DiffOwlConfig["context"] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return DEFAULT_CONFIG.context;
-  }
-
-  return {
-    ...DEFAULT_CONFIG.context,
-    ...(value as Partial<DiffOwlConfig["context"]>),
-    depth: validateContextDepth((value as Partial<DiffOwlConfig["context"]>).depth),
-  };
+function formatZodError(err: ZodError): string {
+  return err.issues
+    .map((issue) => {
+      const path = issue.path.length > 0 ? issue.path.join(".") : "config";
+      return `${path}: ${issue.message}`;
+    })
+    .join("; ");
 }
 
 function findConfigPath(): string {
@@ -101,24 +124,21 @@ export async function loadConfig(): Promise<DiffOwlConfig> {
   }
   try {
     const raw = await readFile(configPath, "utf-8");
-    const parsed = parse(raw) as Partial<DiffOwlConfig>;
-    return {
-      ...DEFAULT_CONFIG,
-      ...parsed,
-      server: { ...DEFAULT_CONFIG.server, ...parsed.server },
-      context: validateContext(parsed.context),
-      timeout: validateTimeout(parsed.timeout),
-      min_confidence: validateMinConfidence(parsed.min_confidence),
-    };
+    return parseConfigInput(parse(raw));
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message =
+      err instanceof ZodError
+        ? formatZodError(err)
+        : err instanceof Error
+          ? err.message
+          : String(err);
     throw new Error(`Failed to load ${configPath}: ${message}`);
   }
 }
 
 export async function saveConfig(config: DiffOwlConfig): Promise<string> {
   const configPath = findConfigPath();
-  const content = stringify(config, { lineWidth: 0 });
+  const content = stringify(DiffOwlConfigSchema.parse(config), { lineWidth: 0 });
   await writeFile(configPath, content, "utf-8");
   return configPath;
 }

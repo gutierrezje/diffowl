@@ -8,6 +8,8 @@ import {
   loadConfig,
   saveConfig,
   configExists,
+  parseModel,
+  parseReviewContextDepth,
   type DiffOwlConfig,
   type ReviewContextDepth,
   type ReviewConfidence,
@@ -163,6 +165,13 @@ program
       recordCliTiming(timings, "review-run", "OpenCode review run", reviewStart);
       spinner.succeed("Review complete.");
       console.log(); // Space after spinner
+      if (report.diagnostics && report.diagnostics.length > 0) {
+        console.log(chalk.yellow("Review output diagnostics:"));
+        for (const diagnostic of report.diagnostics) {
+          console.log(chalk.yellow(`  - ${diagnostic}`));
+        }
+        console.log();
+      }
 
       // Filter findings by configured confidence threshold
       report.findings = filterFindingsByConfidence(report.findings, config.min_confidence);
@@ -229,13 +238,13 @@ function resolveReviewDepth(value: unknown, config: DiffOwlConfig): ReviewContex
     return config.context.depth;
   }
 
-  if (value === "shallow" || value === "default" || value === "deep") {
-    return value;
+  try {
+    return parseReviewContextDepth(value);
+  } catch {
+    console.error(chalk.red(`Invalid review depth: ${String(value)}`));
+    console.error(chalk.dim("Expected one of: shallow, default, deep"));
+    process.exit(1);
   }
-
-  console.error(chalk.red(`Invalid review depth: ${String(value)}`));
-  console.error(chalk.dim("Expected one of: shallow, default, deep"));
-  process.exit(1);
 }
 
 function recordCliTiming(
@@ -290,9 +299,20 @@ program
       return;
     }
 
-    config.model = model;
+    let parsedModel: string;
+    try {
+      parsedModel = parseModel(model);
+    } catch {
+      console.error(chalk.red(`Invalid model: ${model}`));
+      console.error(
+        chalk.dim("Expected provider/model format, for example opencode-go/big-pickle"),
+      );
+      process.exit(1);
+    }
+
+    config.model = parsedModel;
     const configPath = await saveConfig(config);
-    console.log(chalk.green(`✓ Model set to ${chalk.cyan(model)}`));
+    console.log(chalk.green(`✓ Model set to ${chalk.cyan(parsedModel)}`));
     console.log(chalk.dim(`Config: ${configPath}`));
   });
 
