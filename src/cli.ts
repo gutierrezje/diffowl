@@ -131,7 +131,23 @@ program
     const spinner = ora({
       text: "Building local review context...",
       color: "cyan",
+      discardStdin: false,
     }).start();
+
+    // Register signal handlers immediately after spinner starts so they
+    // cover the entire review lifecycle (context build, server connect, SSE).
+    // discardStdin: false above ensures the terminal delivers SIGINT natively
+    // instead of routing through stdin-discarder's raw-mode byte conversion.
+    process.once("SIGINT", () => {
+      try { spinner.stop(); } catch {}
+      console.log(chalk.yellow("\nReview cancelled by user (Ctrl+C)."));
+      process.exit(130);
+    });
+    process.once("SIGTSTP", () => {
+      try { spinner.stop(); } catch {}
+      console.log(chalk.yellow("\nReview cancelled by user (Ctrl+Z)."));
+      process.exit(146);
+    });
 
     try {
       const contextStart = performance.now();
@@ -163,6 +179,8 @@ program
       await ensureServer(config.server.port);
       recordCliTiming(timings, "server-ensure", "OpenCode server ensure", serverStart);
       spinner.text = "Reviewing changes...";
+
+
 
       const reviewStart = performance.now();
       const report: ReviewReport = await runReview({
