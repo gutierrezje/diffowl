@@ -65,7 +65,7 @@ export function buildReviewPrompt(
   include?: string[],
   exclude?: string[],
   localContext?: string,
-  depth: "shallow" | "default" | "deep" = "default",
+  depth: "shallow" | "default" = "default",
 ): string {
   const modeInstruction =
     mode === "staged" ? "Review the currently staged changes." : "Review the last commit.";
@@ -97,7 +97,7 @@ Then provide your review following the format in your instructions.`;
   return prompt;
 }
 
-function reviewDepthInstruction(depth: "shallow" | "default" | "deep"): string {
+function reviewDepthInstruction(depth: "shallow" | "default"): string {
   switch (depth) {
     case "shallow":
       return [
@@ -105,14 +105,6 @@ function reviewDepthInstruction(depth: "shallow" | "default" | "deep"): string {
         "This is a cheap, surface-level review from the provided context only.",
         "Look for obvious local bugs such as off-by-one errors, inverted conditions, unsafe null handling, missing awaits, and implementation anti-patterns visible in the diff.",
         "Do not claim a field, branch, call path, or validation is missing or ignored unless the provided context directly proves it. If relevant snippets are truncated, either skip the finding or mark it low confidence.",
-      ].join("\n");
-    case "deep":
-      return [
-        "Review depth: deep.",
-        "Use the provided static impact context first, then explore with available tools before finalizing findings.",
-        "Trace changed symbols through callers, callees, related tests, config, and any code paths that could be affected by the decision.",
-        "Deep findings should be about behavior that may only become clear down the call graph, across module boundaries, or through interaction with existing contracts.",
-        "For any finding that says something is missing, ignored, unreachable, or not handled, verify it by inspecting the relevant implementation with tools.",
       ].join("\n");
     case "default":
       return [

@@ -146,17 +146,6 @@ describe("buildToolPolicy", () => {
     expect(policy["apply_patch"]).toBe(false);
   });
 
-  it("allows shell in deep mode while keeping mutation tools disabled", async () => {
-    const policy = await buildToolPolicy(client, "deep");
-
-    expect(policy["read"]).toBe(true);
-    expect(policy["grep"]).toBe(true);
-    expect(policy["glob"]).toBe(true);
-    expect(policy["bash"]).toBe(true);
-    expect(policy["edit"]).toBe(false);
-    expect(policy["write"]).toBe(false);
-    expect(policy["apply_patch"]).toBe(false);
-  });
 });
 
 describe("opencodeDirectoryOptions", () => {
@@ -250,62 +239,8 @@ describe("extractPermissionRequest", () => {
 });
 
 describe("permissionResponseForDepth", () => {
-  it("always accepts read-only shell inspection in deep mode", () => {
-    expect(
-      permissionResponseForDepth({ type: "bash", title: "rg validateContext src" }, "deep"),
-    ).toBe("always");
-    expect(
-      permissionResponseForDepth({ type: "shell", title: "git show --stat HEAD" }, "deep"),
-    ).toBe("always");
-  });
-
-  it("always accepts common verification commands in deep mode", () => {
-    expect(
-      permissionResponseForDepth(
-        { type: "bash", title: "pnpm run test src/config.test.ts" },
-        "deep",
-      ),
-    ).toBe("always");
-    expect(permissionResponseForDepth({ type: "bash", title: "tsc --noEmit" }, "deep")).toBe(
-      "always",
-    );
-  });
-
-  it("rejects mutating shell commands even in deep mode", () => {
-    expect(permissionResponseForDepth({ type: "bash", title: "rm -rf dist" }, "deep")).toBe(
-      "reject",
-    );
-    expect(permissionResponseForDepth({ type: "bash", title: "git commit -m test" }, "deep")).toBe(
-      "reject",
-    );
-  });
-
-  it("rejects mutating verification variants in deep mode", () => {
-    expect(permissionResponseForDepth({ type: "bash", title: "pnpm run lint:fix" }, "deep")).toBe(
-      "reject",
-    );
-    expect(
-      permissionResponseForDepth({ type: "bash", title: "npm run test -- --update" }, "deep"),
-    ).toBe("reject");
-    expect(permissionResponseForDepth({ type: "bash", title: "vitest -u" }, "deep")).toBe("reject");
-  });
-
-  it("allows read-only commands with quoted angle brackets", () => {
-    expect(
-      permissionResponseForDepth({ type: "bash", title: "rg '<div class=\"header\">'" }, "deep"),
-    ).toBe("always");
-    expect(
-      permissionResponseForDepth({ type: "bash", title: "git log --format='<%h> %s'" }, "deep"),
-    ).toBe("always");
-  });
-
-  it("rejects unquoted shell redirection", () => {
-    expect(
-      permissionResponseForDepth({ type: "bash", title: "cat README.md > out.txt" }, "deep"),
-    ).toBe("reject");
-  });
-
-  it("rejects shell permissions outside deep mode", () => {
+  it("always rejects permissions", () => {
     expect(permissionResponseForDepth({ type: "bash", title: "rg foo" }, "default")).toBe("reject");
+    expect(permissionResponseForDepth({ type: "bash", title: "rg foo" }, "shallow")).toBe("reject");
   });
 });

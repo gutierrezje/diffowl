@@ -9,7 +9,6 @@ export interface ReviewContext {
   skippedFiles: DiffFile[];
   relatedFiles: RelatedFileContext[];
   references: ReferenceContext[];
-  deep: DeepReviewContext | undefined;
   diagnostics: string[];
 }
 
@@ -52,37 +51,6 @@ export interface ReferenceMatch {
   text: string;
 }
 
-export interface DeepReviewContext {
-  astOutlines: AstOutlineContext[];
-  impactGraph: ImpactGraphContext[];
-}
-
-export interface AstOutlineContext {
-  path: string;
-  symbols: AstOutlineSymbol[];
-  truncated: boolean;
-}
-
-export interface AstOutlineSymbol {
-  kind: string;
-  name: string;
-  startLine: number;
-  endLine: number;
-}
-
-export interface ImpactGraphContext {
-  symbol: string;
-  file: string;
-  callers: ImpactGraphEdge[];
-  callees: ImpactGraphEdge[];
-  truncated: boolean;
-}
-
-export interface ImpactGraphEdge {
-  symbol: string;
-  file: string;
-  line: number;
-}
 
 export interface RenderReviewContextOptions {
   depth?: ReviewContextDepth;

@@ -5,7 +5,7 @@ import { parse, stringify } from "yaml";
 import { z, ZodError } from "zod";
 
 export type ReviewConfidence = "low" | "medium" | "high";
-export type ReviewContextDepth = "shallow" | "default" | "deep";
+export type ReviewContextDepth = "shallow" | "default";
 
 export interface DiffOwlConfig {
   model: string;
@@ -52,7 +52,7 @@ const DEFAULT_CONFIG: DiffOwlConfig = {
 const CONFIG_FILENAME = ".diffowl.yml";
 
 export const ReviewConfidenceSchema = z.enum(["low", "medium", "high"]);
-export const ReviewContextDepthSchema = z.enum(["shallow", "default", "deep"]);
+export const ReviewContextDepthSchema = z.enum(["shallow", "default"]);
 export const ModelSchema = z
   .string()
   .trim()

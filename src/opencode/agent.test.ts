@@ -28,12 +28,4 @@ describe("buildReviewPrompt", () => {
     expect(prompt).toContain("If relevant snippets are truncated");
   });
 
-  it("asks for targeted verification in deep mode", () => {
-    const prompt = buildReviewPrompt("staged", [], undefined, undefined, "LOCAL CONTEXT", "deep");
-
-    expect(prompt).toContain("Review depth: deep");
-    expect(prompt).toContain("static impact context");
-    expect(prompt).toContain("explore with available tools before finalizing findings");
-    expect(prompt).toContain("down the call graph");
-  });
 });

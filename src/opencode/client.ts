@@ -67,7 +67,6 @@ const FALLBACK_TOOL_IDS = [
 ];
 
 const READ_SEARCH_TOOLS = new Set(["glob", "grep", "read"]);
-const DEEP_TOOLS = new Set([...READ_SEARCH_TOOLS, "bash"]);
 const PERMISSION_REPLY_TIMEOUT_MS = 5_000;
 
 interface PermissionRequest {
@@ -413,9 +412,6 @@ function allowedToolsForDepth(depth: ReviewContextDepth): Set<string> {
   if (depth === "shallow") {
     return new Set();
   }
-  if (depth === "deep") {
-    return DEEP_TOOLS;
-  }
   return READ_SEARCH_TOOLS;
 }
 
@@ -482,87 +478,10 @@ async function replyWithAvailableEndpoint(
 }
 
 export function permissionResponseForDepth(
-  permission: { type: string; title?: string },
-  depth: ReviewContextDepth,
+  _permission: { type: string; title?: string },
+  _depth: ReviewContextDepth,
 ): PermissionResponse {
-  if (depth !== "deep") {
-    return "reject";
-  }
-
-  const text = `${permission.type} ${permission.title ?? ""}`.toLowerCase();
-  if (!text.includes("bash") && !text.includes("shell")) {
-    return "reject";
-  }
-
-  if (looksMutatingShellCommand(text)) {
-    return "reject";
-  }
-
-  if (looksReadOnlyShellCommand(text) || looksVerificationShellCommand(text)) {
-    return "always";
-  }
-
   return "reject";
-}
-
-function looksReadOnlyShellCommand(text: string): boolean {
-  const command = extractShellCommand(text);
-  return Boolean(
-    command &&
-    /^(git\s+(diff|grep|log|show|status|ls-files)|rg|grep|sed\s+-n|cat|ls|find|pwd|wc|head|tail|nl)(\s|$)/.test(
-      command,
-    ),
-  );
-}
-
-function looksVerificationShellCommand(text: string): boolean {
-  const command = extractShellCommand(text);
-  if (!command || hasMutatingVerificationFlag(command)) {
-    return false;
-  }
-
-  return (
-    /^(vitest|tsc\s+--noemit|oxlint|oxfmt\s+--check)(\s|$)/.test(command) ||
-    /^(pnpm|npm|yarn|bun)\s+(run\s+)?(test|typecheck|lint|vitest)(\s|$)/.test(command)
-  );
-}
-
-function looksMutatingShellCommand(text: string): boolean {
-  const command = extractShellCommand(text);
-  return Boolean(
-    command &&
-    (/\b(rm|mv|cp|chmod|chown|mkdir|touch|tee|git\s+(add|commit|checkout|reset|clean|push|pull|merge|rebase)|npm\s+install|pnpm\s+(install|add)|yarn\s+(install|add)|bun\s+(install|add)|apply_patch|sed\s+-i|perl\s+-pi|oxfmt\s+--write)\b/.test(
-      command,
-    ) ||
-      hasUnquotedRedirection(command)),
-  );
-}
-
-function extractShellCommand(text: string): string {
-  return text
-    .replace(/^(bash|shell)\s*/i, "")
-    .trim()
-    .toLowerCase();
-}
-
-function hasMutatingVerificationFlag(command: string): boolean {
-  return /(^|\s)(--fix|--write|--update|-u)(\s|$)|\b(test|typecheck|lint|vitest):\w+/.test(command);
-}
-
-function hasUnquotedRedirection(command: string): boolean {
-  let quote: "'" | '"' | undefined;
-  for (let index = 0; index < command.length; index++) {
-    const char = command[index];
-    if ((char === "'" || char === '"') && command[index - 1] !== "\\") {
-      quote = quote === char ? undefined : (quote ?? char);
-      continue;
-    }
-
-    if (!quote && (char === "<" || char === ">")) {
-      return true;
-    }
-  }
-  return false;
 }
 
 export function extractSessionId(response: unknown): string {

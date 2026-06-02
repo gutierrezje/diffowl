@@ -84,12 +84,12 @@ describe("config", () => {
     tempDirs.push(root);
     await writeFile(
       join(root, ".diffowl.yml"),
-      ["model: provider/model", "context:", "  depth: deep"].join("\n"),
+      ["model: provider/model", "context:", "  depth: shallow"].join("\n"),
       "utf-8",
     );
     process.chdir(root);
 
-    expect((await loadConfig()).context.depth).toBe("deep");
+    expect((await loadConfig()).context.depth).toBe("shallow");
   });
 
   it("fails fast for invalid explicit values", async () => {

@@ -70,7 +70,7 @@ program
   .description("Review the last commit or staged changes")
   .option("--staged", "Review staged changes instead of last commit")
   .option("--hook", "Running from git hook (non-blocking mode)")
-  .option("--depth <depth>", "Review context depth: shallow, default, or deep")
+  .option("--depth <depth>", "Review context depth: shallow or default")
   .action(async (options) => {
     const totalStart = performance.now();
     const timings: ReviewTiming[] = [];
@@ -272,7 +272,7 @@ function resolveReviewDepth(value: unknown, config: DiffOwlConfig): ReviewContex
     return parseReviewContextDepth(value);
   } catch {
     console.error(chalk.red(`Invalid review depth: ${String(value)}`));
-    console.error(chalk.dim("Expected one of: shallow, default, deep"));
+    console.error(chalk.dim("Expected one of: shallow, default"));
     process.exit(1);
   }
 }
