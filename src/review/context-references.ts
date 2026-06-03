@@ -7,6 +7,7 @@ const MAX_REFERENCES_PER_TERM = 8;
 const MAX_REFERENCE_TERMS = 8;
 const MAX_REFERENCE_LINE_CHARS = 220;
 const MAX_BATCH_REFERENCE_MATCHES = 200;
+const REFERENCE_SEARCH_TIMEOUT_MS = 5_000;
 
 export async function buildReferenceContexts(
   changedFiles: ChangedFileContext[],
@@ -98,7 +99,7 @@ async function findBatchReferencesWithGitGrep(
     }
     args.push("--");
 
-    const { stdout } = await execa("git", args, { timeout: 2000 });
+    const { stdout } = await execa("git", args, { timeout: REFERENCE_SEARCH_TIMEOUT_MS });
     return parseBatchReferenceLines(stdout, ignoredPaths);
   } catch (err) {
     if (isNoMatchesExit(err)) return [];
@@ -116,8 +117,7 @@ function parseBatchReferenceLines(stdout: string, ignoredPaths: Set<string>): Re
     .filter(Boolean)
     .map(parseReferenceLine)
     .filter((match): match is ReferenceMatch => Boolean(match))
-    .filter((match) => !ignoredPaths.has(match.path))
-    .slice(0, MAX_BATCH_REFERENCE_MATCHES);
+    .filter((match) => !ignoredPaths.has(match.path));
 }
 
 function parseReferenceLine(line: string): ReferenceMatch | undefined {
