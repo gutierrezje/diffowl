@@ -240,7 +240,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
 
             const permission = extractPermissionRequest(payload, sessionId);
             if (permission) {
-              void replyToPermissionRequest(client, permission, depth, onProgress).catch((err) => {
+              void replyToPermissionRequest(client, permission, onProgress).catch((err) => {
                 onProgress?.({
                   type: "session",
                   message: `OpenCode permission reply failed: ${
@@ -429,10 +429,11 @@ async function replyToPermissionRequest(
     };
   },
   permission: PermissionRequest,
-  depth: ReviewContextDepth,
   onProgress: ReviewOptions["onProgress"],
 ): Promise<void> {
-  const response = permissionResponseForDepth(permission, depth);
+  // Reviews may use permissionless read/search tools from the prompt tool policy,
+  // but any OpenCode permission prompt is treated as an escalation and rejected.
+  const response: PermissionResponse = "reject";
   onProgress?.({
     type: "session",
     message: `OpenCode permission ${response}: ${permission.title ?? permission.type}`,
@@ -475,13 +476,6 @@ async function replyWithAvailableEndpoint(
       body: { response },
     });
   }
-}
-
-export function permissionResponseForDepth(
-  _permission: { type: string; title?: string },
-  _depth: ReviewContextDepth,
-): PermissionResponse {
-  return "reject";
 }
 
 export function extractSessionId(response: unknown): string {

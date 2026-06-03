@@ -5,7 +5,6 @@ import {
   extractSessionId,
   handledAwaitable,
   opencodeDirectoryOptions,
-  permissionResponseForDepth,
   parseStructuredReview,
   looksLikeCompleteStructuredReview,
 } from "./client.js";
@@ -145,7 +144,6 @@ describe("buildToolPolicy", () => {
     expect(policy["write"]).toBe(false);
     expect(policy["apply_patch"]).toBe(false);
   });
-
 });
 
 describe("opencodeDirectoryOptions", () => {
@@ -235,12 +233,5 @@ describe("extractPermissionRequest", () => {
         "session-1",
       ),
     ).toBeUndefined();
-  });
-});
-
-describe("permissionResponseForDepth", () => {
-  it("always rejects permissions", () => {
-    expect(permissionResponseForDepth({ type: "bash", title: "rg foo" }, "default")).toBe("reject");
-    expect(permissionResponseForDepth({ type: "bash", title: "rg foo" }, "shallow")).toBe("reject");
   });
 });
