@@ -1,4 +1,4 @@
-import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk";
+import { createOpencodeClient } from "@opencode-ai/sdk";
 import { z } from "zod";
 import { isServerRunning, ensureServer } from "./server.js";
 import { REVIEW_AGENT_PROMPT, buildReviewPrompt } from "./agent.js";
@@ -120,18 +120,15 @@ export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
 
   let client;
 
-  // Try to connect to existing server, otherwise start one via SDK
+  // The CLI owns startup policy. Reviews only connect to the configured server.
   const connectStart = performance.now();
-  if (await isServerRunning(port)) {
-    onProgress?.({ type: "server", message: `Connected to OpenCode on port ${port}.` });
-    client = createOpencodeClient({
-      baseUrl: `http://127.0.0.1:${port}`,
-    });
-  } else {
-    onProgress?.({ type: "server", message: `Starting OpenCode on port ${port}.` });
-    const oc = await createOpencode({ port });
-    client = oc.client;
+  if (!(await isServerRunning(port))) {
+    throw new Error(`OpenCode server is not running on port ${port}.`);
   }
+  onProgress?.({ type: "server", message: `Connected to OpenCode on port ${port}.` });
+  client = createOpencodeClient({
+    baseUrl: `http://127.0.0.1:${port}`,
+  });
   recordTiming(timings, onProgress, "opencode-connect", "OpenCode client connection", connectStart);
 
   // Create a new session for this review

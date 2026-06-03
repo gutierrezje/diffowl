@@ -178,7 +178,7 @@ program
       // Ensure server and start review
       spinner.text = "Connecting to OpenCode...";
       const serverStart = performance.now();
-      await ensureServer(config.server.port);
+      await prepareReviewServer(config);
       recordCliTiming(timings, "server-ensure", "OpenCode server ensure", serverStart);
       spinner.text = "Reviewing changes...";
 
@@ -301,6 +301,21 @@ function printTimingSummary(timings: ReviewTiming[]): void {
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
+}
+
+async function prepareReviewServer(config: DiffOwlConfig): Promise<void> {
+  if (config.server.auto_start) {
+    await ensureServer(config.server.port);
+    return;
+  }
+
+  if (await isServerRunning(config.server.port)) {
+    return;
+  }
+
+  throw new Error(
+    `OpenCode server is not running on port ${config.server.port}. Start it with \`diffowl server start\` or set server.auto_start: true.`,
+  );
 }
 
 // Init command
