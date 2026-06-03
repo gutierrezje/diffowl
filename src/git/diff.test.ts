@@ -341,6 +341,45 @@ describe("parseDiff", () => {
     expect(file.path).toBe("src/cli.ts");
     expect(file.status).toBe("modified");
   });
+
+  it("handles CRLF (\\r\\n) line endings correctly", () => {
+    const rawDiffCRLF = [
+      "diff --git a/src/cli.ts b/src/cli.ts\r",
+      "index 1234567..89abcde 100644\r",
+      "--- a/src/cli.ts\r",
+      "+++ b/src/cli.ts\r",
+      "@@ -10,3 +10,4 @@\r",
+      " unchanged line\r",
+      "-deleted line\r",
+      "+added line 1\r",
+      "+added line 2\r",
+    ].join("\n");
+
+    const result = parseDiff(rawDiffCRLF);
+
+    expect(result.files).toHaveLength(1);
+    const file = result.files[0]!;
+    expect(file.path).toBe("src/cli.ts");
+    expect(file.status).toBe("modified");
+    expect(file.additions).toBe(2);
+    expect(file.deletions).toBe(1);
+  });
+
+  it("handles CRLF renames with quoted target paths correctly", () => {
+    const rawDiffRenameQuotedCRLF = [
+      "diff --git a/old_name.ts b/new_name.ts\r",
+      "similarity index 85%\r",
+      "rename from old_name.ts\r",
+      'rename to "src/new name.ts"\r',
+    ].join("\n");
+
+    const result = parseDiff(rawDiffRenameQuotedCRLF);
+
+    expect(result.files).toHaveLength(1);
+    const file = result.files[0]!;
+    expect(file.path).toBe("src/new name.ts");
+    expect(file.status).toBe("renamed");
+  });
 });
 
 describe("isDocFile", () => {

@@ -157,7 +157,7 @@ function filterDiffRaw(rawDiff: string, includedPaths: Set<string>): string {
   const lines: string[] = [];
   let includeCurrentFile = false;
 
-  for (const line of rawDiff.split("\n")) {
+  for (const line of rawDiff.split(/\r?\n/).map((l) => (l.endsWith("\r") ? l.slice(0, -1) : l))) {
     const gitDiffPaths = parseGitDiffLine(line);
     if (gitDiffPaths) {
       includeCurrentFile = includedPaths.has(gitDiffPaths.pathB);

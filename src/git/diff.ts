@@ -149,7 +149,7 @@ export async function hasCommits(): Promise<boolean> {
 
 export function parseDiff(raw: string, diagnostics: string[] = []): DiffResult {
   const files: DiffFile[] = [];
-  const lines = raw.split("\n");
+  const lines = raw.split(/\r?\n/).map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line));
 
   for (const line of lines) {
     // Parse diff --git a/path b/path
@@ -229,8 +229,9 @@ function formatBytes(bytes: number): string {
 }
 
 export function parseGitDiffLine(line: string): { pathA: string; pathB: string } | null {
-  if (!line.startsWith("diff --git ")) return null;
-  const content = line.slice("diff --git ".length);
+  const cleanLine = line.endsWith("\r") ? line.slice(0, -1) : line;
+  if (!cleanLine.startsWith("diff --git ")) return null;
+  const content = cleanLine.slice("diff --git ".length);
 
   const paths: string[] = [];
   let i = 0;
@@ -292,11 +293,12 @@ export function parseGitDiffLine(line: string): { pathA: string; pathB: string }
 }
 
 function parseCombinedDiffLine(line: string): string | null {
+  const cleanLine = line.endsWith("\r") ? line.slice(0, -1) : line;
   let content = "";
-  if (line.startsWith("diff --cc ")) {
-    content = line.slice("diff --cc ".length);
-  } else if (line.startsWith("diff --combined ")) {
-    content = line.slice("diff --combined ".length);
+  if (cleanLine.startsWith("diff --cc ")) {
+    content = cleanLine.slice("diff --cc ".length);
+  } else if (cleanLine.startsWith("diff --combined ")) {
+    content = cleanLine.slice("diff --combined ".length);
   } else {
     return null;
   }
@@ -304,7 +306,7 @@ function parseCombinedDiffLine(line: string): string | null {
   return unescapePath(content);
 }
 
-function unescapePath(content: string): string {
+export function unescapePath(content: string): string {
   if (content.startsWith('"') && content.endsWith('"')) {
     let path = "";
     let i = 1;

@@ -9,6 +9,7 @@ import {
   getLastCommitDiff,
   getStagedDiff,
   parseGitDiffLine,
+  unescapePath,
   type DiffFile,
   type DiffResult,
 } from "../git/diff.js";
@@ -411,7 +412,7 @@ function getChangedLinesByFile(rawDiff: string): Map<string, number[]> {
   let currentPath: string | undefined;
   let newLine: number | undefined;
 
-  for (const line of rawDiff.split("\n")) {
+  for (const line of rawDiff.split(/\r?\n/).map((l) => (l.endsWith("\r") ? l.slice(0, -1) : l))) {
     const gitDiffPaths = parseGitDiffLine(line);
     if (gitDiffPaths) {
       currentPath = gitDiffPaths.pathB;
@@ -419,7 +420,7 @@ function getChangedLinesByFile(rawDiff: string): Map<string, number[]> {
     }
 
     if (line.startsWith("rename to ")) {
-      currentPath = line.slice("rename to ".length);
+      currentPath = unescapePath(line.slice("rename to ".length));
       continue;
     }
 
