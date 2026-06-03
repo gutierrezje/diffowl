@@ -199,13 +199,6 @@ program
       recordCliTiming(timings, "review-run", "OpenCode review run", reviewStart);
       spinner.succeed("Review complete.");
       console.log(); // Space after spinner
-      if (report.diagnostics && report.diagnostics.length > 0) {
-        console.log(chalk.yellow("Review output diagnostics:"));
-        for (const diagnostic of report.diagnostics) {
-          console.log(chalk.yellow(`  - ${diagnostic}`));
-        }
-        console.log();
-      }
 
       const diagnostics = report.diagnostics ?? [];
 

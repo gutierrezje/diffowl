@@ -118,4 +118,41 @@ describe("renderMarkdown", () => {
       "- Suppressed 1 finding(s) for files not changed in this diff."
     );
   });
+
+  it("does not render empty diagnostics or suppressed findings sections", () => {
+    const report: ReviewReport = {
+      summary: "Test summary",
+      findings: [],
+      suppressedFindings: [],
+      diagnostics: []
+    };
+
+    const output = renderMarkdown(report);
+
+    expect(output).not.toContain("### Suppressed Findings");
+    expect(output).not.toContain("### Diagnostics");
+  });
+
+  it("renders evidence for suppressed findings", () => {
+    const report: ReviewReport = {
+      summary: "Test summary",
+      findings: [],
+      suppressedFindings: [
+        {
+          severity: "info",
+          file: "src/unchanged.ts",
+          line: 8,
+          evidence: "const value = `example`;",
+          title: "Outside changed file",
+          body: "This is shown only in verbose output.",
+          confidence: "high"
+        }
+      ]
+    };
+
+    const output = renderMarkdown(report);
+
+    expect(output).toContain("### Suppressed Findings");
+    expect(output).toContain("> **Evidence:** ``const value = `example`;``");
+  });
 });
