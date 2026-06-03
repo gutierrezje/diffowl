@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
@@ -106,11 +107,14 @@ describe("generateManagedSection", () => {
   });
 
   it.skipIf(process.platform === "win32")(
-    "does not report a started review when no diffowl command can run",
+    "writes fallback failures to the discovered parent diffowl directory",
     async () => {
       const root = await mkdtemp(join(tmpdir(), "diffowl-hooks-"));
       tempDirs.push(root);
-      const scriptPath = join(root, "post-commit");
+      const repo = join(root, "repo");
+      await mkdir(repo);
+      await writeFile(join(root, ".diffowl.yml"), "model: provider/model\n", "utf-8");
+      const scriptPath = join(repo, "post-commit");
       await writeFile(
         scriptPath,
         [
@@ -126,7 +130,7 @@ describe("generateManagedSection", () => {
       );
 
       const { stdout } = await execa("sh", [scriptPath], {
-        cwd: root,
+        cwd: repo,
         env: { PATH: "/usr/bin:/bin" },
       });
       const log = await readFile(join(root, ".diffowl", "hook.log"), "utf-8");
@@ -135,6 +139,7 @@ describe("generateManagedSection", () => {
       expect(stdout).not.toContain("diffowl: review started in background");
       expect(log).toContain("diffowl: review not started");
       expect(log).not.toContain("diffowl: review started at");
+      expect(existsSync(join(repo, ".diffowl", "hook.log"))).toBe(false);
     },
   );
 });

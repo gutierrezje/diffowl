@@ -8,7 +8,6 @@ import { ensureDiffOwlDir, getDiffOwlDir } from "../config.js";
 const HOOK_MARKER = "# diffowl-managed";
 const HOOK_END_MARKER = "# end-diffowl";
 const HOOK_SHEBANG = "#!/bin/sh";
-const HOOK_LOG_FILE = ".diffowl/hook.log";
 
 /**
  * Get the .git/hooks directory path
@@ -131,12 +130,13 @@ export async function checkRecentHookFailure(): Promise<HookFailure | undefined>
 export async function runHookReview(): Promise<void> {
   const dir = await ensureDiffOwlDir();
   const logFile = join(dir, "hook.log");
+  const latestReport = join(dir, "reviews", "latest.md");
 
   const outFd = openSync(logFile, "a");
   try {
     writeSync(
       outFd,
-      `diffowl: review started at ${new Date().toString()}; latest report: .diffowl/reviews/latest.md\n`,
+      `diffowl: review started at ${new Date().toString()}; latest report: ${latestReport}\n`,
     );
 
     const command = await resolveHookCommand();
@@ -162,7 +162,7 @@ export async function runHookReview(): Promise<void> {
     subprocess.unref();
 
     console.log(
-      `diffowl: review started in background; log: ${HOOK_LOG_FILE}; latest report: .diffowl/reviews/latest.md`,
+      `diffowl: review started in background; log: ${logFile}; latest report: ${latestReport}`,
     );
   } finally {
     closeSync(outFd);
@@ -339,7 +339,15 @@ fi`;
 
   return `${HOOK_MARKER}
 # Run diffowl review in the background (non-blocking)
-DIFFOWL_LOG_DIR=".diffowl"
+DIFFOWL_SEARCH_DIR="$PWD"
+while [ "$DIFFOWL_SEARCH_DIR" != "/" ] && [ ! -f "$DIFFOWL_SEARCH_DIR/.diffowl.yml" ]; do
+  DIFFOWL_SEARCH_DIR=$(dirname "$DIFFOWL_SEARCH_DIR")
+done
+if [ -f "$DIFFOWL_SEARCH_DIR/.diffowl.yml" ]; then
+  DIFFOWL_LOG_DIR="$DIFFOWL_SEARCH_DIR/.diffowl"
+else
+  DIFFOWL_LOG_DIR=".diffowl"
+fi
 DIFFOWL_LOG_FILE="$DIFFOWL_LOG_DIR/hook.log"
 mkdir -p "$DIFFOWL_LOG_DIR"
 ${
