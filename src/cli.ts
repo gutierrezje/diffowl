@@ -8,6 +8,7 @@ import {
   loadConfig,
   saveConfig,
   configExists,
+  ensureDiffOwlDir,
   parseModel,
   parseReviewContextDepth,
   type DiffOwlConfig,
@@ -46,7 +47,8 @@ import { join } from "node:path";
 
 async function writeHookStatus(exitCode: number): Promise<void> {
   try {
-    const statusPath = join(process.cwd(), ".diffowl", "last-hook-status.json");
+    const dir = await ensureDiffOwlDir();
+    const statusPath = join(dir, "last-hook-status.json");
     await writeFile(
       statusPath,
       JSON.stringify({ exitCode, timestamp: new Date().toISOString() }, null, 2),

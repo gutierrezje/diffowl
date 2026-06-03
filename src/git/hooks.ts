@@ -3,12 +3,11 @@ import { closeSync, existsSync, openSync, writeSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
-import { ensureDiffOwlDir } from "../config.js";
+import { ensureDiffOwlDir, getDiffOwlDir } from "../config.js";
 
 const HOOK_MARKER = "# diffowl-managed";
 const HOOK_END_MARKER = "# end-diffowl";
 const HOOK_SHEBANG = "#!/bin/sh";
-const LAST_HOOK_STATUS = ".diffowl/last-hook-status.json";
 const HOOK_LOG_FILE = ".diffowl/hook.log";
 
 /**
@@ -95,7 +94,7 @@ export interface HookFailure {
  * Returns failure details only for non-zero exits within the last hour.
  */
 export async function checkRecentHookFailure(): Promise<HookFailure | undefined> {
-  const statusPath = join(process.cwd(), LAST_HOOK_STATUS);
+  const statusPath = join(getDiffOwlDir(), "last-hook-status.json");
   if (!existsSync(statusPath)) {
     return undefined;
   }
@@ -130,8 +129,8 @@ export async function checkRecentHookFailure(): Promise<HookFailure | undefined>
 }
 
 export async function runHookReview(): Promise<void> {
-  const logFile = join(process.cwd(), HOOK_LOG_FILE);
-  await ensureDiffOwlDir();
+  const dir = await ensureDiffOwlDir();
+  const logFile = join(dir, "hook.log");
 
   const outFd = openSync(logFile, "a");
   try {

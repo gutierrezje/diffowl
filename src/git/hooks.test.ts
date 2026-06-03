@@ -1,9 +1,9 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
 import { afterEach, describe, expect, it } from "vitest";
-import { installHook, generateManagedSection } from "./hooks.js";
+import { checkRecentHookFailure, installHook, generateManagedSection } from "./hooks.js";
 
 const originalCwd = process.cwd();
 let tempDirs: string[] = [];
@@ -44,6 +44,26 @@ describe("installHook", () => {
     expect(hook).toContain("PATH=");
     expect(hook).toContain("DIFFOWL_LOG_FILE");
     expect(hook).not.toContain("commitdog review --hook &");
+  });
+});
+
+describe("checkRecentHookFailure", () => {
+  it("reads hook status from the discovered project root when run from a subdirectory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-hooks-"));
+    tempDirs.push(root);
+    const child = join(root, "packages", "app");
+    await mkdir(join(root, ".diffowl"), { recursive: true });
+    await mkdir(child, { recursive: true });
+    await writeFile(join(root, ".diffowl.yml"), "model: provider/model\n", "utf-8");
+    await writeFile(
+      join(root, ".diffowl", "last-hook-status.json"),
+      JSON.stringify({ exitCode: 1, timestamp: new Date().toISOString() }),
+      "utf-8",
+    );
+
+    process.chdir(child);
+
+    await expect(checkRecentHookFailure()).resolves.toMatchObject({ exitCode: 1 });
   });
 });
 
