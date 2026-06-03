@@ -33,6 +33,34 @@ export function renderMarkdown(report: ReviewReport): string {
     }
   }
 
+  if (report.suppressedFindings && report.suppressedFindings.length > 0) {
+    lines.push("");
+    lines.push("### Suppressed Findings");
+    lines.push("These findings are outside files changed in this diff.");
+    lines.push("");
+    for (const finding of report.suppressedFindings) {
+      lines.push(
+        `**[${finding.severity.toUpperCase()}] ${finding.file}:${finding.line}** (${finding.confidence} confidence)`,
+      );
+      lines.push(finding.title.trim());
+      lines.push("");
+      if (finding.evidence) {
+        lines.push(`> **Evidence:** ${formatMarkdownCodeSpan(finding.evidence)}`);
+        lines.push("");
+      }
+      lines.push(finding.body.trim());
+      lines.push("");
+    }
+  }
+
+  if (report.diagnostics && report.diagnostics.length > 0) {
+    lines.push("");
+    lines.push("### Diagnostics");
+    for (const diagnostic of report.diagnostics) {
+      lines.push(`- ${diagnostic}`);
+    }
+  }
+
   return lines.join("\n");
 }
 

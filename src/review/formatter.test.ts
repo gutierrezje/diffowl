@@ -91,4 +91,31 @@ describe("renderMarkdown", () => {
     const output = renderMarkdown(report);
     expect(output).toContain("> **Evidence:** `` `inline` ``");
   });
+
+  it("renders diagnostics and suppressed findings when present", () => {
+    const report: ReviewReport = {
+      summary: "Test summary",
+      findings: [],
+      suppressedFindings: [
+        {
+          severity: "warning",
+          file: "src/unchanged.ts",
+          line: 12,
+          title: "Outside changed file",
+          body: "This is shown only in verbose output.",
+          confidence: "medium"
+        }
+      ],
+      diagnostics: ["Suppressed 1 finding(s) for files not changed in this diff."]
+    };
+
+    const output = renderMarkdown(report);
+
+    expect(output).toContain("### Suppressed Findings");
+    expect(output).toContain("**[WARNING] src/unchanged.ts:12** (medium confidence)");
+    expect(output).toContain("### Diagnostics");
+    expect(output).toContain(
+      "- Suppressed 1 finding(s) for files not changed in this diff."
+    );
+  });
 });

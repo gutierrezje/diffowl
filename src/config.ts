@@ -22,6 +22,7 @@ export interface DiffOwlConfig {
   exclude: string[];
   rules: string[];
   skip_doc_only: boolean;
+  verbose: boolean;
 }
 
 const DEFAULT_CONFIG: DiffOwlConfig = {
@@ -47,6 +48,7 @@ const DEFAULT_CONFIG: DiffOwlConfig = {
   ],
   rules: [],
   skip_doc_only: false,
+  verbose: false,
 };
 
 const CONFIG_FILENAME = ".diffowl.yml";
@@ -83,6 +85,7 @@ export const DiffOwlConfigSchema = z
     exclude: stringArraySchema.default(DEFAULT_CONFIG.exclude),
     rules: stringArraySchema.default(DEFAULT_CONFIG.rules),
     skip_doc_only: z.boolean().default(DEFAULT_CONFIG.skip_doc_only),
+    verbose: z.boolean().default(DEFAULT_CONFIG.verbose),
   })
   .strict();
 

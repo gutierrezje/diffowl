@@ -30,6 +30,7 @@ const config: DiffOwlConfig = {
   exclude: [],
   rules: [],
   skip_doc_only: false,
+  verbose: false,
 };
 
 describe("buildReviewContext", () => {

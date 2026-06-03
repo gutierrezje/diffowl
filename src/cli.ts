@@ -73,6 +73,7 @@ program
   .option("--staged", "Review staged changes instead of last commit")
   .option("--hook", "Running from git hook (non-blocking mode)")
   .option("--depth <depth>", "Review context depth: shallow or default")
+  .option("--verbose", "Include suppressed findings and extra review details")
   .action(async (options) => {
     const totalStart = performance.now();
     const timings: ReviewTiming[] = [];
@@ -95,6 +96,7 @@ program
     const config = await loadConfigOrExit();
     const mode = options.staged ? "staged" : "last-commit";
     const depth = resolveReviewDepth(options.depth, config);
+    const verbose = Boolean(config.verbose || options.verbose);
 
     if (mode === "last-commit") {
       const hasCommitsStart = performance.now();
@@ -205,15 +207,33 @@ program
         console.log();
       }
 
-      // Filter findings by configured confidence threshold
-      report.findings = filterFindingsByConfidence(report.findings, config.min_confidence);
+      const diagnostics = report.diagnostics ?? [];
 
-      // Filter findings by changed files (anchoring: only keep if file is modified in this diff, or confidence is high)
+      const confidenceFilter = filterFindingsByConfidence(report.findings, config.min_confidence);
+      report.findings = confidenceFilter.findings;
+      if (confidenceFilter.dropped > 0) {
+        diagnostics.push(
+          `Dropped ${confidenceFilter.dropped} finding(s) below min_confidence=${config.min_confidence}.`,
+        );
+      }
+
       const changedFilesSet = new Set<string>();
       for (const file of reviewContext.changedFiles) {
         changedFilesSet.add(file.file.path);
       }
-      report.findings = filterFindingsByChangedFiles(report.findings, changedFilesSet);
+      const changedFileFilter = filterFindingsByChangedFiles(report.findings, changedFilesSet);
+      report.findings = changedFileFilter.findings;
+      if (changedFileFilter.suppressed.length > 0) {
+        diagnostics.push(
+          `Suppressed ${changedFileFilter.suppressed.length} finding(s) for files not changed in this diff.`,
+        );
+        if (verbose) {
+          report.suppressedFindings = changedFileFilter.suppressed;
+        }
+      }
+      if (diagnostics.length > 0) {
+        report.diagnostics = diagnostics;
+      }
 
       const renderStart = performance.now();
       const markdown = renderMarkdown(report);
@@ -569,25 +589,33 @@ async function loadConfigOrExit(): Promise<DiffOwlConfig> {
 function filterFindingsByConfidence(
   findings: ReviewFinding[],
   minConfidence: ReviewConfidence,
-): ReviewFinding[] {
+): { findings: ReviewFinding[]; dropped: number } {
   const levels = ["low", "medium", "high"];
   const minIndex = levels.indexOf(minConfidence);
 
-  return findings.filter((f) => {
+  const kept = findings.filter((f) => {
     const idx = levels.indexOf(f.confidence.toLowerCase());
     return idx >= minIndex;
   });
+  return { findings: kept, dropped: findings.length - kept.length };
 }
 
 function filterFindingsByChangedFiles(
   findings: ReviewFinding[],
   changedFiles: Set<string>,
-): ReviewFinding[] {
-  return findings.filter((f) => {
+): { findings: ReviewFinding[]; suppressed: ReviewFinding[] } {
+  const kept: ReviewFinding[] = [];
+  const suppressed: ReviewFinding[] = [];
+  for (const finding of findings) {
     // If the file wasn't changed in this diff at all, it's a hallucinated file.
     // Drop it unconditionally, since confidence is not a guarantee of correctness.
-    return changedFiles.has(f.file);
-  });
+    if (changedFiles.has(finding.file)) {
+      kept.push(finding);
+    } else {
+      suppressed.push(finding);
+    }
+  }
+  return { findings: kept, suppressed };
 }
 
 function buildDocOnlySkipMarkdown(diff: { files: { path: string; additions: number; deletions: number }[] }): string {

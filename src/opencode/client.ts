@@ -21,6 +21,7 @@ export interface ReviewFinding {
 export interface ReviewReport {
   summary: string;
   findings: ReviewFinding[];
+  suppressedFindings?: ReviewFinding[];
   diagnostics?: string[];
   timings?: ReviewTiming[];
 }
