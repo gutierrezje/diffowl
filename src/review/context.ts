@@ -5,7 +5,13 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import picomatch from "picomatch";
 import type tsType from "typescript";
-import { getLastCommitDiff, getStagedDiff, parseGitDiffLine, type DiffFile, type DiffResult } from "../git/diff.js";
+import {
+  getLastCommitDiff,
+  getStagedDiff,
+  parseGitDiffLine,
+  type DiffFile,
+  type DiffResult,
+} from "../git/diff.js";
 import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
 import { buildReferenceContexts } from "./context-references.js";
 import type {
@@ -52,6 +58,7 @@ const MAX_RELATED_FILE_CHARS = 6_000;
 const MAX_AST_SYMBOL_CHARS = 8_000;
 const MAX_INLINE_FILE_CHARS = 2_000;
 const MAX_INLINE_FILE_LINES = 80;
+const MAX_CONTEXT_FILE_BYTES = 512 * 1024;
 const MIN_CHANGED_RATIO_FOR_INLINE_CONTENT = 0.4;
 
 const LOCKFILE_EXCLUDES = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb"];
@@ -62,14 +69,15 @@ export async function buildReviewContext(
   depth: ReviewContextDepth = config.context.depth,
   diff?: DiffResult,
 ): Promise<ReviewContext> {
-  const diffResult = diff ?? (mode === "staged" ? await getStagedDiff() : await getLastCommitDiff());
+  const diffResult =
+    diff ?? (mode === "staged" ? await getStagedDiff() : await getLastCommitDiff());
   const reviewableFiles = diffResult.files.filter((file) => shouldReviewFile(file.path, config));
   const skippedFiles = diffResult.files.filter((file) => !shouldReviewFile(file.path, config));
   const changedLines = getChangedLinesByFile(diffResult.raw);
   const changedFiles = await Promise.all(
     reviewableFiles.map((file) => buildChangedFileContext(file, changedLines.get(file.path) ?? [])),
   );
-  const diagnostics: string[] = [];
+  const diagnostics: string[] = [...(diffResult.diagnostics ?? [])];
   const relatedFiles = depth === "shallow" ? [] : await buildRelatedFileContexts(reviewableFiles);
   const references =
     depth === "shallow"
@@ -180,6 +188,12 @@ async function readTextFile(
     if (!info.isFile()) {
       return { truncated: false, reason: "not a regular file" };
     }
+    if (info.size > MAX_CONTEXT_FILE_BYTES) {
+      return {
+        truncated: false,
+        reason: `file too large for context (${formatBytes(info.size)} > ${formatBytes(MAX_CONTEXT_FILE_BYTES)})`,
+      };
+    }
 
     const raw = await readFile(path, "utf-8");
     if (raw.includes("\0")) {
@@ -234,8 +248,6 @@ function shouldRenderFullFileContent(file: DiffFile, content: string): boolean {
   const changedLineCount = file.additions + file.deletions;
   return changedLineCount / totalLines >= MIN_CHANGED_RATIO_FOR_INLINE_CONTENT;
 }
-
-
 
 function extractAstSymbols(
   path: string,
@@ -450,6 +462,11 @@ function truncateText(text: string, maxChars: number): { text: string; truncated
     text: `${text.slice(0, maxChars)}\n... [truncated ${text.length - maxChars} chars]`,
     truncated: true,
   };
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`;
 }
 
 function isTypeScriptPath(path: string): boolean {

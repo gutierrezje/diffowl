@@ -291,6 +291,37 @@ describe("buildReviewContext", () => {
     expect(rendered).not.toContain("packages:");
   });
 
+  it("skips oversized changed file content before rendering context", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
+    tempDirs.push(root);
+    process.chdir(root);
+
+    await mkdir("src");
+    await writeFile("src/large.txt", "x".repeat(530_000), "utf-8");
+
+    const context = await buildReviewContext("staged", config, "shallow", {
+      raw: [
+        "diff --git a/src/large.txt b/src/large.txt",
+        "--- a/src/large.txt",
+        "+++ b/src/large.txt",
+        "@@ -1,1 +1,1 @@",
+        "-old",
+        "+new",
+      ].join("\n"),
+      summary: "~ src/large.txt (+1/-1)",
+      files: [{ path: "src/large.txt", status: "modified", additions: 1, deletions: 1 }],
+      diagnostics: ["diff truncated"],
+    });
+    const rendered = renderReviewContext(context);
+
+    expect(context.diagnostics).toEqual(["diff truncated"]);
+    expect(context.changedFiles[0]!.content).toBeUndefined();
+    expect(context.changedFiles[0]!.skippedReason).toContain("file too large for context");
+    expect(rendered).toContain("Context diagnostics");
+    expect(rendered).toContain("diff truncated");
+    expect(rendered).toContain("File content skipped: file too large for context");
+  });
+
   it("renders a smaller shallow context without related files or references", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
     tempDirs.push(root);

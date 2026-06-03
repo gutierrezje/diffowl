@@ -21,6 +21,12 @@ describe("parseDiff", () => {
     expect(result.summary).toBe("~ src/git/diff.ts (+2/-1)\n~ README.md (+1/-1)");
   });
 
+  it("preserves parser diagnostics", () => {
+    const result = parseDiff("diff --git a/src/app.ts b/src/app.ts", ["diff truncated"]);
+
+    expect(result.diagnostics).toEqual(["diff truncated"]);
+  });
+
   it("parses realistic rename, delete, and binary entries", async () => {
     const result = parseDiff(await readFixture("rename-delete-binary.diff"));
 
@@ -147,11 +153,9 @@ describe("parseDiff", () => {
   });
 
   it("handles mode-only changes", () => {
-    const rawDiffMode = [
-      "diff --git a/foo.sh b/foo.sh",
-      "old mode 100644",
-      "new mode 100755",
-    ].join("\n");
+    const rawDiffMode = ["diff --git a/foo.sh b/foo.sh", "old mode 100644", "new mode 100755"].join(
+      "\n",
+    );
 
     const resultMode = parseDiff(rawDiffMode);
 

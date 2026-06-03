@@ -5,6 +5,7 @@ export interface DiffResult {
   files: DiffFile[];
   raw: string;
   summary: string;
+  diagnostics?: string[];
 }
 
 export interface DiffFile {
@@ -14,8 +15,10 @@ export interface DiffFile {
   deletions: number;
 }
 
+const MAX_DIFF_OUTPUT_BYTES = 2 * 1024 * 1024;
+
 export async function getLastCommitDiff(): Promise<DiffResult> {
-  const { stdout: raw } = await execa("git", [
+  const raw = await collectGitDiff([
     "-c",
     "diff.noprefix=false",
     "-c",
@@ -26,14 +29,14 @@ export async function getLastCommitDiff(): Promise<DiffResult> {
     "--patch",
     "HEAD",
   ]);
-  return parseDiff(raw);
+  return parseDiff(raw.stdout, raw.diagnostics);
 }
 
 /**
  * Get the diff for staged changes
  */
 export async function getStagedDiff(): Promise<DiffResult> {
-  const { stdout: raw } = await execa("git", [
+  const raw = await collectGitDiff([
     "-c",
     "diff.noprefix=false",
     "-c",
@@ -43,7 +46,24 @@ export async function getStagedDiff(): Promise<DiffResult> {
     "--stat",
     "--patch",
   ]);
-  return parseDiff(raw);
+  return parseDiff(raw.stdout, raw.diagnostics);
+}
+
+async function collectGitDiff(args: string[]): Promise<{ stdout: string; diagnostics: string[] }> {
+  try {
+    const { stdout } = await execa("git", args, { maxBuffer: MAX_DIFF_OUTPUT_BYTES });
+    return { stdout, diagnostics: [] };
+  } catch (err) {
+    if (isMaxBufferError(err)) {
+      return {
+        stdout: err.stdout,
+        diagnostics: [
+          `Git diff output exceeded ${formatBytes(MAX_DIFF_OUTPUT_BYTES)}; review context includes the truncated output captured before the limit.`,
+        ],
+      };
+    }
+    throw err;
+  }
 }
 
 /**
@@ -102,7 +122,7 @@ export async function hasCommits(): Promise<boolean> {
   }
 }
 
-export function parseDiff(raw: string): DiffResult {
+export function parseDiff(raw: string, diagnostics: string[] = []): DiffResult {
   const files: DiffFile[] = [];
   const lines = raw.split("\n");
 
@@ -165,7 +185,23 @@ export function parseDiff(raw: string): DiffResult {
     .map((f) => `${statusSymbol(f.status)} ${f.path} (+${f.additions}/-${f.deletions})`)
     .join("\n");
 
-  return { files, raw, summary };
+  return { files, raw, summary, ...(diagnostics.length > 0 ? { diagnostics } : {}) };
+}
+
+function isMaxBufferError(err: unknown): err is { stdout: string } {
+  return (
+    err !== null &&
+    typeof err === "object" &&
+    "stdout" in err &&
+    typeof (err as { stdout?: unknown }).stdout === "string" &&
+    ((err as { name?: unknown }).name === "MaxBufferError" ||
+      String((err as { message?: unknown }).message ?? "").includes("maxBuffer"))
+  );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`;
 }
 
 export function parseGitDiffLine(line: string): { pathA: string; pathB: string } | null {
