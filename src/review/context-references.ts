@@ -43,7 +43,7 @@ export async function buildReferenceContexts(
   for (const term of validTerms) {
     const matches = await addReferenceSnippets(
       allMatches
-        .filter((match) => match.text.includes(term))
+        .filter((match) => (match.fullText ?? match.text).includes(term))
         .slice(0, MAX_REFERENCES_PER_TERM),
     );
 
@@ -134,6 +134,7 @@ function parseReferenceLine(line: string): ReferenceMatch | undefined {
     path: match[1]!,
     line: Number(match[2]),
     text: match[3]!.trim().slice(0, MAX_REFERENCE_LINE_CHARS),
+    fullText: match[3]!.trim(),
   };
 }
 

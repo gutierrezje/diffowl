@@ -206,6 +206,51 @@ describe("buildReviewContext", () => {
     expect(rendered).not.toContain("// after large reference");
   });
 
+  it("keeps reference matches when the search term appears after rendered text truncation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
+    tempDirs.push(root);
+    process.chdir(root);
+
+    await execa("git", ["init"]);
+    await mkdir("src");
+    await writeFile(
+      "src/example.ts",
+      ["export function calculateTotal(value: number) {", "  return value + 1;", "}", ""].join(
+        "\n",
+      ),
+      "utf-8",
+    );
+    await writeFile(
+      "src/long-line-consumer.ts",
+      `${"x".repeat(260)} console.log(calculateTotal(1));\n`,
+      "utf-8",
+    );
+    await execa("git", ["add", "."]);
+    await execa("git", [
+      "-c",
+      "user.name=DiffOwl Test",
+      "-c",
+      "user.email=diffowl@example.test",
+      "commit",
+      "-m",
+      "initial",
+    ]);
+
+    await writeFile(
+      "src/example.ts",
+      ["export function calculateTotal(value: number) {", "  return value + 2;", "}", ""].join(
+        "\n",
+      ),
+      "utf-8",
+    );
+    await execa("git", ["add", "src/example.ts"]);
+
+    const context = await buildReviewContext("staged", config);
+    const rendered = renderReviewContext(context);
+
+    expect(rendered).toContain("src/long-line-consumer.ts:1:");
+  });
+
   it("skips lockfiles when building prompt context", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
     tempDirs.push(root);

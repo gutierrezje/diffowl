@@ -49,6 +49,7 @@ export interface ReferenceMatch {
   path: string;
   line: number;
   text: string;
+  fullText?: string;
   snippet?: string;
   snippetStartLine?: number;
   snippetEndLine?: number;
