@@ -1,5 +1,5 @@
 import { basename, extname } from "node:path";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { execa } from "execa";
 import type { ChangedFileContext, ReferenceContext, ReferenceMatch } from "./context-types.js";
 import type { DiffFile } from "../git/diff.js";
@@ -11,6 +11,7 @@ const MAX_BATCH_REFERENCE_MATCHES = 200;
 const REFERENCE_SEARCH_TIMEOUT_MS = 5_000;
 const REFERENCE_SNIPPET_RADIUS = 2;
 const MAX_REFERENCE_SNIPPET_CHARS = 1_200;
+const MAX_REFERENCE_SNIPPET_FILE_BYTES = 256 * 1024;
 
 export async function buildReferenceContexts(
   changedFiles: ChangedFileContext[],
@@ -36,15 +37,15 @@ export async function buildReferenceContexts(
     return [];
   }
 
-  const allMatches = await addReferenceSnippets(
-    await findBatchReferences(validTerms, ignoredPaths, diagnostics),
-  );
+  const allMatches = await findBatchReferences(validTerms, ignoredPaths, diagnostics);
 
   const references: ReferenceContext[] = [];
   for (const term of validTerms) {
-    const matches = allMatches
-      .filter((match) => match.text.includes(term))
-      .slice(0, MAX_REFERENCES_PER_TERM);
+    const matches = await addReferenceSnippets(
+      allMatches
+        .filter((match) => match.text.includes(term))
+        .slice(0, MAX_REFERENCES_PER_TERM),
+    );
 
     if (matches.length > 0) {
       references.push({ term, matches });
@@ -142,6 +143,11 @@ async function addReferenceSnippets(matches: ReferenceMatch[]): Promise<Referenc
   await Promise.all(
     [...new Set(matches.map((match) => match.path))].map(async (path) => {
       try {
+        const info = await stat(path);
+        if (!info.isFile() || info.size > MAX_REFERENCE_SNIPPET_FILE_BYTES) {
+          return;
+        }
+
         const content = await readFile(path, "utf-8");
         if (!content.includes("\0")) {
           files.set(path, content.split("\n"));

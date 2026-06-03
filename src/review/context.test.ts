@@ -154,6 +154,58 @@ describe("buildReviewContext", () => {
     }
   });
 
+  it("skips snippets for large reference files while keeping line hints", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
+    tempDirs.push(root);
+    process.chdir(root);
+
+    await execa("git", ["init"]);
+    await mkdir("src");
+    await writeFile(
+      "src/example.ts",
+      ["export function calculateTotal(value: number) {", "  return value + 1;", "}", ""].join(
+        "\n",
+      ),
+      "utf-8",
+    );
+    await writeFile(
+      "src/large-consumer.ts",
+      [
+        "// before large reference",
+        "x".repeat(270_000),
+        "console.log(calculateTotal(1));",
+        "// after large reference",
+      ].join("\n"),
+      "utf-8",
+    );
+    await execa("git", ["add", "."]);
+    await execa("git", [
+      "-c",
+      "user.name=DiffOwl Test",
+      "-c",
+      "user.email=diffowl@example.test",
+      "commit",
+      "-m",
+      "initial",
+    ]);
+
+    await writeFile(
+      "src/example.ts",
+      ["export function calculateTotal(value: number) {", "  return value + 2;", "}", ""].join(
+        "\n",
+      ),
+      "utf-8",
+    );
+    await execa("git", ["add", "src/example.ts"]);
+
+    const context = await buildReviewContext("staged", config);
+    const rendered = renderReviewContext(context);
+
+    expect(rendered).toContain("src/large-consumer.ts:3: console.log(calculateTotal(1));");
+    expect(rendered).not.toContain("// before large reference");
+    expect(rendered).not.toContain("// after large reference");
+  });
+
   it("skips lockfiles when building prompt context", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
     tempDirs.push(root);
