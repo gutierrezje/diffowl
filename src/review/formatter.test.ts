@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { colorizeMarkdown, renderMarkdown } from "./formatter.js";
-import type { ReviewReport } from "../opencode/client.js";
+import type { ReviewReport } from "./types.js";
 
 describe("colorizeMarkdown", () => {
   it("consumes full bold severity markers", () => {

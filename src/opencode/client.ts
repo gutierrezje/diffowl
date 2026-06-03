@@ -1,30 +1,24 @@
 import { createOpencodeClient } from "@opencode-ai/sdk";
-import { z } from "zod";
-import { isServerRunning, ensureServer } from "./server.js";
+import { isServerRunning } from "./server.js";
 import { REVIEW_AGENT_PROMPT, buildReviewPrompt } from "./agent.js";
+import { parseStructuredReview, looksLikeCompleteStructuredReview } from "./review-parser.js";
+import {
+  buildToolPolicy,
+  extractPermissionRequest,
+  replyToPermissionRequest,
+} from "./tools.js";
+export { parseStructuredReview, looksLikeCompleteStructuredReview } from "./review-parser.js";
+export { buildToolPolicy, extractPermissionRequest } from "./tools.js";
+export { getAvailableModels } from "./models.js";
+export type {
+  ReviewConfidence,
+  ReviewFinding,
+  ReviewReport,
+  ReviewSeverity,
+  ReviewTiming,
+} from "../review/types.js";
 import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
-
-export type ReviewSeverity = "error" | "warning" | "info";
-
-export type ReviewConfidence = "high" | "medium" | "low";
-
-export interface ReviewFinding {
-  severity: ReviewSeverity;
-  file: string;
-  line: number;
-  evidence?: string;
-  title: string;
-  body: string;
-  confidence: ReviewConfidence;
-}
-
-export interface ReviewReport {
-  summary: string;
-  findings: ReviewFinding[];
-  suppressedFindings?: ReviewFinding[];
-  diagnostics?: string[];
-  timings?: ReviewTiming[];
-}
+import type { ReviewReport, ReviewTiming } from "../review/types.js";
 
 export interface ReviewOptions {
   mode: "last-commit" | "staged";
@@ -42,72 +36,7 @@ export type ReviewProgressEvent =
   | { type: "timing"; message: string; phase: string; ms: number }
   | { type: "idle"; message: string };
 
-export interface ReviewTiming {
-  phase: string;
-  label: string;
-  ms: number;
-}
-
-type ToolPolicy = Record<string, boolean>;
-type PermissionResponse = "once" | "always" | "reject";
 type OpencodeDirectoryOptions = { query: { directory: string } };
-
-const FALLBACK_TOOL_IDS = [
-  "apply_patch",
-  "bash",
-  "edit",
-  "glob",
-  "grep",
-  "question",
-  "read",
-  "skill",
-  "task",
-  "todowrite",
-  "webfetch",
-  "write",
-];
-
-const READ_SEARCH_TOOLS = new Set(["glob", "grep", "read"]);
-const PERMISSION_REPLY_TIMEOUT_MS = 5_000;
-
-interface PermissionRequest {
-  id: string;
-  sessionID: string;
-  type: string;
-  title?: string;
-}
-
-const ReviewSeveritySchema = z.preprocess(
-  (value) => (typeof value === "string" ? value.toLowerCase() : value),
-  z.enum(["error", "warning", "info"]),
-);
-
-const ReviewConfidenceSchema = z
-  .preprocess(
-    (value) => (typeof value === "string" ? value.toLowerCase() : value),
-    z.enum(["low", "medium", "high"]),
-  )
-  .catch("low");
-
-const ReviewFindingLineSchema = z.preprocess(
-  (value) => (typeof value === "string" ? Number(value) : value),
-  z.number().int().positive(),
-);
-
-const ReviewFindingSchema = z.object({
-  severity: ReviewSeveritySchema,
-  file: z.string().trim().min(1),
-  line: ReviewFindingLineSchema,
-  evidence: z.string().nullish(),
-  title: z.string().trim().min(1),
-  body: z.string().trim().min(1),
-  confidence: ReviewConfidenceSchema,
-});
-
-const ReviewJsonSchema = z.object({
-  summary: z.string(),
-  findings: z.array(z.unknown()),
-});
 
 /**
  * Run a code review using OpenCode serve.
@@ -386,102 +315,6 @@ export function handledAwaitable<T>(promise: Promise<T>): Promise<T> {
   return promise;
 }
 
-export async function buildToolPolicy(
-  client: { tool?: { ids?: () => Promise<{ data: unknown }> } },
-  depth: ReviewContextDepth,
-): Promise<ToolPolicy> {
-  const available = new Set(FALLBACK_TOOL_IDS);
-  try {
-    const result = await client.tool?.ids?.();
-    if (Array.isArray(result?.data)) {
-      for (const id of result.data) {
-        if (typeof id === "string") {
-          available.add(id);
-        }
-      }
-    }
-  } catch {
-    // Fall back to known OpenCode built-ins. Unknown tools remain unavailable by omission.
-  }
-
-  const allowed = allowedToolsForDepth(depth);
-  const policy: ToolPolicy = {};
-  for (const id of available) {
-    policy[id] = allowed.has(id);
-  }
-  return policy;
-}
-
-function allowedToolsForDepth(depth: ReviewContextDepth): Set<string> {
-  if (depth === "shallow") {
-    return new Set();
-  }
-  return READ_SEARCH_TOOLS;
-}
-
-async function replyToPermissionRequest(
-  client: {
-    postSessionIdPermissionsPermissionId?: (options: {
-      path: { id: string; permissionID: string };
-      body: { response: "once" | "always" | "reject" };
-    }) => Promise<unknown>;
-    permission?: {
-      reply?: (
-        path: { requestID: string },
-        options?: { body?: { reply: "once" | "always" | "reject"; message?: string } },
-      ) => Promise<unknown>;
-    };
-  },
-  permission: PermissionRequest,
-  onProgress: ReviewOptions["onProgress"],
-): Promise<void> {
-  // Reviews may use permissionless read/search tools from the prompt tool policy,
-  // but any OpenCode permission prompt is treated as an escalation and rejected.
-  const response: PermissionResponse = "reject";
-  onProgress?.({
-    type: "session",
-    message: `OpenCode permission ${response}: ${permission.title ?? permission.type}`,
-    sessionId: permission.sessionID,
-  });
-
-  await withTimeout(
-    replyWithAvailableEndpoint(client, permission, response),
-    PERMISSION_REPLY_TIMEOUT_MS,
-  );
-}
-
-async function replyWithAvailableEndpoint(
-  client: {
-    postSessionIdPermissionsPermissionId?: (options: {
-      path: { id: string; permissionID: string };
-      body: { response: "once" | "always" | "reject" };
-    }) => Promise<unknown>;
-    permission?: {
-      reply?: (
-        path: { requestID: string },
-        options?: { body?: { reply: "once" | "always" | "reject"; message?: string } },
-      ) => Promise<unknown>;
-    };
-  },
-  permission: PermissionRequest,
-  response: PermissionResponse,
-): Promise<void> {
-  if (client.permission?.reply) {
-    await client.permission.reply(
-      { requestID: permission.id },
-      { body: { reply: response, message: "DiffOwl review depth policy" } },
-    );
-    return;
-  }
-
-  if (client.postSessionIdPermissionsPermissionId) {
-    await client.postSessionIdPermissionsPermissionId({
-      path: { id: permission.sessionID, permissionID: permission.id },
-      body: { response },
-    });
-  }
-}
-
 export function extractSessionId(response: unknown): string {
   if (!response || typeof response !== "object") {
     throw new Error("OpenCode session response missing id.");
@@ -500,87 +333,6 @@ export function extractSessionId(response: unknown): string {
   return id;
 }
 
-export function extractPermissionRequest(
-  payload: unknown,
-  sessionId: string,
-): PermissionRequest | undefined {
-  if (!payload || typeof payload !== "object") {
-    return undefined;
-  }
-
-  const event = payload as { type?: unknown; properties?: unknown };
-  if (typeof event.type !== "string" || !event.properties || typeof event.properties !== "object") {
-    return undefined;
-  }
-
-  const properties = event.properties as Record<string, unknown>;
-  if (properties["sessionID"] !== sessionId) {
-    return undefined;
-  }
-
-  if (event.type === "permission.updated") {
-    const id = properties["id"];
-    const type = properties["type"];
-    if (
-      typeof id !== "string" ||
-      id.trim() === "" ||
-      typeof type !== "string" ||
-      type.trim() === ""
-    ) {
-      return undefined;
-    }
-
-    const title = properties["title"];
-    return {
-      id,
-      sessionID: sessionId,
-      type,
-      ...(typeof title === "string" ? { title } : {}),
-    };
-  }
-
-  if (event.type === "permission.asked") {
-    const id = properties["id"];
-    const permission = properties["permission"];
-    if (
-      typeof id !== "string" ||
-      id.trim() === "" ||
-      typeof permission !== "string" ||
-      permission.trim() === ""
-    ) {
-      return undefined;
-    }
-
-    const patterns = properties["patterns"];
-    return {
-      id,
-      sessionID: sessionId,
-      type: permission,
-      ...(Array.isArray(patterns) && patterns.every((pattern) => typeof pattern === "string")
-        ? { title: patterns.join(", ") }
-        : {}),
-    };
-  }
-
-  return undefined;
-}
-
-async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        timeout = setTimeout(() => reject(new Error("permission reply timed out")), ms);
-      }),
-    ]);
-  } finally {
-    if (timeout) {
-      clearTimeout(timeout);
-    }
-  }
-}
-
 function recordTiming(
   timings: ReviewTiming[],
   onProgress: ReviewOptions["onProgress"],
@@ -596,195 +348,4 @@ function recordTiming(
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
-}
-
-/**
- * Get all available models from the OpenCode server
- */
-export async function getAvailableModels(
-  port: number,
-  options: { autoStart?: boolean } = {},
-): Promise<string[]> {
-  if (!(await isServerRunning(port))) {
-    if (options.autoStart === false) {
-      return [];
-    }
-
-    try {
-      await ensureServer(port);
-    } catch {
-      return [];
-    }
-  }
-
-  const client = createOpencodeClient({
-    baseUrl: `http://127.0.0.1:${port}`,
-  });
-
-  try {
-    const res = await client.provider.list();
-    const payload = (res as any).data;
-
-    if (!payload || !payload.all) {
-      return [];
-    }
-
-    const connected = payload.connected || [];
-    const modelsList: string[] = [];
-
-    for (const provider of payload.all) {
-      // Only include connected providers
-      if (!connected.includes(provider.id)) {
-        continue;
-      }
-
-      if (provider.models) {
-        for (const modelKey of Object.keys(provider.models)) {
-          const model = provider.models[modelKey];
-          // Only show active models
-          if (model.status === "active" || !model.status) {
-            modelsList.push(`${provider.id}/${model.id}`);
-          }
-        }
-      }
-    }
-
-    return modelsList.sort();
-  } catch {
-    return [];
-  }
-}
-
-export function parseStructuredReview(raw: string): ReviewReport {
-  // Expect a line starting with FINAL_REVIEW_JSON followed by a single JSON object.
-  const marker = "FINAL_REVIEW_JSON";
-  const markerIndex = raw.indexOf(marker);
-  const usedFallbackJson = markerIndex === -1;
-
-  const afterMarker = markerIndex === -1 ? raw : raw.slice(markerIndex + marker.length);
-  const firstBrace = afterMarker.indexOf("{");
-  const lastBrace = afterMarker.lastIndexOf("}");
-
-  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-    throw new Error(
-      markerIndex === -1
-        ? `Review did not contain a valid JSON object. Raw response preview: ${previewRawResponse(raw)}`
-        : `Review did not include a valid JSON object after FINAL_REVIEW_JSON. Raw response preview: ${previewRawResponse(raw)}`,
-    );
-  }
-
-  const jsonText = afterMarker.slice(firstBrace, lastBrace + 1);
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonText);
-  } catch (err) {
-    throw new Error(
-      `Failed to parse review JSON: ${(err as Error).message}. Raw response preview: ${previewRawResponse(raw)}`,
-    );
-  }
-
-  const root = ReviewJsonSchema.safeParse(parsed);
-  if (!root.success) {
-    throw new Error(
-      `Review JSON is missing required fields: summary or findings. Raw response preview: ${previewRawResponse(raw)}`,
-    );
-  }
-
-  const findings: ReviewFinding[] = [];
-  const diagnostics: string[] = usedFallbackJson
-    ? ["Review JSON did not include FINAL_REVIEW_JSON marker; parsed fallback JSON object."]
-    : [];
-  const seen = new Set<string>();
-
-  for (const [index, item] of root.data.findings.entries()) {
-    const finding = ReviewFindingSchema.safeParse(item);
-    if (!finding.success) {
-      diagnostics.push(`Dropped malformed finding at index ${index}.`);
-      continue;
-    }
-
-    const key = `${finding.data.severity}:${finding.data.file}:${finding.data.line}:${finding.data.title}`;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    findings.push({
-      severity: finding.data.severity,
-      file: finding.data.file,
-      line: finding.data.line,
-      ...(finding.data.evidence != null ? { evidence: finding.data.evidence } : {}),
-      title: finding.data.title,
-      body: finding.data.body,
-      confidence: finding.data.confidence,
-    });
-  }
-
-  return {
-    summary: root.data.summary,
-    findings,
-    ...(diagnostics.length > 0 ? { diagnostics } : {}),
-  };
-}
-
-function previewRawResponse(raw: string): string {
-  const compact = raw.replace(/\s+/g, " ").trim();
-  return compact.length > 500 ? `${compact.slice(0, 500)}...` : compact || "<empty>";
-}
-
-export function looksLikeCompleteStructuredReview(text: string): boolean {
-  // Streaming completion detector must stay strict: require the marker.
-  // Only the final parser (parseStructuredReview) tolerates marker-less JSON.
-  const markerIndex = text.indexOf("FINAL_REVIEW_JSON");
-  if (markerIndex === -1) return false;
-
-  const afterMarker = text.slice(markerIndex + "FINAL_REVIEW_JSON".length);
-  const firstBrace = afterMarker.indexOf("{");
-  const lastBrace = afterMarker.lastIndexOf("}");
-  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) return false;
-
-  const jsonText = afterMarker.slice(firstBrace, lastBrace + 1);
-
-  // Cheap pre-checks to avoid melting the CPU with synchronous JSON.parse calls:
-  // 1. The JSON text candidate must end with '}'
-  if (!jsonText.endsWith("}")) return false;
-
-  // 2. Count open and close curly braces; only attempt parse if they match and are non-zero.
-  // We track whether we are inside a string literal to ignore mismatched braces inside JSON values (e.g. code evidence).
-  let openCount = 0;
-  let closeCount = 0;
-  let inString = false;
-  let escapeNext = false;
-  for (let i = 0; i < jsonText.length; i++) {
-    const char = jsonText[i];
-    if (escapeNext) {
-      escapeNext = false;
-      continue;
-    }
-    if (char === "\\") {
-      escapeNext = true;
-      continue;
-    }
-    if (char === '"') {
-      inString = !inString;
-      continue;
-    }
-    if (!inString) {
-      if (char === "{") openCount++;
-      else if (char === "}") closeCount++;
-    }
-  }
-  if (openCount === 0 || openCount !== closeCount) return false;
-
-  try {
-    const parsed = JSON.parse(jsonText);
-    return (
-      parsed &&
-      typeof parsed === "object" &&
-      typeof (parsed as any).summary === "string" &&
-      Array.isArray((parsed as any).findings)
-    );
-  } catch {
-    return false;
-  }
 }

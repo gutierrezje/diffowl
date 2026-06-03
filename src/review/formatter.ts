@@ -2,7 +2,7 @@ import chalk from "chalk";
 import { writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { ReviewReport } from "../opencode/client.js";
+import type { ReviewReport } from "./types.js";
 import { getDiffOwlDir } from "../config.js";
 
 /**
