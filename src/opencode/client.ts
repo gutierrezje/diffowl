@@ -594,8 +594,15 @@ function formatDuration(ms: number): string {
 /**
  * Get all available models from the OpenCode server
  */
-export async function getAvailableModels(port: number): Promise<string[]> {
+export async function getAvailableModels(
+  port: number,
+  options: { autoStart?: boolean } = {},
+): Promise<string[]> {
   if (!(await isServerRunning(port))) {
+    if (options.autoStart === false) {
+      return [];
+    }
+
     try {
       await ensureServer(port);
     } catch {

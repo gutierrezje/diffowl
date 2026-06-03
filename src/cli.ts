@@ -370,7 +370,9 @@ async function selectModelInteractively(
   const spinner = ora("Querying available models from OpenCode...").start();
   let models: string[] = [];
   try {
-    models = await getAvailableModels(config.server.port);
+    models = await getAvailableModels(config.server.port, {
+      autoStart: config.server.auto_start,
+    });
     spinner.stop();
   } catch {
     spinner.fail("Failed to query models from OpenCode server.");
