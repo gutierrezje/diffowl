@@ -96,7 +96,7 @@ describe("buildReviewContext", () => {
     expect(rendered).toContain("return value + 2");
   });
 
-  it("reports partial reference search failures while keeping available references", async () => {
+  it("uses git grep for reference search without requiring ripgrep", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
     tempDirs.push(root);
     process.chdir(root);
@@ -142,11 +142,8 @@ describe("buildReviewContext", () => {
       const rendered = renderReviewContext(context);
 
       expect(rendered).toContain("src/consumer.ts");
-      expect(context.diagnostics[0]).toContain("Reference search with ripgrep failed");
-      expect(context.diagnostics[0]).toContain("Continuing with available reference results");
-      expect(context.diagnostics[0]).not.toContain("--line-number");
-      expect(context.diagnostics[0]).not.toContain("-e calculateTotal");
-      expect(rendered).toContain("Context diagnostics");
+      expect(context.diagnostics).toEqual([]);
+      expect(rendered).not.toContain("Context diagnostics");
     } finally {
       process.env["PATH"] = originalPath;
     }
