@@ -58,13 +58,21 @@ describe("checkRecentHookFailure", () => {
     await writeFile(join(root, ".diffowl.yml"), "model: provider/model\n", "utf-8");
     await writeFile(
       join(root, ".diffowl", "last-hook-status.json"),
-      JSON.stringify({ exitCode: 1, timestamp: new Date().toISOString() }),
+      JSON.stringify({
+        exitCode: 1,
+        timestamp: new Date().toISOString(),
+        message:
+          "OpenCode request failed (phase=event-stream-read, server=http://127.0.0.1:4096).",
+      }),
       "utf-8",
     );
 
     process.chdir(child);
 
-    await expect(checkRecentHookFailure()).resolves.toMatchObject({ exitCode: 1 });
+    await expect(checkRecentHookFailure()).resolves.toMatchObject({
+      exitCode: 1,
+      message: expect.stringContaining("phase=event-stream-read"),
+    });
   });
 });
 

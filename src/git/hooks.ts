@@ -86,6 +86,7 @@ export interface HookStatus {
 export interface HookFailure {
   exitCode: number;
   timestamp: string;
+  message?: string;
 }
 
 /**
@@ -121,7 +122,9 @@ export async function checkRecentHookFailure(): Promise<HookFailure | undefined>
       return undefined;
     }
 
-    return { exitCode, timestamp };
+    const message =
+      typeof (parsed as any).message === "string" ? (parsed as any).message : undefined;
+    return { exitCode, timestamp, ...(message ? { message } : {}) };
   } catch {
     return undefined;
   }

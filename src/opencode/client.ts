@@ -2,11 +2,7 @@ import { createOpencodeClient } from "@opencode-ai/sdk";
 import { isServerRunning } from "./server.js";
 import { REVIEW_AGENT_PROMPT, buildReviewPrompt } from "./agent.js";
 import { parseStructuredReview, looksLikeCompleteStructuredReview } from "./review-parser.js";
-import {
-  buildToolPolicy,
-  extractPermissionRequest,
-  replyToPermissionRequest,
-} from "./tools.js";
+import { buildToolPolicy, extractPermissionRequest, replyToPermissionRequest } from "./tools.js";
 export { parseStructuredReview, looksLikeCompleteStructuredReview } from "./review-parser.js";
 export { buildToolPolicy, extractPermissionRequest } from "./tools.js";
 export { getAvailableModels } from "./models.js";
@@ -63,10 +59,12 @@ export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
 
   // Create a new session for this review
   const sessionStart = performance.now();
-  const session = await client.session.create({
-    ...directoryOptions,
-    body: {},
-  });
+  const session = await withOpenCodeDiagnostics("session-create", { port }, () =>
+    client.session.create({
+      ...directoryOptions,
+      body: {},
+    }),
+  );
   const sessionId = extractSessionId(session);
   recordTiming(timings, onProgress, "session-create", "OpenCode session creation", sessionStart);
   onProgress?.({ type: "session", message: "Created review session.", sessionId });
@@ -96,9 +94,11 @@ export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
   let fullResponse = "";
   const eventsController = new AbortController();
   const eventStart = performance.now();
-  const sseResult = await client.global.event({
-    signal: eventsController.signal,
-  });
+  const sseResult = await withOpenCodeDiagnostics("event-stream-connect", { port, sessionId }, () =>
+    client.global.event({
+      signal: eventsController.signal,
+    }),
+  );
   recordTiming(timings, onProgress, "event-stream", "OpenCode event stream connection", eventStart);
   const responsePromise = handledAwaitable(
     new Promise<string>((resolve, reject) => {
@@ -264,7 +264,10 @@ export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
           }
         } catch (streamErr) {
           if (!settled && !eventsController.signal.aborted) {
-            settle("reject", streamErr instanceof Error ? streamErr : new Error(String(streamErr)));
+            settle(
+              "reject",
+              describeOpenCodeError(streamErr, "event-stream-read", { port, sessionId }),
+            );
           }
         }
       })();
@@ -274,26 +277,26 @@ export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
   // Send the review prompt
   onProgress?.({ type: "session", message: "Sending review prompt.", sessionId });
   const promptSendStart = performance.now();
-  await client.session.prompt({
-    path: { id: sessionId },
-    ...directoryOptions,
-    body: {
-      system: REVIEW_AGENT_PROMPT,
-      model: { providerID, modelID },
-      tools,
-      parts: [{ type: "text", text: prompt }],
-    },
-  });
-  recordTiming(
-    timings,
-    onProgress,
-    "prompt-send",
-    "OpenCode prompt request",
-    promptSendStart,
+  await withOpenCodeDiagnostics("prompt-send", { port, sessionId }, () =>
+    client.session.prompt({
+      path: { id: sessionId },
+      ...directoryOptions,
+      body: {
+        system: REVIEW_AGENT_PROMPT,
+        model: { providerID, modelID },
+        tools,
+        parts: [{ type: "text", text: prompt }],
+      },
+    }),
   );
+  recordTiming(timings, onProgress, "prompt-send", "OpenCode prompt request", promptSendStart);
 
   const agentWaitStart = performance.now();
-  const raw = await responsePromise;
+  const raw = await withOpenCodeDiagnostics(
+    "agent-wait",
+    { port, sessionId },
+    () => responsePromise,
+  );
   recordTiming(timings, onProgress, "agent-wait", "OpenCode review generation", agentWaitStart);
 
   const parseStart = performance.now();
@@ -301,6 +304,52 @@ export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
   recordTiming(timings, onProgress, "parse-review", "Review JSON parsing", parseStart);
 
   return { ...report, timings };
+}
+
+type OpenCodeDiagnosticContext = {
+  port: number;
+  sessionId?: string;
+};
+
+async function withOpenCodeDiagnostics<T>(
+  phase: string,
+  context: OpenCodeDiagnosticContext,
+  run: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    throw describeOpenCodeError(err, phase, context);
+  }
+}
+
+function describeOpenCodeError(
+  err: unknown,
+  phase: string,
+  context: OpenCodeDiagnosticContext,
+): Error {
+  const original = err instanceof Error ? err : new Error(String(err));
+  const cause = describeErrorCause(original);
+  const details = [
+    `phase=${phase}`,
+    `server=http://127.0.0.1:${context.port}`,
+    ...(context.sessionId ? [`session=${context.sessionId}`] : []),
+    `cause=${cause}`,
+  ];
+
+  const message = `OpenCode request failed (${details.join(", ")}).`;
+  return new Error(message, { cause: original });
+}
+
+function describeErrorCause(err: Error): string {
+  const parts = [err.name, err.message].filter(Boolean);
+  const cause = (err as { cause?: unknown }).cause;
+  if (cause instanceof Error) {
+    parts.push(`cause=${cause.name}: ${cause.message}`);
+  } else if (cause) {
+    parts.push(`cause=${String(cause)}`);
+  }
+  return parts.join(": ") || "unknown error";
 }
 
 export function opencodeDirectoryOptions(): OpencodeDirectoryOptions {

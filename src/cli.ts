@@ -32,7 +32,13 @@ import {
   checkRecentHookFailure,
   runHookReview,
 } from "./git/hooks.js";
-import { isGitRepo, hasCommits, getLastCommitDiff, getStagedDiff, isDocOnlyDiff } from "./git/diff.js";
+import {
+  isGitRepo,
+  hasCommits,
+  getLastCommitDiff,
+  getStagedDiff,
+  isDocOnlyDiff,
+} from "./git/diff.js";
 import { buildReviewContext, renderReviewContext } from "./review/context.js";
 import {
   printHeader,
@@ -45,13 +51,17 @@ import {
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-async function writeHookStatus(exitCode: number): Promise<void> {
+async function writeHookStatus(exitCode: number, message?: string): Promise<void> {
   try {
     const dir = await ensureDiffOwlDir();
     const statusPath = join(dir, "last-hook-status.json");
     await writeFile(
       statusPath,
-      JSON.stringify({ exitCode, timestamp: new Date().toISOString() }, null, 2),
+      JSON.stringify(
+        { exitCode, timestamp: new Date().toISOString(), ...(message ? { message } : {}) },
+        null,
+        2,
+      ),
       "utf-8",
     );
   } catch {
@@ -75,6 +85,10 @@ program
   .option("--depth <depth>", "Review context depth: shallow or default")
   .option("--verbose", "Include suppressed findings and extra review details")
   .action(async (options) => {
+    if (options.hook) {
+      await writeHookStatus(0, "Review started.");
+    }
+
     const totalStart = performance.now();
     const timings: ReviewTiming[] = [];
 
@@ -112,9 +126,10 @@ program
 
     const hookFailure = await checkRecentHookFailure();
     if (hookFailure) {
+      const detail = hookFailure.message ? `: ${hookFailure.message}` : "";
       console.log(
         chalk.yellow(
-          `⚠ Post-commit hook failed at ${new Date(hookFailure.timestamp).toLocaleString()}. Check .diffowl/hook.log`,
+          `⚠ Post-commit hook failed at ${new Date(hookFailure.timestamp).toLocaleString()}${detail}. Check .diffowl/hook.log`,
         ),
       );
       console.log();
@@ -143,12 +158,16 @@ program
     // discardStdin: false above ensures the terminal delivers SIGINT natively
     // instead of routing through stdin-discarder's raw-mode byte conversion.
     process.once("SIGINT", () => {
-      try { spinner.stop(); } catch {}
+      try {
+        spinner.stop();
+      } catch {}
       console.log(chalk.yellow("\nReview cancelled by user (Ctrl+C)."));
       process.exit(130);
     });
     process.once("SIGTSTP", () => {
-      try { spinner.stop(); } catch {}
+      try {
+        spinner.stop();
+      } catch {}
       console.log(chalk.yellow("\nReview cancelled by user (Ctrl+Z)."));
       process.exit(146);
     });
@@ -183,8 +202,6 @@ program
       await prepareReviewServer(config);
       recordCliTiming(timings, "server-ensure", "OpenCode server ensure", serverStart);
       spinner.text = "Reviewing changes...";
-
-
 
       const reviewStart = performance.now();
       const report: ReviewReport = await runReview({
@@ -256,7 +273,7 @@ program
         console.log(chalk.dim("Docs: https://opencode.ai/docs/"));
       }
       if (options.hook) {
-        await writeHookStatus(1);
+        await writeHookStatus(1, message);
         process.exit(0);
       }
       process.exit(1);
@@ -616,7 +633,9 @@ function filterFindingsByChangedFiles(
   return { findings: kept, suppressed };
 }
 
-function buildDocOnlySkipMarkdown(diff: { files: { path: string; additions: number; deletions: number }[] }): string {
+function buildDocOnlySkipMarkdown(diff: {
+  files: { path: string; additions: number; deletions: number }[];
+}): string {
   const lines: string[] = [];
   lines.push("### Summary");
   lines.push("Documentation-only changes detected. No code review performed.");
