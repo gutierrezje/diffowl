@@ -4,7 +4,14 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
-import { getStagedDiff, parseDiff, isDocFile, isDocOnlyDiff } from "./diff.js";
+import {
+  getCommitDiff,
+  getStagedDiff,
+  parseDiff,
+  resolveCommitRef,
+  isDocFile,
+  isDocOnlyDiff,
+} from "./diff.js";
 
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 const originalCwd = process.cwd();
@@ -64,6 +71,61 @@ describe("parseDiff", () => {
     expect(result.raw.length).toBeLessThanOrEqual(2 * 1024 * 1024);
     expect(result.files[0]!).toMatchObject({ path: "large.txt", status: "modified" });
     expect(result.diagnostics?.[0]).toContain("Git diff output exceeded");
+  });
+
+  it("resolves and reviews a specific commit ref", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-commit-diff-"));
+    tempDirs.push(root);
+    process.chdir(root);
+
+    await execa("git", ["init"]);
+    await writeFile("file.txt", "one\n", "utf-8");
+    await execa("git", ["add", "."]);
+    await execa("git", [
+      "-c",
+      "user.name=DiffOwl Test",
+      "-c",
+      "user.email=diffowl@example.test",
+      "commit",
+      "-m",
+      "initial",
+    ]);
+
+    await writeFile("file.txt", "two\n", "utf-8");
+    await execa("git", ["add", "."]);
+    await execa("git", [
+      "-c",
+      "user.name=DiffOwl Test",
+      "-c",
+      "user.email=diffowl@example.test",
+      "commit",
+      "-m",
+      "second",
+    ]);
+    const { stdout: secondSha } = await execa("git", ["rev-parse", "HEAD"]);
+
+    await writeFile("file.txt", "three\n", "utf-8");
+    await execa("git", ["add", "."]);
+    await execa("git", [
+      "-c",
+      "user.name=DiffOwl Test",
+      "-c",
+      "user.email=diffowl@example.test",
+      "commit",
+      "-m",
+      "third",
+    ]);
+
+    await expect(resolveCommitRef(secondSha.trim())).resolves.toBe(secondSha.trim());
+    await expect(resolveCommitRef("missing-ref")).rejects.toThrow("Invalid commit ref");
+
+    const result = await getCommitDiff(secondSha.trim());
+
+    expect(result.files).toEqual([
+      { path: "file.txt", status: "modified", additions: 1, deletions: 1 },
+    ]);
+    expect(result.raw).toContain("+two");
+    expect(result.raw).not.toContain("+three");
   });
 
   it("parses realistic rename, delete, and binary entries", async () => {

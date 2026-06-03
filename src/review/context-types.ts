@@ -2,7 +2,7 @@ import type { DiffFile, DiffResult } from "../git/diff.js";
 import type { ReviewContextDepth } from "../config.js";
 
 export interface ReviewContext {
-  mode: "last-commit" | "staged";
+  mode: "last-commit" | "staged" | "commit";
   depth: ReviewContextDepth;
   diff: DiffResult;
   changedFiles: ChangedFileContext[];
@@ -54,7 +54,6 @@ export interface ReferenceMatch {
   snippetStartLine?: number;
   snippetEndLine?: number;
 }
-
 
 export interface RenderReviewContextOptions {
   depth?: ReviewContextDepth;

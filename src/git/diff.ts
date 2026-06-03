@@ -18,6 +18,11 @@ export interface DiffFile {
 const MAX_DIFF_OUTPUT_BYTES = 2 * 1024 * 1024;
 
 export async function getLastCommitDiff(): Promise<DiffResult> {
+  return getCommitDiff("HEAD");
+}
+
+export async function getCommitDiff(ref: string): Promise<DiffResult> {
+  const commit = await resolveCommitRef(ref);
   const raw = await collectGitDiff([
     "-c",
     "diff.noprefix=false",
@@ -27,9 +32,29 @@ export async function getLastCommitDiff(): Promise<DiffResult> {
     "--format=",
     "--stat",
     "--patch",
-    "HEAD",
+    commit,
   ]);
   return parseDiff(raw.stdout, raw.diagnostics);
+}
+
+export async function resolveCommitRef(ref: string): Promise<string> {
+  const trimmed = ref.trim();
+  if (trimmed === "") {
+    throw new Error("Commit ref must not be empty.");
+  }
+
+  try {
+    const { stdout } = await execa("git", [
+      "rev-parse",
+      "--verify",
+      "--quiet",
+      "--end-of-options",
+      `${trimmed}^{commit}`,
+    ]);
+    return stdout.trim();
+  } catch {
+    throw new Error(`Invalid commit ref: ${ref}`);
+  }
 }
 
 /**

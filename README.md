@@ -18,7 +18,7 @@ DiffOwl is a lightweight CLI that integrates into your Git workflow to provide h
 ## Features
 
 - **Powered by OpenCode**: Integrates with OpenCode's local environment and configured providers while keeping DiffOwl's review workflow local and repeatable.
-- **First-Class TypeScript Support**: Automatically extracts modified TypeScript AST nodes (functions, classes, interfaces, types, enums, methods, properties, and top-level const declarations) to feed rich, structured context to the AI reviewer. To keep installation lightweight, the compiler is dynamically loaded from your project workspace at runtime, saving ~50MB of base package bloat.
+- **First-Class TypeScript Support**: Automatically extracts modified TypeScript AST nodes (functions, classes, interfaces, types, enums, methods, properties, and top-level const declarations) to feed rich, structured context to the AI reviewer.
 - **Non-Blocking Git Hooks**: Runs post-commit reviews asynchronously in the background. It will never slow down or block your `git commit` operation.
 - **Review Depth Profiles**: Choose `shallow` or `default` context strategies to match fast hooks or normal reviews.
 - **Intelligent File Filtering**: Supports `include` and `exclude` glob patterns to focus reviews on source directories while skipping build artifacts, lockfiles, and node modules.
@@ -92,6 +92,7 @@ Runs a code review on your repository.
 
 - **Default**: Reviews the changes in the **last commit**.
 - `--staged`: Reviews currently **staged changes** instead of the last commit.
+- `--commit <ref>`: Reviews a specific commit ref instead of the last commit.
 - `--hook`: Runs in background, non-blocking mode (used by Git hook).
 - `--depth <depth>`: Overrides configured review depth. Valid values: `shallow`, `default`.
 - `--reasoning <effort>`: Overrides configured OpenCode reasoning variant. Valid values: `auto`, `none`, `minimal`, `low`, `medium`, `high`, `max`, `xhigh`.
@@ -108,6 +109,9 @@ diffowl
 
 # Review staged files
 diffowl review --staged
+
+# Review a specific commit
+diffowl review --commit abc1234
 
 # Include suppressed outside-file findings in the report
 diffowl review --staged --verbose

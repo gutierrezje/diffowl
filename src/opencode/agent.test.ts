@@ -35,4 +35,10 @@ describe("buildReviewPrompt", () => {
     expect(prompt).toContain("If relevant snippets are truncated");
   });
 
+  it("describes explicit commit reviews", () => {
+    const prompt = buildReviewPrompt("commit", [], undefined, undefined, "LOCAL CONTEXT");
+
+    expect(prompt).toContain("Review the selected commit.");
+    expect(prompt).toContain("LOCAL CONTEXT");
+  });
 });

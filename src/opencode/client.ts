@@ -17,7 +17,7 @@ import type { DiffOwlConfig, ReasoningEffort, ReviewContextDepth } from "../conf
 import type { ReviewReport, ReviewTiming } from "../review/types.js";
 
 export interface ReviewOptions {
-  mode: "last-commit" | "staged";
+  mode: "last-commit" | "staged" | "commit";
   config: DiffOwlConfig;
   localContext?: string;
   depth: ReviewContextDepth;

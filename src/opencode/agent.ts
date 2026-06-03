@@ -71,7 +71,7 @@ Required review passes:
  * We tell the agent what to review and let it use its tools to explore.
  */
 export function buildReviewPrompt(
-  mode: "last-commit" | "staged",
+  mode: "last-commit" | "staged" | "commit",
   customRules: string[],
   include?: string[],
   exclude?: string[],
@@ -79,7 +79,11 @@ export function buildReviewPrompt(
   depth: "shallow" | "default" = "default",
 ): string {
   const modeInstruction =
-    mode === "staged" ? "Review the currently staged changes." : "Review the last commit.";
+    mode === "staged"
+      ? "Review the currently staged changes."
+      : mode === "commit"
+        ? "Review the selected commit."
+        : "Review the last commit.";
 
   let prompt = `${modeInstruction}
 

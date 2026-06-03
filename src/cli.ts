@@ -37,6 +37,7 @@ import {
 import {
   isGitRepo,
   hasCommits,
+  getCommitDiff,
   getLastCommitDiff,
   getStagedDiff,
   isDocOnlyDiff,
@@ -83,6 +84,7 @@ program
   .command("review", { isDefault: true })
   .description("Review the last commit or staged changes")
   .option("--staged", "Review staged changes instead of last commit")
+  .option("--commit <ref>", "Review a specific commit ref instead of HEAD")
   .option("--hook", "Running from git hook (non-blocking mode)")
   .option("--depth <depth>", "Review context depth: shallow or default")
   .option(
@@ -114,12 +116,17 @@ program
     }
 
     const config = await loadConfigOrExit();
-    const mode = options.staged ? "staged" : "last-commit";
+    if (options.staged && options.commit) {
+      console.error(chalk.red("Cannot use --staged and --commit together"));
+      process.exit(1);
+    }
+
+    const mode = options.staged ? "staged" : options.commit ? "commit" : "last-commit";
     const depth = resolveReviewDepth(options.depth, config);
     config.reasoning.effort = resolveReasoningEffort(options.reasoning, config);
     const verbose = Boolean(config.verbose || options.verbose);
 
-    if (mode === "last-commit") {
+    if (mode !== "staged") {
       const hasCommitsStart = performance.now();
       const commitsExist = await hasCommits();
       recordCliTiming(timings, "git-commit-check", "Git commit check", hasCommitsStart);
@@ -142,7 +149,12 @@ program
       console.log();
     }
 
-    const diff = mode === "staged" ? await getStagedDiff() : await getLastCommitDiff();
+    const diff =
+      mode === "staged"
+        ? await getStagedDiff()
+        : mode === "commit"
+          ? await getCommitDiff(String(options.commit))
+          : await getLastCommitDiff();
     if (config.skip_doc_only && isDocOnlyDiff(diff)) {
       console.warn(chalk.yellow("Documentation-only changes detected. Skipping review."));
       const skipContent = buildDocOnlySkipMarkdown(diff);

@@ -4,7 +4,7 @@ server:
   auto_start: true
 context:
   depth: default
-timeout: 300
+timeout: 900
 min_confidence: medium
 include:
   - "**/*"

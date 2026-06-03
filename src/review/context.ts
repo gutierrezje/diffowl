@@ -64,7 +64,7 @@ const MIN_CHANGED_RATIO_FOR_INLINE_CONTENT = 0.4;
 const LOCKFILE_EXCLUDES = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb"];
 
 export async function buildReviewContext(
-  mode: "last-commit" | "staged",
+  mode: "last-commit" | "staged" | "commit",
   config: DiffOwlConfig,
   depth: ReviewContextDepth = config.context.depth,
   diff?: DiffResult,
