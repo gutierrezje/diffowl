@@ -1,0 +1,7 @@
+FINAL_REVIEW_JSON
+{
+  "summary": "Still streaming",
+  "findings": [
+    {
+      "severity": "warning",
+      "file": "src/cli.ts"

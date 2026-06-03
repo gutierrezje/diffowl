@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   buildToolPolicy,
   extractPermissionRequest,
@@ -9,7 +12,68 @@ import {
   looksLikeCompleteStructuredReview,
 } from "./client.js";
 
+const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
+
+async function readFixture(name: string): Promise<string> {
+  return readFile(join(fixturesDir, name), "utf-8");
+}
+
 describe("parseStructuredReview", () => {
+  it("parses a realistic strict final review fixture", async () => {
+    const report = parseStructuredReview(await readFixture("strict-review-response.txt"));
+
+    expect(report.summary).toContain("config-driven review behavior");
+    expect(report.findings).toEqual([
+      {
+        severity: "warning",
+        file: "src/cli.ts",
+        line: 211,
+        evidence: "const verbose = Boolean(config.verbose || options.verbose);",
+        title: "CLI flag cannot disable configured verbose mode",
+        body: "The flag and config are ORed together, so a user cannot temporarily disable verbose output once it is enabled in config. If verbose is intended as an additive override this is fine, but the option shape reads like a normal boolean setting.",
+        confidence: "medium",
+      },
+      {
+        severity: "error",
+        file: "src/review/context.ts",
+        line: 68,
+        evidence: "const changedLines = getChangedLinesByFile(diffResult.raw);",
+        title: "Changed line map is built before file filtering",
+        body: "This can leave diagnostics referring to paths that are not in the reviewable file set. Filtered files should not influence downstream changed-file context.",
+        confidence: "high",
+      },
+    ]);
+    expect(report.diagnostics).toBeUndefined();
+  });
+
+  it("parses fallback JSON fixtures and reports dropped malformed findings", async () => {
+    const report = parseStructuredReview(await readFixture("fallback-mixed-review-response.json"));
+
+    expect(report.findings).toEqual([
+      {
+        severity: "info",
+        file: "src/config.ts",
+        line: 42,
+        evidence: "timeout: z.number().int().positive()",
+        title: "Timeout validation has no upper bound",
+        body: "Very large timeout values can make a review appear hung. Consider a documented maximum if this is user-facing.",
+        confidence: "low",
+      },
+      {
+        severity: "warning",
+        file: "src/config.ts",
+        line: 45,
+        title: "Missing evidence stays parseable",
+        body: "Evidence is optional, so older model outputs without evidence should still parse.",
+        confidence: "low",
+      },
+    ]);
+    expect(report.diagnostics).toEqual([
+      "Review JSON did not include FINAL_REVIEW_JSON marker; parsed fallback JSON object.",
+      "Dropped malformed finding at index 2.",
+    ]);
+  });
+
   it("parses the strict marker format", () => {
     const report = parseStructuredReview(
       'FINAL_REVIEW_JSON\n{"summary":"Looks safe.","findings":[]}',
@@ -96,6 +160,15 @@ describe("parseStructuredReview", () => {
 });
 
 describe("looksLikeCompleteStructuredReview", () => {
+  it("recognizes complete and incomplete review fixtures", async () => {
+    expect(looksLikeCompleteStructuredReview(await readFixture("strict-review-response.txt"))).toBe(
+      true,
+    );
+    expect(
+      looksLikeCompleteStructuredReview(await readFixture("incomplete-review-response.txt")),
+    ).toBe(false);
+  });
+
   it("returns false if marker is missing", () => {
     expect(looksLikeCompleteStructuredReview('{"summary":"abc","findings":[]}')).toBe(false);
   });

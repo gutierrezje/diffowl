@@ -1,0 +1,38 @@
+{
+  "summary": "The model returned a bare JSON object with mixed-quality findings.",
+  "findings": [
+    {
+      "severity": "INFO",
+      "file": "src/config.ts",
+      "line": 42,
+      "evidence": "timeout: z.number().int().positive()",
+      "title": "Timeout validation has no upper bound",
+      "body": "Very large timeout values can make a review appear hung. Consider a documented maximum if this is user-facing.",
+      "confidence": "low"
+    },
+    {
+      "severity": "warning",
+      "file": "src/config.ts",
+      "line": 45,
+      "title": "Missing evidence stays parseable",
+      "body": "Evidence is optional, so older model outputs without evidence should still parse.",
+      "confidence": "certain"
+    },
+    {
+      "severity": "warning",
+      "file": "",
+      "line": 0,
+      "title": "",
+      "body": "",
+      "confidence": "high"
+    },
+    {
+      "severity": "warning",
+      "file": "src/config.ts",
+      "line": 45,
+      "title": "Missing evidence stays parseable",
+      "body": "Duplicate should be removed.",
+      "confidence": "medium"
+    }
+  ]
+}

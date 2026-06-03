@@ -1,0 +1,26 @@
+I reviewed the provided diff and found two concrete issues.
+
+FINAL_REVIEW_JSON
+{
+  "summary": "The change adds config-driven review behavior, but one path drops user intent and another can report the wrong file.",
+  "findings": [
+    {
+      "severity": "warning",
+      "file": "src/cli.ts",
+      "line": 211,
+      "evidence": "const verbose = Boolean(config.verbose || options.verbose);",
+      "title": "CLI flag cannot disable configured verbose mode",
+      "body": "The flag and config are ORed together, so a user cannot temporarily disable verbose output once it is enabled in config. If verbose is intended as an additive override this is fine, but the option shape reads like a normal boolean setting.",
+      "confidence": "medium"
+    },
+    {
+      "severity": "error",
+      "file": "src/review/context.ts",
+      "line": "68",
+      "evidence": "const changedLines = getChangedLinesByFile(diffResult.raw);",
+      "title": "Changed line map is built before file filtering",
+      "body": "This can leave diagnostics referring to paths that are not in the reviewable file set. Filtered files should not influence downstream changed-file context.",
+      "confidence": "HIGH"
+    }
+  ]
+}
