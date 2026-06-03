@@ -653,6 +653,7 @@ export function parseStructuredReview(raw: string): ReviewReport {
   // Expect a line starting with FINAL_REVIEW_JSON followed by a single JSON object.
   const marker = "FINAL_REVIEW_JSON";
   const markerIndex = raw.indexOf(marker);
+  const usedFallbackJson = markerIndex === -1;
 
   const afterMarker = markerIndex === -1 ? raw : raw.slice(markerIndex + marker.length);
   const firstBrace = afterMarker.indexOf("{");
@@ -685,7 +686,9 @@ export function parseStructuredReview(raw: string): ReviewReport {
   }
 
   const findings: ReviewFinding[] = [];
-  const diagnostics: string[] = [];
+  const diagnostics: string[] = usedFallbackJson
+    ? ["Review JSON did not include FINAL_REVIEW_JSON marker; parsed fallback JSON object."]
+    : [];
   const seen = new Set<string>();
 
   for (const [index, item] of root.data.findings.entries()) {

@@ -24,6 +24,9 @@ describe("parseStructuredReview", () => {
 
     expect(report.summary).toBe("No issues.");
     expect(report.findings).toEqual([]);
+    expect(report.diagnostics).toEqual([
+      "Review JSON did not include FINAL_REVIEW_JSON marker; parsed fallback JSON object.",
+    ]);
   });
 
   it("includes a raw response preview when parsing fails", () => {
@@ -58,7 +61,10 @@ describe("parseStructuredReview", () => {
     );
 
     expect(report.findings).toHaveLength(1);
-    expect(report.diagnostics).toEqual(["Dropped malformed finding at index 1."]);
+    expect(report.diagnostics).toEqual([
+      "Review JSON did not include FINAL_REVIEW_JSON marker; parsed fallback JSON object.",
+      "Dropped malformed finding at index 1.",
+    ]);
   });
 
   it("defaults missing or invalid finding confidence to low", () => {
