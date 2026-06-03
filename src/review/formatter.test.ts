@@ -34,7 +34,7 @@ describe("colorizeMarkdown", () => {
       "const raw = **not bold**",
       "### In Code Block Header",
       "```",
-      "More **bold outside** text"
+      "More **bold outside** text",
     ].join("\n");
 
     const output = colorizeMarkdown(input);
@@ -63,9 +63,9 @@ describe("renderMarkdown", () => {
           evidence: "const query = `SELECT * FROM users`;",
           title: "SQL concern",
           body: "This looks risky.",
-          confidence: "high"
-        }
-      ]
+          confidence: "high",
+        },
+      ],
     };
 
     const output = renderMarkdown(report);
@@ -83,9 +83,9 @@ describe("renderMarkdown", () => {
           evidence: "`inline`",
           title: "SQL concern",
           body: "This looks risky.",
-          confidence: "high"
-        }
-      ]
+          confidence: "high",
+        },
+      ],
     };
 
     const output = renderMarkdown(report);
@@ -103,10 +103,10 @@ describe("renderMarkdown", () => {
           line: 12,
           title: "Outside changed file",
           body: "This is shown only in verbose output.",
-          confidence: "medium"
-        }
+          confidence: "medium",
+        },
       ],
-      diagnostics: ["Suppressed 1 finding(s) for files not changed in this diff."]
+      diagnostics: ["Suppressed 1 finding(s) for files not changed in this diff."],
     };
 
     const output = renderMarkdown(report);
@@ -114,9 +114,7 @@ describe("renderMarkdown", () => {
     expect(output).toContain("### Suppressed Findings");
     expect(output).toContain("**[WARNING] src/unchanged.ts:12** (medium confidence)");
     expect(output).toContain("### Diagnostics");
-    expect(output).toContain(
-      "- Suppressed 1 finding(s) for files not changed in this diff."
-    );
+    expect(output).toContain("- Suppressed 1 finding(s) for files not changed in this diff.");
   });
 
   it("does not render empty diagnostics or suppressed findings sections", () => {
@@ -124,7 +122,7 @@ describe("renderMarkdown", () => {
       summary: "Test summary",
       findings: [],
       suppressedFindings: [],
-      diagnostics: []
+      diagnostics: [],
     };
 
     const output = renderMarkdown(report);
@@ -145,9 +143,9 @@ describe("renderMarkdown", () => {
           evidence: "const value = `example`;",
           title: "Outside changed file",
           body: "This is shown only in verbose output.",
-          confidence: "high"
-        }
-      ]
+          confidence: "high",
+        },
+      ],
     };
 
     const output = renderMarkdown(report);

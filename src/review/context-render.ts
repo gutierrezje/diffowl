@@ -116,8 +116,6 @@ export function renderReviewContext(
     lines.push("");
   }
 
-
-
   if (!shallow && context.relatedFiles.length > 0) {
     lines.push("### Related Test Files");
     for (const related of context.relatedFiles) {
@@ -150,8 +148,6 @@ export function renderReviewContext(
 
   return lines.join("\n").trim();
 }
-
-
 
 function filterDiffRaw(rawDiff: string, includedPaths: Set<string>): string {
   if (includedPaths.size === 0) {

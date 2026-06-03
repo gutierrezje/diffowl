@@ -191,13 +191,7 @@ async function isOpencodeProcess(pid: number): Promise<boolean> {
       }
 
       // Fallback: use tasklist to check image name (strictly look for opencode)
-      const { stdout } = await execa("tasklist", [
-        "/FI",
-        `PID eq ${pid}`,
-        "/FO",
-        "CSV",
-        "/NH",
-      ]);
+      const { stdout } = await execa("tasklist", ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"]);
       return stdout.toLowerCase().includes("opencode");
     } else {
       // POSIX: Keep ps -p ... (works on Linux/macOS)

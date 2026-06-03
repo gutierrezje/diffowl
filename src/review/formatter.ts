@@ -102,7 +102,6 @@ export function printHeader(): void {
   console.log();
 }
 
-
 /**
  * Print the review footer with summary
  */
@@ -170,7 +169,7 @@ export function colorizeMarkdown(text: string): string {
         )
         .replace(/^### (.*)/g, (_match, title: string) => chalk.bold.underline(title))
         .replace(/\*\*([^*]+)\*\*/g, (_match, content: string) => chalk.bold(content));
-      
+
       colorizedLines.push(colorized);
     }
   }

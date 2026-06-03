@@ -61,8 +61,7 @@ describe("checkRecentHookFailure", () => {
       JSON.stringify({
         exitCode: 1,
         timestamp: new Date().toISOString(),
-        message:
-          "OpenCode request failed (phase=event-stream-read, server=http://127.0.0.1:4096).",
+        message: "OpenCode request failed (phase=event-stream-read, server=http://127.0.0.1:4096).",
       }),
       "utf-8",
     );
@@ -108,9 +107,7 @@ describe("generateManagedSection", () => {
     });
 
     expect(section).toContain("PATH='/opt/node/bin:/opt/homebrew/bin'\":$PATH\"");
-    expect(section).toContain(
-      "'/opt/node/bin/node' '/usr/local/lib/diffowl/dist/cli.js' hook-run",
-    );
+    expect(section).toContain("'/opt/node/bin/node' '/usr/local/lib/diffowl/dist/cli.js' hook-run");
     expect(section).toContain("elif [ -x '/usr/local/bin/diffowl' ]; then");
   });
 
