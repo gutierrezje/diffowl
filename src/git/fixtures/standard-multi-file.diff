@@ -1,0 +1,24 @@
+ src/git/diff.ts      | 3 ++-
+ README.md            | 2 +-
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/src/git/diff.ts b/src/git/diff.ts
+index 1111111..2222222 100644
+--- a/src/git/diff.ts
++++ b/src/git/diff.ts
+@@ -1,5 +1,6 @@
+ import { execa } from "execa";
+-import { basename } from "node:path";
++import { basename, dirname } from "node:path";
+ 
+ export interface DiffResult {
++  generatedAt?: string;
+   files: DiffFile[];
+ }
+diff --git a/README.md b/README.md
+index 3333333..4444444 100644
+--- a/README.md
++++ b/README.md
+@@ -10,2 +10,2 @@
+-Old setup text
++New setup text

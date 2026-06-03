@@ -1,0 +1,26 @@
+ src/old name.ts => src/new name.ts | 2 +-
+ src/removed.ts                    | 2 --
+ assets/logo.png                   | Bin 120 -> 128 bytes
+ 3 files changed, 1 insertion(+), 3 deletions(-)
+
+diff --git "a/src/old name.ts" "b/src/new name.ts"
+similarity index 88%
+rename from src/old name.ts
+rename to "src/new name.ts"
+index 5555555..6666666 100644
+--- "a/src/old name.ts"
++++ "b/src/new name.ts"
+@@ -1,2 +1,2 @@
+-export const label = "old";
++export const label = "new";
+diff --git a/src/removed.ts b/src/removed.ts
+deleted file mode 100644
+index 7777777..0000000
+--- a/src/removed.ts
++++ /dev/null
+@@ -1,2 +0,0 @@
+-export const removed = true;
+-export const count = 1;
+diff --git a/assets/logo.png b/assets/logo.png
+index 8888888..9999999 100644
+Binary files a/assets/logo.png and b/assets/logo.png differ

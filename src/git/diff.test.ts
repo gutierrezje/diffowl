@@ -1,7 +1,39 @@
 import { describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseDiff, isDocFile, isDocOnlyDiff } from "./diff.js";
 
+const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
+
+async function readFixture(name: string): Promise<string> {
+  return readFile(join(fixturesDir, name), "utf-8");
+}
+
 describe("parseDiff", () => {
+  it("parses a realistic multi-file git show fixture", async () => {
+    const result = parseDiff(await readFixture("standard-multi-file.diff"));
+
+    expect(result.files).toEqual([
+      { path: "src/git/diff.ts", status: "modified", additions: 2, deletions: 1 },
+      { path: "README.md", status: "modified", additions: 1, deletions: 1 },
+    ]);
+    expect(result.summary).toBe("~ src/git/diff.ts (+2/-1)\n~ README.md (+1/-1)");
+  });
+
+  it("parses realistic rename, delete, and binary entries", async () => {
+    const result = parseDiff(await readFixture("rename-delete-binary.diff"));
+
+    expect(result.files).toEqual([
+      { path: "src/new name.ts", status: "renamed", additions: 1, deletions: 1 },
+      { path: "src/removed.ts", status: "deleted", additions: 0, deletions: 2 },
+      { path: "assets/logo.png", status: "modified", additions: 0, deletions: 0 },
+    ]);
+    expect(result.summary).toBe(
+      "> src/new name.ts (+1/-1)\n- src/removed.ts (+0/-2)\n~ assets/logo.png (+0/-0)",
+    );
+  });
+
   it("parses standard unquoted paths and counts additions and deletions", () => {
     const rawDiff = [
       "diff --git a/src/cli.ts b/src/cli.ts",
@@ -232,6 +264,10 @@ describe("isDocFile", () => {
 });
 
 describe("isDocOnlyDiff", () => {
+  it("returns true for a realistic docs-only fixture", async () => {
+    expect(isDocOnlyDiff(parseDiff(await readFixture("docs-only.diff")))).toBe(true);
+  });
+
   it("returns true when all files are docs", () => {
     const diff = {
       files: [

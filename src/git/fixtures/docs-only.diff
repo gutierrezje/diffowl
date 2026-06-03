@@ -1,0 +1,18 @@
+ README.md      | 2 +-
+ docs/guide.txt | 1 +
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/README.md b/README.md
+index aaaaaaa..bbbbbbb 100644
+--- a/README.md
++++ b/README.md
+@@ -1,2 +1,2 @@
+-Old title
++New title
+diff --git a/docs/guide.txt b/docs/guide.txt
+new file mode 100644
+index 0000000..ccccccc
+--- /dev/null
++++ b/docs/guide.txt
+@@ -0,0 +1 @@
++Usage notes
