@@ -69,8 +69,7 @@ export async function buildReviewContext(
   depth: ReviewContextDepth = config.context.depth,
   diff?: DiffResult,
 ): Promise<ReviewContext> {
-  const diffResult =
-    diff ?? (mode === "staged" ? await getStagedDiff() : await getLastCommitDiff());
+  const diffResult = diff ?? (await loadDiffForMode(mode));
   const reviewableFiles = diffResult.files.filter((file) => shouldReviewFile(file.path, config));
   const skippedFiles = diffResult.files.filter((file) => !shouldReviewFile(file.path, config));
   const changedLines = getChangedLinesByFile(diffResult.raw);
@@ -93,6 +92,18 @@ export async function buildReviewContext(
     references,
     diagnostics,
   };
+}
+
+async function loadDiffForMode(mode: "last-commit" | "staged" | "commit"): Promise<DiffResult> {
+  if (mode === "staged") {
+    return getStagedDiff();
+  }
+
+  if (mode === "commit") {
+    throw new Error("Commit review context requires an explicit diff.");
+  }
+
+  return getLastCommitDiff();
 }
 
 async function buildChangedFileContext(

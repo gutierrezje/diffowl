@@ -322,6 +322,49 @@ describe("buildReviewContext", () => {
     expect(rendered).toContain("File content skipped: file too large for context");
   });
 
+  it("builds commit mode context from an explicit diff", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
+    tempDirs.push(root);
+    process.chdir(root);
+
+    await mkdir("src");
+    await writeFile(
+      "src/example.ts",
+      ["export function calculateTotal(value: number) {", "  return value + 2;", "}", ""].join(
+        "\n",
+      ),
+      "utf-8",
+    );
+
+    const context = await buildReviewContext("commit", config, "shallow", {
+      raw: [
+        "diff --git a/src/example.ts b/src/example.ts",
+        "--- a/src/example.ts",
+        "+++ b/src/example.ts",
+        "@@ -1,3 +1,3 @@",
+        " export function calculateTotal(value: number) {",
+        "-  return value + 1;",
+        "+  return value + 2;",
+        " }",
+      ].join("\n"),
+      summary: "~ src/example.ts (+1/-1)",
+      files: [{ path: "src/example.ts", status: "modified", additions: 1, deletions: 1 }],
+    });
+    const rendered = renderReviewContext(context);
+
+    expect(context.mode).toBe("commit");
+    expect(context.changedFiles[0]!.file.path).toBe("src/example.ts");
+    expect(context.changedFiles[0]!.changedLines).toEqual([2]);
+    expect(rendered).toContain("Mode: commit");
+    expect(rendered).toContain("return value + 2");
+  });
+
+  it("rejects commit mode context without an explicit diff", async () => {
+    await expect(buildReviewContext("commit", config)).rejects.toThrow(
+      "Commit review context requires an explicit diff.",
+    );
+  });
+
   it("renders a smaller shallow context without related files or references", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
     tempDirs.push(root);
