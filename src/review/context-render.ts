@@ -132,11 +132,17 @@ export function renderReviewContext(
   }
 
   if (!shallow && context.references.length > 0) {
-    lines.push("### Reference Hints");
+    lines.push("### Potential Call Flow");
+    lines.push(
+      "These bounded snippets show where changed filenames or symbols are referenced. Use them to reason about callers, output paths, config wiring, tests, and user-visible behavior.",
+    );
     for (const reference of context.references) {
-      lines.push(`Term: ${reference.term}`);
+      lines.push(`#### Term: ${reference.term}`);
       for (const match of reference.matches) {
         lines.push(`- ${match.path}:${match.line}: ${match.text}`);
+        if (match.snippet) {
+          lines.push(fence(match.snippet, languageForPath(match.path)));
+        }
       }
       lines.push("");
     }

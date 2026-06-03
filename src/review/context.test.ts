@@ -94,6 +94,9 @@ describe("buildReviewContext", () => {
     expect(rendered).toContain("Changed TypeScript AST symbols");
     expect(rendered).toContain("src/example.test.ts");
     expect(rendered).toContain("src/consumer.ts");
+    expect(rendered).toContain("### Potential Call Flow");
+    expect(rendered).toContain("Term: calculateTotal");
+    expect(rendered).toContain("console.log(calculateTotal(1));");
     expect(rendered).toContain("return value + 2");
   });
 
@@ -143,6 +146,7 @@ describe("buildReviewContext", () => {
       const rendered = renderReviewContext(context);
 
       expect(rendered).toContain("src/consumer.ts");
+      expect(rendered).toContain("### Potential Call Flow");
       expect(context.diagnostics).toEqual([]);
       expect(rendered).not.toContain("Context diagnostics");
     } finally {
@@ -234,7 +238,7 @@ describe("buildReviewContext", () => {
     expect(rendered).toContain("Review depth: shallow");
     expect(rendered).toContain("Changed TypeScript AST symbols");
     expect(rendered).not.toContain("Related Test Files");
-    expect(rendered).not.toContain("Reference Hints");
+    expect(rendered).not.toContain("Potential Call Flow");
   });
 
 

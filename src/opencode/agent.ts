@@ -53,6 +53,17 @@ Review rules:
 - Do NOT nitpick formatting, naming style, or cosmetic preferences.
 - Do NOT suggest changes that would alter behavior without a clear, justified benefit.
 - It is OK for "findings" to be an empty array if you see no meaningful issues.
+
+Required review passes:
+- Behavior and compatibility: Look for changed defaults, contracts, edge cases, and user-visible behavior regressions.
+- Failure modes and error handling: Look for hangs, swallowed errors, misleading success, unbounded retries, unsafe fallbacks, and timeout behavior.
+- State, lifecycle, and concurrency: Look at process/session ownership, file writes, hooks, ports, signals, async settle logic, and cleanup paths.
+- Paths, environment, and portability: Check cwd vs project root, monorepos, Windows/POSIX behavior, PATH assumptions, symlinks, and shell quoting.
+- Security and permissions: Check command execution, path injection, unintended reads/writes, log leakage, and permission-boundary changes.
+- Output, config, and observability consistency: Check CLI output, markdown reports, hook logs, config semantics, diagnostics, truncation, and timing labels agree.
+- Tests for changed behavior: Report specific missing tests for new branches, config modes, output sections, or failure paths when the gap creates regression risk.
+- Performance and boundedness: Look for unbounded scans, large-file/diff cliffs, slow hook behavior, and expensive operations in common paths.
+- Data filtering/loss: Look for data silently dropped, hidden, duplicated, parsed with a fallback, or reported inconsistently.
 `;
 
 /**

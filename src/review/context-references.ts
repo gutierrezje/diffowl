@@ -1,4 +1,5 @@
 import { basename, extname } from "node:path";
+import { readFile } from "node:fs/promises";
 import { execa } from "execa";
 import type { ChangedFileContext, ReferenceContext, ReferenceMatch } from "./context-types.js";
 import type { DiffFile } from "../git/diff.js";
@@ -8,6 +9,8 @@ const MAX_REFERENCE_TERMS = 8;
 const MAX_REFERENCE_LINE_CHARS = 220;
 const MAX_BATCH_REFERENCE_MATCHES = 200;
 const REFERENCE_SEARCH_TIMEOUT_MS = 5_000;
+const REFERENCE_SNIPPET_RADIUS = 2;
+const MAX_REFERENCE_SNIPPET_CHARS = 1_200;
 
 export async function buildReferenceContexts(
   changedFiles: ChangedFileContext[],
@@ -33,7 +36,9 @@ export async function buildReferenceContexts(
     return [];
   }
 
-  const allMatches = await findBatchReferences(validTerms, ignoredPaths, diagnostics);
+  const allMatches = await addReferenceSnippets(
+    await findBatchReferences(validTerms, ignoredPaths, diagnostics),
+  );
 
   const references: ReferenceContext[] = [];
   for (const term of validTerms) {
@@ -129,4 +134,47 @@ function parseReferenceLine(line: string): ReferenceMatch | undefined {
     line: Number(match[2]),
     text: match[3]!.trim().slice(0, MAX_REFERENCE_LINE_CHARS),
   };
+}
+
+async function addReferenceSnippets(matches: ReferenceMatch[]): Promise<ReferenceMatch[]> {
+  const files = new Map<string, string[]>();
+
+  await Promise.all(
+    [...new Set(matches.map((match) => match.path))].map(async (path) => {
+      try {
+        const content = await readFile(path, "utf-8");
+        if (!content.includes("\0")) {
+          files.set(path, content.split("\n"));
+        }
+      } catch {
+        // Reference snippets are advisory; keep the line-level match if reading fails.
+      }
+    }),
+  );
+
+  return matches.map((match) => {
+    const lines = files.get(match.path);
+    if (!lines) return match;
+
+    const start = Math.max(1, match.line - REFERENCE_SNIPPET_RADIUS);
+    const end = Math.min(lines.length, match.line + REFERENCE_SNIPPET_RADIUS);
+    const snippet = lines
+      .slice(start - 1, end)
+      .map((line, index) => `${start + index}: ${line}`)
+      .join("\n");
+
+    return {
+      ...match,
+      snippet: truncateSnippet(snippet),
+      snippetStartLine: start,
+      snippetEndLine: end,
+    };
+  });
+}
+
+function truncateSnippet(snippet: string): string {
+  if (snippet.length <= MAX_REFERENCE_SNIPPET_CHARS) {
+    return snippet;
+  }
+  return `${snippet.slice(0, MAX_REFERENCE_SNIPPET_CHARS)}\n... [truncated]`;
 }

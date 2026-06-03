@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildReviewPrompt } from "./agent.js";
+import { REVIEW_AGENT_PROMPT, buildReviewPrompt } from "./agent.js";
 
 describe("buildReviewPrompt", () => {
   it("uses provided local context before asking for tool follow-up", () => {
@@ -11,6 +11,13 @@ describe("buildReviewPrompt", () => {
     expect(prompt).toContain("Review depth: default");
     expect(prompt).toContain("Use tools for targeted exploration");
     expect(prompt).toContain("ignored");
+  });
+
+  it("requires broad review passes in the system prompt", () => {
+    expect(REVIEW_AGENT_PROMPT).toContain("Required review passes");
+    expect(REVIEW_AGENT_PROMPT).toContain("Behavior and compatibility");
+    expect(REVIEW_AGENT_PROMPT).toContain("Paths, environment, and portability");
+    expect(REVIEW_AGENT_PROMPT).toContain("Data filtering/loss");
   });
 
   it("sets shallow mode expectations for cheap local review", () => {
