@@ -192,10 +192,9 @@ function isMaxBufferError(err: unknown): err is { stdout: string } {
   return (
     err !== null &&
     typeof err === "object" &&
+    (err as { isMaxBuffer?: unknown }).isMaxBuffer === true &&
     "stdout" in err &&
-    typeof (err as { stdout?: unknown }).stdout === "string" &&
-    ((err as { name?: unknown }).name === "MaxBufferError" ||
-      String((err as { message?: unknown }).message ?? "").includes("maxBuffer"))
+    typeof (err as { stdout?: unknown }).stdout === "string"
   );
 }
 

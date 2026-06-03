@@ -1,10 +1,20 @@
-import { describe, expect, it } from "vitest";
-import { readFile } from "node:fs/promises";
+import { afterEach, describe, expect, it } from "vitest";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseDiff, isDocFile, isDocOnlyDiff } from "./diff.js";
+import { execa } from "execa";
+import { getStagedDiff, parseDiff, isDocFile, isDocOnlyDiff } from "./diff.js";
 
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
+const originalCwd = process.cwd();
+let tempDirs: string[] = [];
+
+afterEach(async () => {
+  process.chdir(originalCwd);
+  await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
+  tempDirs = [];
+});
 
 async function readFixture(name: string): Promise<string> {
   return readFile(join(fixturesDir, name), "utf-8");
@@ -25,6 +35,35 @@ describe("parseDiff", () => {
     const result = parseDiff("diff --git a/src/app.ts b/src/app.ts", ["diff truncated"]);
 
     expect(result.diagnostics).toEqual(["diff truncated"]);
+  });
+
+  it("returns partial staged diff with diagnostics when git output exceeds the buffer", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-large-diff-"));
+    tempDirs.push(root);
+    process.chdir(root);
+
+    await execa("git", ["init"]);
+    await writeFile("large.txt", "initial\n", "utf-8");
+    await execa("git", ["add", "."]);
+    await execa("git", [
+      "-c",
+      "user.name=DiffOwl Test",
+      "-c",
+      "user.email=diffowl@example.test",
+      "commit",
+      "-m",
+      "initial",
+    ]);
+
+    await writeFile("large.txt", `${"x".repeat(2_200_000)}\n`, "utf-8");
+    await execa("git", ["add", "large.txt"]);
+
+    const result = await getStagedDiff();
+
+    expect(result.raw.length).toBeGreaterThan(0);
+    expect(result.raw.length).toBeLessThanOrEqual(2 * 1024 * 1024);
+    expect(result.files[0]!).toMatchObject({ path: "large.txt", status: "modified" });
+    expect(result.diagnostics?.[0]).toContain("Git diff output exceeded");
   });
 
   it("parses realistic rename, delete, and binary entries", async () => {
