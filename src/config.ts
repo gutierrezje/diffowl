@@ -6,6 +6,15 @@ import { z, ZodError } from "zod";
 
 export type ReviewConfidence = "low" | "medium" | "high";
 export type ReviewContextDepth = "shallow" | "default";
+export type ReasoningEffort =
+  | "auto"
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "max"
+  | "xhigh";
 
 export interface DiffOwlConfig {
   model: string;
@@ -15,6 +24,9 @@ export interface DiffOwlConfig {
   };
   context: {
     depth: ReviewContextDepth;
+  };
+  reasoning: {
+    effort: ReasoningEffort;
   };
   timeout: number; // seconds
   min_confidence: ReviewConfidence;
@@ -33,6 +45,9 @@ const DEFAULT_CONFIG: DiffOwlConfig = {
   },
   context: {
     depth: "default",
+  },
+  reasoning: {
+    effort: "auto",
   },
   timeout: 300, // 5 minutes
   min_confidence: "medium",
@@ -55,6 +70,16 @@ const CONFIG_FILENAME = ".diffowl.yml";
 
 export const ReviewConfidenceSchema = z.enum(["low", "medium", "high"]);
 export const ReviewContextDepthSchema = z.enum(["shallow", "default"]);
+export const ReasoningEffortSchema = z.enum([
+  "auto",
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "max",
+  "xhigh",
+]);
 export const ModelSchema = z
   .string()
   .trim()
@@ -79,6 +104,12 @@ export const DiffOwlConfigSchema = z
       })
       .strict()
       .default(DEFAULT_CONFIG.context),
+    reasoning: z
+      .object({
+        effort: ReasoningEffortSchema.default(DEFAULT_CONFIG.reasoning.effort),
+      })
+      .strict()
+      .default(DEFAULT_CONFIG.reasoning),
     timeout: z.number().int().positive().default(DEFAULT_CONFIG.timeout),
     min_confidence: ReviewConfidenceSchema.default(DEFAULT_CONFIG.min_confidence),
     include: stringArraySchema.default(DEFAULT_CONFIG.include),
@@ -95,6 +126,10 @@ export function parseModel(value: unknown): string {
 
 export function parseReviewContextDepth(value: unknown): ReviewContextDepth {
   return ReviewContextDepthSchema.parse(value);
+}
+
+export function parseReasoningEffort(value: unknown): ReasoningEffort {
+  return ReasoningEffortSchema.parse(value);
 }
 
 function parseConfigInput(value: unknown): DiffOwlConfig {

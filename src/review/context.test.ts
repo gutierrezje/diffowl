@@ -24,6 +24,9 @@ const config: DiffOwlConfig = {
   context: {
     depth: "default",
   },
+  reasoning: {
+    effort: "auto",
+  },
   timeout: 300,
   min_confidence: "medium",
   include: ["**/*"],
@@ -337,7 +340,6 @@ describe("buildReviewContext", () => {
     expect(rendered).not.toContain("Related Test Files");
     expect(rendered).not.toContain("Potential Call Flow");
   });
-
 
   it("summarizes consecutive changed lines as ranges for added files", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));

@@ -94,6 +94,7 @@ Runs a code review on your repository.
 - `--staged`: Reviews currently **staged changes** instead of the last commit.
 - `--hook`: Runs in background, non-blocking mode (used by Git hook).
 - `--depth <depth>`: Overrides configured review depth. Valid values: `shallow`, `default`.
+- `--reasoning <effort>`: Overrides configured OpenCode reasoning variant. Valid values: `auto`, `none`, `minimal`, `low`, `medium`, `high`, `max`, `xhigh`.
 - `--verbose`: Includes suppressed findings and extra review details in the report.
 
 Review depth controls both how much local context DiffOwl preloads and how much exploration the reviewer is expected to do:
@@ -110,6 +111,9 @@ diffowl review --staged
 
 # Include suppressed outside-file findings in the report
 diffowl review --staged --verbose
+
+# Request a high reasoning variant for models that support it
+diffowl review --staged --reasoning high
 ```
 
 ### `diffowl model`
@@ -174,6 +178,11 @@ server:
 # Local review context strategy: shallow or default
 context:
   depth: default
+
+# OpenCode model variant for reasoning/thinking effort.
+# auto leaves the selected model/provider default alone.
+reasoning:
+  effort: auto
 
 # Review timeout in seconds
 timeout: 300

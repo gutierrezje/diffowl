@@ -13,7 +13,7 @@ export type {
   ReviewSeverity,
   ReviewTiming,
 } from "../review/types.js";
-import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
+import type { DiffOwlConfig, ReasoningEffort, ReviewContextDepth } from "../config.js";
 import type { ReviewReport, ReviewTiming } from "../review/types.js";
 
 export interface ReviewOptions {
@@ -89,6 +89,12 @@ export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
   const parts = config.model.split("/");
   const providerID = parts[0]!;
   const modelID = parts.slice(1).join("/");
+  const reasoning = await resolveReasoningVariant(
+    client,
+    providerID,
+    modelID,
+    config.reasoning.effort,
+  );
 
   // Set up SSE event listener to capture the final structured response
   let fullResponse = "";
@@ -285,6 +291,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
         system: REVIEW_AGENT_PROMPT,
         model: { providerID, modelID },
         tools,
+        ...(reasoning.variant ? { variant: reasoning.variant } : {}),
         parts: [{ type: "text", text: prompt }],
       },
     }),
@@ -302,8 +309,102 @@ export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
   const parseStart = performance.now();
   const report = parseStructuredReview(raw);
   recordTiming(timings, onProgress, "parse-review", "Review JSON parsing", parseStart);
+  const diagnostics = [...(report.diagnostics ?? []), ...reasoning.diagnostics];
 
-  return { ...report, timings };
+  return { ...report, ...(diagnostics.length > 0 ? { diagnostics } : {}), timings };
+}
+
+export async function resolveReasoningVariant(
+  client: unknown,
+  providerID: string,
+  modelID: string,
+  effort: ReasoningEffort,
+): Promise<{ variant?: string; diagnostics: string[] }> {
+  if (effort === "auto") {
+    return { diagnostics: [] };
+  }
+
+  const variant = effort;
+  const model = await getProviderModelMetadata(client, providerID, modelID);
+  if (!model) {
+    return { variant, diagnostics: [] };
+  }
+
+  if (model.reasoning === false) {
+    return {
+      diagnostics: [
+        `Reasoning variant "${variant}" was requested, but ${providerID}/${modelID} does not advertise reasoning support; continuing with provider default.`,
+      ],
+    };
+  }
+
+  if (model.variants && !model.variants.has(variant)) {
+    return {
+      diagnostics: [
+        `Reasoning variant "${variant}" was requested, but ${providerID}/${modelID} does not advertise that variant; continuing with provider default.`,
+      ],
+    };
+  }
+
+  return { variant, diagnostics: [] };
+}
+
+type ProviderModelMetadata = {
+  reasoning?: boolean;
+  variants?: Set<string>;
+};
+
+async function getProviderModelMetadata(
+  client: unknown,
+  providerID: string,
+  modelID: string,
+): Promise<ProviderModelMetadata | undefined> {
+  try {
+    const providerList = (client as { provider?: { list?: () => Promise<unknown> } }).provider
+      ?.list;
+    if (!providerList) {
+      return undefined;
+    }
+
+    const result = await providerList();
+    const payload = (result as { data?: unknown }).data;
+    const providers = Array.isArray((payload as any)?.all) ? (payload as any).all : [];
+    const provider = providers.find((item: any) => item?.id === providerID);
+    const models = provider?.models;
+    if (!models || typeof models !== "object") {
+      return undefined;
+    }
+
+    for (const model of Object.values(models as Record<string, any>)) {
+      if (!model || typeof model !== "object") {
+        continue;
+      }
+      const id = typeof model.id === "string" ? model.id : undefined;
+      if (id !== modelID) {
+        continue;
+      }
+
+      const reasoning =
+        typeof model.capabilities?.reasoning === "boolean"
+          ? model.capabilities.reasoning
+          : typeof model.reasoning === "boolean"
+            ? model.reasoning
+            : undefined;
+      const variants =
+        model.variants && typeof model.variants === "object"
+          ? new Set(Object.keys(model.variants))
+          : undefined;
+      return {
+        ...(reasoning !== undefined ? { reasoning } : {}),
+        ...(variants ? { variants } : {}),
+      };
+    }
+  } catch {
+    // Metadata is advisory only. If it cannot be fetched, let OpenCode decide
+    // whether the requested variant is valid for the selected model.
+  }
+
+  return undefined;
 }
 
 type OpenCodeDiagnosticContext = {

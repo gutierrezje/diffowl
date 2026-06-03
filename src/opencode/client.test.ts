@@ -9,6 +9,7 @@ import {
   handledAwaitable,
   opencodeDirectoryOptions,
   parseStructuredReview,
+  resolveReasoningVariant,
   looksLikeCompleteStructuredReview,
 } from "./client.js";
 
@@ -191,6 +192,76 @@ describe("looksLikeCompleteStructuredReview", () => {
   it("ignores mismatched braces inside string values (like evidence)", () => {
     const text = 'FINAL_REVIEW_JSON\n{"summary":"abc","findings":[],"evidence":"function foo() {"}';
     expect(looksLikeCompleteStructuredReview(text)).toBe(true);
+  });
+});
+
+describe("resolveReasoningVariant", () => {
+  it("does not request a variant for auto reasoning", async () => {
+    await expect(resolveReasoningVariant({}, "provider", "model", "auto")).resolves.toEqual({
+      diagnostics: [],
+    });
+  });
+
+  it("requests explicit variants when metadata is unavailable", async () => {
+    await expect(resolveReasoningVariant({}, "provider", "model", "high")).resolves.toEqual({
+      variant: "high",
+      diagnostics: [],
+    });
+  });
+
+  it("skips explicit variants for models without reasoning support", async () => {
+    const client = {
+      provider: {
+        list: async () => ({
+          data: {
+            all: [
+              {
+                id: "provider",
+                models: {
+                  model: {
+                    id: "model",
+                    capabilities: { reasoning: false },
+                  },
+                },
+              },
+            ],
+          },
+        }),
+      },
+    };
+
+    const result = await resolveReasoningVariant(client, "provider", "model", "high");
+
+    expect(result.variant).toBeUndefined();
+    expect(result.diagnostics[0]).toContain("does not advertise reasoning support");
+  });
+
+  it("skips explicit variants missing from advertised model variants", async () => {
+    const client = {
+      provider: {
+        list: async () => ({
+          data: {
+            all: [
+              {
+                id: "provider",
+                models: {
+                  model: {
+                    id: "model",
+                    capabilities: { reasoning: true },
+                    variants: { low: {}, high: {} },
+                  },
+                },
+              },
+            ],
+          },
+        }),
+      },
+    };
+
+    const result = await resolveReasoningVariant(client, "provider", "model", "max");
+
+    expect(result.variant).toBeUndefined();
+    expect(result.diagnostics[0]).toContain("does not advertise that variant");
   });
 });
 

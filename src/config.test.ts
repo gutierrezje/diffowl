@@ -62,8 +62,22 @@ describe("config", () => {
     expect(config.server.port).toBe(4096);
     expect(config.min_confidence).toBe("medium");
     expect(config.context.depth).toBe("default");
+    expect(config.reasoning.effort).toBe("auto");
     expect(config.skip_doc_only).toBe(false);
     expect(config.verbose).toBe(false);
+  });
+
+  it("loads valid reasoning effort", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
+    tempDirs.push(root);
+    await writeFile(
+      join(root, ".diffowl.yml"),
+      ["model: provider/model", "reasoning:", "  effort: high"].join("\n"),
+      "utf-8",
+    );
+    process.chdir(root);
+
+    expect((await loadConfig()).reasoning.effort).toBe("high");
   });
 
   it("loads boolean review output settings when set", async () => {
@@ -99,12 +113,12 @@ describe("config", () => {
     tempDirs.push(root);
     await writeFile(
       join(root, ".diffowl.yml"),
-      "model: provider/model\nmin_confidence: noisy\n",
+      "model: provider/model\nreasoning:\n  effort: noisy\n",
       "utf-8",
     );
     process.chdir(root);
 
-    await expect(loadConfig()).rejects.toThrow("min_confidence");
+    await expect(loadConfig()).rejects.toThrow("reasoning.effort");
   });
 
   it("fails fast for malformed nested config", async () => {

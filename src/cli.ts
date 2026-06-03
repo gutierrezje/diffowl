@@ -11,9 +11,11 @@ import {
   ensureDiffOwlDir,
   parseModel,
   parseReviewContextDepth,
+  parseReasoningEffort,
   type DiffOwlConfig,
   type ReviewContextDepth,
   type ReviewConfidence,
+  type ReasoningEffort,
 } from "./config.js";
 import {
   runReview,
@@ -83,6 +85,10 @@ program
   .option("--staged", "Review staged changes instead of last commit")
   .option("--hook", "Running from git hook (non-blocking mode)")
   .option("--depth <depth>", "Review context depth: shallow or default")
+  .option(
+    "--reasoning <effort>",
+    "Reasoning variant: auto, none, minimal, low, medium, high, max, or xhigh",
+  )
   .option("--verbose", "Include suppressed findings and extra review details")
   .action(async (options) => {
     if (options.hook) {
@@ -110,6 +116,7 @@ program
     const config = await loadConfigOrExit();
     const mode = options.staged ? "staged" : "last-commit";
     const depth = resolveReviewDepth(options.depth, config);
+    config.reasoning.effort = resolveReasoningEffort(options.reasoning, config);
     const verbose = Boolean(config.verbose || options.verbose);
 
     if (mode === "last-commit") {
@@ -305,6 +312,20 @@ function resolveReviewDepth(value: unknown, config: DiffOwlConfig): ReviewContex
   } catch {
     console.error(chalk.red(`Invalid review depth: ${String(value)}`));
     console.error(chalk.dim("Expected one of: shallow, default"));
+    process.exit(1);
+  }
+}
+
+function resolveReasoningEffort(value: unknown, config: DiffOwlConfig): ReasoningEffort {
+  if (value === undefined) {
+    return config.reasoning.effort;
+  }
+
+  try {
+    return parseReasoningEffort(value);
+  } catch {
+    console.error(chalk.red(`Invalid reasoning effort: ${String(value)}`));
+    console.error(chalk.dim("Expected one of: auto, none, minimal, low, medium, high, max, xhigh"));
     process.exit(1);
   }
 }
