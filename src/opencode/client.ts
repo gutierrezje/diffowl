@@ -355,7 +355,13 @@ export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
       parts: [{ type: "text", text: prompt }],
     },
   });
-  recordTiming(timings, onProgress, "prompt-send", "Review prompt send", promptSendStart);
+  recordTiming(
+    timings,
+    onProgress,
+    "prompt-send",
+    "OpenCode prompt request",
+    promptSendStart,
+  );
 
   const agentWaitStart = performance.now();
   const raw = await responsePromise;

@@ -304,8 +304,13 @@ function recordCliTiming(
 function printTimingSummary(timings: ReviewTiming[]): void {
   if (timings.length === 0) return;
 
+  const ordered = [
+    ...timings.filter((timing) => timing.phase !== "total"),
+    ...timings.filter((timing) => timing.phase === "total"),
+  ];
+
   console.log(chalk.dim("Timing:"));
-  for (const timing of timings) {
+  for (const timing of ordered) {
     console.log(chalk.dim(`  ${timing.label}: ${formatDuration(timing.ms)}`));
   }
   console.log();
