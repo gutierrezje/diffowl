@@ -155,7 +155,12 @@ function getDeclarationKind(ts: typeof tsType, node: tsNode): string {
   if (ts.isEnumDeclaration(node)) return "enum";
   if (ts.isMethodDeclaration(node)) return "method";
   if (ts.isPropertyDeclaration(node)) return "property";
-  if (ts.isVariableStatement(node)) return "const";
+  if (ts.isVariableStatement(node)) {
+    const flags = node.declarationList.flags;
+    if (flags & ts.NodeFlags.Const) return "const";
+    if (flags & ts.NodeFlags.Let) return "let";
+    return "var";
+  }
   return ts.SyntaxKind[node.kind] ?? "symbol";
 }
 

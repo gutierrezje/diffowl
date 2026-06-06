@@ -536,6 +536,44 @@ describe("buildReviewContext", () => {
     expect(symbols).not.toContain("localTax");
   });
 
+  it("labels top-level variable declarations by their TypeScript keyword", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
+    tempDirs.push(root);
+    process.chdir(root);
+
+    await mkdir("src");
+    await writeFile(
+      "src/example.ts",
+      ["export const fixed = 1;", "export let mutable = 2;", "export var legacy = 3;", ""].join(
+        "\n",
+      ),
+      "utf-8",
+    );
+
+    const context = await buildReviewContext("commit", config, "shallow", {
+      raw: [
+        "diff --git a/src/example.ts b/src/example.ts",
+        "new file mode 100644",
+        "--- /dev/null",
+        "+++ b/src/example.ts",
+        "@@ -0,0 +1,3 @@",
+        "+export const fixed = 1;",
+        "+export let mutable = 2;",
+        "+export var legacy = 3;",
+      ].join("\n"),
+      summary: "+ src/example.ts (+3/-0)",
+      files: [{ path: "src/example.ts", status: "added", additions: 3, deletions: 0 }],
+    });
+
+    expect(context.changedFiles[0]!.astSymbols).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "fixed", kind: "const" }),
+        expect.objectContaining({ name: "mutable", kind: "let" }),
+        expect.objectContaining({ name: "legacy", kind: "var" }),
+      ]),
+    );
+  });
+
   it("diagnoses unsupported code ASTs without warning for documentation files", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
     tempDirs.push(root);
