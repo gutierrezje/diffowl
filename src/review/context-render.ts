@@ -74,7 +74,7 @@ export function renderReviewContext(
     }
 
     if (fileContext.astSymbols.length > 0) {
-      lines.push("Changed TypeScript AST symbols:");
+      lines.push("Changed AST symbols:");
       for (const symbol of shallow ? fileContext.astSymbols.slice(0, 5) : fileContext.astSymbols) {
         lines.push(`#### ${symbol.kind} ${symbol.name} (${symbol.startLine}-${symbol.endLine})`);
         lines.push(
@@ -109,7 +109,7 @@ export function renderReviewContext(
     } else if (fileContext.content && fileContext.astSymbols.length === 0) {
       lines.push("_Full file content omitted because the diff already shows the changed hunks._");
     } else if (fileContext.content) {
-      lines.push("_Full file content omitted because changed TypeScript AST symbols are shown._");
+      lines.push("_Full file content omitted because changed AST symbols are shown._");
     } else {
       lines.push(`_File content skipped: ${fileContext.skippedReason ?? "unavailable"}._`);
     }

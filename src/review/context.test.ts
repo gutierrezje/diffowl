@@ -94,7 +94,7 @@ describe("buildReviewContext", () => {
       endLine: 3,
     });
     expect(rendered).toContain("src/example.ts");
-    expect(rendered).toContain("Changed TypeScript AST symbols");
+    expect(rendered).toContain("Changed AST symbols");
     expect(rendered).toContain("src/example.test.ts");
     expect(rendered).toContain("src/consumer.ts");
     expect(rendered).toContain("### Potential Call Flow");
@@ -410,7 +410,7 @@ describe("buildReviewContext", () => {
     expect(context.relatedFiles).toHaveLength(0);
     expect(context.references).toHaveLength(0);
     expect(rendered).toContain("Review depth: shallow");
-    expect(rendered).toContain("Changed TypeScript AST symbols");
+    expect(rendered).toContain("Changed AST symbols");
     expect(rendered).not.toContain("Related Test Files");
     expect(rendered).not.toContain("Potential Call Flow");
   });
@@ -534,6 +534,51 @@ describe("buildReviewContext", () => {
 
     expect(symbols).toContain("calculateTotal");
     expect(symbols).not.toContain("localTax");
+  });
+
+  it("diagnoses unsupported code ASTs without warning for documentation files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
+    tempDirs.push(root);
+    process.chdir(root);
+
+    await mkdir("src");
+    await writeFile(
+      "src/example.py",
+      "def calculate_total(value):\n    return value + 2\n",
+      "utf-8",
+    );
+    await writeFile("README.md", "# Fixture\n\nUpdated docs.\n", "utf-8");
+
+    const context = await buildReviewContext("commit", config, "shallow", {
+      raw: [
+        "diff --git a/src/example.py b/src/example.py",
+        "--- a/src/example.py",
+        "+++ b/src/example.py",
+        "@@ -1,2 +1,2 @@",
+        " def calculate_total(value):",
+        "-    return value + 1",
+        "+    return value + 2",
+        "diff --git a/README.md b/README.md",
+        "--- a/README.md",
+        "+++ b/README.md",
+        "@@ -1,3 +1,3 @@",
+        " # Fixture",
+        "",
+        "-Old docs.",
+        "+Updated docs.",
+      ].join("\n"),
+      summary: "~ src/example.py (+1/-1)\n~ README.md (+1/-1)",
+      files: [
+        { path: "src/example.py", status: "modified", additions: 1, deletions: 1 },
+        { path: "README.md", status: "modified", additions: 1, deletions: 1 },
+      ],
+    });
+    const rendered = renderReviewContext(context);
+
+    expect(context.diagnostics).toEqual(["Reviewing from diff and file context only."]);
+    expect(rendered).toContain("Context diagnostics");
+    expect(rendered).toContain("Reviewing from diff and file context only.");
+    expect(rendered).not.toContain("Changed AST symbols");
   });
 });
 

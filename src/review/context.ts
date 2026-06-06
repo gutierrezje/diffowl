@@ -1,10 +1,7 @@
 import { existsSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
-import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
 import picomatch from "picomatch";
-import type tsType from "typescript";
 import {
   getLastCommitDiff,
   getStagedDiff,
@@ -14,13 +11,9 @@ import {
   type DiffResult,
 } from "../git/diff.js";
 import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
+import { extractAstSymbols } from "./ast/index.js";
 import { buildReferenceContexts } from "./context-references.js";
-import type {
-  AstSymbolContext,
-  ChangedFileContext,
-  RelatedFileContext,
-  ReviewContext,
-} from "./context-types.js";
+import type { ChangedFileContext, RelatedFileContext, ReviewContext } from "./context-types.js";
 
 export { renderReviewContext } from "./context-render.js";
 export type {
@@ -33,30 +26,8 @@ export type {
   ReviewContext,
 } from "./context-types.js";
 
-type tsNode = tsType.Node;
-type tsIdentifier = tsType.Identifier;
-
-let cachedTs: any = null;
-
-function tryLoadUserTypescript(): any {
-  if (cachedTs !== null) return cachedTs;
-  try {
-    const require = createRequire(pathToFileURL(join(process.cwd(), "package.json")));
-    cachedTs = require("typescript");
-  } catch {
-    try {
-      const fallbackRequire = createRequire(import.meta.url);
-      cachedTs = fallbackRequire("typescript");
-    } catch {
-      cachedTs = undefined;
-    }
-  }
-  return cachedTs;
-}
-
 const MAX_FILE_CHARS = 12_000;
 const MAX_RELATED_FILE_CHARS = 6_000;
-const MAX_AST_SYMBOL_CHARS = 8_000;
 const MAX_INLINE_FILE_CHARS = 2_000;
 const MAX_INLINE_FILE_LINES = 80;
 const MAX_CONTEXT_FILE_BYTES = 512 * 1024;
@@ -74,10 +45,15 @@ export async function buildReviewContext(
   const reviewableFiles = diffResult.files.filter((file) => shouldReviewFile(file.path, config));
   const skippedFiles = diffResult.files.filter((file) => !shouldReviewFile(file.path, config));
   const changedLines = getChangedLinesByFile(diffResult.raw);
-  const changedFiles = await Promise.all(
+  const changedFileResults = await Promise.all(
     reviewableFiles.map((file) => buildChangedFileContext(file, changedLines.get(file.path) ?? [])),
   );
+  const changedFiles = changedFileResults.map((result) => result.fileContext);
   const diagnostics: string[] = [...(diffResult.diagnostics ?? [])];
+  addUniqueDiagnostics(
+    diagnostics,
+    changedFileResults.flatMap((result) => result.diagnostics),
+  );
   const relatedFiles = depth === "shallow" ? [] : await buildRelatedFileContexts(reviewableFiles);
   const references =
     depth === "shallow"
@@ -110,47 +86,56 @@ async function loadDiffForMode(mode: "last-commit" | "staged" | "commit"): Promi
 async function buildChangedFileContext(
   file: DiffFile,
   changedLines: number[],
-): Promise<ChangedFileContext> {
+): Promise<{ fileContext: ChangedFileContext; diagnostics: string[] }> {
   if (file.status === "deleted") {
     return {
-      file,
-      imports: [],
-      symbols: [],
-      changedLines,
-      astSymbols: [],
-      truncated: false,
-      shouldRenderContent: false,
-      skippedReason: "deleted file",
+      fileContext: {
+        file,
+        imports: [],
+        symbols: [],
+        changedLines,
+        astSymbols: [],
+        truncated: false,
+        shouldRenderContent: false,
+        skippedReason: "deleted file",
+      },
+      diagnostics: [],
     };
   }
 
   const contentResult = await readTextFile(file.path, MAX_FILE_CHARS);
   if (!contentResult.content) {
     return {
-      file,
-      imports: [],
-      symbols: [],
-      changedLines,
-      astSymbols: [],
-      truncated: false,
-      shouldRenderContent: false,
-      skippedReason: contentResult.reason,
+      fileContext: {
+        file,
+        imports: [],
+        symbols: [],
+        changedLines,
+        astSymbols: [],
+        truncated: false,
+        shouldRenderContent: false,
+        skippedReason: contentResult.reason,
+      },
+      diagnostics: [],
     };
   }
 
-  const astSymbols = extractAstSymbols(file.path, contentResult.content, changedLines);
+  const astResult = extractAstSymbols(file.path, contentResult.content, changedLines);
   return {
-    file,
-    imports: extractImports(contentResult.content),
-    symbols: mergeSymbols(
-      extractSymbols(contentResult.content),
-      astSymbols.map((symbol) => symbol.name),
-    ),
-    changedLines,
-    astSymbols,
-    content: contentResult.content,
-    truncated: contentResult.truncated,
-    shouldRenderContent: shouldRenderFullFileContent(file, contentResult.content),
+    fileContext: {
+      file,
+      imports: extractImports(contentResult.content),
+      symbols: mergeSymbols(
+        extractSymbols(contentResult.content),
+        astResult.symbols.map((symbol) => symbol.name),
+      ),
+      changedLines,
+      astSymbols: astResult.symbols,
+      content: contentResult.content,
+      truncated: contentResult.truncated,
+      shouldRenderContent: shouldRenderFullFileContent(file, contentResult.content),
+    },
+    diagnostics: astResult.diagnostics ?? [],
   };
 }
 
@@ -261,142 +246,6 @@ function shouldRenderFullFileContent(file: DiffFile, content: string): boolean {
   return changedLineCount / totalLines >= MIN_CHANGED_RATIO_FOR_INLINE_CONTENT;
 }
 
-function extractAstSymbols(
-  path: string,
-  content: string,
-  changedLines: number[],
-): AstSymbolContext[] {
-  if (!isTypeScriptPath(path) || changedLines.length === 0) {
-    return [];
-  }
-
-  const activeTs = tryLoadUserTypescript();
-  if (!activeTs) {
-    return [];
-  }
-
-  const sourceFile = activeTs.createSourceFile(path, content, activeTs.ScriptTarget.Latest, true);
-  const changed = new Set(changedLines);
-  const symbols: AstSymbolContext[] = [];
-
-  const visit = (node: tsNode) => {
-    const namedNode = getNamedDeclarationNode(activeTs, node);
-    if (namedNode) {
-      const startLine =
-        sourceFile.getLineAndCharacterOfPosition(namedNode.getStart(sourceFile)).line + 1;
-      const endLine = sourceFile.getLineAndCharacterOfPosition(namedNode.getEnd()).line + 1;
-      if (containsChangedLine(changed, startLine, endLine)) {
-        const text = truncateText(namedNode.getText(sourceFile), MAX_AST_SYMBOL_CHARS);
-        symbols.push({
-          name: getDeclarationName(activeTs, namedNode),
-          kind: getDeclarationKind(activeTs, namedNode),
-          startLine,
-          endLine,
-          text: text.text,
-          truncated: text.truncated,
-        });
-      }
-    }
-
-    activeTs.forEachChild(node, visit);
-  };
-
-  visit(sourceFile);
-  return dedupeAstSymbols(symbols);
-}
-
-function getNamedDeclarationNode(ts: typeof tsType, node: tsNode): tsNode | undefined {
-  if (
-    ts.isFunctionDeclaration(node) ||
-    ts.isClassDeclaration(node) ||
-    ts.isInterfaceDeclaration(node) ||
-    ts.isTypeAliasDeclaration(node) ||
-    ts.isEnumDeclaration(node) ||
-    ts.isMethodDeclaration(node) ||
-    ts.isPropertyDeclaration(node)
-  ) {
-    return hasIdentifierName(ts, node) ? node : undefined;
-  }
-
-  if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
-    const statement = findAncestor(node, ts.isVariableStatement);
-    return statement && ts.isSourceFile(statement.parent) ? statement : undefined;
-  }
-
-  return undefined;
-}
-
-function hasIdentifierName(
-  ts: typeof tsType,
-  node: tsNode,
-): node is tsNode & { name: tsIdentifier } {
-  const name = (node as { name?: tsNode }).name;
-  return Boolean(name && ts.isIdentifier(name));
-}
-
-function findAncestor<T extends tsNode>(
-  node: tsNode,
-  predicate: (node: tsNode) => node is T,
-): T | undefined {
-  let current = node.parent;
-  while (current) {
-    if (predicate(current)) return current;
-    current = current.parent;
-  }
-  return undefined;
-}
-
-function getDeclarationName(ts: typeof tsType, node: tsNode): string {
-  if (ts.isVariableStatement(node)) {
-    return node.declarationList.declarations
-      .map((declaration: any) => declaration.name.getText())
-      .join(", ");
-  }
-
-  if (hasIdentifierName(ts, node)) {
-    return node.name.text;
-  }
-
-  return "<anonymous>";
-}
-
-function getDeclarationKind(ts: typeof tsType, node: tsNode): string {
-  if (ts.isFunctionDeclaration(node)) return "function";
-  if (ts.isClassDeclaration(node)) return "class";
-  if (ts.isInterfaceDeclaration(node)) return "interface";
-  if (ts.isTypeAliasDeclaration(node)) return "type";
-  if (ts.isEnumDeclaration(node)) return "enum";
-  if (ts.isMethodDeclaration(node)) return "method";
-  if (ts.isPropertyDeclaration(node)) return "property";
-  if (ts.isVariableStatement(node)) return "const";
-  return ts.SyntaxKind[node.kind] ?? "symbol";
-}
-
-function dedupeAstSymbols(symbols: AstSymbolContext[]): AstSymbolContext[] {
-  const seen = new Set<string>();
-  const unique: AstSymbolContext[] = [];
-
-  for (const symbol of symbols.sort((a, b) => a.startLine - b.startLine)) {
-    const key = `${symbol.kind}:${symbol.name}:${symbol.startLine}:${symbol.endLine}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    unique.push(symbol);
-  }
-
-  return unique.slice(0, 20);
-}
-
-function containsChangedLine(
-  changedLines: Set<number>,
-  startLine: number,
-  endLine: number,
-): boolean {
-  for (let line = startLine; line <= endLine; line++) {
-    if (changedLines.has(line)) return true;
-  }
-  return false;
-}
-
 function mergeSymbols(...groups: string[][]): string[] {
   const symbols = new Set<string>();
   for (const group of groups) {
@@ -481,6 +330,11 @@ function formatBytes(bytes: number): string {
   return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`;
 }
 
-function isTypeScriptPath(path: string): boolean {
-  return path.endsWith(".ts") || path.endsWith(".tsx");
+function addUniqueDiagnostics(target: string[], diagnostics: string[]): void {
+  const seen = new Set(target);
+  for (const diagnostic of diagnostics) {
+    if (seen.has(diagnostic)) continue;
+    seen.add(diagnostic);
+    target.push(diagnostic);
+  }
 }
