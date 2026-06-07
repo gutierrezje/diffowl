@@ -3,4 +3,5 @@ dist/
 .diffowl/
 .commitdog/
 *.log
+.pi/
 

@@ -1,72 +1,79 @@
 # DiffOwl
 
-Local AI code review CLI. Orchestrates headless OpenCode server, delegates repo analysis to local agent.
+**Generated:** 2026-06-07
+**Commit:** a9a51e5
 
-## Architecture
+Local AI code review CLI. Orchestrates a headless OpenCode server and delegates repo analysis to a local agent.
 
-- `src/cli.ts` — Commander entry point. All commands defined inline.
-- `src/config.ts` — `.diffowl.yml` load/save. Searches upward from cwd. Deep-merges with defaults.
-- `src/opencode/` — OpenCode SDK integration
-  - `client.ts` — `runReview()`, `getAvailableModels()`. SSE streaming, session lifecycle.
-  - `server.ts` — Process spawn / health check / stop. Detached, PID tracked in `.diffowl/server.pid`.
-  - `agent.ts` — System prompt (`REVIEW_AGENT_PROMPT`) + `buildReviewPrompt()`.
-- `src/git/` — Git operations
-  - `diff.ts` — `git diff/show` parsing into `DiffResult`. Hand-rolled line parser.
-  - `hooks.ts` — Post-commit hook install/uninstall. Generates shell script with managed section markers.
-- `src/review/` — Output formatting
-  - `formatter.ts` — Markdown colorization, report write to `.diffowl/reviews/`, `latest.md`.
+## Structure
 
-## Tech Stack
+```
+.
+├── src/
+│   ├── cli.ts              # Commander entry point
+│   ├── config.ts           # .diffowl.yml load/save
+│   ├── opencode/ (AGENTS.md)   # OpenCode SDK integration
+│   ├── git/ (AGENTS.md)        # Git diff / hooks
+│   └── review/ (AGENTS.md)     # Output formatting & context
+├── package.json
+└── tsup.config.ts
+```
 
-- TypeScript 6, ESM, Node 22+
-- Build: tsup → `dist/cli.js`
-- Test: vitest
-- Lint: oxlint, Format: oxfmt
-- Runtime deps: commander, chalk, ora, execa, yaml, @opencode-ai/sdk
+## Where to Look
+
+| Task | Location |
+|------|----------|
+| Add CLI command | `src/cli.ts` |
+| Change review prompt / agent behavior | `src/opencode/agent.ts` |
+| Tweak diff parser | `src/git/diff.ts` |
+| Change report format | `src/review/formatter.ts` |
+| Add context source (AST, refs) | `src/review/context.ts`, `src/review/ast/` |
+| Adjust server lifecycle | `src/opencode/server.ts` |
+| Handle SSE events / settlement | `src/opencode/client.ts`, `src/opencode/settlement.ts` |
 
 ## Conventions
 
-- ESM only. Import paths include `.js` extension.
+- ESM only; imports include `.js` extension.
 - Node built-ins over third-party where possible.
 - Shell out via `execa`, never raw `child_process`.
-- Config defaults in `DEFAULT_CONFIG` object; always deep-merge.
-- Spinner pattern: start → update text → stop/succeed/fail. Never leave spinning.
+- Config defaults in `DEFAULT_CONFIG`; always deep-merge.
+- Spinner: start → update → stop/succeed/fail. Never leave spinning.
 - CLI errors: `chalk.red` + `process.exit(1)`. Hook mode exits 0 even on failure.
-- Report timestamps use `ISOString().replace(/[:.]/g, "-")`.
-- Static verification: Always run `pnpm run lint` (which executes both oxlint and `tsc --noEmit`) before committing. Unit tests are heavily mocked and will miss simple ReferenceErrors.
-- /tdd skill always for any moderate to large change
+- Report timestamps: `ISOString().replace(/[:.]/g, "-")`.
 
-## Anti-Patterns / Gotchas
+## Anti-Patterns
 
-- `REVIEW_AGENT_PROMPT` is a large markdown template. Preserve exact heading structure and severity labels — the formatter regex depends on them.
+- `REVIEW_AGENT_PROMPT` exact heading structure and severity labels must be preserved — `formatter.ts` regex depends on them.
 - `parseDiff` is regex-based and brittle. Test against real `git diff` output when touching.
-- `runReview` SSE event loop has a 5-min safety timeout and complex `settled` flag logic. Race conditions easy to introduce.
+- `runReview` SSE loop timeout is `config.timeout` (default 300s). The `settled` flag logic is complex; race conditions easy.
 - `spawnServer` writes PID to `.diffowl/server.pid`; `stopServer` reads it. PID reuse edge case unhandled.
 - Hook script uses `shellQuote` with single-quote escaping. Never inject unsanitized paths.
-- `buildReviewPrompt` concatenates user-supplied `rules` and glob patterns directly into prompt. No sanitization — assume trusted config.
+- `buildReviewPrompt` concatenates user rules/globs directly into prompt. Assume trusted config.
 
-## Dogfooding (run locally, then commit)
+## Commands
 
-- **One-time setup**:
-  - `pnpm install`
-  - `pnpm run build`
-  - `pnpm link --global` (installs the `diffowl` binary on your PATH)
-  - `diffowl init` (creates `.diffowl.yml` and selects a model)
+```bash
+pnpm run build      # tsup → dist/cli.js
+pnpm run lint       # oxlint + tsc --noEmit
+pnpm run test       # vitest
+pnpm run build && pnpm link --global   # install diffowl binary
 
-- **Review staged changes (recommended loop)**:
-  - Stage your work: `git add -p` (or `git add .`)
-  - Run: `diffowl review --staged`
-  - Read: `.diffowl/reviews/latest.md`
-  - Verify static type safety: `pnpm run lint` (runs oxlint and `tsc --noEmit`)
-  - Iterate until clean, then commit: `git commit -m "..."` (or your preferred flow)
+# Dogfood loop
+# stage → diffowl review --staged → read .diffowl/reviews/latest.md → pnpm run lint → commit
+diffowl init        # create .diffowl.yml
+diffowl hook install
+```
 
-- **Review last commit**:
-  - `diffowl review`
+## Key Configs
 
-- **Dogfood hook mode** (non-blocking post-commit review):
-  - Install: `diffowl hook install`
-  - Make a commit as usual; the hook should run `diffowl review --hook` and write `.diffowl/reviews/latest.md`
+| Tool | File | Notes |
+|------|------|-------|
+| Build | `tsup.config.ts` | Single entry `src/cli.ts` |
+| TS | `tsconfig.json` | ESM, strict |
+| CI | `.github/workflows/ci.yml` | — |
 
-- **Keeping the hook on the latest code while developing DiffOwl**:
-  - After changing `src/**`, re-run `pnpm run build` so `dist/cli.js` is up to date.
-  - If you’re using `pnpm link --global`, the `diffowl` shim will pick up the updated `dist/cli.js` after rebuilding.
+## Notes
+
+- After changing `src/**`, rebuild so the linked global binary picks up `dist/cli.js`.
+- Unit tests are heavily mocked and will miss simple ReferenceErrors. Always run `pnpm run lint` before committing.
+- /tdd skill always for any moderate to large change

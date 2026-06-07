@@ -5,6 +5,9 @@ server:
 context:
   depth: default
 timeout: 900
+retention:
+  reviews: 20
+  hook_log_kb: 512
 min_confidence: medium
 include:
   - "**/*"
