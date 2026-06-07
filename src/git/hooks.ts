@@ -3,7 +3,8 @@ import { closeSync, existsSync, openSync, writeSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
-import { ensureDiffOwlDir, getDiffOwlDir } from "../config.js";
+import { ensureDiffOwlDir, getDiffOwlDir, loadConfig } from "../config.js";
+import { trimHookLog } from "../review/retention.js";
 
 const HOOK_MARKER = "# diffowl-managed";
 const HOOK_END_MARKER = "# end-diffowl";
@@ -134,6 +135,8 @@ export async function runHookReview(): Promise<void> {
   const dir = await ensureDiffOwlDir();
   const logFile = join(dir, "hook.log");
   const latestReport = join(dir, "reviews", "latest.md");
+  const config = await loadConfig();
+  await trimHookLog(logFile, config.retention.hook_log_kb * 1024);
 
   const outFd = openSync(logFile, "a");
   try {

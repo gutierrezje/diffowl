@@ -28,6 +28,10 @@ export interface DiffOwlConfig {
   reasoning: {
     effort: ReasoningEffort;
   };
+  retention: {
+    reviews: number;
+    hook_log_kb: number;
+  };
   timeout: number; // seconds
   min_confidence: ReviewConfidence;
   include: string[];
@@ -48,6 +52,10 @@ const DEFAULT_CONFIG: DiffOwlConfig = {
   },
   reasoning: {
     effort: "auto",
+  },
+  retention: {
+    reviews: 50,
+    hook_log_kb: 1024,
   },
   timeout: 300, // 5 minutes
   min_confidence: "medium",
@@ -110,6 +118,13 @@ export const DiffOwlConfigSchema = z
       })
       .strict()
       .default(DEFAULT_CONFIG.reasoning),
+    retention: z
+      .object({
+        reviews: z.number().int().nonnegative().default(DEFAULT_CONFIG.retention.reviews),
+        hook_log_kb: z.number().int().nonnegative().default(DEFAULT_CONFIG.retention.hook_log_kb),
+      })
+      .strict()
+      .default(DEFAULT_CONFIG.retention),
     timeout: z.number().int().positive().default(DEFAULT_CONFIG.timeout),
     min_confidence: ReviewConfidenceSchema.default(DEFAULT_CONFIG.min_confidence),
     include: stringArraySchema.default(DEFAULT_CONFIG.include),

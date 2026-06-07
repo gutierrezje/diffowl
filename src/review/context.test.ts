@@ -27,6 +27,10 @@ const config: DiffOwlConfig = {
   reasoning: {
     effort: "auto",
   },
+  retention: {
+    reviews: 50,
+    hook_log_kb: 1024,
+  },
   timeout: 300,
   min_confidence: "medium",
   include: ["**/*"],
