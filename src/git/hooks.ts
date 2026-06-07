@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import {
   closeSync,
   existsSync,
@@ -221,11 +221,21 @@ export async function runPendingHookReviews(): Promise<void> {
       const env = { ...process.env };
       delete env["DIFFOWL_HOOK_LOCK"];
       env["DIFFOWL_HOOK_RESULT"] = resultPath;
-      await execa(process.execPath, [cli, "review", "--hook", "--commit", next.sha], {
-        cwd: process.cwd(),
-        stdio: loggedStdio(outFd),
-        env,
-      });
+      try {
+        await execa(process.execPath, [cli, "review", "--hook", "--commit", next.sha], {
+          cwd: process.cwd(),
+          stdio: loggedStdio(outFd),
+          env,
+        });
+      } catch (error) {
+        writeSync(
+          outFd,
+          `diffowl: queued review ${next.sha} failed to run: ${
+            error instanceof Error ? error.message : String(error)
+          }\n`,
+        );
+        continue;
+      }
     } finally {
       closeSync(outFd);
     }
@@ -235,7 +245,18 @@ export async function runPendingHookReviews(): Promise<void> {
       continue;
     }
 
-    await unlink(next.path);
+    try {
+      await unlink(next.path);
+    } catch (error) {
+      await appendFile(
+        logFile,
+        `diffowl: failed to remove pending marker for ${next.sha}: ${
+          error instanceof Error ? error.message : String(error)
+        }\n`,
+        "utf-8",
+      ).catch(() => {});
+      continue;
+    }
     try {
       await unlink(resultPath);
     } catch {}
