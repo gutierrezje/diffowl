@@ -68,6 +68,10 @@ export function renderMarkdown(report: ReviewReport): string {
     }
   }
 
+  lines.push("");
+  lines.push("### Status");
+  lines.push(report.findings.length > 0 ? "Open" : "Resolved");
+
   return lines.join("\n");
 }
 

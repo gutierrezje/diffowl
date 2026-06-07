@@ -153,6 +153,34 @@ describe("renderMarkdown", () => {
     expect(output).toContain("### Suppressed Findings");
     expect(output).toContain("> **Evidence:** ``const value = `example`;``");
   });
+
+  it("renders open status at the bottom when findings need attention", () => {
+    const report: ReviewReport = {
+      summary: "Test summary",
+      findings: [
+        {
+          severity: "warning",
+          file: "src/example.ts",
+          line: 10,
+          title: "Potential issue",
+          body: "This needs attention.",
+          confidence: "high",
+        },
+      ],
+      diagnostics: ["Review diagnostic."],
+    };
+
+    expect(renderMarkdown(report)).toMatch(/### Diagnostics[\s\S]*### Status\nOpen$/);
+  });
+
+  it("renders resolved status at the bottom for a clean review", () => {
+    const report: ReviewReport = {
+      summary: "No issues found.",
+      findings: [],
+    };
+
+    expect(renderMarkdown(report)).toMatch(/### Status\nResolved$/);
+  });
 });
 
 describe("parseReviewMetadata", () => {
