@@ -6,6 +6,7 @@ import {
   buildToolPolicy,
   extractPermissionRequest,
   extractSessionId,
+  extractSessionError,
   handledAwaitable,
   opencodeDirectoryOptions,
   parseStructuredReview,
@@ -322,6 +323,38 @@ describe("extractSessionId", () => {
     expect(() => extractSessionId({ data: { id: "" } })).toThrow(
       "OpenCode session response missing id",
     );
+  });
+});
+
+describe("extractSessionError", () => {
+  it("extracts errors for the active review session", () => {
+    expect(
+      extractSessionError(
+        {
+          type: "session.error",
+          properties: {
+            sessionID: "session-1",
+            error: { data: { message: "database write failed" } },
+          },
+        },
+        "session-1",
+      ),
+    ).toEqual(new Error("OpenCode session failed: database write failed"));
+  });
+
+  it("ignores errors for other sessions", () => {
+    expect(
+      extractSessionError(
+        {
+          type: "session.error",
+          properties: {
+            sessionID: "session-2",
+            error: { message: "unrelated failure" },
+          },
+        },
+        "session-1",
+      ),
+    ).toBeUndefined();
   });
 });
 

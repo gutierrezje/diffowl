@@ -190,6 +190,12 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
               continue;
             }
 
+            const sessionError = extractSessionError(payload, sessionId);
+            if (sessionError) {
+              settle("reject", sessionError);
+              break;
+            }
+
             // Look for message part updates from our session
             if (
               payload.type === "message.part.updated" &&
@@ -289,7 +295,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
   onProgress?.({ type: "session", message: "Sending review prompt.", sessionId });
   const promptSendStart = performance.now();
   await withOpenCodeDiagnostics("prompt-send", { port, sessionId }, () =>
-    client.session.prompt({
+    client.session.promptAsync({
       path: { id: sessionId },
       ...directoryOptions,
       body: {
@@ -320,6 +326,45 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
     report: { ...report, ...(diagnostics.length > 0 ? { diagnostics } : {}), timings },
     sessionId,
   };
+}
+
+export function extractSessionError(payload: unknown, sessionId: string): Error | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+
+  const event = payload as {
+    type?: unknown;
+    properties?: {
+      sessionID?: unknown;
+      error?: unknown;
+    };
+  };
+  if (event.type !== "session.error" || event.properties?.sessionID !== sessionId) {
+    return undefined;
+  }
+
+  return new Error(`OpenCode session failed: ${describeSessionError(event.properties.error)}`);
+}
+
+function describeSessionError(error: unknown): string {
+  if (typeof error === "string" && error.trim() !== "") return error;
+  if (!error || typeof error !== "object") return "unknown session error";
+
+  const value = error as {
+    message?: unknown;
+    data?: { message?: unknown };
+    name?: unknown;
+  };
+  if (typeof value.data?.message === "string" && value.data.message.trim() !== "") {
+    return value.data.message;
+  }
+  if (typeof value.message === "string" && value.message.trim() !== "") {
+    return value.message;
+  }
+  if (typeof value.name === "string" && value.name.trim() !== "") {
+    return value.name;
+  }
+
+  return "unknown session error";
 }
 
 export async function resolveReasoningVariant(
