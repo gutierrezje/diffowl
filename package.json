@@ -10,6 +10,20 @@
     "pre-commit"
   ],
   "license": "MIT",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gutierrezje/diffowl.git"
+  },
+  "homepage": "https://github.com/gutierrezje/diffowl#readme",
+  "bugs": {
+    "url": "https://github.com/gutierrezje/diffowl/issues"
+  },
   "bin": {
     "diffowl": "./dist/cli.js"
   },
@@ -21,7 +35,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "oxlint . && pnpm run typecheck",
     "format": "oxfmt --write .",
-    "format:check": "oxfmt --check ."
+    "format:check": "oxfmt --check .",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "@opencode-ai/sdk": "^1.15.11",

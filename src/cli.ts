@@ -59,6 +59,7 @@ import { resolveReviewReportPath } from "./review/report-path.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { execa } from "execa";
+import packageJson from "../package.json" with { type: "json" };
 
 async function writeHookStatus(exitCode: number, message?: string): Promise<void> {
   try {
@@ -84,7 +85,7 @@ const program = new Command();
 program
   .name("diffowl")
   .description("Local AI code review agent powered by OpenCode")
-  .version("0.1.0");
+  .version(packageJson.version);
 
 // Default command: review last commit
 program

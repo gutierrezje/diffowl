@@ -43,22 +43,23 @@ DiffOwl is a lightweight CLI that integrates into your Git workflow to provide h
 
 ### 2. Install DiffOwl
 
-Clone the repository and build/link the CLI globally:
-
 ```bash
-git clone https://github.com/gutierrezje/diffowl.git
-cd diffowl
-
-# Using pnpm (recommended)
-pnpm install && pnpm run build && pnpm link --global
-
-# Or using npm
-npm install && npm run build && npm link -g
+npm install --global diffowl
 ```
 
 ### Developing
 
-When making edits to `src/**`, rebuild to update your globally linked CLI and git hooks:
+Clone the repository and link the CLI globally:
+
+```bash
+git clone https://github.com/gutierrezje/diffowl.git
+cd diffowl
+pnpm install
+pnpm run build
+pnpm link --global
+```
+
+When making edits to `src/**`, rebuild to update the linked CLI and git hooks:
 
 ```bash
 pnpm run build
