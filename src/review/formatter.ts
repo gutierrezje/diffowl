@@ -2,8 +2,14 @@ import chalk from "chalk";
 import { writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { parse, stringify } from "yaml";
 import type { ReviewReport } from "./types.js";
 import { getDiffOwlDir } from "../config.js";
+
+export interface ReviewMetadata {
+  session_id: string;
+  project_root: string;
+}
 
 /**
  * Render a structured review into the markdown format we persist.
@@ -67,7 +73,10 @@ export function renderMarkdown(report: ReviewReport): string {
 /**
  * Format and write the review output as a markdown file
  */
-export async function writeMarkdownReport(review: string): Promise<string> {
+export async function writeMarkdownReport(
+  review: string,
+  metadata?: ReviewMetadata,
+): Promise<string> {
   const dir = join(getDiffOwlDir(), "reviews");
   if (!existsSync(dir)) {
     await mkdir(dir, { recursive: true });
@@ -77,7 +86,7 @@ export async function writeMarkdownReport(review: string): Promise<string> {
   const filename = `review-${timestamp}.md`;
   const filepath = join(dir, filename);
 
-  const content = `# DiffOwl Review
+  const content = `${metadata ? renderReviewFrontmatter(metadata) : ""}# DiffOwl Review
 _${new Date().toLocaleString()}_
 
 ${review}
@@ -90,6 +99,36 @@ ${review}
   await writeFile(latestPath, content, "utf-8");
 
   return filepath;
+}
+
+export function parseReviewMetadata(content: string): ReviewMetadata | undefined {
+  if (!content.startsWith("---\n")) return undefined;
+
+  const end = content.indexOf("\n---\n", 4);
+  if (end === -1) return undefined;
+
+  const parsed = parse(content.slice(4, end));
+  if (!parsed || typeof parsed !== "object") return undefined;
+
+  const diffowl = (parsed as { diffowl?: unknown }).diffowl;
+  if (!diffowl || typeof diffowl !== "object") return undefined;
+
+  const sessionId = (diffowl as { session_id?: unknown }).session_id;
+  const projectRoot = (diffowl as { project_root?: unknown }).project_root;
+  if (
+    typeof sessionId !== "string" ||
+    sessionId.trim() === "" ||
+    typeof projectRoot !== "string" ||
+    projectRoot.trim() === ""
+  ) {
+    return undefined;
+  }
+
+  return { session_id: sessionId, project_root: projectRoot };
+}
+
+function renderReviewFrontmatter(metadata: ReviewMetadata): string {
+  return `---\n${stringify({ diffowl: metadata }, { lineWidth: 0 })}---\n\n`;
 }
 
 /**

@@ -24,6 +24,11 @@ export interface ReviewOptions {
   onProgress?: (event: ReviewProgressEvent) => void;
 }
 
+export interface ReviewResult {
+  report: ReviewReport;
+  sessionId: string;
+}
+
 export type ReviewProgressEvent =
   | { type: "server"; message: string }
   | { type: "session"; message: string; sessionId?: string }
@@ -38,7 +43,7 @@ type OpencodeDirectoryOptions = { query: { directory: string } };
  * Run a code review using OpenCode serve.
  * Creates a session, sends the review prompt, and returns a structured report.
  */
-export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
+export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
   const { mode, config, localContext, depth, onProgress } = options;
   const port = config.server.port;
   const directoryOptions = opencodeDirectoryOptions();
@@ -311,7 +316,10 @@ export async function runReview(options: ReviewOptions): Promise<ReviewReport> {
   recordTiming(timings, onProgress, "parse-review", "Review JSON parsing", parseStart);
   const diagnostics = [...(report.diagnostics ?? []), ...reasoning.diagnostics];
 
-  return { ...report, ...(diagnostics.length > 0 ? { diagnostics } : {}), timings };
+  return {
+    report: { ...report, ...(diagnostics.length > 0 ? { diagnostics } : {}), timings },
+    sessionId,
+  };
 }
 
 export async function resolveReasoningVariant(

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { colorizeMarkdown, renderMarkdown } from "./formatter.js";
+import { colorizeMarkdown, parseReviewMetadata, renderMarkdown } from "./formatter.js";
 import type { ReviewReport } from "./types.js";
 
 describe("colorizeMarkdown", () => {
@@ -152,5 +152,34 @@ describe("renderMarkdown", () => {
 
     expect(output).toContain("### Suppressed Findings");
     expect(output).toContain("> **Evidence:** ``const value = `example`;``");
+  });
+});
+
+describe("parseReviewMetadata", () => {
+  it("reads DiffOwl session metadata from YAML frontmatter", () => {
+    const content = `---
+diffowl:
+  session_id: ses_123
+  project_root: /work/repo
+---
+
+# DiffOwl Review
+`;
+
+    expect(parseReviewMetadata(content)).toEqual({
+      session_id: "ses_123",
+      project_root: "/work/repo",
+    });
+  });
+
+  it("returns undefined for reports without complete metadata", () => {
+    expect(parseReviewMetadata("# DiffOwl Review")).toBeUndefined();
+    expect(
+      parseReviewMetadata(`---
+diffowl:
+  session_id: ses_123
+---
+`),
+    ).toBeUndefined();
   });
 });

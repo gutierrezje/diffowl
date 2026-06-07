@@ -9,6 +9,7 @@ import {
   saveConfig,
   configExists,
   ensureDiffOwlDir,
+  getDiffOwlDir,
   parseModel,
   parseReviewContextDepth,
   parseReasoningEffort,
@@ -49,10 +50,13 @@ import {
   writeMarkdownReport,
   renderMarkdown,
   colorizeMarkdown,
+  parseReviewMetadata,
 } from "./review/formatter.js";
 
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
+import { execa } from "execa";
 
 async function writeHookStatus(exitCode: number, message?: string): Promise<void> {
   try {
@@ -223,7 +227,7 @@ program
       spinner.text = "Reviewing changes...";
 
       const reviewStart = performance.now();
-      const report: ReviewReport = await runReview({
+      const reviewResult = await runReview({
         mode,
         config,
         localContext,
@@ -232,6 +236,7 @@ program
           spinner.text = formatReviewProgress(event);
         },
       });
+      const report: ReviewReport = reviewResult.report;
       recordCliTiming(timings, "review-run", "OpenCode review run", reviewStart);
       spinner.succeed("Review complete.");
       console.log(); // Space after spinner
@@ -270,7 +275,10 @@ program
 
       // Write markdown report
       const writeStart = performance.now();
-      const reportPath = await writeMarkdownReport(markdown);
+      const reportPath = await writeMarkdownReport(markdown, {
+        session_id: reviewResult.sessionId,
+        project_root: process.cwd(),
+      });
       recordCliTiming(timings, "write-report", "Report write", writeStart);
       recordCliTiming(timings, "total", "Total review command", totalStart);
 
@@ -298,6 +306,56 @@ program
       process.exit(1);
     }
   });
+
+program
+  .command("chat")
+  .description("Open the OpenCode session for a review")
+  .argument("[report]", "Review report path or filename", "latest.md")
+  .action(async (report: string) => {
+    const reportPath = resolveReviewReportPath(report);
+
+    let content: string;
+    try {
+      content = await readFile(reportPath, "utf-8");
+    } catch {
+      console.error(chalk.red(`Review report not found: ${reportPath}`));
+      process.exit(1);
+    }
+
+    let metadata;
+    try {
+      metadata = parseReviewMetadata(content);
+    } catch {
+      console.error(chalk.red(`Invalid review metadata: ${reportPath}`));
+      process.exit(1);
+    }
+
+    if (!metadata) {
+      console.error(
+        chalk.red(`Review report does not contain chat session metadata: ${reportPath}`),
+      );
+      process.exit(1);
+    }
+
+    try {
+      await execa("opencode", [metadata.project_root, "--session", metadata.session_id], {
+        stdio: "inherit",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(chalk.red(`Failed to open review session: ${message}`));
+      process.exit(1);
+    }
+  });
+
+function resolveReviewReportPath(report: string): string {
+  if (isAbsolute(report)) return report;
+
+  const explicitPath = resolve(report);
+  if (existsSync(explicitPath)) return explicitPath;
+
+  return join(getDiffOwlDir(), "reviews", report);
+}
 
 function formatReviewProgress(event: ReviewProgressEvent): string {
   switch (event.type) {
