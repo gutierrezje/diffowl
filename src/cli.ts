@@ -34,6 +34,7 @@ import {
   checkHookStale,
   checkRecentHookFailure,
   runHookReview,
+  runPendingHookReviews,
   releaseHookReviewLock,
 } from "./git/hooks.js";
 import {
@@ -645,6 +646,17 @@ program
   .description("Spawn a non-blocking hook review")
   .action(async () => {
     await runHookReview();
+  });
+
+program
+  .command("hook-worker", { hidden: true })
+  .description("Process queued hook reviews")
+  .action(async () => {
+    const hookLock = process.env["DIFFOWL_HOOK_LOCK"];
+    if (hookLock) {
+      process.once("exit", () => releaseHookReviewLock(hookLock));
+    }
+    await runPendingHookReviews();
   });
 
 // Server commands

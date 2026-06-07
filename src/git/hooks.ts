@@ -1,4 +1,4 @@
-import { readFile, writeFile, chmod, unlink } from "node:fs/promises";
+import { chmod, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import {
   closeSync,
   existsSync,
@@ -144,8 +144,11 @@ export async function runHookReview(): Promise<void> {
   const logFile = join(dir, "hook.log");
   const latestReport = join(dir, "reviews", "latest.md");
   const lockFile = join(dir, "hook-review.lock");
+  const commit = await getHeadCommit();
+  await enqueuePendingReview(dir, commit);
+
   if (!acquireHookReviewLock(lockFile)) {
-    console.log(`diffowl: review not started; another hook review is already running`);
+    console.log(`diffowl: review queued for ${commit}; another hook review is already running`);
     return;
   }
 
@@ -156,7 +159,7 @@ export async function runHookReview(): Promise<void> {
   try {
     writeSync(
       outFd,
-      `diffowl: review started at ${new Date().toString()}; latest report: ${latestReport}\n`,
+      `diffowl: review worker started at ${new Date().toString()}; latest report: ${latestReport}\n`,
     );
 
     const command = await resolveHookCommand();
@@ -164,21 +167,17 @@ export async function runHookReview(): Promise<void> {
     const existingPath = process.env["PATH"] ?? "";
     const envPath = prefix ? `${prefix}:${existingPath}` : existingPath;
 
-    const subprocess = execa(
-      process.execPath,
-      [fileURLToPath(import.meta.url), "review", "--hook"],
-      {
-        detached: true,
-        cleanup: false,
-        cwd: process.cwd(),
-        stdio: ["ignore", outFd, outFd] as any,
-        env: {
-          ...process.env,
-          PATH: envPath,
-          DIFFOWL_HOOK_LOCK: lockFile,
-        },
+    const subprocess = execa(process.execPath, [fileURLToPath(import.meta.url), "hook-worker"], {
+      detached: true,
+      cleanup: false,
+      cwd: process.cwd(),
+      stdio: ["ignore", outFd, outFd] as any,
+      env: {
+        ...process.env,
+        PATH: envPath,
+        DIFFOWL_HOOK_LOCK: lockFile,
       },
-    );
+    });
     void subprocess.catch(() => {});
     if (subprocess.pid) {
       writeFileSync(lockFile, String(subprocess.pid), "utf-8");
@@ -186,13 +185,120 @@ export async function runHookReview(): Promise<void> {
     subprocess.unref();
 
     console.log(
-      `diffowl: review started in background; log: ${logFile}; latest report: ${latestReport}`,
+      `diffowl: review queued for ${commit}; worker started in background; log: ${logFile}; latest report: ${latestReport}`,
     );
   } catch (err) {
     releaseHookReviewLock(lockFile);
     throw err;
   } finally {
     closeSync(outFd);
+  }
+}
+
+export async function runPendingHookReviews(): Promise<void> {
+  const dir = await ensureDiffOwlDir();
+  const logFile = join(dir, "hook.log");
+  const cli = fileURLToPath(import.meta.url);
+  const attempted = new Set<string>();
+
+  while (true) {
+    const pending = await listPendingReviews(dir);
+    const next = pending.find((item) => !attempted.has(item.sha));
+    if (!next) return;
+    attempted.add(next.sha);
+
+    const outFd = openSync(logFile, "a");
+    try {
+      writeSync(outFd, `diffowl: reviewing queued commit ${next.sha}\n`);
+      const env = { ...process.env };
+      delete env["DIFFOWL_HOOK_LOCK"];
+      await execa(process.execPath, [cli, "review", "--hook", "--commit", next.sha], {
+        cwd: process.cwd(),
+        stdio: ["ignore", outFd, outFd] as any,
+        env,
+      });
+    } finally {
+      closeSync(outFd);
+    }
+
+    const status = await readHookStatus(dir);
+    if (status?.exitCode !== 0 || status.message) {
+      continue;
+    }
+
+    await unlink(next.path);
+  }
+}
+
+export async function enqueuePendingReview(dir: string, sha: string): Promise<void> {
+  const pendingDir = join(dir, "pending-reviews");
+  await mkdir(pendingDir, { recursive: true });
+  const marker = join(pendingDir, sha);
+  if (existsSync(marker)) return;
+
+  await writeFile(
+    marker,
+    JSON.stringify({ sha, queuedAt: new Date().toISOString() }, null, 2),
+    "utf-8",
+  );
+}
+
+export async function listPendingReviews(
+  dir: string,
+): Promise<{ sha: string; queuedAt: string; path: string }[]> {
+  const pendingDir = join(dir, "pending-reviews");
+  let files: string[];
+  try {
+    files = await readdir(pendingDir);
+  } catch {
+    return [];
+  }
+
+  const pending = await Promise.all(
+    files.map(async (file) => {
+      const path = join(pendingDir, file);
+      try {
+        const parsed = JSON.parse(await readFile(path, "utf-8")) as {
+          sha?: unknown;
+          queuedAt?: unknown;
+        };
+        if (typeof parsed.sha !== "string" || typeof parsed.queuedAt !== "string") {
+          return undefined;
+        }
+        return { sha: parsed.sha, queuedAt: parsed.queuedAt, path };
+      } catch {
+        return undefined;
+      }
+    }),
+  );
+
+  return pending
+    .filter((item): item is NonNullable<typeof item> => item !== undefined)
+    .sort((a, b) => a.queuedAt.localeCompare(b.queuedAt));
+}
+
+async function getHeadCommit(): Promise<string> {
+  const { stdout } = await execa("git", ["rev-parse", "--verify", "HEAD"]);
+  return stdout.trim();
+}
+
+async function readHookStatus(dir: string): Promise<HookFailure | undefined> {
+  try {
+    const parsed = JSON.parse(await readFile(join(dir, "last-hook-status.json"), "utf-8")) as {
+      exitCode?: unknown;
+      timestamp?: unknown;
+      message?: unknown;
+    };
+    if (typeof parsed.exitCode !== "number" || typeof parsed.timestamp !== "string") {
+      return undefined;
+    }
+    return {
+      exitCode: parsed.exitCode,
+      timestamp: parsed.timestamp,
+      ...(typeof parsed.message === "string" ? { message: parsed.message } : {}),
+    };
+  } catch {
+    return undefined;
   }
 }
 

@@ -20,11 +20,13 @@ DiffOwl is a lightweight CLI that integrates into your Git workflow to provide h
 - **Powered by OpenCode**: Integrates with OpenCode's local environment and configured providers while keeping DiffOwl's review workflow local and repeatable.
 - **First-Class TypeScript Support**: Automatically extracts modified TypeScript AST nodes (functions, classes, interfaces, types, enums, methods, properties, and top-level const declarations) to feed rich, structured context to the AI reviewer.
 - **Non-Blocking Git Hooks**: Runs post-commit reviews asynchronously in the background. It will never slow down or block your `git commit` operation.
+- **Review Chat Handoff**: Reopen the OpenCode session behind the latest or any selected review with `diffowl chat`.
 - **Review Depth Profiles**: Choose `shallow` or `default` context strategies to match fast hooks or normal reviews.
 - **Intelligent File Filtering**: Supports `include` and `exclude` glob patterns to focus reviews on source directories while skipping build artifacts, lockfiles, and node modules.
 - **Project-Specific Rules**: Inject custom guidelines directly into the reviewer's system prompt (e.g., "Check for SQL injection", "Ensure TypeScript types are explicit").
 - **Interactive Model Selector**: Automatically queries OpenCode to present a clean, interactive list of your connected providers and models.
-- **Local Reports**: Generates markdown reviews and saves them locally under `.diffowl/reviews/` for easy viewing.
+- **Local Reports**: Generates markdown reviews under `.diffowl/reviews/`, including hidden session metadata that makes reports chat-capable.
+- **Configurable Retention**: Bounds timestamped review history and accumulated hook logs without affecting active reviews.
 
 ---
 
@@ -132,6 +134,23 @@ diffowl model
 diffowl model opencode-go/big-pickle
 ```
 
+### `diffowl chat [report]`
+
+Opens the OpenCode session associated with a review report. DiffOwl hands control to the OpenCode TUI rather than implementing a separate chat interface.
+
+```bash
+# Chat about the latest review
+diffowl chat
+
+# Select a timestamped report by filename
+diffowl chat review-2026-06-07T07-30-42-762Z.md
+
+# Use an explicit relative or absolute report path
+diffowl chat ./.diffowl/reviews/latest.md
+```
+
+Bare filenames are resolved under `.diffowl/reviews/`. Each chat-capable report stores its OpenCode session ID and project root in YAML frontmatter. Reports created before this feature and documentation-only skip reports do not have an OpenCode session to reopen.
+
 ### `diffowl hook install | status | uninstall`
 
 Installs or removes a managed post-commit Git hook that runs reviews automatically and asynchronously in the background.
@@ -148,6 +167,8 @@ diffowl hook uninstall
 ```
 
 _Runs reviews asynchronously in the background, saving execution output to `.diffowl/hook.log` and the latest report to `.diffowl/reviews/latest.md`. Hook reviews use the configured `context.depth`, return control to your terminal instantly, and avoid clobbering any existing post-commit hook scripts._
+
+Only one hook review runs per project at a time. Each commit is recorded under `.diffowl/pending-reviews/`, and a background worker processes pending commits in order. Successful reviews remove their marker; failed reviews remain pending and are retried when a later commit triggers the hook. Review failures are recorded in `.diffowl/last-hook-status.json` and reported on the next foreground review.
 
 ### `diffowl server start | stop | status`
 
@@ -188,6 +209,16 @@ context:
 reasoning:
   effort: auto
 
+# Local artifact retention. Set either value to 0 for unlimited retention.
+retention:
+  # Number of timestamped review-*.md reports to keep.
+  # latest.md is always preserved and is not included in this count.
+  reviews: 50
+
+  # Before each hook review, retain approximately this many KiB
+  # of previous hook.log output. The new run may exceed this target.
+  hook_log_kb: 1024
+
 # Review timeout in seconds
 timeout: 300
 
@@ -219,6 +250,29 @@ rules:
   - "Flag any hardcoded secrets, tokens, or private keys"
   - "Suggest readability and architectural improvements where relevant"
 ```
+
+---
+
+## Review Files
+
+DiffOwl writes two Markdown files for each completed review:
+
+```text
+.diffowl/reviews/review-<timestamp>.md  # Immutable timestamped report
+.diffowl/reviews/latest.md             # Copy of the newest completed report
+```
+
+Review reports include YAML frontmatter similar to:
+
+```yaml
+---
+diffowl:
+  session_id: ses_...
+  project_root: /path/to/project
+---
+```
+
+This metadata is used by `diffowl chat`; the rendered review output remains unchanged.
 
 ---
 

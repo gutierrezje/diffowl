@@ -7,8 +7,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   acquireHookReviewLock,
   checkRecentHookFailure,
+  enqueuePendingReview,
   generateManagedSection,
   installHook,
+  listPendingReviews,
   releaseHookReviewLock,
 } from "./hooks.js";
 
@@ -103,6 +105,31 @@ describe("hook review lock", () => {
 
     expect(acquireHookReviewLock(lockFile)).toBe(true);
     releaseHookReviewLock(lockFile);
+  });
+});
+
+describe("pending hook reviews", () => {
+  it("keeps distinct commits in enqueue order and deduplicates SHAs", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-hooks-"));
+    tempDirs.push(root);
+
+    await enqueuePendingReview(root, "aaa");
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    await enqueuePendingReview(root, "bbb");
+    await enqueuePendingReview(root, "aaa");
+
+    expect((await listPendingReviews(root)).map((item) => item.sha)).toEqual(["aaa", "bbb"]);
+  });
+
+  it("ignores malformed pending markers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-hooks-"));
+    tempDirs.push(root);
+    const pendingDir = join(root, "pending-reviews");
+    await mkdir(pendingDir);
+    await writeFile(join(pendingDir, "broken"), "not json", "utf-8");
+    await enqueuePendingReview(root, "valid");
+
+    expect((await listPendingReviews(root)).map((item) => item.sha)).toEqual(["valid"]);
   });
 });
 
