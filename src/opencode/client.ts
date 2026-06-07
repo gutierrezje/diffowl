@@ -115,6 +115,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
     new Promise<string>((resolve, reject) => {
       let settled = false;
       let safetyTimeout: ReturnType<typeof setTimeout>;
+      let reconciliationInterval: ReturnType<typeof setInterval>;
       const assistantMessageIds = new Set<string>();
       const textPartsByMessageId = new Map<string, string>();
 
@@ -122,6 +123,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
         if (settled) return;
         settled = true;
         clearTimeout(safetyTimeout);
+        clearInterval(reconciliationInterval);
         eventsController.abort();
 
         if (outcome === "resolve") {
@@ -165,8 +167,33 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
 
       // Safety timeout from config (default 5 minutes)
       safetyTimeout = setTimeout(() => {
-        settle("reject", new Error("Review timed out."));
+        void reconcileSessionMessages(client, directoryOptions, sessionId).then((result) => {
+          if (result?.error) {
+            settle("reject", result.error);
+          } else if (result?.text) {
+            settle("resolve", result.text);
+          } else {
+            settle("reject", new Error("Review timed out."));
+          }
+        });
       }, config.timeout * 1000);
+
+      let reconciliationRunning = false;
+      reconciliationInterval = setInterval(() => {
+        if (settled || reconciliationRunning) return;
+        reconciliationRunning = true;
+        void reconcileSessionMessages(client, directoryOptions, sessionId)
+          .then((result) => {
+            if (result?.error) {
+              settle("reject", result.error);
+            } else if (result?.text && acceptAssistantText(result.text)) {
+              return;
+            }
+          })
+          .finally(() => {
+            reconciliationRunning = false;
+          });
+      }, 1000);
 
       (async () => {
         try {
@@ -343,6 +370,68 @@ export function extractSessionError(payload: unknown, sessionId: string): Error 
   }
 
   return new Error(`OpenCode session failed: ${describeSessionError(event.properties.error)}`);
+}
+
+export function extractSessionMessageResult(
+  response: unknown,
+): { error?: Error; text?: string } | undefined {
+  if (!response || typeof response !== "object") return undefined;
+  const data = (response as { data?: unknown }).data;
+  if (!Array.isArray(data)) return undefined;
+
+  for (let index = data.length - 1; index >= 0; index--) {
+    const message = data[index];
+    if (!message || typeof message !== "object") continue;
+
+    const info = (message as { info?: unknown }).info;
+    if (!info || typeof info !== "object" || (info as { role?: unknown }).role !== "assistant") {
+      continue;
+    }
+
+    const error = (info as { error?: unknown }).error;
+    if (error) {
+      return { error: new Error(`OpenCode session failed: ${describeSessionError(error)}`) };
+    }
+
+    const parts = (message as { parts?: unknown }).parts;
+    if (!Array.isArray(parts)) continue;
+    const text = parts
+      .filter((part): part is { type: "text"; text: string } =>
+        Boolean(
+          part &&
+          typeof part === "object" &&
+          (part as { type?: unknown }).type === "text" &&
+          typeof (part as { text?: unknown }).text === "string",
+        ),
+      )
+      .map((part) => part.text)
+      .join("");
+    if (text) return { text };
+  }
+
+  return undefined;
+}
+
+async function reconcileSessionMessages(
+  client: any,
+  directoryOptions: OpencodeDirectoryOptions,
+  sessionId: string,
+): Promise<{ error?: Error; text?: string } | undefined> {
+  try {
+    const response = await Promise.race([
+      client.session.messages({
+        path: { id: sessionId },
+        ...directoryOptions,
+        query: { ...directoryOptions.query, limit: 10 },
+      }),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("Session reconciliation timed out.")), 2000);
+      }),
+    ]);
+    return extractSessionMessageResult(response);
+  } catch {
+    return undefined;
+  }
 }
 
 function describeSessionError(error: unknown): string {

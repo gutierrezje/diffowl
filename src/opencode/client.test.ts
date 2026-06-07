@@ -7,6 +7,7 @@ import {
   extractPermissionRequest,
   extractSessionId,
   extractSessionError,
+  extractSessionMessageResult,
   handledAwaitable,
   opencodeDirectoryOptions,
   parseStructuredReview,
@@ -355,6 +356,47 @@ describe("extractSessionError", () => {
         "session-1",
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("extractSessionMessageResult", () => {
+  it("extracts persisted assistant errors", () => {
+    expect(
+      extractSessionMessageResult({
+        data: [
+          {
+            info: {
+              role: "assistant",
+              error: { data: { message: "database write failed" } },
+            },
+            parts: [],
+          },
+        ],
+      }),
+    ).toEqual({ error: new Error("OpenCode session failed: database write failed") });
+  });
+
+  it("extracts assistant text from the newest message", () => {
+    expect(
+      extractSessionMessageResult({
+        data: [
+          {
+            info: { role: "assistant" },
+            parts: [{ type: "text", text: "older" }],
+          },
+          {
+            info: { role: "assistant" },
+            parts: [
+              { type: "reasoning", text: "hidden" },
+              { type: "text", text: "FINAL_REVIEW_JSON\n" },
+              { type: "text", text: '{"summary":"ok","findings":[]}' },
+            ],
+          },
+        ],
+      }),
+    ).toEqual({
+      text: 'FINAL_REVIEW_JSON\n{"summary":"ok","findings":[]}',
+    });
   });
 });
 
