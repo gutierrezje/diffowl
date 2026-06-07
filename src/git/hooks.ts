@@ -208,10 +208,15 @@ export async function runPendingHookReviews(): Promise<void> {
     attempted.add(next.sha);
 
     const outFd = openSync(logFile, "a");
+    const resultPath = join(dir, "pending-reviews", `${next.sha}.result.json`);
     try {
       writeSync(outFd, `diffowl: reviewing queued commit ${next.sha}\n`);
+      try {
+        await unlink(resultPath);
+      } catch {}
       const env = { ...process.env };
       delete env["DIFFOWL_HOOK_LOCK"];
+      env["DIFFOWL_HOOK_RESULT"] = resultPath;
       await execa(process.execPath, [cli, "review", "--hook", "--commit", next.sha], {
         cwd: process.cwd(),
         stdio: ["ignore", outFd, outFd] as any,
@@ -221,12 +226,15 @@ export async function runPendingHookReviews(): Promise<void> {
       closeSync(outFd);
     }
 
-    const status = await readHookStatus(dir);
+    const status = await readHookResult(resultPath);
     if (status?.exitCode !== 0 || status.message) {
       continue;
     }
 
     await unlink(next.path);
+    try {
+      await unlink(resultPath);
+    } catch {}
   }
 }
 
@@ -282,9 +290,9 @@ async function getHeadCommit(): Promise<string> {
   return stdout.trim();
 }
 
-async function readHookStatus(dir: string): Promise<HookFailure | undefined> {
+async function readHookResult(path: string): Promise<HookFailure | undefined> {
   try {
-    const parsed = JSON.parse(await readFile(join(dir, "last-hook-status.json"), "utf-8")) as {
+    const parsed = JSON.parse(await readFile(path, "utf-8")) as {
       exitCode?: unknown;
       timestamp?: unknown;
       message?: unknown;

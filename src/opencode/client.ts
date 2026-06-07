@@ -170,7 +170,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
         void reconcileSessionMessages(client, directoryOptions, sessionId).then((result) => {
           if (result?.error) {
             settle("reject", result.error);
-          } else if (result?.text) {
+          } else if (result?.text && looksLikeCompleteStructuredReview(result.text)) {
             settle("resolve", result.text);
           } else {
             settle("reject", new Error("Review timed out."));

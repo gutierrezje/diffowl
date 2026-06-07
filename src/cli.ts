@@ -63,16 +63,17 @@ import { execa } from "execa";
 async function writeHookStatus(exitCode: number, message?: string): Promise<void> {
   try {
     const dir = await ensureDiffOwlDir();
-    const statusPath = join(dir, "last-hook-status.json");
-    await writeFile(
-      statusPath,
-      JSON.stringify(
-        { exitCode, timestamp: new Date().toISOString(), ...(message ? { message } : {}) },
-        null,
-        2,
-      ),
-      "utf-8",
+    const content = JSON.stringify(
+      { exitCode, timestamp: new Date().toISOString(), ...(message ? { message } : {}) },
+      null,
+      2,
     );
+    await writeFile(join(dir, "last-hook-status.json"), content, "utf-8");
+
+    const resultPath = process.env["DIFFOWL_HOOK_RESULT"];
+    if (resultPath) {
+      await writeFile(resultPath, content, "utf-8");
+    }
   } catch {
     // Best-effort: status file is advisory only
   }

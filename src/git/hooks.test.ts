@@ -131,6 +131,19 @@ describe("pending hook reviews", () => {
 
     expect((await listPendingReviews(root)).map((item) => item.sha)).toEqual(["valid"]);
   });
+
+  it("does not treat per-review result files as pending commits", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-hooks-"));
+    tempDirs.push(root);
+    await enqueuePendingReview(root, "abc");
+    await writeFile(
+      join(root, "pending-reviews", "abc.result.json"),
+      JSON.stringify({ exitCode: 0, timestamp: new Date().toISOString() }),
+      "utf-8",
+    );
+
+    expect((await listPendingReviews(root)).map((item) => item.sha)).toEqual(["abc"]);
+  });
 });
 
 describe("generateManagedSection", () => {
