@@ -34,6 +34,7 @@ import {
   checkHookStale,
   checkRecentHookFailure,
   runHookReview,
+  releaseHookReviewLock,
 } from "./git/hooks.js";
 import {
   isGitRepo,
@@ -97,6 +98,11 @@ program
   )
   .option("--verbose", "Include suppressed findings and extra review details")
   .action(async (options) => {
+    const hookLock = options.hook ? process.env["DIFFOWL_HOOK_LOCK"] : undefined;
+    if (hookLock) {
+      process.once("exit", () => releaseHookReviewLock(hookLock));
+    }
+
     if (options.hook) {
       await writeHookStatus(0, "Review started.");
     }

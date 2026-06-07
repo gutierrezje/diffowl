@@ -4,7 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
 import { afterEach, describe, expect, it } from "vitest";
-import { checkRecentHookFailure, installHook, generateManagedSection } from "./hooks.js";
+import {
+  acquireHookReviewLock,
+  checkRecentHookFailure,
+  generateManagedSection,
+  installHook,
+  releaseHookReviewLock,
+} from "./hooks.js";
 
 const originalCwd = process.cwd();
 let tempDirs: string[] = [];
@@ -72,6 +78,31 @@ describe("checkRecentHookFailure", () => {
       exitCode: 1,
       message: expect.stringContaining("phase=event-stream-read"),
     });
+  });
+});
+
+describe("hook review lock", () => {
+  it("prevents concurrent hook reviews", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-hooks-"));
+    tempDirs.push(root);
+    const lockFile = join(root, "hook-review.lock");
+
+    expect(acquireHookReviewLock(lockFile)).toBe(true);
+    expect(acquireHookReviewLock(lockFile)).toBe(false);
+
+    releaseHookReviewLock(lockFile);
+    expect(acquireHookReviewLock(lockFile)).toBe(true);
+    releaseHookReviewLock(lockFile);
+  });
+
+  it("reclaims stale hook review locks", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-hooks-"));
+    tempDirs.push(root);
+    const lockFile = join(root, "hook-review.lock");
+    await writeFile(lockFile, "999999999", "utf-8");
+
+    expect(acquireHookReviewLock(lockFile)).toBe(true);
+    releaseHookReviewLock(lockFile);
   });
 });
 

@@ -1,5 +1,13 @@
 import { readFile, writeFile, chmod, unlink } from "node:fs/promises";
-import { closeSync, existsSync, openSync, writeSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+  writeSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
@@ -135,6 +143,12 @@ export async function runHookReview(): Promise<void> {
   const dir = await ensureDiffOwlDir();
   const logFile = join(dir, "hook.log");
   const latestReport = join(dir, "reviews", "latest.md");
+  const lockFile = join(dir, "hook-review.lock");
+  if (!acquireHookReviewLock(lockFile)) {
+    console.log(`diffowl: review not started; another hook review is already running`);
+    return;
+  }
+
   const config = await loadConfig();
   await trimHookLog(logFile, config.retention.hook_log_kb * 1024);
 
@@ -161,17 +175,68 @@ export async function runHookReview(): Promise<void> {
         env: {
           ...process.env,
           PATH: envPath,
+          DIFFOWL_HOOK_LOCK: lockFile,
         },
       },
     );
     void subprocess.catch(() => {});
+    if (subprocess.pid) {
+      writeFileSync(lockFile, String(subprocess.pid), "utf-8");
+    }
     subprocess.unref();
 
     console.log(
       `diffowl: review started in background; log: ${logFile}; latest report: ${latestReport}`,
     );
+  } catch (err) {
+    releaseHookReviewLock(lockFile);
+    throw err;
   } finally {
     closeSync(outFd);
+  }
+}
+
+export function acquireHookReviewLock(lockFile: string): boolean {
+  try {
+    const fd = openSync(lockFile, "wx");
+    try {
+      writeSync(fd, String(process.pid));
+    } finally {
+      closeSync(fd);
+    }
+    return true;
+  } catch {
+    if (isHookReviewLockActive(lockFile)) return false;
+
+    releaseHookReviewLock(lockFile);
+    try {
+      const fd = openSync(lockFile, "wx");
+      try {
+        writeSync(fd, String(process.pid));
+      } finally {
+        closeSync(fd);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+export function releaseHookReviewLock(lockFile: string): void {
+  try {
+    unlinkSync(lockFile);
+  } catch {}
+}
+
+function isHookReviewLockActive(lockFile: string): boolean {
+  try {
+    const pid = Number.parseInt(readFileSync(lockFile, "utf-8"), 10);
+    if (!Number.isInteger(pid) || pid <= 0) return false;
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
   }
 }
 
