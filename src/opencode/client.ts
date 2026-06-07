@@ -1,7 +1,8 @@
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import { isServerRunning } from "./server.js";
 import { REVIEW_AGENT_PROMPT, buildReviewPrompt } from "./agent.js";
-import { parseStructuredReview, looksLikeCompleteStructuredReview } from "./review-parser.js";
+import { parseStructuredReview } from "./review-parser.js";
+import { createReviewSettlementCoordinator } from "./settlement.js";
 import { buildToolPolicy, extractPermissionRequest, replyToPermissionRequest } from "./tools.js";
 export { parseStructuredReview, looksLikeCompleteStructuredReview } from "./review-parser.js";
 export { buildToolPolicy, extractPermissionRequest } from "./tools.js";
@@ -113,92 +114,28 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
   recordTiming(timings, onProgress, "event-stream", "OpenCode event stream connection", eventStart);
   const responsePromise = handledAwaitable(
     new Promise<string>((resolve, reject) => {
-      let settled = false;
-      let safetyTimeout: ReturnType<typeof setTimeout>;
-      let reconciliationInterval: ReturnType<typeof setInterval>;
       const assistantMessageIds = new Set<string>();
       const textPartsByMessageId = new Map<string, string>();
-
-      const settle = (outcome: "resolve" | "reject", value: string | Error) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(safetyTimeout);
-        clearInterval(reconciliationInterval);
-        eventsController.abort();
-
-        if (outcome === "resolve") {
-          resolve(value as string);
-        } else {
-          reject(value);
-        }
-      };
-
-      let lastCheckedLength = 0;
-
-      const acceptAssistantText = (text: string) => {
-        // We intentionally do NOT stream partial chunks to stdout.
-        // Instead we accumulate the full response and then parse the JSON payload.
-        if (text.length > fullResponse.length) {
+      const settlement = createReviewSettlementCoordinator({
+        timeoutMs: config.timeout * 1000,
+        reconcile: () => reconcileSessionMessages(client, directoryOptions, sessionId),
+        onAbort: () => eventsController.abort(),
+        onText: (text) => {
           fullResponse = text;
           onProgress?.({
             type: "output",
             message: `Review response received (${fullResponse.length} chars).`,
             characters: fullResponse.length,
           });
-        }
-
-        // Throttle/debounce: Only call looksLikeCompleteStructuredReview if:
-        // - The fullResponse length has increased by more than 500 characters since the last check, OR
-        // - The last character of the trimmed text is '}'.
-        const trimmed = fullResponse.trim();
-        const endsWithBrace = trimmed.endsWith("}");
-        const lengthDelta = fullResponse.length - lastCheckedLength;
-
-        if (lengthDelta > 500 || endsWithBrace) {
-          lastCheckedLength = fullResponse.length;
-          if (looksLikeCompleteStructuredReview(fullResponse)) {
-            settle("resolve", fullResponse);
-            return true;
-          }
-        }
-
-        return false;
-      };
-
-      // Safety timeout from config (default 5 minutes)
-      safetyTimeout = setTimeout(() => {
-        void reconcileSessionMessages(client, directoryOptions, sessionId).then((result) => {
-          if (result?.error) {
-            settle("reject", result.error);
-          } else if (result?.text && looksLikeCompleteStructuredReview(result.text)) {
-            settle("resolve", result.text);
-          } else {
-            settle("reject", new Error("Review timed out."));
-          }
-        });
-      }, config.timeout * 1000);
-
-      let reconciliationRunning = false;
-      reconciliationInterval = setInterval(() => {
-        if (settled || reconciliationRunning) return;
-        reconciliationRunning = true;
-        void reconcileSessionMessages(client, directoryOptions, sessionId)
-          .then((result) => {
-            if (result?.error) {
-              settle("reject", result.error);
-            } else if (result?.text && acceptAssistantText(result.text)) {
-              return;
-            }
-          })
-          .finally(() => {
-            reconciliationRunning = false;
-          });
-      }, 1000);
+        },
+        resolve,
+        reject,
+      });
 
       (async () => {
         try {
           for await (const event of sseResult.stream) {
-            if (settled) break;
+            if (settlement.isSettled()) break;
 
             const payload = (event as any).payload;
             if (!payload) continue;
@@ -219,7 +156,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
 
             const sessionError = extractSessionError(payload, sessionId);
             if (sessionError) {
-              settle("reject", sessionError);
+              settlement.reject(sessionError);
               break;
             }
 
@@ -246,7 +183,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
 
               if (part.type === "text" && part.text && typeof part.text === "string") {
                 textPartsByMessageId.set(part.messageID, part.text);
-                if (assistantMessageIds.has(part.messageID) && acceptAssistantText(part.text)) {
+                if (assistantMessageIds.has(part.messageID) && settlement.acceptText(part.text)) {
                   break;
                 }
               }
@@ -262,12 +199,12 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
                 assistantMessageIds.add(msg.id);
 
                 const text = textPartsByMessageId.get(msg.id);
-                if (text && acceptAssistantText(text)) {
+                if (text && settlement.acceptText(text)) {
                   break;
                 }
 
                 if (msg.error) {
-                  settle("reject", new Error(msg.error.data?.message || "Review failed"));
+                  settlement.reject(new Error(msg.error.data?.message || "Review failed"));
                   break;
                 }
               }
@@ -289,27 +226,25 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
               fullResponse.length > 0
             ) {
               onProgress?.({ type: "idle", message: "OpenCode session is idle." });
-              settle("resolve", fullResponse);
+              settlement.resolve(fullResponse);
               break;
             }
           }
 
           // If the stream ends without throwing and without emitting `session.idle`,
           // we must still settle. Otherwise the caller can hang indefinitely.
-          if (!settled) {
+          if (!settlement.isSettled()) {
             if (fullResponse.length > 0) {
-              settle("resolve", fullResponse);
+              settlement.resolve(fullResponse);
             } else {
-              settle(
-                "reject",
+              settlement.reject(
                 new Error("OpenCode event stream ended before any review text was received."),
               );
             }
           }
         } catch (streamErr) {
-          if (!settled && !eventsController.signal.aborted) {
-            settle(
-              "reject",
+          if (!settlement.isSettled() && !eventsController.signal.aborted) {
+            settlement.reject(
               describeOpenCodeError(streamErr, "event-stream-read", { port, sessionId }),
             );
           }
