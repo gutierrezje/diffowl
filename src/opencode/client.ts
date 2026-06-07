@@ -351,7 +351,7 @@ async function reconcileSessionMessages(
   client: any,
   directoryOptions: OpencodeDirectoryOptions,
   sessionId: string,
-): Promise<{ error?: Error; text?: string } | undefined> {
+): Promise<{ error?: Error; reconciliationError?: Error; text?: string } | undefined> {
   try {
     const response = await Promise.race([
       client.session.messages({
@@ -364,8 +364,13 @@ async function reconcileSessionMessages(
       }),
     ]);
     return extractSessionMessageResult(response);
-  } catch {
-    return undefined;
+  } catch (error) {
+    return {
+      reconciliationError:
+        error instanceof Error
+          ? error
+          : new Error(`Session reconciliation failed: ${String(error)}`),
+    };
   }
 }
 

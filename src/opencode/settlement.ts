@@ -9,7 +9,9 @@ export interface ReviewSettlementCoordinator {
 
 export function createReviewSettlementCoordinator(options: {
   timeoutMs: number;
-  reconcile: () => Promise<{ error?: Error; text?: string } | undefined>;
+  reconcile: () => Promise<
+    { error?: Error; reconciliationError?: Error; text?: string } | undefined
+  >;
   onAbort: () => void;
   onText?: (text: string) => void;
   resolve: (text: string) => void;
@@ -21,6 +23,7 @@ export function createReviewSettlementCoordinator(options: {
   let lastCheckedLength = 0;
   let reconciliationRunning = false;
   let timeoutRequested = false;
+  let lastReconciliationError: Error | undefined;
 
   const settle = (outcome: "resolve" | "reject", value: string | Error) => {
     if (settled) return;
@@ -61,10 +64,25 @@ export function createReviewSettlementCoordinator(options: {
       const result = await options.reconcile();
       if (result?.error) {
         settle("reject", result.error);
-      } else if (result?.text && acceptText(result.text)) {
         return;
-      } else if (isTimeout || timeoutRequested) {
-        settle("reject", new Error("Review timed out."));
+      }
+      if (result?.reconciliationError) {
+        lastReconciliationError = result.reconciliationError;
+      }
+      if (result?.text && acceptText(result.text)) {
+        return;
+      }
+      if (isTimeout || timeoutRequested) {
+        const suffix = lastReconciliationError
+          ? ` Last session reconciliation error: ${lastReconciliationError.message}`
+          : "";
+        settle(
+          "reject",
+          new Error(
+            `Review timed out.${suffix}`,
+            lastReconciliationError ? { cause: lastReconciliationError } : undefined,
+          ),
+        );
       }
     } finally {
       reconciliationRunning = false;

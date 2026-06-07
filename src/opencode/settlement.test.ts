@@ -30,6 +30,24 @@ describe("createReviewSettlementCoordinator", () => {
     await assertion;
   });
 
+  it("reports the last reconciliation transport error when the review times out", async () => {
+    vi.useFakeTimers();
+    const outcome = deferred<string>();
+    const reconciliationError = new Error("messages endpoint unavailable");
+    createCoordinator(outcome, {
+      timeoutMs: 2000,
+      reconcile: async () => ({ reconciliationError }),
+    });
+    const assertion = expect(outcome.promise).rejects.toMatchObject({
+      message: "Review timed out. Last session reconciliation error: messages endpoint unavailable",
+      cause: reconciliationError,
+    });
+
+    await vi.advanceTimersByTimeAsync(2000);
+
+    await assertion;
+  });
+
   it("resolves complete reconciled review text", async () => {
     vi.useFakeTimers();
     const outcome = deferred<string>();
@@ -60,7 +78,9 @@ describe("createReviewSettlementCoordinator", () => {
   it("preserves a timeout that fires during in-flight reconciliation", async () => {
     vi.useFakeTimers();
     const outcome = deferred<string>();
-    const reconciliation = deferred<{ error?: Error; text?: string } | undefined>();
+    const reconciliation = deferred<
+      { error?: Error; reconciliationError?: Error; text?: string } | undefined
+    >();
     createCoordinator(outcome, {
       timeoutMs: 1500,
       reconcile: () => reconciliation.promise,
@@ -75,7 +95,9 @@ describe("createReviewSettlementCoordinator", () => {
   it("settles only once when SSE wins a reconciliation race", async () => {
     vi.useFakeTimers();
     const outcome = deferred<string>();
-    const reconciliation = deferred<{ error?: Error; text?: string } | undefined>();
+    const reconciliation = deferred<
+      { error?: Error; reconciliationError?: Error; text?: string } | undefined
+    >();
     const resolveSpy = vi.fn(outcome.resolve);
     const rejectSpy = vi.fn(outcome.reject);
     const coordinator = createReviewSettlementCoordinator({
