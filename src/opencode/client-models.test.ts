@@ -61,4 +61,17 @@ describe("getAvailableModels", () => {
 
     expect(mocks.ensureServer).toHaveBeenCalledWith(4096);
   });
+
+  it("ignores malformed provider payloads", async () => {
+    const { getAvailableModels } = await import("./client.js");
+    mocks.isServerRunning.mockResolvedValue(true);
+    mocks.providerList.mockResolvedValue({
+      data: {
+        connected: "provider",
+        all: [{ id: 42, models: [] }],
+      },
+    });
+
+    await expect(getAvailableModels(4096)).resolves.toEqual([]);
+  });
 });

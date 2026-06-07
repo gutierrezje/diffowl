@@ -4,6 +4,7 @@ import { REVIEW_AGENT_PROMPT, buildReviewPrompt } from "./agent.js";
 import { parseStructuredReview } from "./review-parser.js";
 import { createReviewSettlementCoordinator } from "./settlement.js";
 import { buildToolPolicy, extractPermissionRequest, replyToPermissionRequest } from "./tools.js";
+import { parseProviderPayload } from "./provider-payload.js";
 export { parseStructuredReview, looksLikeCompleteStructuredReview } from "./review-parser.js";
 export { buildToolPolicy, extractPermissionRequest } from "./tools.js";
 export { getAvailableModels } from "./models.js";
@@ -39,6 +40,36 @@ export type ReviewProgressEvent =
   | { type: "idle"; message: string };
 
 type OpencodeDirectoryOptions = { query: { directory: string } };
+type OpenCodeClient = ReturnType<typeof createOpencodeClient>;
+
+type EventPayload = {
+  type?: unknown;
+  properties?: {
+    sessionID?: unknown;
+    part?: {
+      sessionID?: unknown;
+      type?: unknown;
+      messageID?: unknown;
+      text?: unknown;
+      tool?: unknown;
+      state?: { status?: unknown; title?: unknown };
+    };
+    info?: {
+      sessionID?: unknown;
+      role?: unknown;
+      id?: unknown;
+      error?: { data?: { message?: unknown } };
+    };
+    status?: { type?: unknown; message?: unknown };
+  };
+};
+
+export function extractEventPayload(event: unknown): EventPayload | undefined {
+  if (!event || typeof event !== "object") return undefined;
+  const payload = (event as { payload?: unknown }).payload;
+  if (!payload || typeof payload !== "object") return undefined;
+  return payload as EventPayload;
+}
 
 /**
  * Run a code review using OpenCode serve.
@@ -50,15 +81,13 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
   const directoryOptions = opencodeDirectoryOptions();
   const timings: ReviewTiming[] = [];
 
-  let client;
-
   // The CLI owns startup policy. Reviews only connect to the configured server.
   const connectStart = performance.now();
   if (!(await isServerRunning(port))) {
     throw new Error(`OpenCode server is not running on port ${port}.`);
   }
   onProgress?.({ type: "server", message: `Connected to OpenCode on port ${port}.` });
-  client = createOpencodeClient({
+  const client = createOpencodeClient({
     baseUrl: `http://127.0.0.1:${port}`,
   });
   recordTiming(timings, onProgress, "opencode-connect", "OpenCode client connection", connectStart);
@@ -137,7 +166,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
           for await (const event of sseResult.stream) {
             if (settlement.isSettled()) break;
 
-            const payload = (event as any).payload;
+            const payload = extractEventPayload(event);
             if (!payload) continue;
 
             const permission = extractPermissionRequest(payload, sessionId);
@@ -167,10 +196,11 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
             ) {
               const part = payload.properties.part;
 
-              if (part.type === "tool") {
-                const state = part.state?.status ?? "unknown";
+              if (part.type === "tool" && typeof part.tool === "string") {
+                const state =
+                  typeof part.state?.status === "string" ? part.state.status : "unknown";
                 const title =
-                  part.state && "title" in part.state && typeof part.state.title === "string"
+                  typeof part.state?.title === "string"
                     ? part.state.title
                     : part.tool;
                 onProgress?.({
@@ -181,7 +211,12 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
                 });
               }
 
-              if (part.type === "text" && part.text && typeof part.text === "string") {
+              if (
+                part.type === "text" &&
+                typeof part.messageID === "string" &&
+                typeof part.text === "string" &&
+                part.text
+              ) {
                 textPartsByMessageId.set(part.messageID, part.text);
                 if (assistantMessageIds.has(part.messageID) && settlement.acceptText(part.text)) {
                   break;
@@ -195,7 +230,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
               payload.properties?.info?.sessionID === sessionId
             ) {
               const msg = payload.properties?.info;
-              if (msg?.role === "assistant") {
+              if (msg?.role === "assistant" && typeof msg.id === "string") {
                 assistantMessageIds.add(msg.id);
 
                 const text = textPartsByMessageId.get(msg.id);
@@ -204,7 +239,11 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
                 }
 
                 if (msg.error) {
-                  settlement.reject(new Error(msg.error.data?.message || "Review failed"));
+                  const message =
+                    typeof msg.error.data?.message === "string"
+                      ? msg.error.data.message
+                      : "Review failed";
+                  settlement.reject(new Error(message));
                   break;
                 }
               }
@@ -212,9 +251,12 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
 
             if (payload.type === "session.status" && payload.properties?.sessionID === sessionId) {
               const status = payload.properties.status;
+              if (!status || typeof status.type !== "string") continue;
               const message =
                 status.type === "retry"
-                  ? `OpenCode retrying: ${status.message}`
+                  ? `OpenCode retrying: ${
+                      typeof status.message === "string" ? status.message : "unknown error"
+                    }`
                   : `OpenCode session ${status.type}.`;
               onProgress?.({ type: "session", message, sessionId });
             }
@@ -348,7 +390,7 @@ export function extractSessionMessageResult(
 }
 
 async function reconcileSessionMessages(
-  client: any,
+  client: OpenCodeClient,
   directoryOptions: OpencodeDirectoryOptions,
   sessionId: string,
 ): Promise<{ error?: Error; reconciliationError?: Error; text?: string } | undefined> {
@@ -448,34 +490,18 @@ async function getProviderModelMetadata(
       return undefined;
     }
 
-    const result = await providerList();
-    const payload = (result as { data?: unknown }).data;
-    const providers = Array.isArray((payload as any)?.all) ? (payload as any).all : [];
-    const provider = providers.find((item: any) => item?.id === providerID);
+    const payload = parseProviderPayload(await providerList());
+    if (!payload) return undefined;
+    const provider = payload.all.find((item) => item.id === providerID);
     const models = provider?.models;
-    if (!models || typeof models !== "object") {
-      return undefined;
-    }
+    if (!models) return undefined;
 
-    for (const model of Object.values(models as Record<string, any>)) {
-      if (!model || typeof model !== "object") {
-        continue;
-      }
-      const id = typeof model.id === "string" ? model.id : undefined;
-      if (id !== modelID) {
-        continue;
-      }
+    for (const model of Object.values(models)) {
+      if (model.id !== modelID) continue;
 
       const reasoning =
-        typeof model.capabilities?.reasoning === "boolean"
-          ? model.capabilities.reasoning
-          : typeof model.reasoning === "boolean"
-            ? model.reasoning
-            : undefined;
-      const variants =
-        model.variants && typeof model.variants === "object"
-          ? new Set(Object.keys(model.variants))
-          : undefined;
+        model.capabilities?.reasoning ?? model.reasoning;
+      const variants = model.variants ? new Set(Object.keys(model.variants)) : undefined;
       return {
         ...(reasoning !== undefined ? { reasoning } : {}),
         ...(variants ? { variants } : {}),

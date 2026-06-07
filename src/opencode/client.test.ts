@@ -8,6 +8,7 @@ import {
   extractSessionId,
   extractSessionError,
   extractSessionMessageResult,
+  extractEventPayload,
   handledAwaitable,
   opencodeDirectoryOptions,
   parseStructuredReview,
@@ -16,6 +17,16 @@ import {
 } from "./client.js";
 
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
+
+describe("extractEventPayload", () => {
+  it("returns only object payloads from SDK event envelopes", () => {
+    const payload = { type: "session.idle", properties: { sessionID: "session-1" } };
+
+    expect(extractEventPayload({ payload })).toBe(payload);
+    expect(extractEventPayload({ payload: "invalid" })).toBeUndefined();
+    expect(extractEventPayload(null)).toBeUndefined();
+  });
+});
 
 async function readFixture(name: string): Promise<string> {
   return readFile(join(fixturesDir, name), "utf-8");

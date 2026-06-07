@@ -1,5 +1,6 @@
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import { ensureServer, isServerRunning } from "./server.js";
+import { parseProviderPayload } from "./provider-payload.js";
 
 /**
  * Get all available models from the OpenCode server.
@@ -25,25 +26,20 @@ export async function getAvailableModels(
   });
 
   try {
-    const res = await client.provider.list();
-    const payload = (res as any).data;
-
-    if (!payload || !payload.all) {
-      return [];
-    }
-
-    const connected = payload.connected || [];
+    const payload = parseProviderPayload(await client.provider.list());
+    if (!payload) return [];
     const modelsList: string[] = [];
 
     for (const provider of payload.all) {
       // Only include connected providers
-      if (!connected.includes(provider.id)) {
+      if (!payload.connected.includes(provider.id)) {
         continue;
       }
 
       if (provider.models) {
         for (const modelKey of Object.keys(provider.models)) {
           const model = provider.models[modelKey];
+          if (!model) continue;
           // Only show active models
           if (model.status === "active" || !model.status) {
             modelsList.push(`${provider.id}/${model.id}`);
