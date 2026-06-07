@@ -185,9 +185,11 @@ export async function saveConfig(config: DiffOwlConfig): Promise<string> {
 }
 
 export function getDiffOwlDir(): string {
-  const configPath = findConfigPath();
-  const projectRoot = dirname(configPath);
-  return join(projectRoot, ".diffowl");
+  return join(getProjectRoot(), ".diffowl");
+}
+
+export function getProjectRoot(): string {
+  return dirname(findConfigPath());
 }
 
 export async function ensureDiffOwlDir(): Promise<string> {

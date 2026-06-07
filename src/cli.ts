@@ -9,7 +9,7 @@ import {
   saveConfig,
   configExists,
   ensureDiffOwlDir,
-  getDiffOwlDir,
+  getProjectRoot,
   parseModel,
   parseReviewContextDepth,
   parseReasoningEffort,
@@ -52,10 +52,10 @@ import {
   colorizeMarkdown,
   parseReviewMetadata,
 } from "./review/formatter.js";
+import { resolveReviewReportPath } from "./review/report-path.js";
 
 import { readFile, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { join } from "node:path";
 import { execa } from "execa";
 
 async function writeHookStatus(exitCode: number, message?: string): Promise<void> {
@@ -277,7 +277,7 @@ program
       const writeStart = performance.now();
       const reportPath = await writeMarkdownReport(markdown, {
         session_id: reviewResult.sessionId,
-        project_root: process.cwd(),
+        project_root: getProjectRoot(),
       });
       recordCliTiming(timings, "write-report", "Report write", writeStart);
       recordCliTiming(timings, "total", "Total review command", totalStart);
@@ -344,18 +344,13 @@ program
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(chalk.red(`Failed to open review session: ${message}`));
+      if (message.includes("opencode not found")) {
+        console.log(chalk.dim("Install: npm i -g opencode-ai"));
+        console.log(chalk.dim("Docs: https://opencode.ai/docs/"));
+      }
       process.exit(1);
     }
   });
-
-function resolveReviewReportPath(report: string): string {
-  if (isAbsolute(report)) return report;
-
-  const explicitPath = resolve(report);
-  if (existsSync(explicitPath)) return explicitPath;
-
-  return join(getDiffOwlDir(), "reviews", report);
-}
 
 function formatReviewProgress(event: ReviewProgressEvent): string {
   switch (event.type) {

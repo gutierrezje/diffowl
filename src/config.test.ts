@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, writeFile, rm, realpath } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadConfig, saveConfig, type DiffOwlConfig } from "./config.js";
+import { getProjectRoot, loadConfig, saveConfig, type DiffOwlConfig } from "./config.js";
 
 const originalCwd = process.cwd();
 let tempDirs: string[] = [];
@@ -14,6 +14,17 @@ afterEach(async () => {
 });
 
 describe("config", () => {
+  it("returns the directory containing the discovered config as the project root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
+    tempDirs.push(root);
+    const child = join(root, "packages", "app");
+    await mkdir(child, { recursive: true });
+    await writeFile(join(root, ".diffowl.yml"), "model: provider/model\n", "utf-8");
+    process.chdir(child);
+
+    expect(await realpath(getProjectRoot())).toBe(await realpath(root));
+  });
+
   it("saves back to the discovered parent config", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
     tempDirs.push(root);
