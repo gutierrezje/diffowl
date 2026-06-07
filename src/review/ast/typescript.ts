@@ -10,7 +10,7 @@ type tsIdentifier = tsType.Identifier;
 
 const MAX_AST_SYMBOL_CHARS = 8_000;
 
-let cachedTs: any = null;
+let cachedTs: typeof tsType | undefined | null = null;
 
 export const typescriptAstParser: AstParser = {
   id: "typescript",
@@ -28,15 +28,15 @@ export const typescriptAstParser: AstParser = {
   },
 };
 
-function tryLoadUserTypescript(): any {
+function tryLoadUserTypescript(): typeof tsType | undefined {
   if (cachedTs !== null) return cachedTs;
   try {
     const require = createRequire(pathToFileURL(join(process.cwd(), "package.json")));
-    cachedTs = require("typescript");
+    cachedTs = require("typescript") as typeof tsType;
   } catch {
     try {
       const fallbackRequire = createRequire(import.meta.url);
-      cachedTs = fallbackRequire("typescript");
+      cachedTs = fallbackRequire("typescript") as typeof tsType;
     } catch {
       cachedTs = undefined;
     }
@@ -136,7 +136,7 @@ function findAncestor<T extends tsNode>(
 function getDeclarationName(ts: typeof tsType, node: tsNode): string {
   if (ts.isVariableStatement(node)) {
     return node.declarationList.declarations
-      .map((declaration: any) => declaration.name.getText())
+      .map((declaration) => declaration.name.getText())
       .join(", ");
   }
 
