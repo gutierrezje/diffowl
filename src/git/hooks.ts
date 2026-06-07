@@ -11,6 +11,7 @@ import {
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
+import type { Options as ExecaOptions } from "execa";
 import { z } from "zod";
 import { ensureDiffOwlDir, getDiffOwlDir, loadConfig } from "../config.js";
 import { trimHookLog } from "../review/retention.js";
@@ -18,6 +19,12 @@ import { trimHookLog } from "../review/retention.js";
 const HOOK_MARKER = "# diffowl-managed";
 const HOOK_END_MARKER = "# end-diffowl";
 const HOOK_SHEBANG = "#!/bin/sh";
+
+function loggedStdio(outFd: number): ExecaOptions["stdio"] {
+  // Execa supports integer file descriptors at runtime, but its async tuple type
+  // only accepts fixed descriptor literals instead of descriptors from openSync.
+  return ["ignore", outFd, outFd] as unknown as ExecaOptions["stdio"];
+}
 
 /**
  * Get the .git/hooks directory path
@@ -168,7 +175,7 @@ export async function runHookReview(): Promise<void> {
       detached: true,
       cleanup: false,
       cwd: process.cwd(),
-      stdio: ["ignore", outFd, outFd] as any,
+      stdio: loggedStdio(outFd),
       env: {
         ...process.env,
         PATH: envPath,
@@ -216,7 +223,7 @@ export async function runPendingHookReviews(): Promise<void> {
       env["DIFFOWL_HOOK_RESULT"] = resultPath;
       await execa(process.execPath, [cli, "review", "--hook", "--commit", next.sha], {
         cwd: process.cwd(),
-        stdio: ["ignore", outFd, outFd] as any,
+        stdio: loggedStdio(outFd),
         env,
       });
     } finally {
