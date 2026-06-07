@@ -11,6 +11,7 @@ import {
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
+import { z } from "zod";
 import { ensureDiffOwlDir, getDiffOwlDir, loadConfig } from "../config.js";
 import { trimHookLog } from "../review/retention.js";
 
@@ -98,6 +99,12 @@ export interface HookFailure {
   message?: string;
 }
 
+const HookFailureSchema = z.object({
+  exitCode: z.number().int(),
+  timestamp: z.string(),
+  message: z.string().optional(),
+});
+
 /**
  * Check if the background post-commit hook failed recently.
  * Returns failure details only for non-zero exits within the last hour.
@@ -110,17 +117,9 @@ export async function checkRecentHookFailure(): Promise<HookFailure | undefined>
 
   try {
     const raw = await readFile(statusPath, "utf-8");
-    const parsed = JSON.parse(raw) as unknown;
-    if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      typeof (parsed as any).exitCode !== "number" ||
-      typeof (parsed as any).timestamp !== "string"
-    ) {
-      return undefined;
-    }
-
-    const { exitCode, timestamp } = parsed as HookFailure;
+    const parsed = HookFailureSchema.safeParse(JSON.parse(raw));
+    if (!parsed.success) return undefined;
+    const { exitCode, timestamp, message } = parsed.data;
     if (exitCode === 0) {
       return undefined;
     }
@@ -131,8 +130,6 @@ export async function checkRecentHookFailure(): Promise<HookFailure | undefined>
       return undefined;
     }
 
-    const message =
-      typeof (parsed as any).message === "string" ? (parsed as any).message : undefined;
     return { exitCode, timestamp, ...(message ? { message } : {}) };
   } catch {
     return undefined;

@@ -81,6 +81,25 @@ describe("checkRecentHookFailure", () => {
       message: expect.stringContaining("phase=event-stream-read"),
     });
   });
+
+  it("ignores hook status with a non-integer exit code", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-hooks-"));
+    tempDirs.push(root);
+    await mkdir(join(root, ".diffowl"), { recursive: true });
+    await writeFile(join(root, ".diffowl.yml"), "model: provider/model\n", "utf-8");
+    await writeFile(
+      join(root, ".diffowl", "last-hook-status.json"),
+      JSON.stringify({
+        exitCode: 1.5,
+        timestamp: new Date().toISOString(),
+      }),
+      "utf-8",
+    );
+
+    process.chdir(root);
+
+    await expect(checkRecentHookFailure()).resolves.toBeUndefined();
+  });
 });
 
 describe("hook review lock", () => {

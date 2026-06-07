@@ -155,13 +155,7 @@ export function looksLikeCompleteStructuredReview(text: string): boolean {
   if (openCount === 0 || openCount !== closeCount) return false;
 
   try {
-    const parsed = JSON.parse(jsonText);
-    return (
-      parsed &&
-      typeof parsed === "object" &&
-      typeof (parsed as any).summary === "string" &&
-      Array.isArray((parsed as any).findings)
-    );
+    return ReviewJsonSchema.safeParse(JSON.parse(jsonText)).success;
   } catch {
     return false;
   }
