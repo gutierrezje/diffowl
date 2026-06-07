@@ -74,4 +74,26 @@ describe("getAvailableModels", () => {
 
     await expect(getAvailableModels(4096)).resolves.toEqual([]);
   });
+
+  it("keeps valid models when nullable fields and malformed siblings are present", async () => {
+    const { getAvailableModels } = await import("./client.js");
+    mocks.isServerRunning.mockResolvedValue(true);
+    mocks.providerList.mockResolvedValue({
+      data: {
+        connected: ["provider"],
+        all: [
+          null,
+          {
+            id: "provider",
+            models: {
+              invalid: null,
+              active: { id: "active", status: null },
+            },
+          },
+        ],
+      },
+    });
+
+    await expect(getAvailableModels(4096)).resolves.toEqual(["provider/active"]);
+  });
 });

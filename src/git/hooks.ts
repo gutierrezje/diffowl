@@ -296,18 +296,12 @@ async function getHeadCommit(): Promise<string> {
 
 async function readHookResult(path: string): Promise<HookFailure | undefined> {
   try {
-    const parsed = JSON.parse(await readFile(path, "utf-8")) as {
-      exitCode?: unknown;
-      timestamp?: unknown;
-      message?: unknown;
-    };
-    if (typeof parsed.exitCode !== "number" || typeof parsed.timestamp !== "string") {
-      return undefined;
-    }
+    const parsed = HookFailureSchema.safeParse(JSON.parse(await readFile(path, "utf-8")));
+    if (!parsed.success) return undefined;
     return {
-      exitCode: parsed.exitCode,
-      timestamp: parsed.timestamp,
-      ...(typeof parsed.message === "string" ? { message: parsed.message } : {}),
+      exitCode: parsed.data.exitCode,
+      timestamp: parsed.data.timestamp,
+      ...(parsed.data.message ? { message: parsed.data.message } : {}),
     };
   } catch {
     return undefined;

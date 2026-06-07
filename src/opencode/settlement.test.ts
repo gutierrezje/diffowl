@@ -98,6 +98,20 @@ describe("createReviewSettlementCoordinator", () => {
     await assertion;
   });
 
+  it("rejects incomplete text when the event stream finishes", async () => {
+    vi.useFakeTimers();
+    const outcome = deferred<string>();
+    const coordinator = createCoordinator(outcome);
+    const assertion = expect(outcome.promise).rejects.toThrow(
+      "OpenCode event stream ended before a complete review was received.",
+    );
+    coordinator.acceptText('FINAL_REVIEW_JSON\n{"summary":');
+
+    coordinator.finish();
+
+    await assertion;
+  });
+
   it("preserves a timeout that fires during in-flight reconciliation", async () => {
     vi.useFakeTimers();
     const outcome = deferred<string>();

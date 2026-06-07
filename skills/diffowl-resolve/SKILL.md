@@ -10,7 +10,7 @@ Treat DiffOwl findings as candidates, not facts. Verify each finding against the
 ## Workflow
 
 1. Read repository instructions, then inspect `.diffowl/reviews/latest.md` unless the user names another report.
-2. If `latest.md` points to or duplicates a timestamped report, update the timestamped report as the canonical record.
+2. Treat `latest.md` as ephemeral because every review overwrites it. Find and update its matching timestamped report as the canonical record.
 3. Parse every finding and investigate it against the current worktree, surrounding code, tests, and relevant history.
 4. Classify each finding:
    - **Fixed**: changed code or configuration to address a confirmed issue.
@@ -39,10 +39,14 @@ Use one item per finding, in report order:
 - [x] Finding 2 - **Agent dismissed**
   - Note: The reported path is guarded by the caller.
 
-- [x] Finding 3 - **User dismissed**
+- [x] Finding 3 - **Already fixed**
+  - Commit: `def5678`
+  - Note: The current worktree includes the correction from an earlier change.
+
+- [x] Finding 4 - **User dismissed**
   - Note: User accepted the current behavior.
 
-- [ ] Finding 4 - **Deferred**
+- [ ] Finding 5 - **Deferred**
   - Note: Requires an upstream dependency change.
 ```
 

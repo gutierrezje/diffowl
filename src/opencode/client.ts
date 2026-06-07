@@ -268,7 +268,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
               fullResponse.length > 0
             ) {
               onProgress?.({ type: "idle", message: "OpenCode session is idle." });
-              settlement.resolve(fullResponse);
+              settlement.finish();
               break;
             }
           }
@@ -276,13 +276,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
           // If the stream ends without throwing and without emitting `session.idle`,
           // we must still settle. Otherwise the caller can hang indefinitely.
           if (!settlement.isSettled()) {
-            if (fullResponse.length > 0) {
-              settlement.resolve(fullResponse);
-            } else {
-              settlement.reject(
-                new Error("OpenCode event stream ended before any review text was received."),
-              );
-            }
+            settlement.finish();
           }
         } catch (streamErr) {
           if (!settlement.isSettled() && !eventsController.signal.aborted) {

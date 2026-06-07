@@ -622,6 +622,29 @@ describe("buildReviewContext", () => {
     expect(rendered).toContain("Reviewing from diff and file context only.");
     expect(rendered).not.toContain("Changed AST symbols");
   });
+
+  it("does not classify shell files as C headers by suffix", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
+    tempDirs.push(root);
+    process.chdir(root);
+
+    await writeFile("script.sh", "echo hello\n", "utf-8");
+
+    const context = await buildReviewContext("commit", config, "shallow", {
+      raw: [
+        "diff --git a/script.sh b/script.sh",
+        "--- a/script.sh",
+        "+++ b/script.sh",
+        "@@ -1 +1 @@",
+        "-echo goodbye",
+        "+echo hello",
+      ].join("\n"),
+      summary: "~ script.sh (+1/-1)",
+      files: [{ path: "script.sh", status: "modified", additions: 1, deletions: 1 }],
+    });
+
+    expect(context.diagnostics).toEqual([]);
+  });
 });
 
 async function makeReferenceSearchPath(root: string): Promise<string> {

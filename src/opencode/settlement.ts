@@ -2,6 +2,7 @@ import { looksLikeCompleteStructuredReview } from "./review-parser.js";
 
 export interface ReviewSettlementCoordinator {
   acceptText(text: string): boolean;
+  finish(): void;
   isSettled(): boolean;
   reject(error: Error): void;
   resolve(text: string): void;
@@ -102,6 +103,13 @@ export function createReviewSettlementCoordinator(options: {
 
   return {
     acceptText,
+    finish: () => {
+      if (settled || acceptText(fullResponse)) return;
+      settle(
+        "reject",
+        new Error("OpenCode event stream ended before a complete review was received."),
+      );
+    },
     isSettled: () => settled,
     reject: (error) => settle("reject", error),
     resolve: (text) => settle("resolve", text),

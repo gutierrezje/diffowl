@@ -1,3 +1,4 @@
+import { extname } from "node:path";
 import type { AstParserResult } from "./types.js";
 import { typescriptAstParser } from "./typescript.js";
 
@@ -52,9 +53,5 @@ export function extractAstSymbols(
 }
 
 function isCodePath(path: string): boolean {
-  const normalized = path.toLowerCase();
-  for (const extension of CODE_EXTENSIONS) {
-    if (normalized.endsWith(extension)) return true;
-  }
-  return false;
+  return CODE_EXTENSIONS.has(extname(path).toLowerCase());
 }
