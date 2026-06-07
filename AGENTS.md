@@ -41,6 +41,18 @@ Local AI code review CLI. Orchestrates a headless OpenCode server and delegates 
 - CLI errors: `chalk.red` + `process.exit(1)`. Hook mode exits 0 even on failure.
 - Report timestamps: `ISOString().replace(/[:.]/g, "-")`.
 
+## Style
+
+- Use conventional commit messages and PR titles: `type(scope): summary`.
+- Valid types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`. Scopes are optional; use the affected area when helpful.
+- Prefer `const`, early returns, type inference, and dot notation.
+- Avoid `any`, unnecessary destructuring, and premature single-use helpers.
+- Keep logic inline unless a helper is reused, hides a complex boundary, or names a clear independent concept.
+- Keep supporting helpers close to and below the main exported logic when that improves readability.
+- Comment non-obvious constraints and surprising behavior, not routine assignments or control flow.
+- Avoid mocks where practical; test observable behavior against real implementation paths.
+- Use dynamic imports for heavy dependencies needed only on narrow code paths.
+
 ## Anti-Patterns
 
 - `REVIEW_AGENT_PROMPT` exact heading structure and severity labels must be preserved — `formatter.ts` regex depends on them.
