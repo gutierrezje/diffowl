@@ -68,6 +68,8 @@ export function createReviewSettlementCoordinator(options: {
       }
       if (result?.reconciliationError) {
         lastReconciliationError = result.reconciliationError;
+      } else if (result) {
+        lastReconciliationError = undefined;
       }
       if (result?.text && acceptText(result.text)) {
         return;

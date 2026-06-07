@@ -48,6 +48,29 @@ describe("createReviewSettlementCoordinator", () => {
     await assertion;
   });
 
+  it("clears a stale reconciliation error after the endpoint recovers", async () => {
+    vi.useFakeTimers();
+    const outcome = deferred<string>();
+    const reconcile = vi
+      .fn()
+      .mockResolvedValueOnce({
+        reconciliationError: new Error("temporary messages failure"),
+      })
+      .mockResolvedValue({ text: 'FINAL_REVIEW_JSON\n{"summary":' });
+    createCoordinator(outcome, {
+      timeoutMs: 2500,
+      reconcile,
+    });
+    const assertion = outcome.promise.catch((error: unknown) => error);
+
+    await vi.advanceTimersByTimeAsync(2500);
+
+    const error = await assertion;
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("Review timed out.");
+    expect((error as Error).cause).toBeUndefined();
+  });
+
   it("resolves complete reconciled review text", async () => {
     vi.useFakeTimers();
     const outcome = deferred<string>();
