@@ -30,3 +30,4 @@ Manages the OpenCode server lifecycle, SSE session streaming, and the review age
 - Never increase tool permissions beyond `glob`, `grep`, `read` for default depth. Deeper tool access is rejected via `replyToPermissionRequest`.
 - `resolveReasoningVariant` queries provider metadata but silently ignores failures (advisory only). Do not rely on it for correctness.
 - `extractSessionId` / `extractSessionError` do deep defensive type narrowing on OpenCode payloads. Missing a new payload shape causes opaque failures.
+- `isOpencodeProcess` on Windows has a three-tier fallback (PowerShell → wmic → tasklist). Modifying one tier requires checking the others.
