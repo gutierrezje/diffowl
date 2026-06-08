@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  canSelectReviewInteractively,
   listReviewReportPaths,
   resolveReviewReportPath,
   selectReviewReportPath,
@@ -66,6 +67,21 @@ describe("listReviewReportPaths", () => {
       join(reviews, "review-2026-06-06T10-00-00-000Z.md"),
     ]);
   });
+
+  it("keeps valid reports when another report cannot be parsed", async () => {
+    const root = await createProject();
+    const reviews = join(root, ".diffowl", "reviews");
+    await writeFile(join(reviews, "review-2026-06-08T11-00-00-000Z.md"), "invalid: [", "utf-8");
+    await writeFile(
+      join(reviews, "review-2026-06-08T10-00-00-000Z.md"),
+      reviewContent("valid"),
+      "utf-8",
+    );
+
+    expect(await listReviewReportPaths()).toEqual([
+      join(reviews, "review-2026-06-08T10-00-00-000Z.md"),
+    ]);
+  });
 });
 
 describe("selectReviewReportPath", () => {
@@ -73,6 +89,14 @@ describe("selectReviewReportPath", () => {
     expect(selectReviewReportPath(["newest.md", "older.md"], "2")).toBe("older.md");
     expect(selectReviewReportPath(["newest.md"], "0")).toBeUndefined();
     expect(selectReviewReportPath(["newest.md"], "not a number")).toBeUndefined();
+  });
+});
+
+describe("canSelectReviewInteractively", () => {
+  it("requires interactive input and output terminals", () => {
+    expect(canSelectReviewInteractively(true, true)).toBe(true);
+    expect(canSelectReviewInteractively(false, true)).toBe(false);
+    expect(canSelectReviewInteractively(true, false)).toBe(false);
   });
 });
 

@@ -58,6 +58,7 @@ import {
   parseReviewMetadata,
 } from "./review/formatter.js";
 import {
+  canSelectReviewInteractively,
   listReviewReportPaths,
   resolveReviewReportPath,
   selectReviewReportPath,
@@ -368,6 +369,15 @@ program
   });
 
 async function selectReviewInteractively(): Promise<string> {
+  if (!canSelectReviewInteractively(process.stdin.isTTY, process.stdout.isTTY)) {
+    console.error(
+      chalk.red(
+        "Interactive review selection requires a terminal. Pass a report filename or path instead.",
+      ),
+    );
+    process.exit(1);
+  }
+
   const reports = await listReviewReportPaths();
   if (reports.length === 0) {
     console.error(chalk.red("No review reports available. Run `diffowl review` first."));

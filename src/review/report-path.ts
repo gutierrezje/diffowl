@@ -22,8 +22,15 @@ export async function listReviewReportPaths(): Promise<string[]> {
 
   return entries
     .flat()
-    .filter((path) => !path.endsWith("/latest.md"))
+    .filter((path) => basename(path) !== "latest.md")
     .sort((a, b) => basename(b).localeCompare(basename(a)));
+}
+
+export function canSelectReviewInteractively(
+  inputIsTTY: boolean | undefined,
+  outputIsTTY: boolean | undefined,
+): boolean {
+  return inputIsTTY === true && outputIsTTY === true;
 }
 
 export function selectReviewReportPath(paths: string[], answer: string): string | undefined {
@@ -33,18 +40,23 @@ export function selectReviewReportPath(paths: string[], answer: string): string 
 }
 
 async function listMarkdownFiles(dir: string): Promise<string[]> {
+  let paths: string[];
   try {
-    const paths = (await readdir(dir, { withFileTypes: true }))
+    paths = (await readdir(dir, { withFileTypes: true }))
       .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
       .map((entry) => join(dir, entry.name));
-    const reports = await Promise.all(
-      paths.map(async (path) => ({
-        path,
-        metadata: parseReviewMetadata(await readFile(path, "utf-8")),
-      })),
-    );
-    return reports.filter((report) => report.metadata !== undefined).map((report) => report.path);
   } catch {
     return [];
   }
+
+  const reports = await Promise.all(
+    paths.map(async (path) => {
+      try {
+        return parseReviewMetadata(await readFile(path, "utf-8")) ? path : undefined;
+      } catch {
+        return undefined;
+      }
+    }),
+  );
+  return reports.filter((path): path is string => path !== undefined);
 }
