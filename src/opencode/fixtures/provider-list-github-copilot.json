@@ -1,0 +1,30 @@
+{
+  "data": {
+    "connected": ["github-copilot"],
+    "all": [
+      {
+        "id": "github-copilot",
+        "models": {
+          "gpt-4.1": {
+            "id": "gpt-4.1",
+            "status": "active",
+            "reasoning": false
+          },
+          "claude-sonnet-4": {
+            "id": "claude-sonnet-4",
+            "status": null
+          }
+        }
+      },
+      {
+        "id": "openai",
+        "models": {
+          "gpt-5-codex": {
+            "id": "gpt-5-codex",
+            "status": "active"
+          }
+        }
+      }
+    ]
+  }
+}

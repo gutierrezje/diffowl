@@ -400,6 +400,14 @@ git add -p
 diffowl review --staged
 ```
 
+To verify model discovery against an authenticated OpenCode server already running on port 4096:
+
+```bash
+DIFFOWL_INTEGRATION=1 pnpm exec vitest run src/opencode/models.integration.test.ts
+```
+
+Set `DIFFOWL_OPENCODE_PORT` when the server uses a different port. This live test is skipped during the normal test suite.
+
 ---
 
 ## License

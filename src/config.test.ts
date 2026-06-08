@@ -79,18 +79,20 @@ describe("config", () => {
     expect(config.verbose).toBe(false);
   });
 
-  it("loads valid reasoning effort", async () => {
-    const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
-    tempDirs.push(root);
-    await writeFile(
-      join(root, ".diffowl.yml"),
-      ["model: provider/model", "reasoning:", "  effort: high"].join("\n"),
-      "utf-8",
-    );
-    process.chdir(root);
+  for (const effort of ["auto", "none", "minimal", "low", "medium", "high", "max", "xhigh"]) {
+    it(`loads ${effort} reasoning effort`, async () => {
+      const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
+      tempDirs.push(root);
+      await writeFile(
+        join(root, ".diffowl.yml"),
+        ["model: provider/model", "reasoning:", `  effort: ${effort}`].join("\n"),
+        "utf-8",
+      );
+      process.chdir(root);
 
-    expect((await loadConfig()).reasoning.effort).toBe("high");
-  });
+      expect((await loadConfig()).reasoning.effort).toBe(effort);
+    });
+  }
 
   it("loads boolean review output settings when set", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));

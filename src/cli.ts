@@ -27,6 +27,7 @@ import {
   type ReviewFinding,
 } from "./opencode/client.js";
 import { getOpenCodeFailureGuidance } from "./opencode/guidance.js";
+import { canSelectModelInteractively, selectModel } from "./opencode/model-selection.js";
 import { ensureServer, isServerRunning, stopServer } from "./opencode/server.js";
 import {
   installHook,
@@ -561,6 +562,15 @@ async function selectModelInteractively(
   let selectedModel = config.model;
 
   if (models.length > 0) {
+    if (!canSelectModelInteractively(process.stdin.isTTY, process.stdout.isTTY)) {
+      console.error(
+        chalk.red(
+          "Interactive model selection requires a terminal. Pass a model explicitly, for example `diffowl model provider/model`.",
+        ),
+      );
+      process.exit(1);
+    }
+
     console.log(
       chalk.bold(
         options.allowKeepCurrent
@@ -584,21 +594,15 @@ async function selectModelInteractively(
           ? `Select a model number (1-${models.length}) or press Enter to keep current: `
           : `Select a model number (1-${models.length}) [default: 1]: `;
 
-        const answer = await rl.question(chalk.yellow(promptText));
-        const trimmed = answer.trim();
-
-        if (trimmed === "") {
-          if (options.allowKeepCurrent) {
-            break; // Keep current model
-          } else {
-            selectedModel = models[0]!;
-            break;
-          }
-        }
-
-        const num = parseInt(trimmed, 10);
-        if (num >= 1 && num <= models.length) {
-          selectedModel = models[num - 1]!;
+        const selection = selectModel(
+          models,
+          config.model,
+          await rl.question(chalk.yellow(promptText)),
+          options.allowKeepCurrent,
+        );
+        if (selection.type === "kept") break;
+        if (selection.type === "selected") {
+          selectedModel = selection.model;
           break;
         }
         console.log(chalk.red("Invalid selection. Please enter a valid number."));

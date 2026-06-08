@@ -1,6 +1,6 @@
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import { ensureServer, isServerRunning } from "./server.js";
-import { parseProviderPayload } from "./provider-payload.js";
+import { parseProviderPayload, type ProviderPayload } from "./provider-payload.js";
 
 /**
  * Get all available models from the OpenCode server.
@@ -27,29 +27,21 @@ export async function getAvailableModels(
 
   try {
     const payload = parseProviderPayload(await client.provider.list());
-    if (!payload) return [];
-    const modelsList: string[] = [];
-
-    for (const provider of payload.all) {
-      // Only include connected providers
-      if (!payload.connected.includes(provider.id)) {
-        continue;
-      }
-
-      if (provider.models) {
-        for (const modelKey of Object.keys(provider.models)) {
-          const model = provider.models[modelKey];
-          if (!model) continue;
-          // Only show active models
-          if (model.status === "active" || !model.status) {
-            modelsList.push(`${provider.id}/${model.id}`);
-          }
-        }
-      }
-    }
-
-    return modelsList.sort();
+    return listAvailableModels(payload);
   } catch {
     return [];
   }
+}
+
+export function listAvailableModels(payload: ProviderPayload | undefined): string[] {
+  if (!payload) return [];
+
+  return payload.all
+    .filter((provider) => payload.connected.includes(provider.id))
+    .flatMap((provider) =>
+      Object.values(provider.models ?? {})
+        .filter((model) => model.status === "active" || !model.status)
+        .map((model) => `${provider.id}/${model.id}`),
+    )
+    .sort();
 }
