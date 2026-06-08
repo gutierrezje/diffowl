@@ -151,6 +151,36 @@ describe("renderMarkdown", () => {
     expect(output).toContain("- Suppressed 1 finding(s) for files not changed in this diff.");
   });
 
+  it("continues finding numbers across actionable and suppressed sections", () => {
+    const report: ReviewReport = {
+      summary: "Test summary",
+      findings: [
+        {
+          severity: "warning",
+          file: "src/changed.ts",
+          line: 4,
+          title: "Changed-file issue",
+          body: "Actionable finding.",
+          confidence: "high",
+        },
+      ],
+      suppressedFindings: [
+        {
+          severity: "info",
+          file: "src/unchanged.ts",
+          line: 8,
+          title: "Outside changed files",
+          body: "Suppressed finding.",
+          confidence: "medium",
+        },
+      ],
+    };
+
+    const output = renderMarkdown(report);
+    expect(output).toContain("#### Finding 1\n**[WARNING] src/changed.ts:4**");
+    expect(output).toContain("#### Finding 2\n**[INFO] src/unchanged.ts:8** (medium confidence)");
+  });
+
   it("does not render empty diagnostics or suppressed findings sections", () => {
     const report: ReviewReport = {
       summary: "Test summary",
