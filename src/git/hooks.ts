@@ -389,8 +389,12 @@ function isHookReviewLockActive(lockFile: string): boolean {
   try {
     const pid = Number.parseInt(readFileSync(lockFile, "utf-8"), 10);
     if (!Number.isInteger(pid) || pid <= 0) return false;
-    process.kill(pid, 0);
-    return true;
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (err) {
+      return (err as { code?: string }).code === "EPERM";
+    }
   } catch {
     return false;
   }

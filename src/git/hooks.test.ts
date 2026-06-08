@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   acquireHookReviewLock,
   checkRecentHookFailure,
@@ -140,6 +140,24 @@ describe("hook review lock", () => {
 
     expect(acquireHookReviewLock(lockFile)).toBe(true);
     releaseHookReviewLock(lockFile);
+  });
+
+  it("preserves locks when the owning process exists but cannot be signaled", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-hooks-"));
+    tempDirs.push(root);
+    const lockFile = join(root, "hook-review.lock");
+    await writeFile(lockFile, "1234", "utf-8");
+    const permissionError = Object.assign(new Error("operation not permitted"), { code: "EPERM" });
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => {
+      throw permissionError;
+    });
+
+    try {
+      expect(acquireHookReviewLock(lockFile)).toBe(false);
+      await expect(readFile(lockFile, "utf-8")).resolves.toBe("1234");
+    } finally {
+      kill.mockRestore();
+    }
   });
 });
 

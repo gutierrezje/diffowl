@@ -91,37 +91,6 @@ async function collectGitDiff(args: string[]): Promise<{ stdout: string; diagnos
   }
 }
 
-/**
- * Get the diff summary (just file names and stats) for display purposes
- */
-export async function getDiffSummary(mode: "last" | "staged"): Promise<string> {
-  const subcommandArgs =
-    mode === "staged" ? ["diff", "--staged", "--stat"] : ["show", "--format=", "--stat", "HEAD"];
-  const { stdout } = await execa("git", [
-    "-c",
-    "diff.noprefix=false",
-    "-c",
-    "diff.mnemonicprefix=false",
-    ...subcommandArgs,
-  ]);
-  return stdout;
-}
-
-/**
- * Get the commit message for the last commit
- */
-export async function getLastCommitMessage(): Promise<string> {
-  const { stdout } = await execa("git", ["log", "-1", "--format=%s"]);
-  return stdout.trim();
-}
-
-/**
- * Get the short SHA of the last commit
- */
-export async function getLastCommitSha(): Promise<string> {
-  const { stdout } = await execa("git", ["log", "-1", "--format=%h"]);
-  return stdout.trim();
-}
 
 /**
  * Check if we're in a git repo

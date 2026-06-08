@@ -157,6 +157,21 @@ describe("createReviewSettlementCoordinator", () => {
     expect(resolveSpy).not.toHaveBeenCalled();
     expect(rejectSpy).toHaveBeenCalledTimes(1);
   });
+
+  it("ignores text received after settlement", async () => {
+    vi.useFakeTimers();
+    const outcome = deferred<string>();
+    const onText = vi.fn();
+    const coordinator = createCoordinator(outcome, { onText });
+
+    coordinator.reject(new Error("SSE failed"));
+
+    expect(
+      coordinator.acceptText('FINAL_REVIEW_JSON\n{"summary":"too late","findings":[]}'),
+    ).toBe(false);
+    expect(onText).not.toHaveBeenCalled();
+    await expect(outcome.promise).rejects.toThrow("SSE failed");
+  });
 });
 
 function createCoordinator(

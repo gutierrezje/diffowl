@@ -40,6 +40,8 @@ export function createReviewSettlementCoordinator(options: {
   };
 
   const acceptText = (text: string) => {
+    if (settled) return false;
+
     if (text.length > fullResponse.length) {
       fullResponse = text;
       options.onText?.(fullResponse);

@@ -1,12 +1,14 @@
-model: opencode-go/kimi-k2.6
+model: opencode-go/minimax-m3
 server:
   port: 4096
   auto_start: true
 context:
   depth: default
-timeout: 900
+reasoning:
+  effort: auto
 retention:
   hook_log_kb: 512
+timeout: 900
 min_confidence: medium
 include:
   - "**/*"
@@ -19,3 +21,5 @@ exclude:
   - "**/build/**"
   - "**/.git/**"
 rules: []
+skip_doc_only: false
+verbose: false
