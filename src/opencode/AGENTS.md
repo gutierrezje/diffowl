@@ -7,15 +7,15 @@ Manages the OpenCode server lifecycle, SSE session streaming, and the review age
 
 ## Where to Look
 
-| Task | Location |
-|------|----------|
-| Run a review end-to-end | `client.ts` |
-| Spawn / stop / health-check server | `server.ts` |
-| Edit system prompt or user prompt builder | `agent.ts` |
-| Parse agent JSON response | `review-parser.ts` |
-| Timeout / settlement / reconciliation logic | `settlement.ts` |
-| Tool policy (read/search only) and permission rejection | `tools.ts` |
-| Model metadata / reasoning variant resolution | `client.ts` (`resolveReasoningVariant`) |
+| Task                                                    | Location                                |
+| ------------------------------------------------------- | --------------------------------------- |
+| Run a review end-to-end                                 | `client.ts`                             |
+| Spawn / stop / health-check server                      | `server.ts`                             |
+| Edit system prompt or user prompt builder               | `agent.ts`                              |
+| Parse agent JSON response                               | `review-parser.ts`                      |
+| Timeout / settlement / reconciliation logic             | `settlement.ts`                         |
+| Tool policy (read/search only) and permission rejection | `tools.ts`                              |
+| Model metadata / reasoning variant resolution           | `client.ts` (`resolveReasoningVariant`) |
 
 ## Conventions
 

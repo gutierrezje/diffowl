@@ -3,11 +3,20 @@ import { z } from "zod";
 const ProviderModelSchema = z
   .object({
     id: z.string(),
-    status: z.string().nullish().transform((value) => value ?? undefined),
-    reasoning: z.boolean().nullish().transform((value) => value ?? undefined),
+    status: z
+      .string()
+      .nullish()
+      .transform((value) => value ?? undefined),
+    reasoning: z
+      .boolean()
+      .nullish()
+      .transform((value) => value ?? undefined),
     capabilities: z
       .object({
-        reasoning: z.boolean().nullish().transform((value) => value ?? undefined),
+        reasoning: z
+          .boolean()
+          .nullish()
+          .transform((value) => value ?? undefined),
       })
       .nullish()
       .transform((value) => value ?? undefined),
@@ -38,7 +47,10 @@ const ProviderSchema = z
 
 const ProviderPayloadSchema = z
   .object({
-    connected: z.array(z.string()).nullish().transform((value) => value ?? []),
+    connected: z
+      .array(z.string())
+      .nullish()
+      .transform((value) => value ?? []),
     all: z
       .array(z.unknown())
       .nullish()

@@ -21,15 +21,15 @@ Local AI code review CLI. Orchestrates a headless OpenCode server and delegates 
 
 ## Where to Look
 
-| Task | Location |
-|------|----------|
-| Add CLI command | `src/cli.ts` |
-| Change review prompt / agent behavior | `src/opencode/agent.ts` |
-| Tweak diff parser | `src/git/diff.ts` |
-| Change report format | `src/review/formatter.ts` |
-| Add context source (AST, refs) | `src/review/context.ts`, `src/review/ast/` |
-| Adjust server lifecycle | `src/opencode/server.ts` |
-| Handle SSE events / settlement | `src/opencode/client.ts`, `src/opencode/settlement.ts` |
+| Task                                  | Location                                               |
+| ------------------------------------- | ------------------------------------------------------ |
+| Add CLI command                       | `src/cli.ts`                                           |
+| Change review prompt / agent behavior | `src/opencode/agent.ts`                                |
+| Tweak diff parser                     | `src/git/diff.ts`                                      |
+| Change report format                  | `src/review/formatter.ts`                              |
+| Add context source (AST, refs)        | `src/review/context.ts`, `src/review/ast/`             |
+| Adjust server lifecycle               | `src/opencode/server.ts`                               |
+| Handle SSE events / settlement        | `src/opencode/client.ts`, `src/opencode/settlement.ts` |
 
 ## Conventions
 
@@ -78,11 +78,11 @@ diffowl hook install
 
 ## Key Configs
 
-| Tool | File | Notes |
-|------|------|-------|
-| Build | `tsup.config.ts` | Single entry `src/cli.ts` |
-| TS | `tsconfig.json` | ESM, strict |
-| CI | `.github/workflows/ci.yml` | — |
+| Tool  | File                       | Notes                     |
+| ----- | -------------------------- | ------------------------- |
+| Build | `tsup.config.ts`           | Single entry `src/cli.ts` |
+| TS    | `tsconfig.json`            | ESM, strict               |
+| CI    | `.github/workflows/ci.yml` | —                         |
 
 ## Notes
 

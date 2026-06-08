@@ -7,15 +7,15 @@ Builds the review context from diffs, AST, and cross-references, then renders an
 
 ## Where to Look
 
-| Task | Location |
-|------|----------|
-| Change report markdown format | `formatter.ts` |
-| Build review context (diff + files + refs) | `context.ts` |
-| Render context into prompt markdown | `context-render.ts` |
-| TypeScript AST symbol extraction | `ast/index.ts`, `ast/typescript.ts` |
-| Cross-reference search (git grep) | `context-references.ts` |
-| Hook log trimming | `retention.ts` |
-| Review data types | `types.ts` |
+| Task                                       | Location                            |
+| ------------------------------------------ | ----------------------------------- |
+| Change report markdown format              | `formatter.ts`                      |
+| Build review context (diff + files + refs) | `context.ts`                        |
+| Render context into prompt markdown        | `context-render.ts`                 |
+| TypeScript AST symbol extraction           | `ast/index.ts`, `ast/typescript.ts` |
+| Cross-reference search (git grep)          | `context-references.ts`             |
+| Hook log trimming                          | `retention.ts`                      |
+| Review data types                          | `types.ts`                          |
 
 ## Conventions
 

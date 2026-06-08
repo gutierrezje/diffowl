@@ -7,11 +7,11 @@ Diff collection, hand-rolled parsing, and post-commit hook management.
 
 ## Where to Look
 
-| Task | Location |
-|------|----------|
-| Parse `git diff/show` output | `diff.ts` |
-| Post-commit hook install/uninstall | `hooks.ts` |
-| Real diff fixtures for tests | `fixtures/` |
+| Task                               | Location    |
+| ---------------------------------- | ----------- |
+| Parse `git diff/show` output       | `diff.ts`   |
+| Post-commit hook install/uninstall | `hooks.ts`  |
+| Real diff fixtures for tests       | `fixtures/` |
 
 ## Conventions
 

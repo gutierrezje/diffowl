@@ -63,11 +63,7 @@ import { join } from "node:path";
 import { execa } from "execa";
 import packageJson from "../package.json" with { type: "json" };
 
-async function writeHookStatus(
-  exitCode: number,
-  commit?: string,
-  message?: string,
-): Promise<void> {
+async function writeHookStatus(exitCode: number, commit?: string, message?: string): Promise<void> {
   try {
     const dir = await ensureDiffOwlDir();
     const content = JSON.stringify(
@@ -291,13 +287,10 @@ program
 
       // Write markdown report
       const writeStart = performance.now();
-      const reportPath = await writeMarkdownReport(
-        markdown,
-        {
-          session_id: reviewResult.sessionId,
-          project_root: getProjectRoot(),
-        },
-      );
+      const reportPath = await writeMarkdownReport(markdown, {
+        session_id: reviewResult.sessionId,
+        project_root: getProjectRoot(),
+      });
       recordCliTiming(timings, "write-report", "Report write", writeStart);
       recordCliTiming(timings, "total", "Total review command", totalStart);
 

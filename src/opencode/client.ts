@@ -199,10 +199,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
               if (part.type === "tool" && typeof part.tool === "string") {
                 const state =
                   typeof part.state?.status === "string" ? part.state.status : "unknown";
-                const title =
-                  typeof part.state?.title === "string"
-                    ? part.state.title
-                    : part.tool;
+                const title = typeof part.state?.title === "string" ? part.state.title : part.tool;
                 onProgress?.({
                   type: "tool",
                   message: `${title} (${state})`,
@@ -493,8 +490,7 @@ async function getProviderModelMetadata(
     for (const model of Object.values(models)) {
       if (model.id !== modelID) continue;
 
-      const reasoning =
-        model.capabilities?.reasoning ?? model.reasoning;
+      const reasoning = model.capabilities?.reasoning ?? model.reasoning;
       const variants = model.variants ? new Set(Object.keys(model.variants)) : undefined;
       return {
         ...(reasoning !== undefined ? { reasoning } : {}),
