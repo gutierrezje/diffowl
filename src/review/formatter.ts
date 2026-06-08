@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { parse, stringify } from "yaml";
 import type { ReviewReport } from "./types.js";
 import { getDiffOwlDir } from "../config.js";
-import { pruneReviewReports } from "./retention.js";
 
 export interface ReviewMetadata {
   session_id: string;
@@ -81,7 +80,6 @@ export function renderMarkdown(report: ReviewReport): string {
 export async function writeMarkdownReport(
   review: string,
   metadata?: ReviewMetadata,
-  maxReports = 0,
 ): Promise<string> {
   const dir = join(getDiffOwlDir(), "reviews");
   if (!existsSync(dir)) {
@@ -103,7 +101,6 @@ ${review}
   // Also write as latest
   const latestPath = join(dir, "latest.md");
   await writeFile(latestPath, content, "utf-8");
-  await pruneReviewReports(dir, maxReports);
 
   return filepath;
 }

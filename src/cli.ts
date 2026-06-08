@@ -177,11 +177,7 @@ program
     if (config.skip_doc_only && isDocOnlyDiff(diff)) {
       console.warn(chalk.yellow("Documentation-only changes detected. Skipping review."));
       const skipContent = buildDocOnlySkipMarkdown(diff);
-      const reportPath = await writeMarkdownReport(
-        skipContent,
-        undefined,
-        config.retention.reviews,
-      );
+      const reportPath = await writeMarkdownReport(skipContent);
       console.log(chalk.dim(`Report saved: ${reportPath}`));
       if (options.hook) {
         await writeHookStatus(0, hookCommit);
@@ -300,7 +296,6 @@ program
           session_id: reviewResult.sessionId,
           project_root: getProjectRoot(),
         },
-        config.retention.reviews,
       );
       recordCliTiming(timings, "write-report", "Report write", writeStart);
       recordCliTiming(timings, "total", "Total review command", totalStart);

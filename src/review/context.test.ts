@@ -28,7 +28,6 @@ const config: DiffOwlConfig = {
     effort: "auto",
   },
   retention: {
-    reviews: 50,
     hook_log_kb: 1024,
   },
   timeout: 300,

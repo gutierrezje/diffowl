@@ -74,7 +74,7 @@ describe("config", () => {
     expect(config.min_confidence).toBe("medium");
     expect(config.context.depth).toBe("default");
     expect(config.reasoning.effort).toBe("auto");
-    expect(config.retention).toEqual({ reviews: 50, hook_log_kb: 1024 });
+    expect(config.retention).toEqual({ hook_log_kb: 1024 });
     expect(config.skip_doc_only).toBe(false);
     expect(config.verbose).toBe(false);
   });
@@ -159,7 +159,7 @@ describe("config", () => {
     await expect(loadConfig()).rejects.toThrow(/server\.port|include/);
   });
 
-  it("loads retention limits and rejects negative values", async () => {
+  it("loads hook log retention and ignores the deprecated review limit", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
     tempDirs.push(root);
     const configPath = join(root, ".diffowl.yml");
@@ -170,14 +170,14 @@ describe("config", () => {
     );
     process.chdir(root);
 
-    expect((await loadConfig()).retention).toEqual({ reviews: 12, hook_log_kb: 256 });
+    expect((await loadConfig()).retention).toEqual({ hook_log_kb: 256 });
 
     await writeFile(
       configPath,
-      ["model: provider/model", "retention:", "  reviews: -1"].join("\n"),
+      ["model: provider/model", "retention:", "  hook_log_kb: -1"].join("\n"),
       "utf-8",
     );
-    await expect(loadConfig()).rejects.toThrow("retention.reviews");
+    await expect(loadConfig()).rejects.toThrow("retention.hook_log_kb");
   });
 
   it("fails fast for unknown config keys", async () => {

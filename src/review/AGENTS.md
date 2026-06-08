@@ -14,7 +14,7 @@ Builds the review context from diffs, AST, and cross-references, then renders an
 | Render context into prompt markdown | `context-render.ts` |
 | TypeScript AST symbol extraction | `ast/index.ts`, `ast/typescript.ts` |
 | Cross-reference search (git grep) | `context-references.ts` |
-| Report retention / hook log trimming | `retention.ts` |
+| Hook log trimming | `retention.ts` |
 | Review data types | `types.ts` |
 
 ## Conventions

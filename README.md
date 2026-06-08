@@ -26,7 +26,7 @@ DiffOwl is a lightweight CLI that integrates into your Git workflow to provide h
 - **Project-Specific Rules**: Inject custom guidelines directly into the reviewer's system prompt (e.g., "Check for SQL injection", "Ensure TypeScript types are explicit").
 - **Interactive Model Selector**: Automatically queries OpenCode to present a clean, interactive list of your connected providers and models.
 - **Local Reports**: Generates markdown reviews under `.diffowl/reviews/`, including hidden session metadata that makes reports chat-capable.
-- **Configurable Retention**: Bounds timestamped review history and accumulated hook logs without affecting active reviews.
+- **Hook Log Retention**: Bounds accumulated hook logs without deleting review history.
 
 ---
 
@@ -210,12 +210,8 @@ context:
 reasoning:
   effort: auto
 
-# Local artifact retention. Set either value to 0 for unlimited retention.
+# Hook log retention. Set to 0 for unlimited retention.
 retention:
-  # Number of timestamped review-*.md reports to keep.
-  # latest.md is always preserved and is not included in this count.
-  reviews: 50
-
   # Before each hook review, retain approximately this many KiB
   # of previous hook.log output. The new run may exceed this target.
   hook_log_kb: 1024

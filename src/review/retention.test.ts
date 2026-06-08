@@ -1,41 +1,14 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { pruneReviewReports, trimHookLog } from "./retention.js";
+import { trimHookLog } from "./retention.js";
 
 let tempDirs: string[] = [];
 
 afterEach(async () => {
   await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
   tempDirs = [];
-});
-
-describe("pruneReviewReports", () => {
-  it("keeps the newest timestamped reports and preserves latest.md", async () => {
-    const dir = await createTempDir();
-    const reports = [
-      "review-2026-06-01T00-00-00-000Z.md",
-      "review-2026-06-02T00-00-00-000Z.md",
-      "review-2026-06-03T00-00-00-000Z.md",
-    ];
-    await Promise.all(
-      [...reports, "latest.md"].map((file) => writeFile(join(dir, file), file, "utf-8")),
-    );
-
-    await pruneReviewReports(dir, 2);
-
-    expect((await readdir(dir)).sort()).toEqual([reports[1]!, reports[2]!, "latest.md"].sort());
-  });
-
-  it("treats zero as unlimited", async () => {
-    const dir = await createTempDir();
-    await writeFile(join(dir, "review-2026-06-01T00-00-00-000Z.md"), "review", "utf-8");
-
-    await pruneReviewReports(dir, 0);
-
-    expect(await readdir(dir)).toHaveLength(1);
-  });
 });
 
 describe("trimHookLog", () => {
