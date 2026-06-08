@@ -393,6 +393,7 @@ function isHookReviewLockActive(lockFile: string): boolean {
       process.kill(pid, 0);
       return true;
     } catch (err) {
+      // EPERM means the PID exists but belongs to a process we cannot signal.
       return (err as { code?: string }).code === "EPERM";
     }
   } catch {
