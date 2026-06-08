@@ -9,24 +9,22 @@
     "opencode",
     "pre-commit"
   ],
-  "license": "MIT",
-  "files": [
-    "dist"
-  ],
-  "engines": {
-    "node": ">=20"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/gutierrezje/diffowl.git"
-  },
   "homepage": "https://github.com/gutierrezje/diffowl#readme",
   "bugs": {
     "url": "https://github.com/gutierrezje/diffowl/issues"
   },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gutierrezje/diffowl.git"
+  },
   "bin": {
     "diffowl": "./dist/cli.js"
   },
+  "files": [
+    "dist",
+    "skills"
+  ],
   "type": "module",
   "scripts": {
     "build": "tsup",
@@ -56,6 +54,9 @@
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.7"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "packageManager": "pnpm@10.15.1"
 }

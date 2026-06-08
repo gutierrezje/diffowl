@@ -7,6 +7,12 @@ description: Investigates and resolves findings from DiffOwl review reports, rec
 
 Treat DiffOwl findings as candidates, not facts. Verify each finding against the current code before changing anything.
 
+## Prerequisite
+
+Run this skill from a repository where DiffOwl has produced `.diffowl/reviews/latest.md`. If no report exists, explain that the user must first run `diffowl review` or install the post-commit hook with `diffowl hook install`; do not create an empty resolution report.
+
+If the user asks to resolve all reviews, inspect both `.diffowl/reviews/review-*.md` and existing reports under `.diffowl/reviews/resolved/`. Do not reprocess a resolved report unless it contains an unchecked **Open** or **Deferred** disposition.
+
 ## Workflow
 
 1. Read repository instructions, then inspect `.diffowl/reviews/latest.md` unless the user names another report.
