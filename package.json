@@ -22,8 +22,7 @@
     "diffowl": "./dist/cli.js"
   },
   "files": [
-    "dist",
-    "skills"
+    "dist"
   ],
   "type": "module",
   "scripts": {
