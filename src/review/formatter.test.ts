@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { colorizeMarkdown, parseReviewMetadata, renderMarkdown } from "./formatter.js";
+import {
+  colorizeMarkdown,
+  formatExcludedCandidateSummary,
+  parseReviewMetadata,
+  renderMarkdown,
+} from "./formatter.js";
 import type { ReviewReport } from "./types.js";
 
 describe("colorizeMarkdown", () => {
@@ -180,6 +185,20 @@ describe("renderMarkdown", () => {
     };
 
     expect(renderMarkdown(report)).toMatch(/### Status\nResolved$/);
+  });
+});
+
+describe("formatExcludedCandidateSummary", () => {
+  it("summarizes excluded candidates and points users to chat", () => {
+    expect(formatExcludedCandidateSummary(1, 2)).toBe(
+      "3 candidates excluded from findings: 1 below the confidence threshold and 2 outside changed files. Run `diffowl chat` to investigate.",
+    );
+  });
+
+  it("uses singular wording and omits empty reasons", () => {
+    expect(formatExcludedCandidateSummary(1, 0)).toBe(
+      "1 candidate excluded from findings: 1 below the confidence threshold. Run `diffowl chat` to investigate.",
+    );
   });
 });
 

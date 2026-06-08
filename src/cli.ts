@@ -54,6 +54,7 @@ import {
   writeMarkdownReport,
   renderMarkdown,
   colorizeMarkdown,
+  formatExcludedCandidateSummary,
   parseReviewMetadata,
 } from "./review/formatter.js";
 import {
@@ -261,11 +262,6 @@ program
 
       const confidenceFilter = filterFindingsByConfidence(report.findings, config.min_confidence);
       report.findings = confidenceFilter.findings;
-      if (confidenceFilter.dropped > 0) {
-        diagnostics.push(
-          `Dropped ${confidenceFilter.dropped} finding(s) below min_confidence=${config.min_confidence}.`,
-        );
-      }
 
       const changedFilesSet = new Set<string>();
       for (const file of reviewContext.changedFiles) {
@@ -274,12 +270,17 @@ program
       const changedFileFilter = filterFindingsByChangedFiles(report.findings, changedFilesSet);
       report.findings = changedFileFilter.findings;
       if (changedFileFilter.suppressed.length > 0) {
-        diagnostics.push(
-          `Suppressed ${changedFileFilter.suppressed.length} finding(s) for files not changed in this diff.`,
-        );
         if (verbose) {
           report.suppressedFindings = changedFileFilter.suppressed;
         }
+      }
+      if (confidenceFilter.dropped > 0 || changedFileFilter.suppressed.length > 0) {
+        diagnostics.push(
+          formatExcludedCandidateSummary(
+            confidenceFilter.dropped,
+            changedFileFilter.suppressed.length,
+          ),
+        );
       }
       if (diagnostics.length > 0) {
         report.diagnostics = diagnostics;

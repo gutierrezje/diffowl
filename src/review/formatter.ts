@@ -250,3 +250,16 @@ export function formatMarkdownCodeSpan(text: string): string {
   const pad = trimmed.startsWith("`") || trimmed.endsWith("`") ? " " : "";
   return `${delimiter}${pad}${trimmed}${pad}${delimiter}`;
 }
+
+export function formatExcludedCandidateSummary(
+  belowConfidence: number,
+  outsideChangedFiles: number,
+): string {
+  const total = belowConfidence + outsideChangedFiles;
+  const reasons = [
+    belowConfidence > 0 ? `${belowConfidence} below the confidence threshold` : undefined,
+    outsideChangedFiles > 0 ? `${outsideChangedFiles} outside changed files` : undefined,
+  ].filter((reason): reason is string => reason !== undefined);
+
+  return `${total} candidate${total === 1 ? "" : "s"} excluded from findings: ${reasons.join(" and ")}. Run \`diffowl chat\` to investigate.`;
+}
