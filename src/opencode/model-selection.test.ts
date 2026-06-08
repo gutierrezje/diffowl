@@ -25,6 +25,10 @@ describe("selectModel", () => {
     });
   });
 
+  it("rejects an empty initialization model list", () => {
+    expect(selectModel([], "openai/current", "", false)).toEqual({ type: "invalid" });
+  });
+
   it("rejects invalid selections", () => {
     expect(selectModel(models, "openai/current", "0", true)).toEqual({ type: "invalid" });
     expect(selectModel(models, "openai/current", "3", true)).toEqual({ type: "invalid" });

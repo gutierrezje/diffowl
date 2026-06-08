@@ -19,6 +19,7 @@ export function selectModel(
   const trimmed = answer.trim();
   if (trimmed === "") {
     if (allowKeepCurrent) return { type: "kept", model: currentModel };
+    if (models.length === 0) return { type: "invalid" };
     return { type: "selected", model: models[0]! };
   }
 
