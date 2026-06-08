@@ -57,6 +57,34 @@ describe("colorizeMarkdown", () => {
 });
 
 describe("renderMarkdown", () => {
+  it("numbers findings in report order", () => {
+    const report: ReviewReport = {
+      summary: "Test summary",
+      findings: [
+        {
+          severity: "error",
+          file: "src/first.ts",
+          line: 1,
+          title: "First issue",
+          body: "First body.",
+          confidence: "high",
+        },
+        {
+          severity: "warning",
+          file: "src/second.ts",
+          line: 2,
+          title: "Second issue",
+          body: "Second body.",
+          confidence: "medium",
+        },
+      ],
+    };
+
+    const output = renderMarkdown(report);
+    expect(output).toContain("#### Finding 1\n**[ERROR] src/first.ts:1**");
+    expect(output).toContain("#### Finding 2\n**[WARNING] src/second.ts:2**");
+  });
+
   it("wraps findings evidence containing backticks in double backticks (CommonMark)", () => {
     const report: ReviewReport = {
       summary: "Test summary",
@@ -117,6 +145,7 @@ describe("renderMarkdown", () => {
     const output = renderMarkdown(report);
 
     expect(output).toContain("### Suppressed Findings");
+    expect(output).toContain("#### Finding 1");
     expect(output).toContain("**[WARNING] src/unchanged.ts:12** (medium confidence)");
     expect(output).toContain("### Diagnostics");
     expect(output).toContain("- Suppressed 1 finding(s) for files not changed in this diff.");

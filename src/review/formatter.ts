@@ -26,7 +26,8 @@ export function renderMarkdown(report: ReviewReport): string {
   if (report.findings.length === 0) {
     lines.push("No issues were reported.");
   } else {
-    for (const finding of report.findings) {
+    for (const [index, finding] of report.findings.entries()) {
+      lines.push(`#### Finding ${index + 1}`);
       lines.push(`**[${finding.severity.toUpperCase()}] ${finding.file}:${finding.line}**`);
       lines.push(finding.title.trim());
       lines.push("");
@@ -44,7 +45,8 @@ export function renderMarkdown(report: ReviewReport): string {
     lines.push("### Suppressed Findings");
     lines.push("These findings are outside files changed in this diff.");
     lines.push("");
-    for (const finding of report.suppressedFindings) {
+    for (const [index, finding] of report.suppressedFindings.entries()) {
+      lines.push(`#### Finding ${report.findings.length + index + 1}`);
       lines.push(
         `**[${finding.severity.toUpperCase()}] ${finding.file}:${finding.line}** (${finding.confidence} confidence)`,
       );

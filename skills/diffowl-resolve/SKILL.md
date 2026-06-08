@@ -17,7 +17,7 @@ If the user asks to resolve all reviews, inspect both `.diffowl/reviews/review-*
 
 1. Read repository instructions, then inspect `.diffowl/reviews/latest.md` unless the user names another report.
 2. Treat `latest.md` as ephemeral because every review overwrites it. Find and update its matching timestamped report as the canonical record.
-3. Parse every finding and investigate it against the current worktree, surrounding code, tests, and relevant history.
+3. Parse every finding and investigate it against the current worktree, surrounding code, tests, and relevant history. Use the explicit `Finding N` heading as its stable ID. For older reports without headings, assign IDs by report order.
 4. Classify each finding:
    - **Fixed**: changed code or configuration to address a confirmed issue.
    - **Already fixed**: the current worktree no longer exhibits the issue.
@@ -32,7 +32,7 @@ If the user asks to resolve all reviews, inspect both `.diffowl/reviews/review-*
 
 ## Resolution Format
 
-Use one item per finding, in report order:
+Use one item per finding, preserving the report's explicit `Finding N` IDs. For older reports without explicit IDs, number findings by report order:
 
 ```md
 ## Resolution

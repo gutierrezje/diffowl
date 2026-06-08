@@ -205,6 +205,8 @@ Runs a code review on your repository.
 
 Candidates below `min_confidence` or outside changed files are excluded from actionable finding counts and review status. When any are excluded, the report includes a short diagnostic summary and points to `diffowl chat` for investigation. Outside-file candidates are shown in full with `--verbose`; below-threshold candidates remain available in the OpenCode session.
 
+Rendered findings have stable `Finding N` headings, making prompts such as “investigate finding 2” map directly to resolution checklist entries.
+
 Review depth controls both how much local context DiffOwl preloads and how much exploration the reviewer is expected to do:
 
 - `shallow`: Cheap, surface-level review. Uses a smaller diff-centered prompt with no AI tools enabled. It is expected to miss deeper issues, but can catch obvious local bugs such as off-by-one errors, inverted conditions, unsafe null handling, missing awaits, and implementation anti-patterns visible in the diff.
