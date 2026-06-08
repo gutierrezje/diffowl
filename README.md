@@ -242,17 +242,17 @@ diffowl model opencode-go/big-pickle
 Opens the OpenCode session associated with a review report. DiffOwl hands control to the OpenCode TUI rather than implementing a separate chat interface.
 
 ```bash
-# Chat about the latest review
+# Interactively select a review
 diffowl chat
 
-# Select a timestamped report by filename
+# Open a specific timestamped report directly
 diffowl chat review-2026-06-07T07-30-42-762Z.md
 
 # Use an explicit relative or absolute report path
 diffowl chat ./.diffowl/reviews/latest.md
 ```
 
-Bare filenames are resolved under `.diffowl/reviews/`. Each chat-capable report stores its OpenCode session ID and project root in YAML frontmatter. Reports created before this feature and documentation-only skip reports do not have an OpenCode session to reopen.
+Without an argument, DiffOwl displays active and resolved timestamped reports newest first. Bare filenames are resolved under `.diffowl/reviews/`, so agents and scripts can open a report deterministically without using the picker. Each chat-capable report stores its OpenCode session ID and project root in YAML frontmatter. Reports created before this feature and documentation-only skip reports do not have an OpenCode session to reopen.
 
 ### `diffowl hook install | status | uninstall`
 
