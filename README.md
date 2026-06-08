@@ -146,6 +146,7 @@ Other useful prompts:
 ```text
 Investigate finding 2 in the latest DiffOwl review.
 Resolve all open DiffOwl reviews.
+Resolve the latest 3 DiffOwl reviews.
 Check whether the older DiffOwl findings have already been fixed.
 Archive fully resolved DiffOwl reviews.
 ```

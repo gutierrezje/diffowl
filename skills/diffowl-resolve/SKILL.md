@@ -11,24 +11,38 @@ Treat DiffOwl findings as candidates, not facts. Verify each finding against the
 
 Run this skill from a repository where DiffOwl has produced `.diffowl/reviews/latest.md`. If no report exists, explain that the user must first run `diffowl review` or install the post-commit hook with `diffowl hook install`; do not create an empty resolution report.
 
-If the user asks to resolve all reviews, inspect both `.diffowl/reviews/review-*.md` and existing reports under `.diffowl/reviews/resolved/`. Do not reprocess a resolved report unless it contains an unchecked **Open** or **Deferred** disposition.
+## Scope
+
+Resolve only the scope the user requested:
+
+- **latest** or no qualifier: the canonical timestamped report matching `latest.md`.
+- **latest N**: the `N` newest unresolved canonical reports, newest first.
+- **all**: every unresolved canonical report under `.diffowl/reviews/`.
+- **filename or path**: only that report.
+- **finding N**: only that finding within the selected report.
+
+Never infer a wider scope. Do not reprocess reports under `.diffowl/reviews/resolved/` unless the user names one or it contains an unchecked **Open** or **Deferred** disposition.
 
 ## Workflow
 
-1. Read repository instructions, then inspect `.diffowl/reviews/latest.md` unless the user names another report.
-2. Treat `latest.md` as ephemeral because every review overwrites it. Find and update its matching timestamped report as the canonical record.
-3. Parse every finding and investigate it against the current worktree, surrounding code, tests, and relevant history. Use the explicit `Finding N` heading as its stable ID. For older reports without headings, assign IDs by report order.
-4. Classify each finding:
+1. Read repository instructions and determine the exact scope above.
+2. Resolve `latest.md` to its canonical `review-*.md` by matching its `diffowl.session_id`; if unavailable, match the generated review body. Never edit or archive `latest.md`.
+3. For `latest N`, sort unresolved timestamped reports by filename timestamp and select the newest `N`.
+4. Process only entries under `### Issues Found`. Diagnostics and suppressed candidates are not findings unless the user explicitly asks to investigate them.
+5. Parse each finding and investigate it against the current worktree, surrounding code, tests, and relevant history. Use the explicit `Finding N` heading as its stable ID. For older reports without headings, assign IDs by report order.
+6. Classify each finding:
    - **Fixed**: changed code or configuration to address a confirmed issue.
    - **Already fixed**: the current worktree no longer exhibits the issue.
    - **Agent dismissed**: investigation showed the finding was noise or based on an incorrect assumption.
    - **User dismissed**: the user explicitly chose not to address the finding.
    - **Deferred**: valid but intentionally left unresolved.
    - **Open**: not yet investigated.
-5. Fix confirmed findings using the repository's normal development workflow. Follow required testing, formatting, and commit conventions.
-6. Run verification appropriate to the changed surface.
-7. Preserve the generated review body. Append or update only one `## Resolution` section.
-8. Archive the canonical report under `.diffowl/reviews/resolved/` only when every finding is checked.
+7. Fix confirmed findings using the repository's normal workflow and run verification appropriate to the changed surface.
+8. Commit code fixes when the repository workflow expects commits and permissions allow it. Use the repository's commit conventions. Commit hashes belong in resolutions only after the commits exist.
+9. Preserve the generated review body. Merge dispositions into the existing `## Resolution` section or append exactly one section if absent; do not duplicate entries.
+10. Archive the canonical report under `.diffowl/reviews/resolved/` only when every finding in that report has a checked disposition.
+
+Post-commit hooks may replace `latest.md` while resolving a report. Continue updating the canonical timestamped report selected at the start; do not switch scope to the new latest report.
 
 ## Resolution Format
 
@@ -66,5 +80,6 @@ Checked statuses are **Fixed**, **Already fixed**, **Agent dismissed**, and **Us
 - Include commit hashes only after those commits exist.
 - Do not claim a verification command passed unless it was run successfully.
 - Do not archive a report containing deferred or open findings.
-- Do not delete review history unless the user explicitly requests deletion.
+- Archiving is not deletion. Never delete or prune review history unless the user explicitly requests deletion.
+- `.diffowl` artifacts are workflow records, not code changes. Do not commit them unless the repository tracks them or the user explicitly asks.
 - Do not create sidecar resolution files or temporary tracking scripts.
