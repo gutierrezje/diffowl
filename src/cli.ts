@@ -26,6 +26,7 @@ import {
   type ReviewTiming,
   type ReviewFinding,
 } from "./opencode/client.js";
+import { getOpenCodeFailureGuidance } from "./opencode/guidance.js";
 import { ensureServer, isServerRunning, stopServer } from "./opencode/server.js";
 import {
   installHook,
@@ -313,9 +314,8 @@ program
       spinner.stop();
       const message = err instanceof Error ? err.message : String(err);
       console.error(chalk.red(`\nReview failed: ${message}`));
-      if (message.includes("opencode not found")) {
-        console.log(chalk.dim("Install: npm i -g opencode-ai"));
-        console.log(chalk.dim("Docs: https://opencode.ai/docs/"));
+      for (const line of getOpenCodeFailureGuidance(message)) {
+        console.log(chalk.dim(line));
       }
       if (options.hook) {
         await writeHookStatus(1, hookCommit, message);
@@ -362,9 +362,8 @@ program
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(chalk.red(`Failed to open review session: ${message}`));
-      if (message.includes("opencode not found")) {
-        console.log(chalk.dim("Install: npm i -g opencode-ai"));
-        console.log(chalk.dim("Docs: https://opencode.ai/docs/"));
+      for (const line of getOpenCodeFailureGuidance(message)) {
+        console.log(chalk.dim(line));
       }
       process.exit(1);
     }

@@ -35,12 +35,19 @@ DiffOwl is a lightweight CLI that integrates into your Git workflow to provide h
 
 ### 1. Prerequisites
 
-1. **Install OpenCode CLI**:
+1. **Verify Node.js 20 or newer is installed**:
    ```bash
-   npm i -g opencode-ai
+   node --version
    ```
-2. **Set up a Provider & Model**:
-   Run `opencode` in your terminal, connect a provider (e.g., GitHub Copilot, OpenAI, Ollama, etc.), and verify it is active.
+2. **Install OpenCode CLI**:
+   ```bash
+   npm install --global opencode-ai
+   ```
+3. **Authenticate a provider and confirm a model is available**:
+   ```bash
+   opencode
+   ```
+   In OpenCode, connect or authenticate a provider such as GitHub Copilot, OpenAI, or Ollama. Confirm that at least one model is available before continuing.
 
 ### 2. Install DiffOwl
 
@@ -64,7 +71,7 @@ This will:
 4. Generate a `.diffowl.yml` configuration file in the current project.
 
 > [!IMPORTANT]
-> **Ensure OpenCode is configured first!** Before running `diffowl init`, make sure you have run the `opencode` CLI/UI at least once to authenticate and connect a provider (like GitHub Copilot, OpenAI, Ollama, etc.) with active models. If no active models are configured in OpenCode, the initialization command will fall back to a default configuration.
+> DiffOwl uses OpenCode's existing provider credentials. It does not configure provider keys itself. If initialization reports no active models, run `opencode`, connect or re-authenticate a provider, confirm a model is available, and rerun `diffowl init`.
 
 ### 4. Run Your First Review
 
@@ -73,6 +80,18 @@ diffowl review
 ```
 
 Read the latest report at `.diffowl/reviews/latest.md`, or install the optional resolution skill below to let a coding agent investigate and handle findings.
+
+If a review reports an authentication or provider failure:
+
+1. Run `opencode`.
+2. Connect or re-authenticate the provider and confirm the configured model is available.
+3. Retry with `diffowl review`.
+
+For a timeout, retry with less context:
+
+```bash
+diffowl review --depth shallow
+```
 
 ---
 
