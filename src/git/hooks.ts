@@ -301,8 +301,16 @@ export async function listPendingReviews(
     return [];
   }
 
+  const markerFiles = new Set(files.filter((file) => !file.endsWith(".result.json")));
+  await Promise.all(
+    files
+      .filter((file) => file.endsWith(".result.json"))
+      .filter((file) => !markerFiles.has(file.slice(0, -".result.json".length)))
+      .map((file) => unlink(join(pendingDir, file)).catch(() => {})),
+  );
+
   const pending = await Promise.all(
-    files.map(async (file) => {
+    [...markerFiles].map(async (file) => {
       const path = join(pendingDir, file);
       try {
         const parsed = JSON.parse(await readFile(path, "utf-8")) as {

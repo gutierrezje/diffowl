@@ -19,6 +19,7 @@ Diff collection, hand-rolled parsing, and post-commit hook management.
 - Hook script generated with managed section markers (`# diffowl-managed` … `# end-diffowl`).
 - Hooks are non-blocking: spawns a detached worker process.
 - Hook result JSON includes the reviewed commit SHA so failures can print exact retry commands.
+- Pending review enumeration removes orphaned `*.result.json` files but preserves results while their commit marker exists.
 
 ## Anti-Patterns
 

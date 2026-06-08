@@ -179,6 +179,30 @@ describe("pending hook reviews", () => {
 
     expect((await listPendingReviews(root)).map((item) => item.sha)).toEqual(["abc"]);
   });
+
+  it("removes orphaned result files while preserving active results", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-hooks-"));
+    tempDirs.push(root);
+    await enqueuePendingReview(root, "active");
+    const pendingDir = join(root, "pending-reviews");
+    const activeResult = join(pendingDir, "active.result.json");
+    const orphanResult = join(pendingDir, "orphan.result.json");
+    await writeFile(
+      activeResult,
+      JSON.stringify({ commit: "active", exitCode: 1, timestamp: new Date().toISOString() }),
+      "utf-8",
+    );
+    await writeFile(
+      orphanResult,
+      JSON.stringify({ commit: "orphan", exitCode: 1, timestamp: new Date().toISOString() }),
+      "utf-8",
+    );
+
+    await listPendingReviews(root);
+
+    expect(existsSync(activeResult)).toBe(true);
+    expect(existsSync(orphanResult)).toBe(false);
+  });
 });
 
 describe("generateManagedSection", () => {
