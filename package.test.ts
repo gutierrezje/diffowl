@@ -12,7 +12,7 @@ describe("npm package metadata", () => {
       bugs?: { url?: string };
     };
 
-    expect(packageJson.files).toEqual(["dist", "skills"]);
+    expect(packageJson.files).toEqual(["dist"]);
     expect(packageJson.engines?.node).toBe(">=20");
     expect(packageJson.scripts?.prepack).toBe("npm run build");
     expect(packageJson.repository).toEqual({
