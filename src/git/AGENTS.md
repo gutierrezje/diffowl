@@ -18,6 +18,7 @@ Diff collection, hand-rolled parsing, and post-commit hook management.
 - Diff parsing is hand-rolled line-by-line, not via library.
 - Hook script generated with managed section markers (`# diffowl-managed` … `# end-diffowl`).
 - Hooks are non-blocking: spawns a detached worker process.
+- Hook result JSON includes the reviewed commit SHA so failures can print exact retry commands.
 
 ## Anti-Patterns
 

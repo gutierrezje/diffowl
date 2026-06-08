@@ -8,6 +8,7 @@ import {
   acquireHookReviewLock,
   checkRecentHookFailure,
   enqueuePendingReview,
+  formatHookFailure,
   generateManagedSection,
   installHook,
   listPendingReviews,
@@ -67,6 +68,7 @@ describe("checkRecentHookFailure", () => {
     await writeFile(
       join(root, ".diffowl", "last-hook-status.json"),
       JSON.stringify({
+        commit: "abc1234",
         exitCode: 1,
         timestamp: new Date().toISOString(),
         message: "OpenCode request failed (phase=event-stream-read, server=http://127.0.0.1:4096).",
@@ -77,9 +79,23 @@ describe("checkRecentHookFailure", () => {
     process.chdir(child);
 
     await expect(checkRecentHookFailure()).resolves.toMatchObject({
+      commit: "abc1234",
       exitCode: 1,
       message: expect.stringContaining("phase=event-stream-read"),
     });
+  });
+
+  it("formats commit-aware retry commands", () => {
+    expect(
+      formatHookFailure({
+        commit: "abc1234",
+        exitCode: 1,
+        timestamp: "2026-06-08T00:00:00.000Z",
+        message: "Review timed out.",
+      }),
+    ).toContain(
+      "diffowl review --commit abc1234\n  diffowl review --commit abc1234 --depth shallow",
+    );
   });
 
   it("ignores hook status with a non-integer exit code", async () => {

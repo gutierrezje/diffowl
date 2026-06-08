@@ -169,7 +169,7 @@ diffowl hook uninstall
 
 _Runs reviews asynchronously in the background, saving execution output to `.diffowl/hook.log` and the latest report to `.diffowl/reviews/latest.md`. Hook reviews use the configured `context.depth`, return control to your terminal instantly, and avoid clobbering any existing post-commit hook scripts._
 
-Only one hook review runs per project at a time. Each commit is recorded under `.diffowl/pending-reviews/`, and a background worker processes pending commits in order. Successful reviews remove their marker; failed reviews remain pending and are retried when a later commit triggers the hook. Review failures are recorded in `.diffowl/last-hook-status.json` and reported on the next foreground review.
+Only one hook review runs per project at a time. Each commit is recorded under `.diffowl/pending-reviews/`, and a background worker processes pending commits in order. Successful reviews remove their marker; failed reviews remain pending and are retried when a later commit triggers the hook. Review failures are recorded with their commit SHA in `.diffowl/last-hook-status.json` and reported on the next foreground review with commands to retry at default or shallow depth.
 
 ### `diffowl server start | stop | status`
 

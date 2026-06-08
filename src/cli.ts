@@ -33,6 +33,7 @@ import {
   isHookInstalled,
   checkHookStale,
   checkRecentHookFailure,
+  formatHookFailure,
   runHookReview,
   runPendingHookReviews,
   releaseHookReviewLock,
@@ -61,11 +62,20 @@ import { join } from "node:path";
 import { execa } from "execa";
 import packageJson from "../package.json" with { type: "json" };
 
-async function writeHookStatus(exitCode: number, message?: string): Promise<void> {
+async function writeHookStatus(
+  exitCode: number,
+  commit?: string,
+  message?: string,
+): Promise<void> {
   try {
     const dir = await ensureDiffOwlDir();
     const content = JSON.stringify(
-      { exitCode, timestamp: new Date().toISOString(), ...(message ? { message } : {}) },
+      {
+        ...(commit ? { commit } : {}),
+        exitCode,
+        timestamp: new Date().toISOString(),
+        ...(message ? { message } : {}),
+      },
       null,
       2,
     );
@@ -101,13 +111,14 @@ program
   )
   .option("--verbose", "Include suppressed findings and extra review details")
   .action(async (options) => {
+    const hookCommit = options.hook && options.commit ? String(options.commit) : undefined;
     const hookLock = options.hook ? process.env["DIFFOWL_HOOK_LOCK"] : undefined;
     if (hookLock) {
       process.once("exit", () => releaseHookReviewLock(hookLock));
     }
 
     if (options.hook) {
-      await writeHookStatus(0, "Review started.");
+      await writeHookStatus(0, hookCommit, "Review started.");
     }
 
     const totalStart = performance.now();
@@ -153,12 +164,7 @@ program
 
     const hookFailure = await checkRecentHookFailure();
     if (hookFailure) {
-      const detail = hookFailure.message ? `: ${hookFailure.message}` : "";
-      console.log(
-        chalk.yellow(
-          `⚠ Post-commit hook failed at ${new Date(hookFailure.timestamp).toLocaleString()}${detail}. Check .diffowl/hook.log`,
-        ),
-      );
+      console.log(chalk.yellow(`⚠ ${formatHookFailure(hookFailure)}`));
       console.log();
     }
 
@@ -178,7 +184,7 @@ program
       );
       console.log(chalk.dim(`Report saved: ${reportPath}`));
       if (options.hook) {
-        await writeHookStatus(0);
+        await writeHookStatus(0, hookCommit);
       }
       process.exit(0);
     }
@@ -305,7 +311,7 @@ program
       printFooter(report, reportPath);
       printTimingSummary([...timings, ...(report.timings ?? [])]);
       if (options.hook) {
-        await writeHookStatus(0);
+        await writeHookStatus(0, hookCommit);
         process.exit(0);
       }
     } catch (err) {
@@ -317,7 +323,7 @@ program
         console.log(chalk.dim("Docs: https://opencode.ai/docs/"));
       }
       if (options.hook) {
-        await writeHookStatus(1, message);
+        await writeHookStatus(1, hookCommit, message);
         process.exit(0);
       }
       process.exit(1);

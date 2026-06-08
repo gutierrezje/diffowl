@@ -101,12 +101,14 @@ export interface HookStatus {
 }
 
 export interface HookFailure {
+  commit?: string;
   exitCode: number;
   timestamp: string;
   message?: string;
 }
 
 const HookFailureSchema = z.object({
+  commit: z.string().min(1).optional(),
   exitCode: z.number().int(),
   timestamp: z.string(),
   message: z.string().optional(),
@@ -126,7 +128,7 @@ export async function checkRecentHookFailure(): Promise<HookFailure | undefined>
     const raw = await readFile(statusPath, "utf-8");
     const parsed = HookFailureSchema.safeParse(JSON.parse(raw));
     if (!parsed.success) return undefined;
-    const { exitCode, timestamp, message } = parsed.data;
+    const { commit, exitCode, timestamp, message } = parsed.data;
     if (exitCode === 0) {
       return undefined;
     }
@@ -137,10 +139,22 @@ export async function checkRecentHookFailure(): Promise<HookFailure | undefined>
       return undefined;
     }
 
-    return { exitCode, timestamp, ...(message ? { message } : {}) };
+    return {
+      ...(commit ? { commit } : {}),
+      exitCode,
+      timestamp,
+      ...(message ? { message } : {}),
+    };
   } catch {
     return undefined;
   }
+}
+
+export function formatHookFailure(failure: HookFailure): string {
+  const detail = failure.message ? `: ${failure.message}` : "";
+  const header = `Post-commit hook failed at ${new Date(failure.timestamp).toLocaleString()}${detail}. Check .diffowl/hook.log`;
+  if (!failure.commit) return header;
+  return `${header}\nRetry:\n  diffowl review --commit ${failure.commit}\n  diffowl review --commit ${failure.commit} --depth shallow`;
 }
 
 export async function runHookReview(): Promise<void> {
@@ -320,6 +334,7 @@ async function readHookResult(path: string): Promise<HookFailure | undefined> {
     const parsed = HookFailureSchema.safeParse(JSON.parse(await readFile(path, "utf-8")));
     if (!parsed.success) return undefined;
     return {
+      ...(parsed.data.commit ? { commit: parsed.data.commit } : {}),
       exitCode: parsed.data.exitCode,
       timestamp: parsed.data.timestamp,
       ...(parsed.data.message ? { message: parsed.data.message } : {}),
