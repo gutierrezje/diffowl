@@ -159,7 +159,7 @@ describe("config", () => {
     await expect(loadConfig()).rejects.toThrow(/server\.port|include/);
   });
 
-  it("loads hook log retention and ignores the deprecated review limit", async () => {
+  it("loads hook log retention and rejects removed review limits", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
     tempDirs.push(root);
     const configPath = join(root, ".diffowl.yml");
@@ -170,6 +170,13 @@ describe("config", () => {
     );
     process.chdir(root);
 
+    await expect(loadConfig()).rejects.toThrow('retention: Unrecognized key: "reviews"');
+
+    await writeFile(
+      configPath,
+      ["model: provider/model", "retention:", "  hook_log_kb: 256"].join("\n"),
+      "utf-8",
+    );
     expect((await loadConfig()).retention).toEqual({ hook_log_kb: 256 });
 
     await writeFile(

@@ -118,11 +118,9 @@ export const DiffOwlConfigSchema = z
       .default(DEFAULT_CONFIG.reasoning),
     retention: z
       .object({
-        reviews: z.number().int().nonnegative().optional(),
         hook_log_kb: z.number().int().nonnegative().default(DEFAULT_CONFIG.retention.hook_log_kb),
       })
       .strict()
-      .transform(({ hook_log_kb }) => ({ hook_log_kb }))
       .default(DEFAULT_CONFIG.retention),
     timeout: z.number().int().positive().default(DEFAULT_CONFIG.timeout),
     min_confidence: ReviewConfidenceSchema.default(DEFAULT_CONFIG.min_confidence),
