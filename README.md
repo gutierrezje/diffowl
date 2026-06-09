@@ -101,7 +101,7 @@ DiffOwl can use an inexpensive model for review generation while a stronger codi
 
 ### Install the skill
 
-Install it with:
+Install the `diffowl-resolve` skill with:
 
 ```bash
 npx skills add gutierrezje/diffowl
