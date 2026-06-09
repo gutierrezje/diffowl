@@ -101,31 +101,13 @@ DiffOwl can use an inexpensive model for review generation while a stronger codi
 
 ### Install the skill
 
-Install for the current project from GitHub:
+Install the `diffowl-resolve` skill:
 
 ```bash
 npx skills add gutierrezje/diffowl --skill diffowl-resolve
 ```
 
-Install globally for all projects:
-
-```bash
-npx skills add gutierrezje/diffowl --skill diffowl-resolve --global
-```
-
-From an npm-installed copy of DiffOwl:
-
-```bash
-npx skills add "$(npm root --global)/diffowl" --skill diffowl-resolve
-```
-
-Try the skill once without installing it:
-
-```bash
-npx skills use gutierrezje/diffowl@diffowl-resolve
-```
-
-The skills CLI detects supported agents and installs the skill into the appropriate location. Project installation is the default. Use `--global` when you want the skill available across repositories. Restart or reload your agent if it does not immediately discover newly installed skills.
+The skills CLI installs into the current project by default. Restart or reload your agent if it does not immediately discover the new skill.
 
 ### Use the skill
 
