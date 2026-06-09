@@ -104,7 +104,7 @@ DiffOwl can use an inexpensive model for review generation while a stronger codi
 Install the `diffowl-resolve` skill with:
 
 ```bash
-npx skills add gutierrezje/diffowl
+npx skills add gutierrezje/diffowl --skill diffowl-resolve
 ```
 
 The skills CLI installs into the current project by default. Restart or reload your agent if it does not immediately discover the new skill.
