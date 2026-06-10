@@ -325,6 +325,33 @@ describe("buildReviewContext", () => {
     expect(rendered).toContain("File content skipped: file too large for context");
   });
 
+  it("keeps empty changed files as successfully loaded content", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
+    tempDirs.push(root);
+    process.chdir(root);
+
+    await mkdir("src");
+    await writeFile("src/empty.ts", "", "utf-8");
+
+    const context = await buildReviewContext("commit", config, "shallow", {
+      raw: [
+        "diff --git a/src/empty.ts b/src/empty.ts",
+        "--- a/src/empty.ts",
+        "+++ b/src/empty.ts",
+        "@@ -1 +0,0 @@",
+        "-export const removed = true;",
+      ].join("\n"),
+      summary: "~ src/empty.ts (+0/-1)",
+      files: [{ path: "src/empty.ts", status: "modified", additions: 0, deletions: 1 }],
+    });
+    const rendered = renderReviewContext(context);
+
+    expect(context.changedFiles[0]!.content).toBe("");
+    expect(context.changedFiles[0]!.skippedReason).toBeUndefined();
+    expect(rendered).not.toContain("File content skipped");
+    expect(rendered).toContain("```ts\n\n```");
+  });
+
   it("builds commit mode context from an explicit diff", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
     tempDirs.push(root);

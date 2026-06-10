@@ -35,6 +35,10 @@ const MIN_CHANGED_RATIO_FOR_INLINE_CONTENT = 0.4;
 
 const LOCKFILE_EXCLUDES = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb"];
 
+type TextFileResult =
+  | { status: "loaded"; content: string; truncated: boolean }
+  | { status: "skipped"; reason: string };
+
 export async function buildReviewContext(
   mode: "last-commit" | "staged" | "commit",
   config: DiffOwlConfig,
@@ -104,7 +108,7 @@ async function buildChangedFileContext(
   }
 
   const contentResult = await readTextFile(file.path, MAX_FILE_CHARS);
-  if (!contentResult.content) {
+  if (contentResult.status === "skipped") {
     return {
       fileContext: {
         file,
@@ -151,7 +155,7 @@ async function buildRelatedFileContexts(files: DiffFile[]): Promise<RelatedFileC
       seen.add(candidate);
 
       const result = await readTextFile(candidate, MAX_RELATED_FILE_CHARS);
-      if (!result.content) continue;
+      if (result.status === "skipped") continue;
 
       related.push({
         path: candidate,
@@ -179,29 +183,29 @@ function shouldReviewFile(path: string, config: DiffOwlConfig): boolean {
 async function readTextFile(
   path: string,
   maxChars: number,
-): Promise<{ content?: string; truncated: boolean; reason?: string }> {
+): Promise<TextFileResult> {
   try {
     const info = await stat(path);
     if (!info.isFile()) {
-      return { truncated: false, reason: "not a regular file" };
+      return { status: "skipped", reason: "not a regular file" };
     }
     if (info.size > MAX_CONTEXT_FILE_BYTES) {
       return {
-        truncated: false,
+        status: "skipped",
         reason: `file too large for context (${formatBytes(info.size)} > ${formatBytes(MAX_CONTEXT_FILE_BYTES)})`,
       };
     }
 
     const raw = await readFile(path, "utf-8");
     if (raw.includes("\0")) {
-      return { truncated: false, reason: "binary file" };
+      return { status: "skipped", reason: "binary file" };
     }
 
     const result = truncateText(raw, maxChars);
-    return { content: result.text, truncated: result.truncated };
+    return { status: "loaded", content: result.text, truncated: result.truncated };
   } catch (err) {
     return {
-      truncated: false,
+      status: "skipped",
       reason: err instanceof Error ? err.message : String(err),
     };
   }

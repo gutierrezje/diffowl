@@ -91,7 +91,7 @@ export function renderReviewContext(
     }
 
     if (
-      fileContext.content &&
+      fileContext.content !== undefined &&
       fileContext.astSymbols.length === 0 &&
       fileContext.shouldRenderContent
     ) {
@@ -106,9 +106,9 @@ export function renderReviewContext(
       if (fileContext.truncated) {
         lines.push("_File content truncated._");
       }
-    } else if (fileContext.content && fileContext.astSymbols.length === 0) {
+    } else if (fileContext.content !== undefined && fileContext.astSymbols.length === 0) {
       lines.push("_Full file content omitted because the diff already shows the changed hunks._");
-    } else if (fileContext.content) {
+    } else if (fileContext.content !== undefined) {
       lines.push("_Full file content omitted because changed AST symbols are shown._");
     } else {
       lines.push(`_File content skipped: ${fileContext.skippedReason ?? "unavailable"}._`);
