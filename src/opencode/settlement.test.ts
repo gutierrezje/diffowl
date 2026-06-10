@@ -162,6 +162,38 @@ describe("createReviewSettlementCoordinator", () => {
     expect(rejectSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("settles only once when SSE resolution wins a reconciliation race", async () => {
+    vi.useFakeTimers();
+    const outcome = deferred<string>();
+    const reconciliation =
+      deferred<
+        Awaited<ReturnType<Parameters<typeof createReviewSettlementCoordinator>[0]["reconcile"]>>
+      >();
+    const resolveSpy = vi.fn(outcome.resolve);
+    const rejectSpy = vi.fn(outcome.reject);
+    const coordinator = createReviewSettlementCoordinator({
+      timeoutMs: 5000,
+      reconciliationIntervalMs: 1000,
+      reconcile: () => reconciliation.promise,
+      onAbort: vi.fn(),
+      resolve: resolveSpy,
+      reject: rejectSpy,
+    });
+    const text = 'FINAL_REVIEW_JSON\n{"summary":"SSE wins","findings":[]}';
+
+    await vi.advanceTimersByTimeAsync(1000);
+    coordinator.resolve(text);
+    reconciliation.resolve({
+      kind: "review-error",
+      error: new Error("too late"),
+    });
+    await Promise.resolve();
+
+    await expect(outcome.promise).resolves.toBe(text);
+    expect(resolveSpy).toHaveBeenCalledTimes(1);
+    expect(rejectSpy).not.toHaveBeenCalled();
+  });
+
   it("ignores text received after settlement", async () => {
     vi.useFakeTimers();
     const outcome = deferred<string>();
