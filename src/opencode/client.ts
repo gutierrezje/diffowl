@@ -39,7 +39,7 @@ export interface ReviewResult {
 
 export type ReviewProgressEvent =
   | { type: "server"; message: string }
-  | { type: "session"; message: string; sessionId?: string }
+  | { type: "session"; message: string; sessionId: string }
   | { type: "tool"; message: string; tool: string; status: string }
   | { type: "output"; message: string; characters: number }
   | { type: "timing"; message: string; phase: string; ms: number }
@@ -413,23 +413,6 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
     report: { ...report, ...(diagnostics.length > 0 ? { diagnostics } : {}), timings },
     sessionId,
   };
-}
-
-export function extractSessionError(payload: unknown, sessionId: string): Error | undefined {
-  if (!payload || typeof payload !== "object") return undefined;
-
-  const event = payload as {
-    type?: unknown;
-    properties?: {
-      sessionID?: unknown;
-      error?: unknown;
-    };
-  };
-  if (event.type !== "session.error" || event.properties?.sessionID !== sessionId) {
-    return undefined;
-  }
-
-  return new Error(`OpenCode session failed: ${describeSessionError(event.properties.error)}`);
 }
 
 export function extractSessionMessageResult(response: unknown): ReconciliationResult {

@@ -18,6 +18,11 @@ export type DiffFile =
   | (DiffFileBase & { status: "added" | "modified" | "deleted" })
   | (DiffFileBase & { status: "renamed"; oldPath: string });
 
+type DiffFileDraft = DiffFileBase & {
+  sourcePath: string;
+  status: DiffFile["status"];
+};
+
 const MAX_DIFF_OUTPUT_BYTES = 2 * 1024 * 1024;
 
 export async function getLastCommitDiff(): Promise<DiffResult> {
@@ -119,59 +124,53 @@ export async function hasCommits(): Promise<boolean> {
 }
 
 export function parseDiff(raw: string, diagnostics: string[] = []): DiffResult {
-  const files: DiffFile[] = [];
-  const sourcePaths: string[] = [];
+  const drafts: DiffFileDraft[] = [];
   const lines = raw.split(/\r?\n/).map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line));
 
   for (const line of lines) {
     // Parse diff --git a/path b/path
     const gitDiffPaths = parseGitDiffLine(line);
     if (gitDiffPaths) {
-      files.push({
+      drafts.push({
+        sourcePath: gitDiffPaths.pathA,
         path: gitDiffPaths.pathB,
         status: "modified",
         additions: 0,
         deletions: 0,
       });
-      sourcePaths.push(gitDiffPaths.pathA);
       continue;
     }
 
     // Parse diff --cc path / diff --combined path
     const combinedPath = parseCombinedDiffLine(line);
     if (combinedPath) {
-      files.push({
+      drafts.push({
+        sourcePath: combinedPath,
         path: combinedPath,
         status: "modified",
         additions: 0,
         deletions: 0,
       });
-      sourcePaths.push(combinedPath);
       continue;
     }
 
-    const lastFile = files[files.length - 1];
+    const lastFile = drafts[drafts.length - 1];
     if (lastFile) {
       if (line.startsWith("rename to ")) {
-        const target = unescapePath(line.slice("rename to ".length));
-        files[files.length - 1] = {
-          ...lastFile,
-          oldPath: sourcePaths[files.length - 1] ?? lastFile.path,
-          path: target,
-          status: "renamed",
-        };
+        lastFile.path = unescapePath(line.slice("rename to ".length));
+        lastFile.status = "renamed";
         continue;
       }
 
       // Detect new files
       if (line === "--- /dev/null") {
-        files[files.length - 1] = { ...lastFile, status: "added" };
+        lastFile.status = "added";
         continue;
       }
 
       // Detect deleted files
       if (line === "+++ /dev/null") {
-        files[files.length - 1] = { ...lastFile, status: "deleted" };
+        lastFile.status = "deleted";
         continue;
       }
 
@@ -184,6 +183,7 @@ export function parseDiff(raw: string, diagnostics: string[] = []): DiffResult {
     }
   }
 
+  const files = drafts.map(finalizeDiffFile);
   const summary = files
     .map((file) => {
       const path = file.status === "renamed" ? `${file.oldPath} -> ${file.path}` : file.path;
@@ -192,6 +192,14 @@ export function parseDiff(raw: string, diagnostics: string[] = []): DiffResult {
     .join("\n");
 
   return { files, raw, summary, ...(diagnostics.length > 0 ? { diagnostics } : {}) };
+}
+
+function finalizeDiffFile(draft: DiffFileDraft): DiffFile {
+  const { sourcePath, path, status, additions, deletions } = draft;
+  if (status === "renamed") {
+    return { oldPath: sourcePath, path, status, additions, deletions };
+  }
+  return { path, status, additions, deletions };
 }
 
 function isMaxBufferError(err: unknown): err is { stdout: string } {

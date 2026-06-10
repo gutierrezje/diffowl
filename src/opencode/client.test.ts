@@ -6,7 +6,6 @@ import {
   buildToolPolicy,
   extractPermissionRequest,
   extractSessionId,
-  extractSessionError,
   extractSessionMessageResult,
   normalizeOpenCodeEvent,
   handledAwaitable,
@@ -117,6 +116,27 @@ describe("normalizeOpenCodeEvent", () => {
         sessionID: "session-1",
         type: "bash",
       },
+    });
+  });
+
+  it("normalizes active session errors", () => {
+    expect(
+      normalizeOpenCodeEvent(
+        {
+          payload: {
+            type: "session.error",
+            properties: {
+              sessionID: "session-1",
+              error: { data: { message: "database write failed" } },
+            },
+          },
+        },
+        "session-1",
+      ),
+    ).toEqual({
+      type: "session-error",
+      sessionId: "session-1",
+      error: new Error("OpenCode session failed: database write failed"),
     });
   });
 
@@ -477,38 +497,6 @@ describe("extractSessionId", () => {
     expect(() => extractSessionId({ data: { id: "" } })).toThrow(
       "OpenCode session response missing id",
     );
-  });
-});
-
-describe("extractSessionError", () => {
-  it("extracts errors for the active review session", () => {
-    expect(
-      extractSessionError(
-        {
-          type: "session.error",
-          properties: {
-            sessionID: "session-1",
-            error: { data: { message: "database write failed" } },
-          },
-        },
-        "session-1",
-      ),
-    ).toEqual(new Error("OpenCode session failed: database write failed"));
-  });
-
-  it("ignores errors for other sessions", () => {
-    expect(
-      extractSessionError(
-        {
-          type: "session.error",
-          properties: {
-            sessionID: "session-2",
-            error: { message: "unrelated failure" },
-          },
-        },
-        "session-1",
-      ),
-    ).toBeUndefined();
   });
 });
 

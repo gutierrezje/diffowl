@@ -33,16 +33,16 @@ const DEFAULT_CONFIG = {
     auto_start: true,
   },
   context: {
-    depth: "default" as ReviewContextDepth,
+    depth: ReviewContextDepthSchema.enum.default,
   },
   reasoning: {
-    effort: "auto" as ReasoningEffort,
+    effort: ReasoningEffortSchema.enum.auto,
   },
   retention: {
     hook_log_kb: 1024,
   },
   timeout: 300, // 5 minutes
-  min_confidence: "medium" as ReviewConfidence,
+  min_confidence: ReviewConfidenceSchema.enum.medium,
   include: ["**/*"],
   exclude: [
     "**/*.test.*",
