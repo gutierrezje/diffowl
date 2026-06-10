@@ -8,12 +8,15 @@ export interface DiffResult {
   diagnostics?: string[];
 }
 
-export interface DiffFile {
+interface DiffFileBase {
   path: string;
-  status: "added" | "modified" | "deleted" | "renamed";
   additions: number;
   deletions: number;
 }
+
+export type DiffFile =
+  | (DiffFileBase & { status: "added" | "modified" | "deleted" })
+  | (DiffFileBase & { status: "renamed"; oldPath: string });
 
 const MAX_DIFF_OUTPUT_BYTES = 2 * 1024 * 1024;
 
@@ -91,7 +94,6 @@ async function collectGitDiff(args: string[]): Promise<{ stdout: string; diagnos
   }
 }
 
-
 /**
  * Check if we're in a git repo
  */
@@ -118,6 +120,7 @@ export async function hasCommits(): Promise<boolean> {
 
 export function parseDiff(raw: string, diagnostics: string[] = []): DiffResult {
   const files: DiffFile[] = [];
+  const sourcePaths: string[] = [];
   const lines = raw.split(/\r?\n/).map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line));
 
   for (const line of lines) {
@@ -130,6 +133,7 @@ export function parseDiff(raw: string, diagnostics: string[] = []): DiffResult {
         additions: 0,
         deletions: 0,
       });
+      sourcePaths.push(gitDiffPaths.pathA);
       continue;
     }
 
@@ -142,6 +146,7 @@ export function parseDiff(raw: string, diagnostics: string[] = []): DiffResult {
         additions: 0,
         deletions: 0,
       });
+      sourcePaths.push(combinedPath);
       continue;
     }
 
@@ -149,20 +154,24 @@ export function parseDiff(raw: string, diagnostics: string[] = []): DiffResult {
     if (lastFile) {
       if (line.startsWith("rename to ")) {
         const target = unescapePath(line.slice("rename to ".length));
-        lastFile.path = target;
-        lastFile.status = "renamed";
+        files[files.length - 1] = {
+          ...lastFile,
+          oldPath: sourcePaths[files.length - 1] ?? lastFile.path,
+          path: target,
+          status: "renamed",
+        };
         continue;
       }
 
       // Detect new files
       if (line === "--- /dev/null") {
-        lastFile.status = "added";
+        files[files.length - 1] = { ...lastFile, status: "added" };
         continue;
       }
 
       // Detect deleted files
       if (line === "+++ /dev/null") {
-        lastFile.status = "deleted";
+        files[files.length - 1] = { ...lastFile, status: "deleted" };
         continue;
       }
 
@@ -176,7 +185,10 @@ export function parseDiff(raw: string, diagnostics: string[] = []): DiffResult {
   }
 
   const summary = files
-    .map((f) => `${statusSymbol(f.status)} ${f.path} (+${f.additions}/-${f.deletions})`)
+    .map((file) => {
+      const path = file.status === "renamed" ? `${file.oldPath} -> ${file.path}` : file.path;
+      return `${statusSymbol(file.status)} ${path} (+${file.additions}/-${file.deletions})`;
+    })
     .join("\n");
 
   return { files, raw, summary, ...(diagnostics.length > 0 ? { diagnostics } : {}) };

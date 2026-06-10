@@ -132,12 +132,18 @@ describe("parseDiff", () => {
     const result = parseDiff(await readFixture("rename-delete-binary.diff"));
 
     expect(result.files).toEqual([
-      { path: "src/new name.ts", status: "renamed", additions: 1, deletions: 1 },
+      {
+        oldPath: "src/old name.ts",
+        path: "src/new name.ts",
+        status: "renamed",
+        additions: 1,
+        deletions: 1,
+      },
       { path: "src/removed.ts", status: "deleted", additions: 0, deletions: 2 },
       { path: "assets/logo.png", status: "modified", additions: 0, deletions: 0 },
     ]);
     expect(result.summary).toBe(
-      "> src/new name.ts (+1/-1)\n- src/removed.ts (+0/-2)\n~ assets/logo.png (+0/-0)",
+      "> src/old name.ts -> src/new name.ts (+1/-1)\n- src/removed.ts (+0/-2)\n~ assets/logo.png (+0/-0)",
     );
   });
 
@@ -251,6 +257,9 @@ describe("parseDiff", () => {
     const file = resultRenameQuoted.files[0]!;
     expect(file.path).toBe("src/new name.ts");
     expect(file.status).toBe("renamed");
+    if (file.status === "renamed") {
+      expect(file.oldPath).toBe("old_name.ts");
+    }
   });
 
   it("handles mode-only changes", () => {
@@ -282,6 +291,9 @@ describe("parseDiff", () => {
     const file = result.files[0]!;
     expect(file.path).toBe('src/new_"');
     expect(file.status).toBe("renamed");
+    if (file.status === "renamed") {
+      expect(file.oldPath).toBe("old.ts");
+    }
   });
 
   it("handles diff.noprefix=true formats correctly", () => {
@@ -379,6 +391,9 @@ describe("parseDiff", () => {
     const file = result.files[0]!;
     expect(file.path).toBe("src/new name.ts");
     expect(file.status).toBe("renamed");
+    if (file.status === "renamed") {
+      expect(file.oldPath).toBe("old_name.ts");
+    }
   });
 });
 
