@@ -384,7 +384,10 @@ describe("extractSessionMessageResult", () => {
           },
         ],
       }),
-    ).toEqual({ error: new Error("OpenCode session failed: database write failed") });
+    ).toEqual({
+      kind: "review-error",
+      error: new Error("OpenCode session failed: database write failed"),
+    });
   });
 
   it("extracts assistant text from the newest message", () => {
@@ -406,8 +409,13 @@ describe("extractSessionMessageResult", () => {
         ],
       }),
     ).toEqual({
+      kind: "text",
       text: 'FINAL_REVIEW_JSON\n{"summary":"ok","findings":[]}',
     });
+  });
+
+  it("returns an explicit empty result when no assistant result is available", () => {
+    expect(extractSessionMessageResult({ data: [] })).toEqual({ kind: "empty" });
   });
 });
 

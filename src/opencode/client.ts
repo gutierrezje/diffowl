@@ -2,7 +2,7 @@ import { createOpencodeClient } from "@opencode-ai/sdk";
 import { isServerRunning } from "./server.js";
 import { REVIEW_AGENT_PROMPT, buildReviewPrompt } from "./agent.js";
 import { parseStructuredReview } from "./review-parser.js";
-import { createReviewSettlementCoordinator } from "./settlement.js";
+import { createReviewSettlementCoordinator, type ReconciliationResult } from "./settlement.js";
 import { buildToolPolicy, extractPermissionRequest, replyToPermissionRequest } from "./tools.js";
 import { parseProviderPayload } from "./provider-payload.js";
 export { parseStructuredReview, looksLikeCompleteStructuredReview } from "./review-parser.js";
@@ -341,12 +341,10 @@ export function extractSessionError(payload: unknown, sessionId: string): Error 
   return new Error(`OpenCode session failed: ${describeSessionError(event.properties.error)}`);
 }
 
-export function extractSessionMessageResult(
-  response: unknown,
-): { error?: Error; text?: string } | undefined {
-  if (!response || typeof response !== "object") return undefined;
+export function extractSessionMessageResult(response: unknown): ReconciliationResult {
+  if (!response || typeof response !== "object") return { kind: "empty" };
   const data = (response as { data?: unknown }).data;
-  if (!Array.isArray(data)) return undefined;
+  if (!Array.isArray(data)) return { kind: "empty" };
 
   for (let index = data.length - 1; index >= 0; index--) {
     const message = data[index];
@@ -359,7 +357,10 @@ export function extractSessionMessageResult(
 
     const error = (info as { error?: unknown }).error;
     if (error) {
-      return { error: new Error(`OpenCode session failed: ${describeSessionError(error)}`) };
+      return {
+        kind: "review-error",
+        error: new Error(`OpenCode session failed: ${describeSessionError(error)}`),
+      };
     }
 
     const parts = (message as { parts?: unknown }).parts;
@@ -375,17 +376,17 @@ export function extractSessionMessageResult(
       )
       .map((part) => part.text)
       .join("");
-    if (text) return { text };
+    if (text) return { kind: "text", text };
   }
 
-  return undefined;
+  return { kind: "empty" };
 }
 
 async function reconcileSessionMessages(
   client: OpenCodeClient,
   directoryOptions: OpencodeDirectoryOptions,
   sessionId: string,
-): Promise<{ error?: Error; reconciliationError?: Error; text?: string } | undefined> {
+): Promise<ReconciliationResult> {
   try {
     const response = await Promise.race([
       client.session.messages({
@@ -400,7 +401,8 @@ async function reconcileSessionMessages(
     return extractSessionMessageResult(response);
   } catch (error) {
     return {
-      reconciliationError:
+      kind: "transport-error",
+      error:
         error instanceof Error
           ? error
           : new Error(`Session reconciliation failed: ${String(error)}`),

@@ -8,11 +8,17 @@ export interface ReviewSettlementCoordinator {
   resolve(text: string): void;
 }
 
+export type ReconciliationResult =
+  | { kind: "empty" }
+  | { kind: "text"; text: string }
+  | { kind: "review-error"; error: Error }
+  | { kind: "transport-error"; error: Error };
+
+type SettlementOutcome = { kind: "resolve"; text: string } | { kind: "reject"; error: Error };
+
 export function createReviewSettlementCoordinator(options: {
   timeoutMs: number;
-  reconcile: () => Promise<
-    { error?: Error; reconciliationError?: Error; text?: string } | undefined
-  >;
+  reconcile: () => Promise<ReconciliationResult>;
   onAbort: () => void;
   onText?: (text: string) => void;
   resolve: (text: string) => void;
@@ -26,16 +32,16 @@ export function createReviewSettlementCoordinator(options: {
   let timeoutRequested = false;
   let lastReconciliationError: Error | undefined;
 
-  const settle = (outcome: "resolve" | "reject", value: string | Error) => {
+  const settle = (outcome: SettlementOutcome) => {
     if (settled) return;
     settled = true;
     clearTimeout(safetyTimeout);
     clearInterval(reconciliationInterval);
     options.onAbort();
-    if (outcome === "resolve") {
-      options.resolve(value as string);
+    if (outcome.kind === "resolve") {
+      options.resolve(outcome.text);
     } else {
-      options.reject(value as Error);
+      options.reject(outcome.error);
     }
   };
 
@@ -53,7 +59,7 @@ export function createReviewSettlementCoordinator(options: {
     if (lengthDelta > 500 || endsWithBrace) {
       lastCheckedLength = fullResponse.length;
       if (looksLikeCompleteStructuredReview(fullResponse)) {
-        settle("resolve", fullResponse);
+        settle({ kind: "resolve", text: fullResponse });
         return true;
       }
     }
@@ -65,29 +71,32 @@ export function createReviewSettlementCoordinator(options: {
     reconciliationRunning = true;
     try {
       const result = await options.reconcile();
-      if (result?.error) {
-        settle("reject", result.error);
-        return;
-      }
-      if (result?.reconciliationError) {
-        lastReconciliationError = result.reconciliationError;
-      } else if (result) {
-        lastReconciliationError = undefined;
-      }
-      if (result?.text && acceptText(result.text)) {
-        return;
+      switch (result.kind) {
+        case "review-error":
+          settle({ kind: "reject", error: result.error });
+          return;
+        case "transport-error":
+          lastReconciliationError = result.error;
+          break;
+        case "text":
+          lastReconciliationError = undefined;
+          if (acceptText(result.text)) return;
+          break;
+        case "empty":
+          lastReconciliationError = undefined;
+          break;
       }
       if (isTimeout || timeoutRequested) {
         const suffix = lastReconciliationError
           ? ` Last session reconciliation error: ${lastReconciliationError.message}`
           : "";
-        settle(
-          "reject",
-          new Error(
+        settle({
+          kind: "reject",
+          error: new Error(
             `Review timed out.${suffix}`,
             lastReconciliationError ? { cause: lastReconciliationError } : undefined,
           ),
-        );
+        });
       }
     } finally {
       reconciliationRunning = false;
@@ -107,13 +116,13 @@ export function createReviewSettlementCoordinator(options: {
     acceptText,
     finish: () => {
       if (settled || acceptText(fullResponse)) return;
-      settle(
-        "reject",
-        new Error("OpenCode event stream ended before a complete review was received."),
-      );
+      settle({
+        kind: "reject",
+        error: new Error("OpenCode event stream ended before a complete review was received."),
+      });
     },
     isSettled: () => settled,
-    reject: (error) => settle("reject", error),
-    resolve: (text) => settle("resolve", text),
+    reject: (error) => settle({ kind: "reject", error }),
+    resolve: (text) => settle({ kind: "resolve", text }),
   };
 }

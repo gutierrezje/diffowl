@@ -21,7 +21,7 @@ describe("createReviewSettlementCoordinator", () => {
     vi.useFakeTimers();
     const outcome = deferred<string>();
     createCoordinator(outcome, {
-      reconcile: async () => ({ error: new Error("persisted failure") }),
+      reconcile: async () => ({ kind: "review-error", error: new Error("persisted failure") }),
     });
     const assertion = expect(outcome.promise).rejects.toThrow("persisted failure");
 
@@ -36,7 +36,7 @@ describe("createReviewSettlementCoordinator", () => {
     const reconciliationError = new Error("messages endpoint unavailable");
     createCoordinator(outcome, {
       timeoutMs: 2000,
-      reconcile: async () => ({ reconciliationError }),
+      reconcile: async () => ({ kind: "transport-error", error: reconciliationError }),
     });
     const assertion = expect(outcome.promise).rejects.toMatchObject({
       message: "Review timed out. Last session reconciliation error: messages endpoint unavailable",
@@ -54,9 +54,10 @@ describe("createReviewSettlementCoordinator", () => {
     const reconcile = vi
       .fn()
       .mockResolvedValueOnce({
-        reconciliationError: new Error("temporary messages failure"),
+        kind: "transport-error",
+        error: new Error("temporary messages failure"),
       })
-      .mockResolvedValue({ text: 'FINAL_REVIEW_JSON\n{"summary":' });
+      .mockResolvedValue({ kind: "text", text: 'FINAL_REVIEW_JSON\n{"summary":' });
     createCoordinator(outcome, {
       timeoutMs: 2500,
       reconcile,
@@ -76,7 +77,7 @@ describe("createReviewSettlementCoordinator", () => {
     const outcome = deferred<string>();
     const text = 'FINAL_REVIEW_JSON\n{"summary":"ok","findings":[]}';
     createCoordinator(outcome, {
-      reconcile: async () => ({ text }),
+      reconcile: async () => ({ kind: "text", text }),
     });
 
     await vi.advanceTimersByTimeAsync(1000);
@@ -89,7 +90,7 @@ describe("createReviewSettlementCoordinator", () => {
     const outcome = deferred<string>();
     createCoordinator(outcome, {
       timeoutMs: 2000,
-      reconcile: async () => ({ text: 'FINAL_REVIEW_JSON\n{"summary":' }),
+      reconcile: async () => ({ kind: "text", text: 'FINAL_REVIEW_JSON\n{"summary":' }),
     });
     const assertion = expect(outcome.promise).rejects.toThrow("Review timed out.");
 
@@ -115,9 +116,10 @@ describe("createReviewSettlementCoordinator", () => {
   it("preserves a timeout that fires during in-flight reconciliation", async () => {
     vi.useFakeTimers();
     const outcome = deferred<string>();
-    const reconciliation = deferred<
-      { error?: Error; reconciliationError?: Error; text?: string } | undefined
-    >();
+    const reconciliation =
+      deferred<
+        Awaited<ReturnType<Parameters<typeof createReviewSettlementCoordinator>[0]["reconcile"]>>
+      >();
     createCoordinator(outcome, {
       timeoutMs: 1500,
       reconcile: () => reconciliation.promise,
@@ -125,16 +127,17 @@ describe("createReviewSettlementCoordinator", () => {
     const assertion = expect(outcome.promise).rejects.toThrow("Review timed out.");
 
     await vi.advanceTimersByTimeAsync(1500);
-    reconciliation.resolve({ text: 'FINAL_REVIEW_JSON\n{"summary":' });
+    reconciliation.resolve({ kind: "text", text: 'FINAL_REVIEW_JSON\n{"summary":' });
     await assertion;
   });
 
   it("settles only once when SSE wins a reconciliation race", async () => {
     vi.useFakeTimers();
     const outcome = deferred<string>();
-    const reconciliation = deferred<
-      { error?: Error; reconciliationError?: Error; text?: string } | undefined
-    >();
+    const reconciliation =
+      deferred<
+        Awaited<ReturnType<Parameters<typeof createReviewSettlementCoordinator>[0]["reconcile"]>>
+      >();
     const resolveSpy = vi.fn(outcome.resolve);
     const rejectSpy = vi.fn(outcome.reject);
     const coordinator = createReviewSettlementCoordinator({
@@ -149,6 +152,7 @@ describe("createReviewSettlementCoordinator", () => {
     await vi.advanceTimersByTimeAsync(1000);
     coordinator.reject(new Error("SSE failed"));
     reconciliation.resolve({
+      kind: "text",
       text: 'FINAL_REVIEW_JSON\n{"summary":"too late","findings":[]}',
     });
     await Promise.resolve();
@@ -166,9 +170,9 @@ describe("createReviewSettlementCoordinator", () => {
 
     coordinator.reject(new Error("SSE failed"));
 
-    expect(
-      coordinator.acceptText('FINAL_REVIEW_JSON\n{"summary":"too late","findings":[]}'),
-    ).toBe(false);
+    expect(coordinator.acceptText('FINAL_REVIEW_JSON\n{"summary":"too late","findings":[]}')).toBe(
+      false,
+    );
     expect(onText).not.toHaveBeenCalled();
     await expect(outcome.promise).rejects.toThrow("SSE failed");
   });
@@ -181,7 +185,7 @@ function createCoordinator(
   return createReviewSettlementCoordinator({
     timeoutMs: 5000,
     reconciliationIntervalMs: 1000,
-    reconcile: async () => undefined,
+    reconcile: async () => ({ kind: "empty" }),
     onAbort: vi.fn(),
     resolve: outcome.resolve,
     reject: outcome.reject,
