@@ -41,7 +41,11 @@ import {
   releaseHookReviewLock,
 } from "./git/hooks.js";
 import { isGitRepo, hasCommits, isDocOnlyDiff } from "./git/diff.js";
-import { buildReviewContext, renderReviewContext } from "./review/context.js";
+import {
+  buildReviewContextFromDiff,
+  loadReviewDiff,
+  renderReviewContext,
+} from "./review/context.js";
 import {
   printHeader,
   printFooter,
@@ -195,14 +199,18 @@ program
     });
 
     try {
-      const contextStart = performance.now();
-      const reviewContext = await buildReviewContext(target, config, depth);
-      recordCliTiming(timings, "context-build", "Local review context build", contextStart);
+      const diff = await loadReviewDiff(target);
 
-      if (config.skip_doc_only && isDocOnlyDiff(reviewContext.diff)) {
+      if (target.kind === "staged" && diff.files.length === 0) {
+        spinner.stop();
+        console.log(chalk.yellow("No staged changes to review"));
+        process.exit(0);
+      }
+
+      if (config.skip_doc_only && isDocOnlyDiff(diff)) {
         spinner.stop();
         console.warn(chalk.yellow("Documentation-only changes detected. Skipping review."));
-        const skipContent = buildDocOnlySkipMarkdown(reviewContext.diff);
+        const skipContent = buildDocOnlySkipMarkdown(diff);
         const reportPath = await writeMarkdownReport(skipContent);
         console.log(chalk.dim(`Report saved: ${reportPath}`));
         if (options.hook) {
@@ -211,11 +219,9 @@ program
         process.exit(0);
       }
 
-      if (target.kind === "staged" && reviewContext.diff.files.length === 0) {
-        spinner.stop();
-        console.log(chalk.yellow("No staged changes to review"));
-        process.exit(0);
-      }
+      const contextStart = performance.now();
+      const reviewContext = await buildReviewContextFromDiff({ target, diff }, config, depth);
+      recordCliTiming(timings, "context-build", "Local review context build", contextStart);
 
       const contextRenderStart = performance.now();
       const localContext = renderReviewContext(reviewContext, { depth });

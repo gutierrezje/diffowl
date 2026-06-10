@@ -47,11 +47,18 @@ export async function buildReviewContext(
   config: DiffOwlConfig,
   depth: ReviewContextDepth = config.context.depth,
 ): Promise<ReviewContext> {
-  return buildReviewContextFromDiff(
-    { target, diff: await loadDiffForTarget(target) },
-    config,
-    depth,
-  );
+  return buildReviewContextFromDiff({ target, diff: await loadReviewDiff(target) }, config, depth);
+}
+
+export async function loadReviewDiff(target: ReviewTarget): Promise<DiffResult> {
+  switch (target.kind) {
+    case "staged":
+      return getStagedDiff();
+    case "commit":
+      return getCommitDiff(target.ref);
+    case "last-commit":
+      return getLastCommitDiff();
+  }
 }
 
 export async function buildReviewContextFromDiff(
@@ -87,17 +94,6 @@ export async function buildReviewContextFromDiff(
     references,
     diagnostics,
   };
-}
-
-async function loadDiffForTarget(target: ReviewTarget): Promise<DiffResult> {
-  switch (target.kind) {
-    case "staged":
-      return getStagedDiff();
-    case "commit":
-      return getCommitDiff(target.ref);
-    case "last-commit":
-      return getLastCommitDiff();
-  }
 }
 
 async function buildChangedFileContext(

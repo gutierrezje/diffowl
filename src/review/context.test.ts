@@ -96,6 +96,7 @@ describe("buildReviewContext", () => {
       startLine: 1,
       endLine: 3,
     });
+    expect(rendered).toContain("Mode: staged");
     expect(rendered).toContain("src/example.ts");
     expect(rendered).toContain("Changed AST symbols");
     expect(rendered).toContain("src/example.test.ts");
@@ -446,6 +447,32 @@ describe("buildReviewContext", () => {
 
     expect(context.target).toEqual(target);
     expect(context.diff.files.map((file) => file.path)).toEqual(["first.txt"]);
+  });
+
+  it("loads and renders the last commit target", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
+    tempDirs.push(root);
+    process.chdir(root);
+
+    await execa("git", ["init"]);
+    await writeFile("latest.txt", "latest\n", "utf-8");
+    await execa("git", ["add", "latest.txt"]);
+    await execa("git", [
+      "-c",
+      "user.name=DiffOwl Test",
+      "-c",
+      "user.email=diffowl@example.test",
+      "commit",
+      "-m",
+      "latest",
+    ]);
+
+    const context = await buildReviewContext({ kind: "last-commit" }, config, "shallow");
+    const rendered = renderReviewContext(context);
+
+    expect(context.target).toEqual({ kind: "last-commit" });
+    expect(context.diff.files.map((file) => file.path)).toEqual(["latest.txt"]);
+    expect(rendered).toContain("Mode: last-commit");
   });
 
   it("renders a smaller shallow context without related files or references", async () => {
