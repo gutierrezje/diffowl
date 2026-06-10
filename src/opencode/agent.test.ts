@@ -3,7 +3,13 @@ import { REVIEW_AGENT_PROMPT, buildReviewPrompt } from "./agent.js";
 
 describe("buildReviewPrompt", () => {
   it("uses provided local context before asking for tool follow-up", () => {
-    const prompt = buildReviewPrompt("last-commit", [], undefined, undefined, "LOCAL CONTEXT");
+    const prompt = buildReviewPrompt(
+      { kind: "last-commit" },
+      [],
+      undefined,
+      undefined,
+      "LOCAL CONTEXT",
+    );
 
     expect(prompt).toContain("Review the last commit.");
     expect(prompt).toContain("LOCAL CONTEXT");
@@ -22,7 +28,7 @@ describe("buildReviewPrompt", () => {
 
   it("sets shallow mode expectations for cheap local review", () => {
     const prompt = buildReviewPrompt(
-      "staged",
+      { kind: "staged" },
       [],
       undefined,
       undefined,
@@ -36,7 +42,13 @@ describe("buildReviewPrompt", () => {
   });
 
   it("describes explicit commit reviews", () => {
-    const prompt = buildReviewPrompt("commit", [], undefined, undefined, "LOCAL CONTEXT");
+    const prompt = buildReviewPrompt(
+      { kind: "commit", ref: "abc123" },
+      [],
+      undefined,
+      undefined,
+      "LOCAL CONTEXT",
+    );
 
     expect(prompt).toContain("Review the selected commit.");
     expect(prompt).toContain("LOCAL CONTEXT");

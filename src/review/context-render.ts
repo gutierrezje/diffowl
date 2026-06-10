@@ -18,7 +18,7 @@ export function renderReviewContext(
 
   lines.push("## Local Review Context");
   lines.push("");
-  lines.push(`Mode: ${context.mode}`);
+  lines.push(`Mode: ${context.target.kind}`);
   lines.push(`Review depth: ${depth}`);
   lines.push("");
   lines.push("### Changed Files");

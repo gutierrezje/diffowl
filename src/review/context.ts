@@ -3,6 +3,7 @@ import { readFile, stat } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import picomatch from "picomatch";
 import {
+  getCommitDiff,
   getLastCommitDiff,
   getStagedDiff,
   parseGitDiffLine,
@@ -14,6 +15,7 @@ import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
 import { extractAstSymbols } from "./ast/index.js";
 import { buildReferenceContexts } from "./context-references.js";
 import type { ChangedFileContext, RelatedFileContext, ReviewContext } from "./context-types.js";
+import type { ReviewTarget } from "./target.js";
 
 export { renderReviewContext } from "./context-render.js";
 export type {
@@ -25,6 +27,7 @@ export type {
   RenderReviewContextOptions,
   ReviewContext,
 } from "./context-types.js";
+export type { ReviewTarget } from "./target.js";
 
 const MAX_FILE_CHARS = 12_000;
 const MAX_RELATED_FILE_CHARS = 6_000;
@@ -40,12 +43,23 @@ type TextFileResult =
   | { status: "skipped"; reason: string };
 
 export async function buildReviewContext(
-  mode: "last-commit" | "staged" | "commit",
+  target: ReviewTarget,
   config: DiffOwlConfig,
   depth: ReviewContextDepth = config.context.depth,
-  diff?: DiffResult,
 ): Promise<ReviewContext> {
-  const diffResult = diff ?? (await loadDiffForMode(mode));
+  return buildReviewContextFromDiff(
+    { target, diff: await loadDiffForTarget(target) },
+    config,
+    depth,
+  );
+}
+
+export async function buildReviewContextFromDiff(
+  snapshot: { target: ReviewTarget; diff: DiffResult },
+  config: DiffOwlConfig,
+  depth: ReviewContextDepth = config.context.depth,
+): Promise<ReviewContext> {
+  const { target, diff: diffResult } = snapshot;
   const reviewableFiles = diffResult.files.filter((file) => shouldReviewFile(file.path, config));
   const skippedFiles = diffResult.files.filter((file) => !shouldReviewFile(file.path, config));
   const changedLines = getChangedLinesByFile(diffResult.raw);
@@ -64,7 +78,7 @@ export async function buildReviewContext(
       ? []
       : await buildReferenceContexts(changedFiles, skippedFiles, diagnostics);
   return {
-    mode,
+    target,
     depth,
     diff: diffResult,
     changedFiles,
@@ -75,16 +89,15 @@ export async function buildReviewContext(
   };
 }
 
-async function loadDiffForMode(mode: "last-commit" | "staged" | "commit"): Promise<DiffResult> {
-  if (mode === "staged") {
-    return getStagedDiff();
+async function loadDiffForTarget(target: ReviewTarget): Promise<DiffResult> {
+  switch (target.kind) {
+    case "staged":
+      return getStagedDiff();
+    case "commit":
+      return getCommitDiff(target.ref);
+    case "last-commit":
+      return getLastCommitDiff();
   }
-
-  if (mode === "commit") {
-    throw new Error("Commit review context requires an explicit diff.");
-  }
-
-  return getLastCommitDiff();
 }
 
 async function buildChangedFileContext(
@@ -180,10 +193,7 @@ function shouldReviewFile(path: string, config: DiffOwlConfig): boolean {
   return !config.exclude.some((pattern) => picomatch.isMatch(path, pattern));
 }
 
-async function readTextFile(
-  path: string,
-  maxChars: number,
-): Promise<TextFileResult> {
+async function readTextFile(path: string, maxChars: number): Promise<TextFileResult> {
   try {
     const info = await stat(path);
     if (!info.isFile()) {

@@ -40,14 +40,7 @@ import {
   runPendingHookReviews,
   releaseHookReviewLock,
 } from "./git/hooks.js";
-import {
-  isGitRepo,
-  hasCommits,
-  getCommitDiff,
-  getLastCommitDiff,
-  getStagedDiff,
-  isDocOnlyDiff,
-} from "./git/diff.js";
+import { isGitRepo, hasCommits, isDocOnlyDiff } from "./git/diff.js";
 import { buildReviewContext, renderReviewContext } from "./review/context.js";
 import {
   printHeader,
@@ -149,12 +142,16 @@ program
       process.exit(1);
     }
 
-    const mode = options.staged ? "staged" : options.commit ? "commit" : "last-commit";
+    const target = options.staged
+      ? ({ kind: "staged" } as const)
+      : options.commit
+        ? ({ kind: "commit", ref: String(options.commit) } as const)
+        : ({ kind: "last-commit" } as const);
     const depth = resolveReviewDepth(options.depth, config);
     config.reasoning.effort = resolveReasoningEffort(options.reasoning, config);
     const verbose = Boolean(config.verbose || options.verbose);
 
-    if (mode !== "staged") {
+    if (target.kind !== "staged") {
       const hasCommitsStart = performance.now();
       const commitsExist = await hasCommits();
       recordCliTiming(timings, "git-commit-check", "Git commit check", hasCommitsStart);
@@ -170,23 +167,6 @@ program
     if (hookFailure) {
       console.log(chalk.yellow(`⚠ ${formatHookFailure(hookFailure)}`));
       console.log();
-    }
-
-    const diff =
-      mode === "staged"
-        ? await getStagedDiff()
-        : mode === "commit"
-          ? await getCommitDiff(String(options.commit))
-          : await getLastCommitDiff();
-    if (config.skip_doc_only && isDocOnlyDiff(diff)) {
-      console.warn(chalk.yellow("Documentation-only changes detected. Skipping review."));
-      const skipContent = buildDocOnlySkipMarkdown(diff);
-      const reportPath = await writeMarkdownReport(skipContent);
-      console.log(chalk.dim(`Report saved: ${reportPath}`));
-      if (options.hook) {
-        await writeHookStatus(0, hookCommit);
-      }
-      process.exit(0);
     }
 
     const spinner = ora({
@@ -216,10 +196,22 @@ program
 
     try {
       const contextStart = performance.now();
-      const reviewContext = await buildReviewContext(mode, config, depth, diff);
+      const reviewContext = await buildReviewContext(target, config, depth);
       recordCliTiming(timings, "context-build", "Local review context build", contextStart);
 
-      if (mode === "staged" && reviewContext.diff.files.length === 0) {
+      if (config.skip_doc_only && isDocOnlyDiff(reviewContext.diff)) {
+        spinner.stop();
+        console.warn(chalk.yellow("Documentation-only changes detected. Skipping review."));
+        const skipContent = buildDocOnlySkipMarkdown(reviewContext.diff);
+        const reportPath = await writeMarkdownReport(skipContent);
+        console.log(chalk.dim(`Report saved: ${reportPath}`));
+        if (options.hook) {
+          await writeHookStatus(0, hookCommit);
+        }
+        process.exit(0);
+      }
+
+      if (target.kind === "staged" && reviewContext.diff.files.length === 0) {
         spinner.stop();
         console.log(chalk.yellow("No staged changes to review"));
         process.exit(0);
@@ -247,7 +239,7 @@ program
 
       const reviewStart = performance.now();
       const reviewResult = await runReview({
-        mode,
+        target,
         config,
         localContext,
         depth,

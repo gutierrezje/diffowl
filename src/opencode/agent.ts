@@ -1,3 +1,5 @@
+import type { ReviewTarget } from "../review/target.js";
+
 /**
  * Custom OpenCode agent definition for code review.
  *
@@ -71,7 +73,7 @@ Required review passes:
  * We tell the agent what to review and let it use its tools to explore.
  */
 export function buildReviewPrompt(
-  mode: "last-commit" | "staged" | "commit",
+  target: ReviewTarget,
   customRules: string[],
   include?: string[],
   exclude?: string[],
@@ -79,9 +81,9 @@ export function buildReviewPrompt(
   depth: "shallow" | "default" = "default",
 ): string {
   const modeInstruction =
-    mode === "staged"
+    target.kind === "staged"
       ? "Review the currently staged changes."
-      : mode === "commit"
+      : target.kind === "commit"
         ? "Review the selected commit."
         : "Review the last commit.";
 

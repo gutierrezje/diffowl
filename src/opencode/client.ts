@@ -17,9 +17,10 @@ export type {
 } from "../review/types.js";
 import type { DiffOwlConfig, ReasoningEffort, ReviewContextDepth } from "../config.js";
 import type { ReviewReport, ReviewTiming } from "../review/types.js";
+import type { ReviewTarget } from "../review/target.js";
 
 export interface ReviewOptions {
-  mode: "last-commit" | "staged" | "commit";
+  target: ReviewTarget;
   config: DiffOwlConfig;
   localContext?: string;
   depth: ReviewContextDepth;
@@ -76,7 +77,7 @@ export function extractEventPayload(event: unknown): EventPayload | undefined {
  * Creates a session, sends the review prompt, and returns a structured report.
  */
 export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
-  const { mode, config, localContext, depth, onProgress } = options;
+  const { target, config, localContext, depth, onProgress } = options;
   const port = config.server.port;
   const directoryOptions = opencodeDirectoryOptions();
   const timings: ReviewTiming[] = [];
@@ -111,7 +112,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
   // Build the review prompt
   const promptStart = performance.now();
   const prompt = buildReviewPrompt(
-    mode,
+    target,
     config.rules,
     config.include,
     config.exclude,

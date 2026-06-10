@@ -1,8 +1,9 @@
 import type { DiffFile, DiffResult } from "../git/diff.js";
 import type { ReviewContextDepth } from "../config.js";
+import type { ReviewTarget } from "./target.js";
 
 export interface ReviewContext {
-  mode: "last-commit" | "staged" | "commit";
+  target: ReviewTarget;
   depth: ReviewContextDepth;
   diff: DiffResult;
   changedFiles: ChangedFileContext[];

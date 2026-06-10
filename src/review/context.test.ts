@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildReviewContext, renderReviewContext } from "./context.js";
+import { buildReviewContext, buildReviewContextFromDiff, renderReviewContext } from "./context.js";
 import type { DiffOwlConfig } from "../config.js";
 
 const originalCwd = process.cwd();
@@ -84,7 +84,7 @@ describe("buildReviewContext", () => {
     );
     await execa("git", ["add", "src/example.ts"]);
 
-    const context = await buildReviewContext("staged", config);
+    const context = await buildReviewContext({ kind: "staged" }, config);
     const rendered = renderReviewContext(context);
 
     expect(context.diff.files).toHaveLength(1);
@@ -148,7 +148,7 @@ describe("buildReviewContext", () => {
     const originalPath = process.env["PATH"];
     process.env["PATH"] = await makeReferenceSearchPath(root);
     try {
-      const context = await buildReviewContext("staged", config);
+      const context = await buildReviewContext({ kind: "staged" }, config);
       const rendered = renderReviewContext(context);
 
       expect(rendered).toContain("src/consumer.ts");
@@ -204,7 +204,7 @@ describe("buildReviewContext", () => {
     );
     await execa("git", ["add", "src/example.ts"]);
 
-    const context = await buildReviewContext("staged", config);
+    const context = await buildReviewContext({ kind: "staged" }, config);
     const rendered = renderReviewContext(context);
 
     expect(rendered).toContain("src/large-consumer.ts:3: console.log(calculateTotal(1));");
@@ -251,7 +251,7 @@ describe("buildReviewContext", () => {
     );
     await execa("git", ["add", "src/example.ts"]);
 
-    const context = await buildReviewContext("staged", config);
+    const context = await buildReviewContext({ kind: "staged" }, config);
     const rendered = renderReviewContext(context);
 
     expect(rendered).toContain("src/long-line-consumer.ts:1:");
@@ -284,7 +284,7 @@ describe("buildReviewContext", () => {
     );
     await execa("git", ["add", "."]);
 
-    const context = await buildReviewContext("staged", config);
+    const context = await buildReviewContext({ kind: "staged" }, config);
     const rendered = renderReviewContext(context);
 
     expect(context.changedFiles.map((file) => file.file.path)).toContain("package.json");
@@ -302,19 +302,26 @@ describe("buildReviewContext", () => {
     await mkdir("src");
     await writeFile("src/large.txt", "x".repeat(530_000), "utf-8");
 
-    const context = await buildReviewContext("staged", config, "shallow", {
-      raw: [
-        "diff --git a/src/large.txt b/src/large.txt",
-        "--- a/src/large.txt",
-        "+++ b/src/large.txt",
-        "@@ -1,1 +1,1 @@",
-        "-old",
-        "+new",
-      ].join("\n"),
-      summary: "~ src/large.txt (+1/-1)",
-      files: [{ path: "src/large.txt", status: "modified", additions: 1, deletions: 1 }],
-      diagnostics: ["diff truncated"],
-    });
+    const context = await buildReviewContextFromDiff(
+      {
+        target: { kind: "staged" },
+        diff: {
+          raw: [
+            "diff --git a/src/large.txt b/src/large.txt",
+            "--- a/src/large.txt",
+            "+++ b/src/large.txt",
+            "@@ -1,1 +1,1 @@",
+            "-old",
+            "+new",
+          ].join("\n"),
+          summary: "~ src/large.txt (+1/-1)",
+          files: [{ path: "src/large.txt", status: "modified", additions: 1, deletions: 1 }],
+          diagnostics: ["diff truncated"],
+        },
+      },
+      config,
+      "shallow",
+    );
     const rendered = renderReviewContext(context);
 
     expect(context.diagnostics).toEqual(["diff truncated"]);
@@ -333,17 +340,24 @@ describe("buildReviewContext", () => {
     await mkdir("src");
     await writeFile("src/empty.ts", "", "utf-8");
 
-    const context = await buildReviewContext("commit", config, "shallow", {
-      raw: [
-        "diff --git a/src/empty.ts b/src/empty.ts",
-        "--- a/src/empty.ts",
-        "+++ b/src/empty.ts",
-        "@@ -1 +0,0 @@",
-        "-export const removed = true;",
-      ].join("\n"),
-      summary: "~ src/empty.ts (+0/-1)",
-      files: [{ path: "src/empty.ts", status: "modified", additions: 0, deletions: 1 }],
-    });
+    const context = await buildReviewContextFromDiff(
+      {
+        target: { kind: "commit", ref: "HEAD" },
+        diff: {
+          raw: [
+            "diff --git a/src/empty.ts b/src/empty.ts",
+            "--- a/src/empty.ts",
+            "+++ b/src/empty.ts",
+            "@@ -1 +0,0 @@",
+            "-export const removed = true;",
+          ].join("\n"),
+          summary: "~ src/empty.ts (+0/-1)",
+          files: [{ path: "src/empty.ts", status: "modified", additions: 0, deletions: 1 }],
+        },
+      },
+      config,
+      "shallow",
+    );
     const rendered = renderReviewContext(context);
 
     expect(context.changedFiles[0]!.content).toBe("");
@@ -366,33 +380,72 @@ describe("buildReviewContext", () => {
       "utf-8",
     );
 
-    const context = await buildReviewContext("commit", config, "shallow", {
-      raw: [
-        "diff --git a/src/example.ts b/src/example.ts",
-        "--- a/src/example.ts",
-        "+++ b/src/example.ts",
-        "@@ -1,3 +1,3 @@",
-        " export function calculateTotal(value: number) {",
-        "-  return value + 1;",
-        "+  return value + 2;",
-        " }",
-      ].join("\n"),
-      summary: "~ src/example.ts (+1/-1)",
-      files: [{ path: "src/example.ts", status: "modified", additions: 1, deletions: 1 }],
-    });
+    const context = await buildReviewContextFromDiff(
+      {
+        target: { kind: "commit", ref: "feature~1" },
+        diff: {
+          raw: [
+            "diff --git a/src/example.ts b/src/example.ts",
+            "--- a/src/example.ts",
+            "+++ b/src/example.ts",
+            "@@ -1,3 +1,3 @@",
+            " export function calculateTotal(value: number) {",
+            "-  return value + 1;",
+            "+  return value + 2;",
+            " }",
+          ].join("\n"),
+          summary: "~ src/example.ts (+1/-1)",
+          files: [{ path: "src/example.ts", status: "modified", additions: 1, deletions: 1 }],
+        },
+      },
+      config,
+      "shallow",
+    );
     const rendered = renderReviewContext(context);
 
-    expect(context.mode).toBe("commit");
+    expect(context.target).toEqual({ kind: "commit", ref: "feature~1" });
     expect(context.changedFiles[0]!.file.path).toBe("src/example.ts");
     expect(context.changedFiles[0]!.changedLines).toEqual([2]);
     expect(rendered).toContain("Mode: commit");
     expect(rendered).toContain("return value + 2");
   });
 
-  it("rejects commit mode context without an explicit diff", async () => {
-    await expect(buildReviewContext("commit", config)).rejects.toThrow(
-      "Commit review context requires an explicit diff.",
-    );
+  it("loads an explicit commit target by its ref", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
+    tempDirs.push(root);
+    process.chdir(root);
+
+    await execa("git", ["init"]);
+    await writeFile("first.txt", "first\n", "utf-8");
+    await execa("git", ["add", "first.txt"]);
+    await execa("git", [
+      "-c",
+      "user.name=DiffOwl Test",
+      "-c",
+      "user.email=diffowl@example.test",
+      "commit",
+      "-m",
+      "first",
+    ]);
+    const { stdout: firstCommit } = await execa("git", ["rev-parse", "HEAD"]);
+
+    await writeFile("second.txt", "second\n", "utf-8");
+    await execa("git", ["add", "second.txt"]);
+    await execa("git", [
+      "-c",
+      "user.name=DiffOwl Test",
+      "-c",
+      "user.email=diffowl@example.test",
+      "commit",
+      "-m",
+      "second",
+    ]);
+
+    const target = { kind: "commit", ref: firstCommit } as const;
+    const context = await buildReviewContext(target, config, "shallow");
+
+    expect(context.target).toEqual(target);
+    expect(context.diff.files.map((file) => file.path)).toEqual(["first.txt"]);
   });
 
   it("renders a smaller shallow context without related files or references", async () => {
@@ -434,7 +487,7 @@ describe("buildReviewContext", () => {
     );
     await execa("git", ["add", "src/example.ts"]);
 
-    const context = await buildReviewContext("staged", config, "shallow");
+    const context = await buildReviewContext({ kind: "staged" }, config, "shallow");
     const rendered = renderReviewContext(context);
 
     expect(context.relatedFiles).toHaveLength(0);
@@ -471,7 +524,7 @@ describe("buildReviewContext", () => {
     );
     await execa("git", ["add", "docs/large.md"]);
 
-    const context = await buildReviewContext("staged", config);
+    const context = await buildReviewContext({ kind: "staged" }, config);
     const rendered = renderReviewContext(context);
 
     expect(rendered).toContain("Changed lines: 1-189");
@@ -509,7 +562,7 @@ describe("buildReviewContext", () => {
     await writeFile("README.md", updatedReadme, "utf-8");
     await execa("git", ["add", "README.md"]);
 
-    const context = await buildReviewContext("staged", config);
+    const context = await buildReviewContext({ kind: "staged" }, config);
     const rendered = renderReviewContext(context);
 
     expect(rendered).toContain("Updated documentation line 80");
@@ -559,7 +612,7 @@ describe("buildReviewContext", () => {
     );
     await execa("git", ["add", "src/example.ts"]);
 
-    const context = await buildReviewContext("staged", config);
+    const context = await buildReviewContext({ kind: "staged" }, config);
     const symbols = context.changedFiles[0]!.symbols;
 
     expect(symbols).toContain("calculateTotal");
@@ -580,20 +633,27 @@ describe("buildReviewContext", () => {
       "utf-8",
     );
 
-    const context = await buildReviewContext("commit", config, "shallow", {
-      raw: [
-        "diff --git a/src/example.ts b/src/example.ts",
-        "new file mode 100644",
-        "--- /dev/null",
-        "+++ b/src/example.ts",
-        "@@ -0,0 +1,3 @@",
-        "+export const fixed = 1;",
-        "+export let mutable = 2;",
-        "+export var legacy = 3;",
-      ].join("\n"),
-      summary: "+ src/example.ts (+3/-0)",
-      files: [{ path: "src/example.ts", status: "added", additions: 3, deletions: 0 }],
-    });
+    const context = await buildReviewContextFromDiff(
+      {
+        target: { kind: "commit", ref: "HEAD" },
+        diff: {
+          raw: [
+            "diff --git a/src/example.ts b/src/example.ts",
+            "new file mode 100644",
+            "--- /dev/null",
+            "+++ b/src/example.ts",
+            "@@ -0,0 +1,3 @@",
+            "+export const fixed = 1;",
+            "+export let mutable = 2;",
+            "+export var legacy = 3;",
+          ].join("\n"),
+          summary: "+ src/example.ts (+3/-0)",
+          files: [{ path: "src/example.ts", status: "added", additions: 3, deletions: 0 }],
+        },
+      },
+      config,
+      "shallow",
+    );
 
     expect(context.changedFiles[0]!.astSymbols).toEqual(
       expect.arrayContaining([
@@ -617,30 +677,37 @@ describe("buildReviewContext", () => {
     );
     await writeFile("README.md", "# Fixture\n\nUpdated docs.\n", "utf-8");
 
-    const context = await buildReviewContext("commit", config, "shallow", {
-      raw: [
-        "diff --git a/src/example.py b/src/example.py",
-        "--- a/src/example.py",
-        "+++ b/src/example.py",
-        "@@ -1,2 +1,2 @@",
-        " def calculate_total(value):",
-        "-    return value + 1",
-        "+    return value + 2",
-        "diff --git a/README.md b/README.md",
-        "--- a/README.md",
-        "+++ b/README.md",
-        "@@ -1,3 +1,3 @@",
-        " # Fixture",
-        "",
-        "-Old docs.",
-        "+Updated docs.",
-      ].join("\n"),
-      summary: "~ src/example.py (+1/-1)\n~ README.md (+1/-1)",
-      files: [
-        { path: "src/example.py", status: "modified", additions: 1, deletions: 1 },
-        { path: "README.md", status: "modified", additions: 1, deletions: 1 },
-      ],
-    });
+    const context = await buildReviewContextFromDiff(
+      {
+        target: { kind: "commit", ref: "HEAD" },
+        diff: {
+          raw: [
+            "diff --git a/src/example.py b/src/example.py",
+            "--- a/src/example.py",
+            "+++ b/src/example.py",
+            "@@ -1,2 +1,2 @@",
+            " def calculate_total(value):",
+            "-    return value + 1",
+            "+    return value + 2",
+            "diff --git a/README.md b/README.md",
+            "--- a/README.md",
+            "+++ b/README.md",
+            "@@ -1,3 +1,3 @@",
+            " # Fixture",
+            "",
+            "-Old docs.",
+            "+Updated docs.",
+          ].join("\n"),
+          summary: "~ src/example.py (+1/-1)\n~ README.md (+1/-1)",
+          files: [
+            { path: "src/example.py", status: "modified", additions: 1, deletions: 1 },
+            { path: "README.md", status: "modified", additions: 1, deletions: 1 },
+          ],
+        },
+      },
+      config,
+      "shallow",
+    );
     const rendered = renderReviewContext(context);
 
     expect(context.diagnostics).toEqual(["Reviewing from diff and file context only."]);
@@ -656,18 +723,25 @@ describe("buildReviewContext", () => {
 
     await writeFile("script.sh", "echo hello\n", "utf-8");
 
-    const context = await buildReviewContext("commit", config, "shallow", {
-      raw: [
-        "diff --git a/script.sh b/script.sh",
-        "--- a/script.sh",
-        "+++ b/script.sh",
-        "@@ -1 +1 @@",
-        "-echo goodbye",
-        "+echo hello",
-      ].join("\n"),
-      summary: "~ script.sh (+1/-1)",
-      files: [{ path: "script.sh", status: "modified", additions: 1, deletions: 1 }],
-    });
+    const context = await buildReviewContextFromDiff(
+      {
+        target: { kind: "commit", ref: "HEAD" },
+        diff: {
+          raw: [
+            "diff --git a/script.sh b/script.sh",
+            "--- a/script.sh",
+            "+++ b/script.sh",
+            "@@ -1 +1 @@",
+            "-echo goodbye",
+            "+echo hello",
+          ].join("\n"),
+          summary: "~ script.sh (+1/-1)",
+          files: [{ path: "script.sh", status: "modified", additions: 1, deletions: 1 }],
+        },
+      },
+      config,
+      "shallow",
+    );
 
     expect(context.diagnostics).toEqual([]);
   });
