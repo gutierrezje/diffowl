@@ -68,7 +68,10 @@ type OpenCodeEvent =
   | { type: "session-status"; sessionId: string; status: string; message?: string }
   | { type: "session-idle"; sessionId: string };
 
-export function normalizeOpenCodeEvent(event: unknown): OpenCodeEvent | undefined {
+export function normalizeOpenCodeEvent(
+  event: unknown,
+  expectedSessionId?: string,
+): OpenCodeEvent | undefined {
   if (!event || typeof event !== "object") return undefined;
   const payload = (event as { payload?: unknown }).payload;
   if (!payload || typeof payload !== "object") return undefined;
@@ -77,11 +80,18 @@ export function normalizeOpenCodeEvent(event: unknown): OpenCodeEvent | undefine
     return undefined;
   }
 
-  const permission = extractPermissionRequest(payload);
+  const permission = extractPermissionRequest(payload, expectedSessionId);
   if (permission) return { type: "permission", request: permission };
 
   const properties = raw.properties as Record<string, unknown>;
   const sessionId = properties["sessionID"];
+  if (
+    expectedSessionId !== undefined &&
+    typeof sessionId === "string" &&
+    sessionId !== expectedSessionId
+  ) {
+    return undefined;
+  }
 
   if (raw.type === "session.error" && typeof sessionId === "string") {
     return {
@@ -92,11 +102,11 @@ export function normalizeOpenCodeEvent(event: unknown): OpenCodeEvent | undefine
   }
 
   if (raw.type === "message.part.updated") {
-    return normalizeMessagePart(properties["part"]);
+    return normalizeMessagePart(properties["part"], expectedSessionId);
   }
 
   if (raw.type === "message.updated") {
-    return normalizeAssistantMessage(properties["info"]);
+    return normalizeAssistantMessage(properties["info"], expectedSessionId);
   }
 
   if (raw.type === "session.status" && typeof sessionId === "string") {
@@ -120,11 +130,19 @@ export function normalizeOpenCodeEvent(event: unknown): OpenCodeEvent | undefine
   return undefined;
 }
 
-function normalizeMessagePart(part: unknown): OpenCodeEvent | undefined {
+function normalizeMessagePart(
+  part: unknown,
+  expectedSessionId?: string,
+): OpenCodeEvent | undefined {
   if (!part || typeof part !== "object") return undefined;
   const value = part as Record<string, unknown>;
   const sessionId = value["sessionID"];
-  if (typeof sessionId !== "string") return undefined;
+  if (
+    typeof sessionId !== "string" ||
+    (expectedSessionId !== undefined && sessionId !== expectedSessionId)
+  ) {
+    return undefined;
+  }
 
   if (value["type"] === "tool" && typeof value["tool"] === "string") {
     const state =
@@ -159,13 +177,17 @@ function normalizeMessagePart(part: unknown): OpenCodeEvent | undefined {
   return undefined;
 }
 
-function normalizeAssistantMessage(info: unknown): OpenCodeEvent | undefined {
+function normalizeAssistantMessage(
+  info: unknown,
+  expectedSessionId?: string,
+): OpenCodeEvent | undefined {
   if (!info || typeof info !== "object") return undefined;
   const value = info as Record<string, unknown>;
   if (
     value["role"] !== "assistant" ||
     typeof value["sessionID"] !== "string" ||
-    typeof value["id"] !== "string"
+    typeof value["id"] !== "string" ||
+    (expectedSessionId !== undefined && value["sessionID"] !== expectedSessionId)
   ) {
     return undefined;
   }
@@ -275,12 +297,11 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
           for await (const event of sseResult.stream) {
             if (settlement.isSettled()) break;
 
-            const normalized = normalizeOpenCodeEvent(event);
+            const normalized = normalizeOpenCodeEvent(event, sessionId);
             if (!normalized) continue;
 
             switch (normalized.type) {
               case "permission":
-                if (normalized.request.sessionID !== sessionId) break;
                 void replyToPermissionRequest(client, normalized.request, onProgress).catch(
                   (err) => {
                     onProgress?.({
@@ -294,11 +315,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
                 );
                 break;
               case "session-error":
-                if (normalized.sessionId !== sessionId) break;
                 settlement.reject(normalized.error);
                 break;
               case "tool-part":
-                if (normalized.sessionId !== sessionId) break;
                 onProgress?.({
                   type: "tool",
                   message: `${normalized.title} (${normalized.status})`,
@@ -307,7 +326,6 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
                 });
                 break;
               case "text-part":
-                if (normalized.sessionId !== sessionId) break;
                 textPartsByMessageId.set(normalized.messageId, normalized.text);
                 if (
                   assistantMessageIds.has(normalized.messageId) &&
@@ -317,7 +335,6 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
                 }
                 break;
               case "assistant-message": {
-                if (normalized.sessionId !== sessionId) break;
                 assistantMessageIds.add(normalized.messageId);
                 const text = textPartsByMessageId.get(normalized.messageId);
                 if (text && settlement.acceptText(text)) {
@@ -329,7 +346,6 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
                 break;
               }
               case "session-status":
-                if (normalized.sessionId !== sessionId) break;
                 const message =
                   normalized.status === "retry"
                     ? `OpenCode retrying: ${normalized.message ?? "unknown error"}`
@@ -337,7 +353,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
                 onProgress?.({ type: "session", message, sessionId });
                 break;
               case "session-idle":
-                if (normalized.sessionId !== sessionId || fullResponse.length === 0) break;
+                if (fullResponse.length === 0) break;
                 onProgress?.({ type: "idle", message: "OpenCode session is idle." });
                 settlement.finish();
                 break;

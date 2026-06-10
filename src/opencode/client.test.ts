@@ -119,6 +119,55 @@ describe("normalizeOpenCodeEvent", () => {
       },
     });
   });
+
+  it("filters handled events from other sessions when an active session is provided", () => {
+    expect(
+      normalizeOpenCodeEvent(
+        {
+          payload: {
+            type: "session.idle",
+            properties: { sessionID: "session-2" },
+          },
+        },
+        "session-1",
+      ),
+    ).toBeUndefined();
+
+    expect(
+      normalizeOpenCodeEvent(
+        {
+          payload: {
+            type: "message.part.updated",
+            properties: {
+              part: {
+                type: "text",
+                sessionID: "session-2",
+                messageID: "message-1",
+                text: "unrelated",
+              },
+            },
+          },
+        },
+        "session-1",
+      ),
+    ).toBeUndefined();
+
+    expect(
+      normalizeOpenCodeEvent(
+        {
+          payload: {
+            type: "permission.updated",
+            properties: {
+              id: "permission-1",
+              sessionID: "session-2",
+              type: "bash",
+            },
+          },
+        },
+        "session-1",
+      ),
+    ).toBeUndefined();
+  });
 });
 
 async function readFixture(name: string): Promise<string> {
