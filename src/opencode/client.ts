@@ -3,7 +3,12 @@ import { isServerRunning } from "./server.js";
 import { REVIEW_AGENT_PROMPT, buildReviewPrompt } from "./agent.js";
 import { parseStructuredReview } from "./review-parser.js";
 import { createReviewSettlementCoordinator, type ReconciliationResult } from "./settlement.js";
-import { buildToolPolicy, extractPermissionRequest, replyToPermissionRequest } from "./tools.js";
+import {
+  buildToolPolicy,
+  extractPermissionRequest,
+  replyToPermissionRequest,
+  type PermissionRequest,
+} from "./tools.js";
 import { parseProviderPayload } from "./provider-payload.js";
 export { parseStructuredReview, looksLikeCompleteStructuredReview } from "./review-parser.js";
 export { buildToolPolicy, extractPermissionRequest } from "./tools.js";
@@ -43,33 +48,136 @@ export type ReviewProgressEvent =
 type OpencodeDirectoryOptions = { query: { directory: string } };
 type OpenCodeClient = ReturnType<typeof createOpencodeClient>;
 
-type EventPayload = {
-  type?: unknown;
-  properties?: {
-    sessionID?: unknown;
-    part?: {
-      sessionID?: unknown;
-      type?: unknown;
-      messageID?: unknown;
-      text?: unknown;
-      tool?: unknown;
-      state?: { status?: unknown; title?: unknown };
-    };
-    info?: {
-      sessionID?: unknown;
-      role?: unknown;
-      id?: unknown;
-      error?: { data?: { message?: unknown } };
-    };
-    status?: { type?: unknown; message?: unknown };
-  };
-};
+type OpenCodeEvent =
+  | { type: "permission"; request: PermissionRequest }
+  | { type: "session-error"; sessionId: string; error: Error }
+  | {
+      type: "tool-part";
+      sessionId: string;
+      tool: string;
+      status: string;
+      title: string;
+    }
+  | { type: "text-part"; sessionId: string; messageId: string; text: string }
+  | {
+      type: "assistant-message";
+      sessionId: string;
+      messageId: string;
+      error?: Error;
+    }
+  | { type: "session-status"; sessionId: string; status: string; message?: string }
+  | { type: "session-idle"; sessionId: string };
 
-export function extractEventPayload(event: unknown): EventPayload | undefined {
+export function normalizeOpenCodeEvent(event: unknown): OpenCodeEvent | undefined {
   if (!event || typeof event !== "object") return undefined;
   const payload = (event as { payload?: unknown }).payload;
   if (!payload || typeof payload !== "object") return undefined;
-  return payload as EventPayload;
+  const raw = payload as { type?: unknown; properties?: unknown };
+  if (typeof raw.type !== "string" || !raw.properties || typeof raw.properties !== "object") {
+    return undefined;
+  }
+
+  const permission = extractPermissionRequest(payload);
+  if (permission) return { type: "permission", request: permission };
+
+  const properties = raw.properties as Record<string, unknown>;
+  const sessionId = properties["sessionID"];
+
+  if (raw.type === "session.error" && typeof sessionId === "string") {
+    return {
+      type: "session-error",
+      sessionId,
+      error: new Error(`OpenCode session failed: ${describeSessionError(properties["error"])}`),
+    };
+  }
+
+  if (raw.type === "message.part.updated") {
+    return normalizeMessagePart(properties["part"]);
+  }
+
+  if (raw.type === "message.updated") {
+    return normalizeAssistantMessage(properties["info"]);
+  }
+
+  if (raw.type === "session.status" && typeof sessionId === "string") {
+    const status = properties["status"];
+    if (!status || typeof status !== "object") return undefined;
+    const statusType = (status as { type?: unknown }).type;
+    if (typeof statusType !== "string") return undefined;
+    const message = (status as { message?: unknown }).message;
+    return {
+      type: "session-status",
+      sessionId,
+      status: statusType,
+      ...(typeof message === "string" ? { message } : {}),
+    };
+  }
+
+  if (raw.type === "session.idle" && typeof sessionId === "string") {
+    return { type: "session-idle", sessionId };
+  }
+
+  return undefined;
+}
+
+function normalizeMessagePart(part: unknown): OpenCodeEvent | undefined {
+  if (!part || typeof part !== "object") return undefined;
+  const value = part as Record<string, unknown>;
+  const sessionId = value["sessionID"];
+  if (typeof sessionId !== "string") return undefined;
+
+  if (value["type"] === "tool" && typeof value["tool"] === "string") {
+    const state =
+      value["state"] && typeof value["state"] === "object"
+        ? (value["state"] as Record<string, unknown>)
+        : undefined;
+    const status = typeof state?.["status"] === "string" ? state["status"] : "unknown";
+    const title = typeof state?.["title"] === "string" ? state["title"] : value["tool"];
+    return {
+      type: "tool-part",
+      sessionId,
+      tool: value["tool"],
+      status,
+      title,
+    };
+  }
+
+  if (
+    value["type"] === "text" &&
+    typeof value["messageID"] === "string" &&
+    typeof value["text"] === "string" &&
+    value["text"] !== ""
+  ) {
+    return {
+      type: "text-part",
+      sessionId,
+      messageId: value["messageID"],
+      text: value["text"],
+    };
+  }
+
+  return undefined;
+}
+
+function normalizeAssistantMessage(info: unknown): OpenCodeEvent | undefined {
+  if (!info || typeof info !== "object") return undefined;
+  const value = info as Record<string, unknown>;
+  if (
+    value["role"] !== "assistant" ||
+    typeof value["sessionID"] !== "string" ||
+    typeof value["id"] !== "string"
+  ) {
+    return undefined;
+  }
+
+  return {
+    type: "assistant-message",
+    sessionId: value["sessionID"],
+    messageId: value["id"],
+    ...(value["error"]
+      ? { error: new Error(describeSessionError(value["error"]) || "Review failed") }
+      : {}),
+  };
 }
 
 /**
@@ -167,108 +275,75 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
           for await (const event of sseResult.stream) {
             if (settlement.isSettled()) break;
 
-            const payload = extractEventPayload(event);
-            if (!payload) continue;
+            const normalized = normalizeOpenCodeEvent(event);
+            if (!normalized) continue;
 
-            const permission = extractPermissionRequest(payload, sessionId);
-            if (permission) {
-              void replyToPermissionRequest(client, permission, onProgress).catch((err) => {
-                onProgress?.({
-                  type: "session",
-                  message: `OpenCode permission reply failed: ${
-                    err instanceof Error ? err.message : String(err)
-                  }`,
-                  sessionId,
-                });
-              });
-              continue;
-            }
-
-            const sessionError = extractSessionError(payload, sessionId);
-            if (sessionError) {
-              settlement.reject(sessionError);
-              break;
-            }
-
-            // Look for message part updates from our session
-            if (
-              payload.type === "message.part.updated" &&
-              payload.properties?.part?.sessionID === sessionId
-            ) {
-              const part = payload.properties.part;
-
-              if (part.type === "tool" && typeof part.tool === "string") {
-                const state =
-                  typeof part.state?.status === "string" ? part.state.status : "unknown";
-                const title = typeof part.state?.title === "string" ? part.state.title : part.tool;
+            switch (normalized.type) {
+              case "permission":
+                if (normalized.request.sessionID !== sessionId) break;
+                void replyToPermissionRequest(client, normalized.request, onProgress).catch(
+                  (err) => {
+                    onProgress?.({
+                      type: "session",
+                      message: `OpenCode permission reply failed: ${
+                        err instanceof Error ? err.message : String(err)
+                      }`,
+                      sessionId,
+                    });
+                  },
+                );
+                break;
+              case "session-error":
+                if (normalized.sessionId !== sessionId) break;
+                settlement.reject(normalized.error);
+                break;
+              case "tool-part":
+                if (normalized.sessionId !== sessionId) break;
                 onProgress?.({
                   type: "tool",
-                  message: `${title} (${state})`,
-                  tool: part.tool,
-                  status: state,
+                  message: `${normalized.title} (${normalized.status})`,
+                  tool: normalized.tool,
+                  status: normalized.status,
                 });
-              }
-
-              if (
-                part.type === "text" &&
-                typeof part.messageID === "string" &&
-                typeof part.text === "string" &&
-                part.text
-              ) {
-                textPartsByMessageId.set(part.messageID, part.text);
-                if (assistantMessageIds.has(part.messageID) && settlement.acceptText(part.text)) {
+                break;
+              case "text-part":
+                if (normalized.sessionId !== sessionId) break;
+                textPartsByMessageId.set(normalized.messageId, normalized.text);
+                if (
+                  assistantMessageIds.has(normalized.messageId) &&
+                  settlement.acceptText(normalized.text)
+                ) {
                   break;
                 }
-              }
-            }
-
-            // Also check for message error
-            if (
-              payload.type === "message.updated" &&
-              payload.properties?.info?.sessionID === sessionId
-            ) {
-              const msg = payload.properties?.info;
-              if (msg?.role === "assistant" && typeof msg.id === "string") {
-                assistantMessageIds.add(msg.id);
-
-                const text = textPartsByMessageId.get(msg.id);
+                break;
+              case "assistant-message": {
+                if (normalized.sessionId !== sessionId) break;
+                assistantMessageIds.add(normalized.messageId);
+                const text = textPartsByMessageId.get(normalized.messageId);
                 if (text && settlement.acceptText(text)) {
                   break;
                 }
-
-                if (msg.error) {
-                  const message =
-                    typeof msg.error.data?.message === "string"
-                      ? msg.error.data.message
-                      : "Review failed";
-                  settlement.reject(new Error(message));
-                  break;
+                if (normalized.error) {
+                  settlement.reject(normalized.error);
                 }
+                break;
               }
+              case "session-status":
+                if (normalized.sessionId !== sessionId) break;
+                const message =
+                  normalized.status === "retry"
+                    ? `OpenCode retrying: ${normalized.message ?? "unknown error"}`
+                    : `OpenCode session ${normalized.status}.`;
+                onProgress?.({ type: "session", message, sessionId });
+                break;
+              case "session-idle":
+                if (normalized.sessionId !== sessionId || fullResponse.length === 0) break;
+                onProgress?.({ type: "idle", message: "OpenCode session is idle." });
+                settlement.finish();
+                break;
             }
 
-            if (payload.type === "session.status" && payload.properties?.sessionID === sessionId) {
-              const status = payload.properties.status;
-              if (!status || typeof status.type !== "string") continue;
-              const message =
-                status.type === "retry"
-                  ? `OpenCode retrying: ${
-                      typeof status.message === "string" ? status.message : "unknown error"
-                    }`
-                  : `OpenCode session ${status.type}.`;
-              onProgress?.({ type: "session", message, sessionId });
-            }
-
-            // Check for session going completely idle
-            if (
-              payload.type === "session.idle" &&
-              payload.properties?.sessionID === sessionId &&
-              fullResponse.length > 0
-            ) {
-              onProgress?.({ type: "idle", message: "OpenCode session is idle." });
-              settlement.finish();
-              break;
-            }
+            if (settlement.isSettled()) break;
           }
 
           // If the stream ends without throwing and without emitting `session.idle`,

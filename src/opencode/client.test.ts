@@ -8,7 +8,7 @@ import {
   extractSessionId,
   extractSessionError,
   extractSessionMessageResult,
-  extractEventPayload,
+  normalizeOpenCodeEvent,
   handledAwaitable,
   opencodeDirectoryOptions,
   parseStructuredReview,
@@ -18,13 +18,106 @@ import {
 
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 
-describe("extractEventPayload", () => {
-  it("returns only object payloads from SDK event envelopes", () => {
-    const payload = { type: "session.idle", properties: { sessionID: "session-1" } };
+describe("normalizeOpenCodeEvent", () => {
+  it("normalizes handled SDK event envelopes", () => {
+    expect(
+      normalizeOpenCodeEvent({
+        payload: { type: "session.idle", properties: { sessionID: "session-1" } },
+      }),
+    ).toEqual({ type: "session-idle", sessionId: "session-1" });
+  });
 
-    expect(extractEventPayload({ payload })).toBe(payload);
-    expect(extractEventPayload({ payload: "invalid" })).toBeUndefined();
-    expect(extractEventPayload(null)).toBeUndefined();
+  it("rejects malformed handled events instead of producing partial states", () => {
+    expect(
+      normalizeOpenCodeEvent({
+        payload: { type: "message.part.updated", properties: { part: { type: "text" } } },
+      }),
+    ).toBeUndefined();
+    expect(normalizeOpenCodeEvent({ payload: "invalid" })).toBeUndefined();
+    expect(normalizeOpenCodeEvent(null)).toBeUndefined();
+  });
+
+  it("normalizes message updates into distinct local variants", () => {
+    expect(
+      normalizeOpenCodeEvent({
+        payload: {
+          type: "message.part.updated",
+          properties: {
+            part: {
+              type: "text",
+              sessionID: "session-1",
+              messageID: "message-1",
+              text: "review text",
+            },
+          },
+        },
+      }),
+    ).toEqual({
+      type: "text-part",
+      sessionId: "session-1",
+      messageId: "message-1",
+      text: "review text",
+    });
+
+    expect(
+      normalizeOpenCodeEvent({
+        payload: {
+          type: "message.updated",
+          properties: {
+            info: {
+              role: "assistant",
+              sessionID: "session-1",
+              id: "message-1",
+              error: { data: { message: "provider failed" } },
+            },
+          },
+        },
+      }),
+    ).toEqual({
+      type: "assistant-message",
+      sessionId: "session-1",
+      messageId: "message-1",
+      error: new Error("provider failed"),
+    });
+  });
+
+  it("normalizes session status and permission events", () => {
+    expect(
+      normalizeOpenCodeEvent({
+        payload: {
+          type: "session.status",
+          properties: {
+            sessionID: "session-1",
+            status: { type: "retry", message: "rate limited" },
+          },
+        },
+      }),
+    ).toEqual({
+      type: "session-status",
+      sessionId: "session-1",
+      status: "retry",
+      message: "rate limited",
+    });
+
+    expect(
+      normalizeOpenCodeEvent({
+        payload: {
+          type: "permission.updated",
+          properties: {
+            id: "permission-1",
+            sessionID: "session-1",
+            type: "bash",
+          },
+        },
+      }),
+    ).toEqual({
+      type: "permission",
+      request: {
+        id: "permission-1",
+        sessionID: "session-1",
+        type: "bash",
+      },
+    });
   });
 });
 

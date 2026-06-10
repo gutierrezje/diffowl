@@ -127,7 +127,7 @@ async function replyWithAvailableEndpoint(
 
 export function extractPermissionRequest(
   payload: unknown,
-  sessionId: string,
+  expectedSessionId?: string,
 ): PermissionRequest | undefined {
   if (!payload || typeof payload !== "object") {
     return undefined;
@@ -139,7 +139,11 @@ export function extractPermissionRequest(
   }
 
   const properties = event.properties as Record<string, unknown>;
-  if (properties["sessionID"] !== sessionId) {
+  const sessionId = properties["sessionID"];
+  if (
+    typeof sessionId !== "string" ||
+    (expectedSessionId !== undefined && sessionId !== expectedSessionId)
+  ) {
     return undefined;
   }
 
