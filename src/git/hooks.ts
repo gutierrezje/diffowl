@@ -45,10 +45,9 @@ export async function installHook(): Promise<string> {
   // Check if hook already exists and is not ours
   if (existsSync(hookPath)) {
     const existing = await readFile(hookPath, "utf-8");
-    const base =
-      existing.includes(HOOK_MARKER) || existing.includes("# commitdog-managed")
-        ? removeManagedSection(existing)
-        : existing.trimEnd();
+    const base = existing.includes(HOOK_MARKER)
+      ? removeManagedSection(existing)
+      : existing.trimEnd();
     const hookSection = generateManagedSection(command);
     const updated =
       base && !isOnlyShebangs(base) ? `${base}\n\n${hookSection}` : generateHookScript(command);
@@ -71,7 +70,7 @@ export async function uninstallHook(): Promise<boolean> {
   if (!existsSync(hookPath)) return false;
 
   const content = await readFile(hookPath, "utf-8");
-  if (!content.includes(HOOK_MARKER) && !content.includes("# commitdog-managed")) return false;
+  if (!content.includes(HOOK_MARKER)) return false;
 
   const cleaned = removeManagedSection(content);
   if (isOnlyShebangs(cleaned) || cleaned === "") {
@@ -523,7 +522,6 @@ async function resolveCommand(command: string): Promise<string> {
 function removeManagedSection(content: string): string {
   let lines = content.split("\n");
   lines = removeSectionByMarkers(lines, "# diffowl-managed", "# end-diffowl");
-  lines = removeSectionByMarkers(lines, "# commitdog-managed", "# end-commitdog");
   return lines.join("\n").trim();
 }
 

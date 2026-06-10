@@ -35,11 +35,11 @@ describe("installHook", () => {
       hookPath,
       [
         "#!/bin/sh",
-        "# commitdog-managed",
-        "if command -v commitdog >/dev/null 2>&1; then",
-        "  commitdog review --hook &",
+        "# diffowl-managed",
+        "if command -v diffowl >/dev/null 2>&1; then",
+        "  diffowl review --hook &",
         "fi",
-        "# end-commitdog",
+        "# end-diffowl",
         "",
       ].join("\n"),
       "utf-8",
@@ -53,7 +53,7 @@ describe("installHook", () => {
     expect(hook).toContain("hook-run");
     expect(hook).toContain("PATH=");
     expect(hook).toContain("DIFFOWL_LOG_FILE");
-    expect(hook).not.toContain("commitdog review --hook &");
+    expect(hook).not.toContain("diffowl review --hook &");
   });
 });
 
