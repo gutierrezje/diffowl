@@ -90,28 +90,32 @@ export function renderReviewContext(
       }
     }
 
-    if (
-      fileContext.content !== undefined &&
-      fileContext.astSymbols.length === 0 &&
-      fileContext.shouldRenderContent
-    ) {
-      lines.push(
-        fence(
-          shallow
-            ? truncateText(fileContext.content, MAX_QUICK_FILE_CHARS).text
-            : fileContext.content,
-          languageForPath(fileContext.file.path),
-        ),
-      );
-      if (fileContext.truncated) {
-        lines.push("_File content truncated._");
-      }
-    } else if (fileContext.content !== undefined && fileContext.astSymbols.length === 0) {
-      lines.push("_Full file content omitted because the diff already shows the changed hunks._");
-    } else if (fileContext.content !== undefined) {
-      lines.push("_Full file content omitted because changed AST symbols are shown._");
+    if (fileContext.content.status === "skipped") {
+      lines.push(`_File content skipped: ${fileContext.content.reason}._`);
     } else {
-      lines.push(`_File content skipped: ${fileContext.skippedReason ?? "unavailable"}._`);
+      switch (fileContext.content.render) {
+        case "full":
+          lines.push(
+            fence(
+              shallow
+                ? truncateText(fileContext.content.text, MAX_QUICK_FILE_CHARS).text
+                : fileContext.content.text,
+              languageForPath(fileContext.file.path),
+            ),
+          );
+          if (fileContext.content.truncated) {
+            lines.push("_File content truncated._");
+          }
+          break;
+        case "diff-only":
+          lines.push(
+            "_Full file content omitted because the diff already shows the changed hunks._",
+          );
+          break;
+        case "ast-symbols":
+          lines.push("_Full file content omitted because changed AST symbols are shown._");
+          break;
+      }
     }
     lines.push("");
   }

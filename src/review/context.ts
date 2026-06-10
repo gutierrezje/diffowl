@@ -108,9 +108,7 @@ async function buildChangedFileContext(
         symbols: [],
         changedLines,
         astSymbols: [],
-        truncated: false,
-        shouldRenderContent: false,
-        skippedReason: "deleted file",
+        content: { status: "skipped", reason: "deleted file" },
       },
       diagnostics: [],
     };
@@ -125,9 +123,7 @@ async function buildChangedFileContext(
         symbols: [],
         changedLines,
         astSymbols: [],
-        truncated: false,
-        shouldRenderContent: false,
-        skippedReason: contentResult.reason,
+        content: { status: "skipped", reason: contentResult.reason },
       },
       diagnostics: [],
     };
@@ -144,9 +140,17 @@ async function buildChangedFileContext(
       ),
       changedLines,
       astSymbols: astResult.symbols,
-      content: contentResult.content,
-      truncated: contentResult.truncated,
-      shouldRenderContent: shouldRenderFullFileContent(file, contentResult.content),
+      content: {
+        status: "loaded",
+        text: contentResult.content,
+        truncated: contentResult.truncated,
+        render:
+          astResult.symbols.length > 0
+            ? "ast-symbols"
+            : shouldRenderFullFileContent(file, contentResult.content)
+              ? "full"
+              : "diff-only",
+      },
     },
     diagnostics: astResult.diagnostics ?? [],
   };

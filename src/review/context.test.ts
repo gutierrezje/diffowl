@@ -96,6 +96,10 @@ describe("buildReviewContext", () => {
       startLine: 1,
       endLine: 3,
     });
+    expect(context.changedFiles[0]!.content).toMatchObject({
+      status: "loaded",
+      render: "ast-symbols",
+    });
     expect(rendered).toContain("Mode: staged");
     expect(rendered).toContain("src/example.ts");
     expect(rendered).toContain("Changed AST symbols");
@@ -326,8 +330,10 @@ describe("buildReviewContext", () => {
     const rendered = renderReviewContext(context);
 
     expect(context.diagnostics).toEqual(["diff truncated"]);
-    expect(context.changedFiles[0]!.content).toBeUndefined();
-    expect(context.changedFiles[0]!.skippedReason).toContain("file too large for context");
+    expect(context.changedFiles[0]!.content).toEqual({
+      status: "skipped",
+      reason: expect.stringContaining("file too large for context"),
+    });
     expect(rendered).toContain("Context diagnostics");
     expect(rendered).toContain("diff truncated");
     expect(rendered).toContain("File content skipped: file too large for context");
@@ -361,10 +367,74 @@ describe("buildReviewContext", () => {
     );
     const rendered = renderReviewContext(context);
 
-    expect(context.changedFiles[0]!.content).toBe("");
-    expect(context.changedFiles[0]!.skippedReason).toBeUndefined();
+    expect(context.changedFiles[0]!.content).toEqual({
+      status: "loaded",
+      text: "",
+      truncated: false,
+      render: "full",
+    });
     expect(rendered).not.toContain("File content skipped");
     expect(rendered).toContain("```ts\n\n```");
+  });
+
+  it("uses diff-only rendering for large added files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
+    tempDirs.push(root);
+    process.chdir(root);
+
+    await mkdir("src");
+    await writeFile("src/large.txt", "line\n".repeat(500), "utf-8");
+
+    const context = await buildReviewContextFromDiff(
+      {
+        target: { kind: "commit", ref: "HEAD" },
+        diff: {
+          raw: [
+            "diff --git a/src/large.txt b/src/large.txt",
+            "new file mode 100644",
+            "--- /dev/null",
+            "+++ b/src/large.txt",
+            "@@ -0,0 +1 @@",
+            "+line",
+          ].join("\n"),
+          summary: "+ src/large.txt (+1/-0)",
+          files: [{ path: "src/large.txt", status: "added", additions: 1, deletions: 0 }],
+        },
+      },
+      config,
+      "shallow",
+    );
+
+    expect(context.changedFiles[0]!.content).toMatchObject({
+      status: "loaded",
+      render: "diff-only",
+    });
+  });
+
+  it("represents deleted files as skipped content", async () => {
+    const context = await buildReviewContextFromDiff(
+      {
+        target: { kind: "commit", ref: "HEAD" },
+        diff: {
+          raw: [
+            "diff --git a/src/deleted.ts b/src/deleted.ts",
+            "--- a/src/deleted.ts",
+            "+++ /dev/null",
+            "@@ -1 +0,0 @@",
+            "-export const removed = true;",
+          ].join("\n"),
+          summary: "- src/deleted.ts (+0/-1)",
+          files: [{ path: "src/deleted.ts", status: "deleted", additions: 0, deletions: 1 }],
+        },
+      },
+      config,
+      "shallow",
+    );
+
+    expect(context.changedFiles[0]!.content).toEqual({
+      status: "skipped",
+      reason: "deleted file",
+    });
   });
 
   it("builds commit mode context from an explicit diff", async () => {

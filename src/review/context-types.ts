@@ -19,11 +19,17 @@ export interface ChangedFileContext {
   symbols: string[];
   changedLines: number[];
   astSymbols: AstSymbolContext[];
-  content?: string;
-  truncated: boolean;
-  shouldRenderContent: boolean;
-  skippedReason?: string | undefined;
+  content: ChangedFileContent;
 }
+
+export type ChangedFileContent =
+  | { status: "skipped"; reason: string }
+  | {
+      status: "loaded";
+      text: string;
+      truncated: boolean;
+      render: "full" | "diff-only" | "ast-symbols";
+    };
 
 export interface AstSymbolContext {
   name: string;
