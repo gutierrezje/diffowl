@@ -1,6 +1,8 @@
+import type { ReviewConfidence } from "../config.js";
+
 export type ReviewSeverity = "error" | "warning" | "info";
 
-export type ReviewConfidence = "high" | "medium" | "low";
+export type { ReviewConfidence } from "../config.js";
 
 export interface ReviewFinding {
   severity: ReviewSeverity;

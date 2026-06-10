@@ -4,76 +4,6 @@ import { join, dirname } from "node:path";
 import { parse, stringify } from "yaml";
 import { z, ZodError } from "zod";
 
-export type ReviewConfidence = "low" | "medium" | "high";
-export type ReviewContextDepth = "shallow" | "default";
-export type ReasoningEffort =
-  | "auto"
-  | "none"
-  | "minimal"
-  | "low"
-  | "medium"
-  | "high"
-  | "max"
-  | "xhigh";
-
-export interface DiffOwlConfig {
-  model: string;
-  server: {
-    port: number;
-    auto_start: boolean;
-  };
-  context: {
-    depth: ReviewContextDepth;
-  };
-  reasoning: {
-    effort: ReasoningEffort;
-  };
-  retention: {
-    hook_log_kb: number;
-  };
-  timeout: number; // seconds
-  min_confidence: ReviewConfidence;
-  include: string[];
-  exclude: string[];
-  rules: string[];
-  skip_doc_only: boolean;
-  verbose: boolean;
-}
-
-const DEFAULT_CONFIG: DiffOwlConfig = {
-  model: "opencode-go/big-pickle",
-  server: {
-    port: 4096,
-    auto_start: true,
-  },
-  context: {
-    depth: "default",
-  },
-  reasoning: {
-    effort: "auto",
-  },
-  retention: {
-    hook_log_kb: 1024,
-  },
-  timeout: 300, // 5 minutes
-  min_confidence: "medium",
-  include: ["**/*"],
-  exclude: [
-    "**/*.test.*",
-    "**/*.spec.*",
-    "**/*.lock",
-    "**/node_modules/**",
-    "**/dist/**",
-    "**/build/**",
-    "**/.git/**",
-  ],
-  rules: [],
-  skip_doc_only: false,
-  verbose: false,
-};
-
-const CONFIG_FILENAME = ".diffowl.yml";
-
 export const ReviewConfidenceSchema = z.enum(["low", "medium", "high"]);
 export const ReviewContextDepthSchema = z.enum(["shallow", "default"]);
 export const ReasoningEffortSchema = z.enum([
@@ -91,6 +21,44 @@ export const ModelSchema = z
   .trim()
   .min(1, "model must not be empty")
   .regex(/^[^/\s]+\/\S+$/, "model must use provider/model format");
+
+export type ReviewConfidence = z.output<typeof ReviewConfidenceSchema>;
+export type ReviewContextDepth = z.output<typeof ReviewContextDepthSchema>;
+export type ReasoningEffort = z.output<typeof ReasoningEffortSchema>;
+
+const DEFAULT_CONFIG = {
+  model: "opencode-go/big-pickle",
+  server: {
+    port: 4096,
+    auto_start: true,
+  },
+  context: {
+    depth: "default" as ReviewContextDepth,
+  },
+  reasoning: {
+    effort: "auto" as ReasoningEffort,
+  },
+  retention: {
+    hook_log_kb: 1024,
+  },
+  timeout: 300, // 5 minutes
+  min_confidence: "medium" as ReviewConfidence,
+  include: ["**/*"],
+  exclude: [
+    "**/*.test.*",
+    "**/*.spec.*",
+    "**/*.lock",
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/.git/**",
+  ],
+  rules: [],
+  skip_doc_only: false,
+  verbose: false,
+};
+
+const CONFIG_FILENAME = ".diffowl.yml";
 
 const stringArraySchema = z.array(z.string().trim().min(1));
 
@@ -131,6 +99,8 @@ export const DiffOwlConfigSchema = z
     verbose: z.boolean().default(DEFAULT_CONFIG.verbose),
   })
   .strict();
+
+export type DiffOwlConfig = z.output<typeof DiffOwlConfigSchema>;
 
 export function parseModel(value: unknown): string {
   return ModelSchema.parse(value);
@@ -173,7 +143,7 @@ function findConfigPath(): string {
 export async function loadConfig(): Promise<DiffOwlConfig> {
   const configPath = findConfigPath();
   if (!existsSync(configPath)) {
-    return { ...DEFAULT_CONFIG };
+    return parseConfigInput({});
   }
   try {
     const raw = await readFile(configPath, "utf-8");

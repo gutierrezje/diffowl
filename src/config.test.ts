@@ -79,6 +79,23 @@ describe("config", () => {
     expect(config.verbose).toBe(false);
   });
 
+  it("returns independent nested defaults when no config file exists", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
+    tempDirs.push(root);
+    process.chdir(root);
+
+    const first = await loadConfig();
+    first.server.port = 1234;
+    first.context.depth = "shallow";
+    first.include.push("src/**");
+
+    const second = await loadConfig();
+
+    expect(second.server.port).toBe(4096);
+    expect(second.context.depth).toBe("default");
+    expect(second.include).toEqual(["**/*"]);
+  });
+
   for (const effort of ["auto", "none", "minimal", "low", "medium", "high", "max", "xhigh"]) {
     it(`loads ${effort} reasoning effort`, async () => {
       const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));

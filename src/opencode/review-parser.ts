@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ReviewConfidenceSchema as ConfigReviewConfidenceSchema } from "../config.js";
 import type { ReviewFinding, ReviewReport } from "../review/types.js";
 
 const ReviewSeveritySchema = z.preprocess(
@@ -9,7 +10,7 @@ const ReviewSeveritySchema = z.preprocess(
 const ReviewConfidenceSchema = z
   .preprocess(
     (value) => (typeof value === "string" ? value.toLowerCase() : value),
-    z.enum(["low", "medium", "high"]),
+    ConfigReviewConfidenceSchema,
   )
   .catch("low");
 
