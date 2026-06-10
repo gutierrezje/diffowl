@@ -1,4 +1,4 @@
-model: opencode-go/minimax-m3
+model: opencode-go/kimi-k2.6
 server:
   port: 4096
   auto_start: true
