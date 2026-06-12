@@ -1,6 +1,7 @@
 import { looksLikeCompleteStructuredReview } from "./review-parser.js";
 
 export interface ReviewSettlementCoordinator {
+  acceptAssistantMessage(result: { text: string | undefined; error: Error | undefined }): boolean;
   acceptText(text: string): boolean;
   finish(): void;
   isSettled(): boolean;
@@ -113,6 +114,13 @@ export function createReviewSettlementCoordinator(options: {
   );
 
   return {
+    acceptAssistantMessage: ({ text, error }) => {
+      if (error) {
+        settle({ kind: "reject", error });
+        return false;
+      }
+      return text ? acceptText(text) : false;
+    },
     acceptText,
     finish: () => {
       if (settled || acceptText(fullResponse)) return;

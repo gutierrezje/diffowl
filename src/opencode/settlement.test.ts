@@ -17,6 +17,33 @@ describe("createReviewSettlementCoordinator", () => {
     await assertion;
   });
 
+  it("prioritizes an assistant error over complete cached text", async () => {
+    vi.useFakeTimers();
+    const outcome = deferred<string>();
+    const resolveSpy = vi.fn(outcome.resolve);
+    const rejectSpy = vi.fn(outcome.reject);
+    const onAbort = vi.fn();
+    const coordinator = createReviewSettlementCoordinator({
+      timeoutMs: 5000,
+      reconciliationIntervalMs: 1000,
+      reconcile: async () => ({ kind: "empty" }),
+      onAbort,
+      resolve: resolveSpy,
+      reject: rejectSpy,
+    });
+    const error = new Error("assistant failed");
+
+    coordinator.acceptAssistantMessage({
+      text: 'FINAL_REVIEW_JSON\n{"summary":"cached","findings":[]}',
+      error,
+    });
+
+    await expect(outcome.promise).rejects.toBe(error);
+    expect(resolveSpy).not.toHaveBeenCalled();
+    expect(rejectSpy).toHaveBeenCalledTimes(1);
+    expect(onAbort).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects when reconciliation reports an error", async () => {
     vi.useFakeTimers();
     const outcome = deferred<string>();

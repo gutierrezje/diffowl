@@ -337,12 +337,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
               case "assistant-message": {
                 assistantMessageIds.add(normalized.messageId);
                 const text = textPartsByMessageId.get(normalized.messageId);
-                if (text && settlement.acceptText(text)) {
-                  break;
-                }
-                if (normalized.error) {
-                  settlement.reject(normalized.error);
-                }
+                settlement.acceptAssistantMessage({ text, error: normalized.error });
                 break;
               }
               case "session-status":
