@@ -1,7 +1,7 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { execa } from "execa";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -11,8 +11,10 @@ import {
   formatHookFailure,
   generateManagedSection,
   installHook,
+  isHookInstalled,
   listPendingReviews,
   releaseHookReviewLock,
+  uninstallHook,
 } from "./hooks.js";
 
 const originalCwd = process.cwd();
@@ -54,6 +56,45 @@ describe("installHook", () => {
     expect(hook).toContain("PATH=");
     expect(hook).toContain("DIFFOWL_LOG_FILE");
     expect(hook).not.toContain("diffowl review --hook &");
+  });
+
+  it("uses a relative core.hooksPath for install, status, and uninstall", async () => {
+    const root = await createGitRepo();
+    await execa("git", ["config", "core.hooksPath", ".githooks"], { cwd: root });
+    process.chdir(root);
+
+    const hookPath = await installHook();
+
+    expect(hookPath).toBe(join(root, ".githooks", "post-commit"));
+    await expect(isHookInstalled()).resolves.toBe(true);
+    await expect(uninstallHook()).resolves.toBe(true);
+    expect(existsSync(hookPath)).toBe(false);
+  });
+
+  it("creates an absolute core.hooksPath when installing", async () => {
+    const root = await createGitRepo();
+    const hooksDir = join(root, "custom-hooks");
+    await execa("git", ["config", "core.hooksPath", hooksDir], { cwd: root });
+    process.chdir(root);
+
+    await expect(installHook()).resolves.toBe(join(hooksDir, "post-commit"));
+    expect(existsSync(join(hooksDir, "post-commit"))).toBe(true);
+  });
+
+  it("installs linked-worktree hooks in Git's common hooks directory", async () => {
+    const root = await createGitRepo();
+    const worktree = join(dirname(root), `${root.split("/").at(-1)}-worktree`);
+    tempDirs.push(worktree);
+    await execa("git", ["worktree", "add", worktree], { cwd: root });
+    process.chdir(worktree);
+    const { stdout } = await execa(
+      "git",
+      ["rev-parse", "--path-format=absolute", "--git-path", "hooks"],
+      { cwd: worktree },
+    );
+
+    await expect(installHook()).resolves.toBe(join(stdout.trim(), "post-commit"));
+    expect(existsSync(join(root, ".git", "hooks", "post-commit"))).toBe(true);
   });
 });
 
@@ -296,3 +337,25 @@ describe("generateManagedSection", () => {
     },
   );
 });
+
+async function createGitRepo(): Promise<string> {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "diffowl-hooks-")));
+  tempDirs.push(root);
+  await execa("git", ["init"], { cwd: root });
+  await writeFile(join(root, "README.md"), "test\n", "utf-8");
+  await execa("git", ["add", "."], { cwd: root });
+  await execa(
+    "git",
+    [
+      "-c",
+      "user.name=DiffOwl Test",
+      "-c",
+      "user.email=diffowl@example.test",
+      "commit",
+      "-m",
+      "initial",
+    ],
+    { cwd: root },
+  );
+  return root;
+}

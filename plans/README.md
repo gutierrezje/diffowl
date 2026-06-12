@@ -16,7 +16,7 @@ change with DiffOwl, and update its status row.
 | 004  | Read context from the review target   | P1       | L      | 003        | TODO   |
 | 005  | Prioritize assistant errors           | P1       | S      | 001        | DONE   |
 | 006  | Preserve combined merge diffs         | P1       | M      | 002, 004   | TODO   |
-| 007  | Resolve the effective hooks directory | P1       | S      | 001        | TODO   |
+| 007  | Resolve the effective hooks directory | P1       | S      | 001        | DONE   |
 | 008  | Preserve pending hook failures        | P1       | M      | 007        | TODO   |
 | 009  | Bound untrusted review content        | P1       | S      | 001        | TODO   |
 | 010  | Classify documentation conservatively | P1       | S      | 006        | TODO   |

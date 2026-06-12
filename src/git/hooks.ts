@@ -27,11 +27,20 @@ function loggedStdio(outFd: number): ExecaOptions["stdio"] {
 }
 
 /**
- * Get the .git/hooks directory path
+ * Get Git's effective hooks directory path.
  */
 async function getHooksDir(): Promise<string> {
-  const { stdout } = await execa("git", ["rev-parse", "--git-dir"]);
-  return join(stdout.trim(), "hooks");
+  const { stdout } = await execa("git", [
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-path",
+    "hooks",
+  ]);
+  const hooksDir = stdout.trim();
+  if (!hooksDir) {
+    throw new Error("Git returned an empty hooks directory.");
+  }
+  return hooksDir;
 }
 
 /**
@@ -39,6 +48,7 @@ async function getHooksDir(): Promise<string> {
  */
 export async function installHook(): Promise<string> {
   const hooksDir = await getHooksDir();
+  await mkdir(hooksDir, { recursive: true });
   const hookPath = join(hooksDir, "post-commit");
   const command = await resolveHookCommand();
 
