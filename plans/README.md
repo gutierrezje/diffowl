@@ -11,7 +11,7 @@ change with DiffOwl, and update its status row.
 | Plan | Title                                 | Priority | Effort | Depends on | Status |
 | ---- | ------------------------------------- | -------- | ------ | ---------- | ------ |
 | 001  | Make report path tests portable       | P1       | S      | -          | DONE   |
-| 002  | Decode Git C-style quoted paths       | P1       | S      | 001        | TODO   |
+| 002  | Decode Git C-style quoted paths       | P1       | S      | 001        | DONE   |
 | 003  | Use one explicit review root          | P1       | M      | 001        | TODO   |
 | 004  | Read context from the review target   | P1       | L      | 003        | TODO   |
 | 005  | Prioritize assistant errors           | P1       | S      | 001        | TODO   |

@@ -8,9 +8,11 @@ import {
   getCommitDiff,
   getStagedDiff,
   parseDiff,
+  parseGitDiffLine,
   resolveCommitRef,
   isDocFile,
   isDocOnlyDiff,
+  unescapePath,
 } from "./diff.js";
 
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
@@ -206,6 +208,33 @@ describe("parseDiff", () => {
     const file = result.files[0]!;
     expect(file.path).toBe('src/my "cool" file.ts');
     expect(file.status).toBe("modified");
+  });
+
+  it("decodes UTF-8 octal escapes in quoted diff paths", () => {
+    expect(
+      parseGitDiffLine('diff --git "a/src/caf\\303\\251.ts" "b/src/caf\\303\\251.ts"'),
+    ).toEqual({
+      pathA: "src/café.ts",
+      pathB: "src/café.ts",
+    });
+    expect(unescapePath('"src/caf\\303\\251.ts"')).toBe("src/café.ts");
+  });
+
+  it("parses quoted paths emitted by Git for non-ASCII filenames", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-quoted-path-"));
+    tempDirs.push(root);
+    process.chdir(root);
+
+    await execa("git", ["init"]);
+    await execa("git", ["config", "core.quotePath", "true"]);
+    await writeFile("café.ts", "export const value = 1;\n", "utf-8");
+    await execa("git", ["add", "café.ts"]);
+
+    const { stdout } = await execa("git", ["diff", "--staged", "--patch"]);
+    expect(stdout).toContain("\\303\\251");
+    expect(parseDiff(stdout).files).toEqual([
+      { path: "café.ts", status: "added", additions: 1, deletions: 0 },
+    ]);
   });
 
   it("parses combined merge conflict diffs (diff --cc and diff --combined)", () => {

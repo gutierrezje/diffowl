@@ -235,21 +235,19 @@ export function parseGitDiffLine(line: string): { pathA: string; pathB: string }
     if (content[i] === '"') {
       // Quoted/Escaped path
       i++; // Skip open quote
-      let path = "";
+      const start = i;
       while (i < content.length) {
         if (content[i] === '"') {
-          i++; // Skip close quote
           break;
         }
         if (content[i] === "\\" && i + 1 < content.length) {
-          path += content[i + 1] ?? "";
           i += 2;
         } else {
-          path += content[i] ?? "";
           i++;
         }
       }
-      paths.push(path);
+      paths.push(decodeGitQuotedPath(content.slice(start, i)));
+      i++; // Skip close quote
     } else {
       // Unquoted path (extends to next space or end of string)
       let start = i;
@@ -297,20 +295,48 @@ function parseCombinedDiffLine(line: string): string | null {
 
 export function unescapePath(content: string): string {
   if (content.startsWith('"') && content.endsWith('"')) {
-    let path = "";
-    let i = 1;
-    while (i < content.length - 1) {
-      if (content[i] === "\\" && i + 1 < content.length - 1) {
-        path += content[i + 1] ?? "";
-        i += 2;
-      } else {
-        path += content[i] ?? "";
-        i++;
-      }
-    }
-    return path;
+    return decodeGitQuotedPath(content.slice(1, -1));
   }
   return content;
+}
+
+function decodeGitQuotedPath(content: string): string {
+  const escapes: Record<string, string> = {
+    '"': '"',
+    "\\": "\\",
+    a: "\x07",
+    b: "\b",
+    t: "\t",
+    n: "\n",
+    v: "\v",
+    f: "\f",
+    r: "\r",
+  };
+  let path = "";
+  let i = 0;
+
+  while (i < content.length) {
+    if (content[i] !== "\\" || i + 1 >= content.length) {
+      path += content[i] ?? "";
+      i++;
+      continue;
+    }
+
+    const bytes: number[] = [];
+    while (content[i] === "\\" && /^[0-7]{3}/.test(content.slice(i + 1, i + 4))) {
+      bytes.push(Number.parseInt(content.slice(i + 1, i + 4), 8));
+      i += 4;
+    }
+    if (bytes.length > 0) {
+      path += Buffer.from(bytes).toString("utf-8");
+      continue;
+    }
+
+    path += escapes[content[i + 1] ?? ""] ?? content[i + 1] ?? "";
+    i += 2;
+  }
+
+  return path;
 }
 
 function statusSymbol(status: DiffFile["status"]): string {
