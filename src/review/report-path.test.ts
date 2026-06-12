@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -101,7 +101,7 @@ describe("canSelectReviewInteractively", () => {
 });
 
 async function createProject(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "diffowl-report-path-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "diffowl-report-path-")));
   tempDirs.push(root);
   await mkdir(join(root, ".diffowl", "reviews"), { recursive: true });
   await writeFile(join(root, ".diffowl.yml"), "model: provider/model\n", "utf-8");
