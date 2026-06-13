@@ -40,7 +40,7 @@ const config: DiffOwlConfig = {
 };
 
 describe("buildReviewContext", () => {
-  it("renders combined merge diffs and maps resolved result lines", async () => {
+  it("renders merge diffs and maps resolved result lines", async () => {
     const root = await createGitRepository();
     await writeFile(join(root, "example.ts"), 'export const value = "base";\n', "utf-8");
     await commitAll(root, "base");
@@ -69,8 +69,10 @@ describe("buildReviewContext", () => {
       expect.objectContaining({ path: "example.ts", status: "modified" }),
     );
     expect(context.changedFiles[0]!.changedLines).toContain(1);
-    expect(rendered).toMatch(/diff --(?:cc|combined) example\.ts/);
-    expect(rendered).toContain('++export const value = "resolved";');
+    expect(rendered).toMatch(
+      /diff --(?:(?:cc|combined) example\.ts|git a\/example\.ts b\/example\.ts)/,
+    );
+    expect(rendered).toMatch(/\+{1,2}export const value = "resolved";/);
     expect(rendered).toContain("Changed AST symbols");
   });
 
