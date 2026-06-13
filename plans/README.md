@@ -19,7 +19,7 @@ change with DiffOwl, and update its status row.
 | 007  | Resolve the effective hooks directory | P1       | S      | 001        | DONE   |
 | 008  | Preserve pending hook failures        | P1       | M      | 007        | DONE   |
 | 009  | Bound untrusted review content        | P1       | S      | 001        | DONE   |
-| 010  | Classify documentation conservatively | P1       | S      | 006        | TODO   |
+| 010  | Classify documentation conservatively | P1       | S      | 006        | DONE   |
 | 011  | Skip nested lockfiles                 | P2       | S      | 004        | TODO   |
 | 012  | Surface model discovery errors        | P2       | S      | 001        | TODO   |
 | 013  | Normalize finding paths               | P2       | S      | 005        | TODO   |

@@ -427,6 +427,13 @@ describe("parseDiff", () => {
 });
 
 describe("isDocFile", () => {
+  it("does not classify source files by documentation name prefixes", () => {
+    expect(isDocFile("README.ts")).toBe(false);
+    expect(isDocFile("TODO.go")).toBe(false);
+    expect(isDocFile("SECURITY.py")).toBe(false);
+    expect(isDocFile("CHANGELOG.tsx")).toBe(false);
+  });
+
   it("returns true for markdown files", () => {
     expect(isDocFile("README.md")).toBe(true);
     expect(isDocFile("docs/guide.md")).toBe(true);
@@ -439,6 +446,7 @@ describe("isDocFile", () => {
 
   it("returns true for well-known doc filenames", () => {
     expect(isDocFile("LICENSE")).toBe(true);
+    expect(isDocFile("LICENSE-MIT")).toBe(true);
     expect(isDocFile("CHANGELOG")).toBe(true);
     expect(isDocFile("CONTRIBUTING.md")).toBe(true);
     expect(isDocFile("CODE_OF_CONDUCT")).toBe(true);
@@ -452,6 +460,19 @@ describe("isDocFile", () => {
 });
 
 describe("isDocOnlyDiff", () => {
+  it("returns false when a documentation-prefixed source file is present", () => {
+    expect(
+      isDocOnlyDiff({
+        files: [
+          { path: "README.md", status: "modified", additions: 1, deletions: 1 },
+          { path: "README.ts", status: "modified", additions: 1, deletions: 1 },
+        ],
+        raw: "",
+        summary: "",
+      }),
+    ).toBe(false);
+  });
+
   it("returns true for a realistic docs-only fixture", async () => {
     expect(isDocOnlyDiff(parseDiff(await readFixture("docs-only.diff")))).toBe(true);
   });

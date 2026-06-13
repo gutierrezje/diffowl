@@ -1,5 +1,5 @@
 import { execa } from "execa";
-import { basename } from "node:path";
+import { basename, extname } from "node:path";
 
 export interface DiffResult {
   files: DiffFile[];
@@ -356,11 +356,8 @@ function statusSymbol(status: DiffFile["status"]): string {
   }
 }
 
-const DOC_FILE_PATTERNS = [
-  /\.md$/i,
-  /\.txt$/i,
-  /\.rst$/i,
-  /\.adoc$/i,
+const DOC_EXTENSIONS = new Set([".md", ".txt", ".rst", ".adoc"]);
+const DOC_BASENAME_PATTERNS = [
   /^LICENSE/i,
   /^CHANGELOG/i,
   /^CONTRIBUTING/i,
@@ -377,7 +374,10 @@ const DOC_FILE_PATTERNS = [
 
 export function isDocFile(path: string): boolean {
   const base = basename(path);
-  return DOC_FILE_PATTERNS.some((pattern) => pattern.test(base));
+  const extension = extname(base).toLowerCase();
+  if (DOC_EXTENSIONS.has(extension)) return true;
+  if (extension) return false;
+  return DOC_BASENAME_PATTERNS.some((pattern) => pattern.test(base));
 }
 
 export function isDocOnlyDiff(diff: DiffResult): boolean {
