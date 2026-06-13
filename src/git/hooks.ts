@@ -123,12 +123,17 @@ const HookFailureSchema = z.object({
   message: z.string().optional(),
 });
 
-/**
- * Check if the background post-commit hook failed recently.
- * Returns failure details only for non-zero exits within the last hour.
- */
 export async function checkRecentHookFailure(): Promise<HookFailure | undefined> {
-  const statusPath = join(getDiffOwlDir(), "last-hook-status.json");
+  const dir = getDiffOwlDir();
+  const pending = await listPendingReviews(dir);
+  for (const item of pending) {
+    const result = await readHookResult(join(dir, "pending-reviews", `${item.sha}.result.json`));
+    if (result && result.exitCode !== 0 && result.message !== "Review started.") {
+      return result;
+    }
+  }
+
+  const statusPath = join(dir, "last-hook-status.json");
   if (!existsSync(statusPath)) {
     return undefined;
   }
@@ -156,6 +161,35 @@ export async function checkRecentHookFailure(): Promise<HookFailure | undefined>
     };
   } catch {
     return undefined;
+  }
+}
+
+export async function writeHookStatus(
+  exitCode: number,
+  commit?: string,
+  message?: string,
+  resultPath: string | null | undefined = process.env["DIFFOWL_HOOK_RESULT"],
+  dir?: string,
+): Promise<void> {
+  try {
+    const statusDir = dir ?? (await ensureDiffOwlDir());
+    const content = JSON.stringify(
+      {
+        ...(commit ? { commit } : {}),
+        exitCode,
+        timestamp: new Date().toISOString(),
+        ...(message ? { message } : {}),
+      },
+      null,
+      2,
+    );
+    if (resultPath) {
+      await writeFile(resultPath, content, "utf-8");
+      return;
+    }
+    await writeFile(join(statusDir, "last-hook-status.json"), content, "utf-8");
+  } catch {
+    // Best-effort: status files are advisory.
   }
 }
 
@@ -251,13 +285,9 @@ export async function runPendingHookReviews(): Promise<void> {
           env,
         });
       } catch (error) {
-        writeSync(
-          outFd,
-          `diffowl: queued review ${next.sha} failed to run: ${
-            error instanceof Error ? error.message : String(error)
-          }\n`,
-        );
-        continue;
+        const message = error instanceof Error ? error.message : String(error);
+        writeSync(outFd, `diffowl: queued review ${next.sha} failed to run: ${message}\n`);
+        await writeHookStatus(1, next.sha, message, resultPath, dir);
       }
     } finally {
       closeSync(outFd);
@@ -265,6 +295,9 @@ export async function runPendingHookReviews(): Promise<void> {
 
     const status = await readHookResult(resultPath);
     if (status?.exitCode !== 0 || status.message) {
+      if (status && status.exitCode !== 0) {
+        await writeHookStatus(status.exitCode, status.commit, status.message, null, dir);
+      }
       continue;
     }
 

@@ -8,7 +8,6 @@ import {
   loadConfig,
   saveConfig,
   configExists,
-  ensureDiffOwlDir,
   getProjectRoot,
   parseModel,
   parseReviewContextDepth,
@@ -39,6 +38,7 @@ import {
   runHookReview,
   runPendingHookReviews,
   releaseHookReviewLock,
+  writeHookStatus,
 } from "./git/hooks.js";
 import { isGitRepo, hasCommits, isDocOnlyDiff } from "./git/diff.js";
 import {
@@ -62,34 +62,10 @@ import {
   selectReviewReportPath,
 } from "./review/report-path.js";
 
-import { readFile, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { basename, dirname } from "node:path";
 import { execa } from "execa";
 import packageJson from "../package.json" with { type: "json" };
-
-async function writeHookStatus(exitCode: number, commit?: string, message?: string): Promise<void> {
-  try {
-    const dir = await ensureDiffOwlDir();
-    const content = JSON.stringify(
-      {
-        ...(commit ? { commit } : {}),
-        exitCode,
-        timestamp: new Date().toISOString(),
-        ...(message ? { message } : {}),
-      },
-      null,
-      2,
-    );
-    await writeFile(join(dir, "last-hook-status.json"), content, "utf-8");
-
-    const resultPath = process.env["DIFFOWL_HOOK_RESULT"];
-    if (resultPath) {
-      await writeFile(resultPath, content, "utf-8");
-    }
-  } catch {
-    // Best-effort: status file is advisory only
-  }
-}
 
 const program = new Command();
 

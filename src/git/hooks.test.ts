@@ -13,6 +13,7 @@ import {
   installHook,
   isHookInstalled,
   listPendingReviews,
+  writeHookStatus,
   releaseHookReviewLock,
   uninstallHook,
 } from "./hooks.js";
@@ -99,6 +100,110 @@ describe("installHook", () => {
 });
 
 describe("checkRecentHookFailure", () => {
+  it("prefers a pending failed result over a newer global success", async () => {
+    const root = await createHookStatusRoot();
+    await enqueuePendingReview(join(root, ".diffowl"), "failed-a");
+    await writePendingResult(root, "failed-a", {
+      commit: "failed-a",
+      exitCode: 1,
+      timestamp: new Date().toISOString(),
+      message: "Review failed.",
+    });
+    await writeGlobalStatus(root, {
+      commit: "success-b",
+      exitCode: 0,
+      timestamp: new Date().toISOString(),
+    });
+
+    process.chdir(root);
+    await expect(checkRecentHookFailure()).resolves.toMatchObject({
+      commit: "failed-a",
+      exitCode: 1,
+    });
+  });
+
+  it("keeps reporting old failures while their pending marker exists", async () => {
+    const root = await createHookStatusRoot();
+    await enqueuePendingReview(join(root, ".diffowl"), "failed-a");
+    await writePendingResult(root, "failed-a", {
+      commit: "failed-a",
+      exitCode: 1,
+      timestamp: "2020-01-01T00:00:00.000Z",
+    });
+
+    process.chdir(root);
+    await expect(checkRecentHookFailure()).resolves.toMatchObject({ commit: "failed-a" });
+  });
+
+  it("ignores orphaned result files", async () => {
+    const root = await createHookStatusRoot();
+    await mkdir(join(root, ".diffowl", "pending-reviews"), { recursive: true });
+    await writePendingResult(root, "orphan", {
+      commit: "orphan",
+      exitCode: 1,
+      timestamp: new Date().toISOString(),
+    });
+
+    process.chdir(root);
+    await expect(checkRecentHookFailure()).resolves.toBeUndefined();
+  });
+
+  it("stops reporting a failure after its marker and result are removed", async () => {
+    const root = await createHookStatusRoot();
+    const dir = join(root, ".diffowl");
+    await enqueuePendingReview(dir, "failed-a");
+    await writePendingResult(root, "failed-a", {
+      commit: "failed-a",
+      exitCode: 1,
+      timestamp: new Date().toISOString(),
+    });
+    await rm(join(dir, "pending-reviews", "failed-a"));
+    await rm(join(dir, "pending-reviews", "failed-a.result.json"));
+
+    process.chdir(root);
+    await expect(checkRecentHookFailure()).resolves.toBeUndefined();
+  });
+
+  it("reports the oldest pending failure first", async () => {
+    const root = await createHookStatusRoot();
+    const dir = join(root, ".diffowl");
+    await enqueuePendingReview(dir, "failed-a");
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    await enqueuePendingReview(dir, "failed-b");
+    await writePendingResult(root, "failed-a", {
+      commit: "failed-a",
+      exitCode: 1,
+      timestamp: new Date().toISOString(),
+    });
+    await writePendingResult(root, "failed-b", {
+      commit: "failed-b",
+      exitCode: 1,
+      timestamp: new Date().toISOString(),
+    });
+
+    process.chdir(root);
+    await expect(checkRecentHookFailure()).resolves.toMatchObject({ commit: "failed-a" });
+  });
+
+  it("writes hook child status only to its per-commit result", async () => {
+    const root = await createHookStatusRoot();
+    const global = {
+      commit: "failed-a",
+      exitCode: 1,
+      timestamp: new Date().toISOString(),
+    };
+    await writeGlobalStatus(root, global);
+    const resultPath = join(root, ".diffowl", "pending-reviews", "success-b.result.json");
+    await mkdir(dirname(resultPath), { recursive: true });
+
+    await writeHookStatus(0, "success-b", undefined, resultPath, join(root, ".diffowl"));
+
+    await expect(readFile(join(root, ".diffowl", "last-hook-status.json"), "utf-8")).resolves.toBe(
+      JSON.stringify(global),
+    );
+    await expect(readFile(resultPath, "utf-8")).resolves.toContain('"commit": "success-b"');
+  });
+
   it("reads hook status from the discovered project root when run from a subdirectory", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-hooks-"));
     tempDirs.push(root);
@@ -358,4 +463,31 @@ async function createGitRepo(): Promise<string> {
     { cwd: root },
   );
   return root;
+}
+
+async function createHookStatusRoot(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "diffowl-hooks-"));
+  tempDirs.push(root);
+  await mkdir(join(root, ".diffowl"), { recursive: true });
+  await writeFile(join(root, ".diffowl.yml"), "model: provider/model\n", "utf-8");
+  return root;
+}
+
+async function writePendingResult(
+  root: string,
+  sha: string,
+  status: { commit: string; exitCode: number; timestamp: string; message?: string },
+): Promise<void> {
+  await writeFile(
+    join(root, ".diffowl", "pending-reviews", `${sha}.result.json`),
+    JSON.stringify(status),
+    "utf-8",
+  );
+}
+
+async function writeGlobalStatus(
+  root: string,
+  status: { commit: string; exitCode: number; timestamp: string },
+): Promise<void> {
+  await writeFile(join(root, ".diffowl", "last-hook-status.json"), JSON.stringify(status), "utf-8");
 }
