@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { execa } from "execa";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { removeTempDir } from "../test/helpers.js";
 import {
   acquireHookReviewLock,
   checkRecentHookFailure,
@@ -24,10 +25,11 @@ let tempDirs: string[] = [];
 
 afterEach(async () => {
   process.chdir(originalCwd);
-  await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(tempDirs.map((dir) => removeTempDir(dir)));
   tempDirs = [];
 });
 
+// Git init plus command resolution can exceed Vitest's 5s default on Windows CI.
 describe("installHook", () => {
   it("refreshes existing managed hooks with a detached logged runner", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-hooks-"));
@@ -98,7 +100,7 @@ describe("installHook", () => {
     await expect(installHook()).resolves.toBe(join(stdout.trim(), "post-commit"));
     expect(existsSync(join(root, ".git", "hooks", "post-commit"))).toBe(true);
   });
-});
+}, 20_000);
 
 describe("checkRecentHookFailure", () => {
   it("prefers a pending failed result over a newer global success", async () => {

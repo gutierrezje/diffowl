@@ -33,7 +33,11 @@ export async function openStateDatabase(diffOwlDir: string): Promise<StateDataba
     applyMigrations(db, CURRENT_SCHEMA_VERSION);
     return { db, path };
   } catch (error) {
-    closeDatabaseConnection(db);
+    try {
+      closeDatabaseConnection(db);
+    } catch {
+      // Best-effort cleanup; preserve the original open/setup failure.
+    }
     throw error;
   }
 }
@@ -43,9 +47,12 @@ export function closeDatabaseConnection(db: Database.Database): void {
     return;
   }
 
-  // Checkpoint WAL so Windows can release state.db, -wal, and -shm during cleanup.
-  db.pragma("wal_checkpoint(TRUNCATE)");
-  db.close();
+  try {
+    // Checkpoint WAL so Windows can release state.db, -wal, and -shm during cleanup.
+    db.pragma("wal_checkpoint(TRUNCATE)");
+  } finally {
+    db.close();
+  }
 }
 
 export function closeStateDatabase(state: StateDatabase): void {
