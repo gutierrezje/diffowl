@@ -43,7 +43,7 @@ import {
 import { isGitRepo, hasCommits, isDocOnlyDiff } from "./git/diff.js";
 import {
   buildReviewContextFromDiff,
-  loadReviewDiff,
+  loadReviewSnapshot,
   renderReviewContext,
 } from "./review/context.js";
 import {
@@ -200,7 +200,8 @@ program
     });
 
     try {
-      const diff = await loadReviewDiff(target);
+      const snapshot = await loadReviewSnapshot(projectRoot, target);
+      const { diff } = snapshot;
 
       if (target.kind === "staged" && diff.files.length === 0) {
         spinner.stop();
@@ -221,11 +222,7 @@ program
       }
 
       const contextStart = performance.now();
-      const reviewContext = await buildReviewContextFromDiff(
-        { root: projectRoot, target, diff },
-        config,
-        depth,
-      );
+      const reviewContext = await buildReviewContextFromDiff(snapshot, config, depth);
       recordCliTiming(timings, "context-build", "Local review context build", contextStart);
 
       const contextRenderStart = performance.now();

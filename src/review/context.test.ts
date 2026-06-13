@@ -40,6 +40,92 @@ const config: DiffOwlConfig = {
 };
 
 describe("buildReviewContext", () => {
+  it("reads staged changed-file content from the index", async () => {
+    const root = await createGitRepository();
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src/example.ts"), "export const value = 1;\n", "utf-8");
+    await commitAll(root, "initial");
+
+    await writeFile(join(root, "src/example.ts"), "export const value = 2;\n", "utf-8");
+    await execa("git", ["add", "src/example.ts"], { cwd: root });
+    await writeFile(join(root, "src/example.ts"), "export const value = 3;\n", "utf-8");
+
+    process.chdir(root);
+    const context = await buildReviewContext({ kind: "staged" }, config, "shallow");
+    const rendered = renderReviewContext(context);
+
+    expect(rendered).toContain("value = 2");
+    expect(rendered).not.toContain("value = 3");
+  });
+
+  it("reads changed-file content from the selected historical commit", async () => {
+    const root = await createGitRepository();
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src/example.ts"), "export const value = 1;\n", "utf-8");
+    await commitAll(root, "first");
+    const { stdout: firstCommit } = await execa("git", ["rev-parse", "HEAD"], { cwd: root });
+
+    await writeFile(join(root, "src/example.ts"), "export const value = 2;\n", "utf-8");
+    await commitAll(root, "second");
+
+    process.chdir(root);
+    const context = await buildReviewContext(
+      { kind: "commit", ref: firstCommit.trim() },
+      config,
+      "shallow",
+    );
+    const rendered = renderReviewContext(context);
+
+    expect(rendered).toContain("value = 1");
+    expect(rendered).not.toContain("value = 2");
+  });
+
+  it("reads related files and reference snippets from the staged index", async () => {
+    const root = await createGitRepository();
+    await mkdir(join(root, "src"));
+    await writeFile(
+      join(root, "src/example.ts"),
+      "export function calculateTotal() {\n  return 1;\n}\n",
+      "utf-8",
+    );
+    await writeFile(
+      join(root, "src/example.test.ts"),
+      "test('staged related marker', () => calculateTotal());\n",
+      "utf-8",
+    );
+    await writeFile(
+      join(root, "src/consumer.ts"),
+      "console.log('staged reference marker', calculateTotal());\n",
+      "utf-8",
+    );
+    await commitAll(root, "initial");
+
+    await writeFile(
+      join(root, "src/example.ts"),
+      "export function calculateTotal() {\n  return 2;\n}\n",
+      "utf-8",
+    );
+    await execa("git", ["add", "src/example.ts"], { cwd: root });
+    await writeFile(
+      join(root, "src/example.test.ts"),
+      "test('unstaged related marker', () => calculateTotal());\n",
+      "utf-8",
+    );
+    await writeFile(
+      join(root, "src/consumer.ts"),
+      "console.log('unstaged reference marker', calculateTotal());\n",
+      "utf-8",
+    );
+
+    process.chdir(root);
+    const rendered = renderReviewContext(await buildReviewContext({ kind: "staged" }, config));
+
+    expect(rendered).toContain("staged related marker");
+    expect(rendered).not.toContain("unstaged related marker");
+    expect(rendered).toContain("staged reference marker");
+    expect(rendered).not.toContain("unstaged reference marker");
+  });
+
   it("collects staged diff, changed file content, related tests, and reference hints", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
     tempDirs.push(root);
@@ -855,6 +941,30 @@ describe("buildReviewContext", () => {
     expect(context.diagnostics).toEqual([]);
   });
 });
+
+async function createGitRepository(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
+  tempDirs.push(root);
+  await execa("git", ["init"], { cwd: root });
+  return root;
+}
+
+async function commitAll(root: string, message: string): Promise<void> {
+  await execa("git", ["add", "."], { cwd: root });
+  await execa(
+    "git",
+    [
+      "-c",
+      "user.name=DiffOwl Test",
+      "-c",
+      "user.email=diffowl@example.test",
+      "commit",
+      "-m",
+      message,
+    ],
+    { cwd: root },
+  );
+}
 
 async function makeReferenceSearchPath(root: string): Promise<string> {
   const gitPath = await resolveCommandPath("git");

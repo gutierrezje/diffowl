@@ -31,6 +31,10 @@ export async function getLastCommitDiff(): Promise<DiffResult> {
 
 export async function getCommitDiff(ref: string): Promise<DiffResult> {
   const commit = await resolveCommitRef(ref);
+  return getResolvedCommitDiff(commit);
+}
+
+export async function getResolvedCommitDiff(commit: string): Promise<DiffResult> {
   const raw = await collectGitDiff([
     "-c",
     "diff.noprefix=false",

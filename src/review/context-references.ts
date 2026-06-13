@@ -1,20 +1,18 @@
-import { basename, extname, join } from "node:path";
-import { readFile, stat } from "node:fs/promises";
-import { execa } from "execa";
+import { basename, extname } from "node:path";
 import type { ChangedFileContext, ReferenceContext, ReferenceMatch } from "./context-types.js";
 import type { DiffFile } from "../git/diff.js";
+import type { ReviewContextSource } from "./context-source.js";
 
 const MAX_REFERENCES_PER_TERM = 8;
 const MAX_REFERENCE_TERMS = 8;
 const MAX_REFERENCE_LINE_CHARS = 220;
 const MAX_BATCH_REFERENCE_MATCHES = 200;
-const REFERENCE_SEARCH_TIMEOUT_MS = 5_000;
 const REFERENCE_SNIPPET_RADIUS = 2;
 const MAX_REFERENCE_SNIPPET_CHARS = 1_200;
 const MAX_REFERENCE_SNIPPET_FILE_BYTES = 256 * 1024;
 
 export async function buildReferenceContexts(
-  root: string,
+  source: ReviewContextSource,
   changedFiles: ChangedFileContext[],
   skippedFiles: DiffFile[],
   diagnostics: string[],
@@ -38,12 +36,12 @@ export async function buildReferenceContexts(
     return [];
   }
 
-  const allMatches = await findBatchReferences(root, validTerms, ignoredPaths, diagnostics);
+  const allMatches = await findBatchReferences(source, validTerms, ignoredPaths, diagnostics);
 
   const references: ReferenceContext[] = [];
   for (const term of validTerms) {
     const matches = await addReferenceSnippets(
-      root,
+      source,
       allMatches
         .filter((match) => (match.fullText ?? match.text).includes(term))
         .slice(0, MAX_REFERENCES_PER_TERM),
@@ -58,14 +56,14 @@ export async function buildReferenceContexts(
 }
 
 async function findBatchReferences(
-  root: string,
+  source: ReviewContextSource,
   terms: string[],
   ignoredPaths: Set<string>,
   diagnostics: string[],
 ): Promise<ReferenceMatch[]> {
   let matches: ReferenceMatch[];
   try {
-    matches = await findBatchReferencesWithGitGrep(root, terms, ignoredPaths);
+    matches = await findBatchReferencesWithGitGrep(source, terms, ignoredPaths);
   } catch (err) {
     diagnostics.push(`Reference search failed: ${formatReferenceSearchError(err)}.`);
     return [];
@@ -98,30 +96,11 @@ function formatReferenceSearchError(err: unknown): string {
 }
 
 async function findBatchReferencesWithGitGrep(
-  root: string,
+  source: ReviewContextSource,
   terms: string[],
   ignoredPaths: Set<string>,
 ): Promise<ReferenceMatch[]> {
-  try {
-    const args = ["grep", "-n", "--fixed-strings"];
-    for (const term of terms) {
-      args.push("-e", term);
-    }
-    args.push("--");
-
-    const { stdout } = await execa("git", args, {
-      cwd: root,
-      timeout: REFERENCE_SEARCH_TIMEOUT_MS,
-    });
-    return parseBatchReferenceLines(stdout, ignoredPaths);
-  } catch (err) {
-    if (isNoMatchesExit(err)) return [];
-    throw err;
-  }
-}
-
-function isNoMatchesExit(err: unknown): boolean {
-  return typeof err === "object" && err !== null && "exitCode" in err && err.exitCode === 1;
+  return parseBatchReferenceLines(await source.search(terms), ignoredPaths);
 }
 
 function parseBatchReferenceLines(stdout: string, ignoredPaths: Set<string>): ReferenceMatch[] {
@@ -146,7 +125,7 @@ function parseReferenceLine(line: string): ReferenceMatch | undefined {
 }
 
 async function addReferenceSnippets(
-  root: string,
+  source: ReviewContextSource,
   matches: ReferenceMatch[],
 ): Promise<ReferenceMatch[]> {
   const files = new Map<string, string[]>();
@@ -154,15 +133,9 @@ async function addReferenceSnippets(
   await Promise.all(
     [...new Set(matches.map((match) => match.path))].map(async (path) => {
       try {
-        const absolutePath = join(root, path);
-        const info = await stat(absolutePath);
-        if (!info.isFile() || info.size > MAX_REFERENCE_SNIPPET_FILE_BYTES) {
-          return;
-        }
-
-        const content = await readFile(absolutePath, "utf-8");
-        if (!content.includes("\0")) {
-          files.set(path, content.split("\n"));
+        const result = await source.read(path, MAX_REFERENCE_SNIPPET_FILE_BYTES);
+        if (result.status === "loaded" && !result.content.includes("\0")) {
+          files.set(path, result.content.split("\n"));
         }
       } catch {
         // Reference snippets are advisory; keep the line-level match if reading fails.

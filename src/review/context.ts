@@ -1,19 +1,22 @@
-import { existsSync } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import picomatch from "picomatch";
 import { getProjectRoot, type DiffOwlConfig, type ReviewContextDepth } from "../config.js";
 import {
-  getCommitDiff,
-  getLastCommitDiff,
+  getResolvedCommitDiff,
   getStagedDiff,
   parseGitDiffLine,
+  resolveCommitRef,
   unescapePath,
   type DiffFile,
   type DiffResult,
 } from "../git/diff.js";
 import { extractAstSymbols } from "./ast/index.js";
 import { buildReferenceContexts } from "./context-references.js";
+import {
+  createFilesystemContextSource,
+  createGitContextSource,
+  type ReviewContextSource,
+} from "./context-source.js";
 import type { ChangedFileContext, RelatedFileContext, ReviewContext } from "./context-types.js";
 import type { ReviewTarget } from "./target.js";
 
@@ -42,41 +45,71 @@ type TextFileResult =
   | { status: "loaded"; content: string; truncated: boolean }
   | { status: "skipped"; reason: string };
 
+export interface LoadedReviewSnapshot {
+  root: string;
+  target: ReviewTarget;
+  diff: DiffResult;
+  source: ReviewContextSource;
+}
+
 export async function buildReviewContext(
   target: ReviewTarget,
   config: DiffOwlConfig,
   depth: ReviewContextDepth = config.context.depth,
 ): Promise<ReviewContext> {
   return buildReviewContextFromDiff(
-    { root: getProjectRoot(), target, diff: await loadReviewDiff(target) },
+    await loadReviewSnapshot(getProjectRoot(), target),
     config,
     depth,
   );
 }
 
-export async function loadReviewDiff(target: ReviewTarget): Promise<DiffResult> {
+export async function loadReviewSnapshot(
+  root: string,
+  target: ReviewTarget,
+): Promise<LoadedReviewSnapshot> {
   switch (target.kind) {
     case "staged":
-      return getStagedDiff();
-    case "commit":
-      return getCommitDiff(target.ref);
-    case "last-commit":
-      return getLastCommitDiff();
+      return {
+        root,
+        target,
+        diff: await getStagedDiff(),
+        source: createGitContextSource(root, { kind: "staged" }),
+      };
+    case "commit": {
+      const sha = await resolveCommitRef(target.ref);
+      return {
+        root,
+        target,
+        diff: await getResolvedCommitDiff(sha),
+        source: createGitContextSource(root, { kind: "commit", sha }),
+      };
+    }
+    case "last-commit": {
+      const sha = await resolveCommitRef("HEAD");
+      return {
+        root,
+        target,
+        diff: await getResolvedCommitDiff(sha),
+        source: createGitContextSource(root, { kind: "commit", sha }),
+      };
+    }
   }
 }
 
 export async function buildReviewContextFromDiff(
-  snapshot: { root: string; target: ReviewTarget; diff: DiffResult },
+  snapshot: { root: string; target: ReviewTarget; diff: DiffResult; source?: ReviewContextSource },
   config: DiffOwlConfig,
   depth: ReviewContextDepth = config.context.depth,
 ): Promise<ReviewContext> {
   const { root, target, diff: diffResult } = snapshot;
+  const source = snapshot.source ?? createFilesystemContextSource(root);
   const reviewableFiles = diffResult.files.filter((file) => shouldReviewFile(file.path, config));
   const skippedFiles = diffResult.files.filter((file) => !shouldReviewFile(file.path, config));
   const changedLines = getChangedLinesByFile(diffResult.raw);
   const changedFileResults = await Promise.all(
     reviewableFiles.map((file) =>
-      buildChangedFileContext(root, file, changedLines.get(file.path) ?? []),
+      buildChangedFileContext(source, file, changedLines.get(file.path) ?? []),
     ),
   );
   const changedFiles = changedFileResults.map((result) => result.fileContext);
@@ -86,11 +119,11 @@ export async function buildReviewContextFromDiff(
     changedFileResults.flatMap((result) => result.diagnostics),
   );
   const relatedFiles =
-    depth === "shallow" ? [] : await buildRelatedFileContexts(root, reviewableFiles);
+    depth === "shallow" ? [] : await buildRelatedFileContexts(source, reviewableFiles);
   const references =
     depth === "shallow"
       ? []
-      : await buildReferenceContexts(root, changedFiles, skippedFiles, diagnostics);
+      : await buildReferenceContexts(source, changedFiles, skippedFiles, diagnostics);
   return {
     target,
     depth,
@@ -104,7 +137,7 @@ export async function buildReviewContextFromDiff(
 }
 
 async function buildChangedFileContext(
-  root: string,
+  source: ReviewContextSource,
   file: DiffFile,
   changedLines: number[],
 ): Promise<{ fileContext: ChangedFileContext; diagnostics: string[] }> {
@@ -122,7 +155,7 @@ async function buildChangedFileContext(
     };
   }
 
-  const contentResult = await readTextFile(join(root, file.path), MAX_FILE_CHARS);
+  const contentResult = await readTextFile(source, file.path, MAX_FILE_CHARS);
   if (contentResult.status === "skipped") {
     return {
       fileContext: {
@@ -165,7 +198,7 @@ async function buildChangedFileContext(
 }
 
 async function buildRelatedFileContexts(
-  root: string,
+  source: ReviewContextSource,
   files: DiffFile[],
 ): Promise<RelatedFileContext[]> {
   const seen = new Set<string>();
@@ -175,10 +208,10 @@ async function buildRelatedFileContexts(
     if (file.status === "deleted") continue;
 
     for (const candidate of testCandidates(file.path)) {
-      if (seen.has(candidate) || !existsSync(join(root, candidate))) continue;
+      if (seen.has(candidate)) continue;
       seen.add(candidate);
 
-      const result = await readTextFile(join(root, candidate), MAX_RELATED_FILE_CHARS);
+      const result = await readTextFile(source, candidate, MAX_RELATED_FILE_CHARS);
       if (result.status === "skipped") continue;
 
       related.push({
@@ -204,32 +237,17 @@ function shouldReviewFile(path: string, config: DiffOwlConfig): boolean {
   return !config.exclude.some((pattern) => picomatch.isMatch(path, pattern));
 }
 
-async function readTextFile(path: string, maxChars: number): Promise<TextFileResult> {
-  try {
-    const info = await stat(path);
-    if (!info.isFile()) {
-      return { status: "skipped", reason: "not a regular file" };
-    }
-    if (info.size > MAX_CONTEXT_FILE_BYTES) {
-      return {
-        status: "skipped",
-        reason: `file too large for context (${formatBytes(info.size)} > ${formatBytes(MAX_CONTEXT_FILE_BYTES)})`,
-      };
-    }
+async function readTextFile(
+  source: ReviewContextSource,
+  path: string,
+  maxChars: number,
+): Promise<TextFileResult> {
+  const raw = await source.read(path, MAX_CONTEXT_FILE_BYTES);
+  if (raw.status === "skipped") return raw;
+  if (raw.content.includes("\0")) return { status: "skipped", reason: "binary file" };
 
-    const raw = await readFile(path, "utf-8");
-    if (raw.includes("\0")) {
-      return { status: "skipped", reason: "binary file" };
-    }
-
-    const result = truncateText(raw, maxChars);
-    return { status: "loaded", content: result.text, truncated: result.truncated };
-  } catch (err) {
-    return {
-      status: "skipped",
-      reason: err instanceof Error ? err.message : String(err),
-    };
-  }
+  const result = truncateText(raw.content, maxChars);
+  return { status: "loaded", content: result.text, truncated: result.truncated };
 }
 
 function extractImports(content: string): string[] {
@@ -348,11 +366,6 @@ function truncateText(text: string, maxChars: number): { text: string; truncated
     text: `${text.slice(0, maxChars)}\n... [truncated ${text.length - maxChars} chars]`,
     truncated: true,
   };
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`;
 }
 
 function addUniqueDiagnostics(target: string[], diagnostics: string[]): void {
