@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { execa } from "execa";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -85,7 +85,7 @@ describe("installHook", () => {
 
   it("installs linked-worktree hooks in Git's common hooks directory", async () => {
     const root = await createGitRepo();
-    const worktree = join(dirname(root), `${root.split("/").at(-1)}-worktree`);
+    const worktree = join(dirname(root), `${basename(root)}-worktree`);
     tempDirs.push(worktree);
     await execa("git", ["worktree", "add", worktree], { cwd: root });
     process.chdir(worktree);
