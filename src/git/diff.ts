@@ -42,6 +42,7 @@ export async function getResolvedCommitDiff(commit: string): Promise<DiffResult>
     "diff.mnemonicprefix=false",
     "show",
     "--format=",
+    "--diff-merges=combined",
     "--stat",
     "--patch",
     commit,

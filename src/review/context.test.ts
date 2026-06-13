@@ -69,7 +69,7 @@ describe("buildReviewContext", () => {
       expect.objectContaining({ path: "example.ts", status: "modified" }),
     );
     expect(context.changedFiles[0]!.changedLines).toContain(1);
-    expect(rendered).toContain("diff --cc example.ts");
+    expect(rendered).toMatch(/diff --(?:cc|combined) example\.ts/);
     expect(rendered).toContain('++export const value = "resolved";');
     expect(rendered).toContain("Changed AST symbols");
   });
