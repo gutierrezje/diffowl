@@ -1,0 +1,90 @@
+import type Database from "better-sqlite3";
+import type { FindingRecord, InsertFindingInput } from "../types.js";
+import { createFindingId } from "../types.js";
+
+const insertFindingStatement = (db: Database.Database) =>
+  db.prepare(`
+    INSERT INTO findings (
+      id,
+      fingerprint,
+      status,
+      first_review_id,
+      last_review_id,
+      created_at,
+      updated_at
+    ) VALUES (
+      @id,
+      @fingerprint,
+      @status,
+      @firstReviewId,
+      @lastReviewId,
+      @createdAt,
+      @updatedAt
+    )
+  `);
+
+const getFindingByIdStatement = (db: Database.Database) =>
+  db.prepare(`
+    SELECT
+      id,
+      fingerprint,
+      status,
+      first_review_id AS firstReviewId,
+      last_review_id AS lastReviewId,
+      created_at AS createdAt,
+      updated_at AS updatedAt
+    FROM findings
+    WHERE id = ?
+  `);
+
+const getFindingByFingerprintStatement = (db: Database.Database) =>
+  db.prepare(`
+    SELECT
+      id,
+      fingerprint,
+      status,
+      first_review_id AS firstReviewId,
+      last_review_id AS lastReviewId,
+      created_at AS createdAt,
+      updated_at AS updatedAt
+    FROM findings
+    WHERE fingerprint = ?
+  `);
+
+export function insertFinding(db: Database.Database, input: InsertFindingInput): FindingRecord {
+  const timestamp = input.createdAt ?? new Date().toISOString();
+  const record: FindingRecord = {
+    id: input.id ?? createFindingId(),
+    fingerprint: input.fingerprint,
+    status: input.status,
+    firstReviewId: input.firstReviewId,
+    lastReviewId: input.lastReviewId,
+    createdAt: timestamp,
+    updatedAt: input.updatedAt ?? timestamp,
+  };
+
+  insertFindingStatement(db).run({
+    id: record.id,
+    fingerprint: record.fingerprint,
+    status: record.status,
+    firstReviewId: record.firstReviewId,
+    lastReviewId: record.lastReviewId,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  });
+
+  return record;
+}
+
+export function getFindingById(db: Database.Database, id: string): FindingRecord | undefined {
+  const row = getFindingByIdStatement(db).get(id) as FindingRecord | undefined;
+  return row;
+}
+
+export function getFindingByFingerprint(
+  db: Database.Database,
+  fingerprint: string,
+): FindingRecord | undefined {
+  const row = getFindingByFingerprintStatement(db).get(fingerprint) as FindingRecord | undefined;
+  return row;
+}
