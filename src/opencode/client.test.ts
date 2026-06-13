@@ -269,10 +269,18 @@ describe("parseStructuredReview", () => {
     ]);
   });
 
-  it("includes a raw response preview when parsing fails", () => {
-    expect(() => parseStructuredReview("I could not review this change.")).toThrow(
-      /Raw response preview: I could not review this change\./,
-    );
+  it("does not echo raw model output when parsing fails", () => {
+    const sentinel = "PRIVATE_MODEL_OUTPUT_SENTINEL";
+    let error: Error | undefined;
+
+    try {
+      parseStructuredReview(sentinel);
+    } catch (err) {
+      error = err instanceof Error ? err : new Error(String(err));
+    }
+
+    expect(error?.message).toContain(`response length: ${sentinel.length}`);
+    expect(error?.message).not.toContain(sentinel);
   });
 
   it("drops malformed findings and reports diagnostics", () => {

@@ -47,8 +47,8 @@ export function parseStructuredReview(raw: string): ReviewReport {
   if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
     throw new Error(
       markerIndex === -1
-        ? `Review did not contain a valid JSON object. Raw response preview: ${previewRawResponse(raw)}`
-        : `Review did not include a valid JSON object after FINAL_REVIEW_JSON. Raw response preview: ${previewRawResponse(raw)}`,
+        ? `Review did not contain a valid JSON object (${describeRawResponse(raw)}).`
+        : `Review did not include a valid JSON object after FINAL_REVIEW_JSON (${describeRawResponse(raw)}).`,
     );
   }
 
@@ -59,14 +59,14 @@ export function parseStructuredReview(raw: string): ReviewReport {
     parsed = JSON.parse(jsonText);
   } catch (err) {
     throw new Error(
-      `Failed to parse review JSON: ${(err as Error).message}. Raw response preview: ${previewRawResponse(raw)}`,
+      `Failed to parse review JSON: ${(err as Error).message} (${describeRawResponse(raw)}).`,
     );
   }
 
   const root = ReviewJsonSchema.safeParse(parsed);
   if (!root.success) {
     throw new Error(
-      `Review JSON is missing required fields: summary or findings. Raw response preview: ${previewRawResponse(raw)}`,
+      `Review JSON is missing required fields: summary or findings (${describeRawResponse(raw)}).`,
     );
   }
 
@@ -106,9 +106,13 @@ export function parseStructuredReview(raw: string): ReviewReport {
   };
 }
 
-function previewRawResponse(raw: string): string {
-  const compact = raw.replace(/\s+/g, " ").trim();
-  return compact.length > 500 ? `${compact.slice(0, 500)}...` : compact || "<empty>";
+function describeRawResponse(raw: string): string {
+  return [
+    `response length: ${raw.length}`,
+    `marker present: ${raw.includes("FINAL_REVIEW_JSON")}`,
+    `opening brace present: ${raw.includes("{")}`,
+    `closing brace present: ${raw.includes("}")}`,
+  ].join(", ");
 }
 
 export function looksLikeCompleteStructuredReview(text: string): boolean {
