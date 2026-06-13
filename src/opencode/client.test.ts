@@ -341,6 +341,42 @@ describe("parseStructuredReview", () => {
 
     expect(report.findings.map((finding) => finding.confidence)).toEqual(["low", "low"]);
   });
+
+  it("normalizes safe relative finding paths and drops unsafe paths", () => {
+    const paths = [
+      "./src/config.ts",
+      "src\\config.ts",
+      ".\\src\\config.ts",
+      "/absolute/src/config.ts",
+      "C:\\repo\\src\\config.ts",
+      "../src/config.ts",
+    ];
+    const report = parseStructuredReview(
+      JSON.stringify({
+        summary: "Path normalization.",
+        findings: paths.map((file, index) => ({
+          severity: "warning",
+          file,
+          line: index + 1,
+          title: `Finding ${index}`,
+          body: "Path behavior.",
+          confidence: "medium",
+        })),
+      }),
+    );
+
+    expect(report.findings.map((finding) => finding.file)).toEqual([
+      "src/config.ts",
+      "src/config.ts",
+      "src/config.ts",
+    ]);
+    expect(report.diagnostics).toEqual([
+      "Review JSON did not include FINAL_REVIEW_JSON marker; parsed fallback JSON object.",
+      "Dropped malformed finding at index 3.",
+      "Dropped malformed finding at index 4.",
+      "Dropped malformed finding at index 5.",
+    ]);
+  });
 });
 
 describe("looksLikeCompleteStructuredReview", () => {

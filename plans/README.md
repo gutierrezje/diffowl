@@ -22,7 +22,7 @@ change with DiffOwl, and update its status row.
 | 010  | Classify documentation conservatively | P1       | S      | 006        | DONE   |
 | 011  | Skip nested lockfiles                 | P2       | S      | 004        | DONE   |
 | 012  | Surface model discovery errors        | P2       | S      | 001        | DONE   |
-| 013  | Normalize finding paths               | P2       | S      | 005        | TODO   |
+| 013  | Normalize finding paths               | P2       | S      | 005        | DONE   |
 
 Status values: TODO, IN PROGRESS, DONE, BLOCKED with a one-line reason, or
 REJECTED with a one-line rationale.

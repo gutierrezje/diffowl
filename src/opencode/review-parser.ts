@@ -19,9 +19,26 @@ const ReviewFindingLineSchema = z.preprocess(
   z.number().int().positive(),
 );
 
+const ReviewFindingPathSchema = z.preprocess((value) => {
+  if (typeof value !== "string") return value;
+  const normalized = value
+    .trim()
+    .replaceAll("\\", "/")
+    .replace(/^(?:\.\/)+/, "");
+  if (
+    normalized === "" ||
+    normalized.startsWith("/") ||
+    /^[A-Za-z]:\//.test(normalized) ||
+    normalized.split("/").includes("..")
+  ) {
+    return undefined;
+  }
+  return normalized;
+}, z.string().min(1));
+
 const ReviewFindingSchema = z.object({
   severity: ReviewSeveritySchema,
-  file: z.string().trim().min(1),
+  file: ReviewFindingPathSchema,
   line: ReviewFindingLineSchema,
   evidence: z.string().nullish(),
   title: z.string().trim().min(1),
