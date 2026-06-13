@@ -1,4 +1,4 @@
-import { basename, extname } from "node:path";
+import { basename, extname, join } from "node:path";
 import { readFile, stat } from "node:fs/promises";
 import { execa } from "execa";
 import type { ChangedFileContext, ReferenceContext, ReferenceMatch } from "./context-types.js";
@@ -14,6 +14,7 @@ const MAX_REFERENCE_SNIPPET_CHARS = 1_200;
 const MAX_REFERENCE_SNIPPET_FILE_BYTES = 256 * 1024;
 
 export async function buildReferenceContexts(
+  root: string,
   changedFiles: ChangedFileContext[],
   skippedFiles: DiffFile[],
   diagnostics: string[],
@@ -37,11 +38,12 @@ export async function buildReferenceContexts(
     return [];
   }
 
-  const allMatches = await findBatchReferences(validTerms, ignoredPaths, diagnostics);
+  const allMatches = await findBatchReferences(root, validTerms, ignoredPaths, diagnostics);
 
   const references: ReferenceContext[] = [];
   for (const term of validTerms) {
     const matches = await addReferenceSnippets(
+      root,
       allMatches
         .filter((match) => (match.fullText ?? match.text).includes(term))
         .slice(0, MAX_REFERENCES_PER_TERM),
@@ -56,13 +58,14 @@ export async function buildReferenceContexts(
 }
 
 async function findBatchReferences(
+  root: string,
   terms: string[],
   ignoredPaths: Set<string>,
   diagnostics: string[],
 ): Promise<ReferenceMatch[]> {
   let matches: ReferenceMatch[];
   try {
-    matches = await findBatchReferencesWithGitGrep(terms, ignoredPaths);
+    matches = await findBatchReferencesWithGitGrep(root, terms, ignoredPaths);
   } catch (err) {
     diagnostics.push(`Reference search failed: ${formatReferenceSearchError(err)}.`);
     return [];
@@ -95,6 +98,7 @@ function formatReferenceSearchError(err: unknown): string {
 }
 
 async function findBatchReferencesWithGitGrep(
+  root: string,
   terms: string[],
   ignoredPaths: Set<string>,
 ): Promise<ReferenceMatch[]> {
@@ -105,7 +109,10 @@ async function findBatchReferencesWithGitGrep(
     }
     args.push("--");
 
-    const { stdout } = await execa("git", args, { timeout: REFERENCE_SEARCH_TIMEOUT_MS });
+    const { stdout } = await execa("git", args, {
+      cwd: root,
+      timeout: REFERENCE_SEARCH_TIMEOUT_MS,
+    });
     return parseBatchReferenceLines(stdout, ignoredPaths);
   } catch (err) {
     if (isNoMatchesExit(err)) return [];
@@ -138,18 +145,22 @@ function parseReferenceLine(line: string): ReferenceMatch | undefined {
   };
 }
 
-async function addReferenceSnippets(matches: ReferenceMatch[]): Promise<ReferenceMatch[]> {
+async function addReferenceSnippets(
+  root: string,
+  matches: ReferenceMatch[],
+): Promise<ReferenceMatch[]> {
   const files = new Map<string, string[]>();
 
   await Promise.all(
     [...new Set(matches.map((match) => match.path))].map(async (path) => {
       try {
-        const info = await stat(path);
+        const absolutePath = join(root, path);
+        const info = await stat(absolutePath);
         if (!info.isFile() || info.size > MAX_REFERENCE_SNIPPET_FILE_BYTES) {
           return;
         }
 
-        const content = await readFile(path, "utf-8");
+        const content = await readFile(absolutePath, "utf-8");
         if (!content.includes("\0")) {
           files.set(path, content.split("\n"));
         }

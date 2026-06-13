@@ -480,9 +480,9 @@ describe("buildToolPolicy", () => {
 });
 
 describe("opencodeDirectoryOptions", () => {
-  it("pins OpenCode operations to the current working directory", () => {
-    expect(opencodeDirectoryOptions()).toEqual({
-      query: { directory: process.cwd() },
+  it("pins OpenCode operations to the explicit project root", () => {
+    expect(opencodeDirectoryOptions("/project/root")).toEqual({
+      query: { directory: "/project/root" },
     });
   });
 });

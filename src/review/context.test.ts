@@ -47,6 +47,7 @@ describe("buildReviewContext", () => {
 
     await execa("git", ["init"]);
     await mkdir("src");
+    await writeFile(".diffowl.yml", "model: provider/model\n", "utf-8");
     await writeFile(
       "src/example.ts",
       ["export function calculateTotal(value: number) {", "  return value + 1;", "}", ""].join(
@@ -83,6 +84,8 @@ describe("buildReviewContext", () => {
       "utf-8",
     );
     await execa("git", ["add", "src/example.ts"]);
+    await mkdir(join(root, "packages", "app"), { recursive: true });
+    process.chdir(join(root, "packages", "app"));
 
     const context = await buildReviewContext({ kind: "staged" }, config);
     const rendered = renderReviewContext(context);
@@ -105,6 +108,7 @@ describe("buildReviewContext", () => {
     expect(rendered).toContain("Changed AST symbols");
     expect(rendered).toContain("src/example.test.ts");
     expect(rendered).toContain("src/consumer.ts");
+    expect(context.changedFiles[0]!.file.path).toBe("src/example.ts");
     expect(rendered).toContain("### Potential Call Flow");
     expect(rendered).toContain("Term: calculateTotal");
     expect(rendered).toContain("console.log(calculateTotal(1));");
@@ -309,6 +313,7 @@ describe("buildReviewContext", () => {
 
     const context = await buildReviewContextFromDiff(
       {
+        root: process.cwd(),
         target: { kind: "staged" },
         diff: {
           raw: [
@@ -349,6 +354,7 @@ describe("buildReviewContext", () => {
 
     const context = await buildReviewContextFromDiff(
       {
+        root: process.cwd(),
         target: { kind: "commit", ref: "HEAD" },
         diff: {
           raw: [
@@ -387,6 +393,7 @@ describe("buildReviewContext", () => {
 
     const context = await buildReviewContextFromDiff(
       {
+        root: process.cwd(),
         target: { kind: "commit", ref: "HEAD" },
         diff: {
           raw: [
@@ -414,6 +421,7 @@ describe("buildReviewContext", () => {
   it("represents deleted files as skipped content", async () => {
     const context = await buildReviewContextFromDiff(
       {
+        root: process.cwd(),
         target: { kind: "commit", ref: "HEAD" },
         diff: {
           raw: [
@@ -453,6 +461,7 @@ describe("buildReviewContext", () => {
 
     const context = await buildReviewContextFromDiff(
       {
+        root: process.cwd(),
         target: { kind: "commit", ref: "feature~1" },
         diff: {
           raw: [
@@ -732,6 +741,7 @@ describe("buildReviewContext", () => {
 
     const context = await buildReviewContextFromDiff(
       {
+        root: process.cwd(),
         target: { kind: "commit", ref: "HEAD" },
         diff: {
           raw: [
@@ -776,6 +786,7 @@ describe("buildReviewContext", () => {
 
     const context = await buildReviewContextFromDiff(
       {
+        root: process.cwd(),
         target: { kind: "commit", ref: "HEAD" },
         diff: {
           raw: [
@@ -822,6 +833,7 @@ describe("buildReviewContext", () => {
 
     const context = await buildReviewContextFromDiff(
       {
+        root: process.cwd(),
         target: { kind: "commit", ref: "HEAD" },
         diff: {
           raw: [

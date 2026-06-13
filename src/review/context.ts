@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import picomatch from "picomatch";
+import { getProjectRoot, type DiffOwlConfig, type ReviewContextDepth } from "../config.js";
 import {
   getCommitDiff,
   getLastCommitDiff,
@@ -11,7 +12,6 @@ import {
   type DiffFile,
   type DiffResult,
 } from "../git/diff.js";
-import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
 import { extractAstSymbols } from "./ast/index.js";
 import { buildReferenceContexts } from "./context-references.js";
 import type { ChangedFileContext, RelatedFileContext, ReviewContext } from "./context-types.js";
@@ -47,7 +47,11 @@ export async function buildReviewContext(
   config: DiffOwlConfig,
   depth: ReviewContextDepth = config.context.depth,
 ): Promise<ReviewContext> {
-  return buildReviewContextFromDiff({ target, diff: await loadReviewDiff(target) }, config, depth);
+  return buildReviewContextFromDiff(
+    { root: getProjectRoot(), target, diff: await loadReviewDiff(target) },
+    config,
+    depth,
+  );
 }
 
 export async function loadReviewDiff(target: ReviewTarget): Promise<DiffResult> {
@@ -62,16 +66,18 @@ export async function loadReviewDiff(target: ReviewTarget): Promise<DiffResult> 
 }
 
 export async function buildReviewContextFromDiff(
-  snapshot: { target: ReviewTarget; diff: DiffResult },
+  snapshot: { root: string; target: ReviewTarget; diff: DiffResult },
   config: DiffOwlConfig,
   depth: ReviewContextDepth = config.context.depth,
 ): Promise<ReviewContext> {
-  const { target, diff: diffResult } = snapshot;
+  const { root, target, diff: diffResult } = snapshot;
   const reviewableFiles = diffResult.files.filter((file) => shouldReviewFile(file.path, config));
   const skippedFiles = diffResult.files.filter((file) => !shouldReviewFile(file.path, config));
   const changedLines = getChangedLinesByFile(diffResult.raw);
   const changedFileResults = await Promise.all(
-    reviewableFiles.map((file) => buildChangedFileContext(file, changedLines.get(file.path) ?? [])),
+    reviewableFiles.map((file) =>
+      buildChangedFileContext(root, file, changedLines.get(file.path) ?? []),
+    ),
   );
   const changedFiles = changedFileResults.map((result) => result.fileContext);
   const diagnostics: string[] = [...(diffResult.diagnostics ?? [])];
@@ -79,11 +85,12 @@ export async function buildReviewContextFromDiff(
     diagnostics,
     changedFileResults.flatMap((result) => result.diagnostics),
   );
-  const relatedFiles = depth === "shallow" ? [] : await buildRelatedFileContexts(reviewableFiles);
+  const relatedFiles =
+    depth === "shallow" ? [] : await buildRelatedFileContexts(root, reviewableFiles);
   const references =
     depth === "shallow"
       ? []
-      : await buildReferenceContexts(changedFiles, skippedFiles, diagnostics);
+      : await buildReferenceContexts(root, changedFiles, skippedFiles, diagnostics);
   return {
     target,
     depth,
@@ -97,6 +104,7 @@ export async function buildReviewContextFromDiff(
 }
 
 async function buildChangedFileContext(
+  root: string,
   file: DiffFile,
   changedLines: number[],
 ): Promise<{ fileContext: ChangedFileContext; diagnostics: string[] }> {
@@ -114,7 +122,7 @@ async function buildChangedFileContext(
     };
   }
 
-  const contentResult = await readTextFile(file.path, MAX_FILE_CHARS);
+  const contentResult = await readTextFile(join(root, file.path), MAX_FILE_CHARS);
   if (contentResult.status === "skipped") {
     return {
       fileContext: {
@@ -156,7 +164,10 @@ async function buildChangedFileContext(
   };
 }
 
-async function buildRelatedFileContexts(files: DiffFile[]): Promise<RelatedFileContext[]> {
+async function buildRelatedFileContexts(
+  root: string,
+  files: DiffFile[],
+): Promise<RelatedFileContext[]> {
   const seen = new Set<string>();
   const related: RelatedFileContext[] = [];
 
@@ -164,10 +175,10 @@ async function buildRelatedFileContexts(files: DiffFile[]): Promise<RelatedFileC
     if (file.status === "deleted") continue;
 
     for (const candidate of testCandidates(file.path)) {
-      if (seen.has(candidate) || !existsSync(candidate)) continue;
+      if (seen.has(candidate) || !existsSync(join(root, candidate))) continue;
       seen.add(candidate);
 
-      const result = await readTextFile(candidate, MAX_RELATED_FILE_CHARS);
+      const result = await readTextFile(join(root, candidate), MAX_RELATED_FILE_CHARS);
       if (result.status === "skipped") continue;
 
       related.push({

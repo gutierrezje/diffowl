@@ -141,6 +141,7 @@ program
     }
 
     const config = await loadConfigOrExit();
+    const projectRoot = getProjectRoot();
     if (options.staged && options.commit) {
       console.error(chalk.red("Cannot use --staged and --commit together"));
       process.exit(1);
@@ -220,7 +221,11 @@ program
       }
 
       const contextStart = performance.now();
-      const reviewContext = await buildReviewContextFromDiff({ target, diff }, config, depth);
+      const reviewContext = await buildReviewContextFromDiff(
+        { root: projectRoot, target, diff },
+        config,
+        depth,
+      );
       recordCliTiming(timings, "context-build", "Local review context build", contextStart);
 
       const contextRenderStart = performance.now();
@@ -246,6 +251,7 @@ program
       const reviewStart = performance.now();
       const reviewResult = await runReview({
         target,
+        directory: projectRoot,
         config,
         localContext,
         depth,
@@ -294,7 +300,7 @@ program
       const writeStart = performance.now();
       const reportPath = await writeMarkdownReport(markdown, {
         session_id: reviewResult.sessionId,
-        project_root: getProjectRoot(),
+        project_root: projectRoot,
       });
       recordCliTiming(timings, "write-report", "Report write", writeStart);
       recordCliTiming(timings, "total", "Total review command", totalStart);

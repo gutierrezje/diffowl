@@ -26,6 +26,7 @@ import type { ReviewTarget } from "../review/target.js";
 
 export interface ReviewOptions {
   target: ReviewTarget;
+  directory: string;
   config: DiffOwlConfig;
   localContext?: string;
   depth: ReviewContextDepth;
@@ -207,9 +208,9 @@ function normalizeAssistantMessage(
  * Creates a session, sends the review prompt, and returns a structured report.
  */
 export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
-  const { target, config, localContext, depth, onProgress } = options;
+  const { target, directory, config, localContext, depth, onProgress } = options;
   const port = config.server.port;
-  const directoryOptions = opencodeDirectoryOptions();
+  const directoryOptions = opencodeDirectoryOptions(directory);
   const timings: ReviewTiming[] = [];
 
   // The CLI owns startup policy. Reviews only connect to the configured server.
@@ -623,8 +624,8 @@ function describeErrorCause(err: Error): string {
   return parts.join(": ") || "unknown error";
 }
 
-export function opencodeDirectoryOptions(): OpencodeDirectoryOptions {
-  return { query: { directory: process.cwd() } };
+export function opencodeDirectoryOptions(directory: string): OpencodeDirectoryOptions {
+  return { query: { directory } };
 }
 
 export function handledAwaitable<T>(promise: Promise<T>): Promise<T> {
