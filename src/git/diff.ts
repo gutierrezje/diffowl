@@ -283,7 +283,7 @@ export function parseGitDiffLine(line: string): { pathA: string; pathB: string }
   return { pathA, pathB };
 }
 
-function parseCombinedDiffLine(line: string): string | null {
+export function parseCombinedDiffLine(line: string): string | null {
   const cleanLine = line.endsWith("\r") ? line.slice(0, -1) : line;
   let content = "";
   if (cleanLine.startsWith("diff --cc ")) {

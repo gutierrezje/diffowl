@@ -4,6 +4,7 @@ import { getProjectRoot, type DiffOwlConfig, type ReviewContextDepth } from "../
 import {
   getResolvedCommitDiff,
   getStagedDiff,
+  parseCombinedDiffLine,
   parseGitDiffLine,
   resolveCommitRef,
   unescapePath,
@@ -303,11 +304,22 @@ function getChangedLinesByFile(rawDiff: string): Map<string, number[]> {
   const changed = new Map<string, number[]>();
   let currentPath: string | undefined;
   let newLine: number | undefined;
+  let combinedParentCount: number | undefined;
 
   for (const line of rawDiff.split(/\r?\n/).map((l) => (l.endsWith("\r") ? l.slice(0, -1) : l))) {
     const gitDiffPaths = parseGitDiffLine(line);
     if (gitDiffPaths) {
       currentPath = gitDiffPaths.pathB;
+      newLine = undefined;
+      combinedParentCount = undefined;
+      continue;
+    }
+
+    const combinedPath = parseCombinedDiffLine(line);
+    if (combinedPath) {
+      currentPath = combinedPath;
+      newLine = undefined;
+      combinedParentCount = undefined;
       continue;
     }
 
@@ -319,10 +331,32 @@ function getChangedLinesByFile(rawDiff: string): Map<string, number[]> {
     const hunkMatch = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
     if (hunkMatch) {
       newLine = Number(hunkMatch[1]);
+      combinedParentCount = undefined;
+      continue;
+    }
+
+    const combinedHunkMatch = line.match(/^(@{3,}) (?:-\d+(?:,\d+)? )+\+(\d+)(?:,\d+)? \1/);
+    if (combinedHunkMatch) {
+      newLine = Number(combinedHunkMatch[2]);
+      combinedParentCount = combinedHunkMatch[1]!.length - 1;
       continue;
     }
 
     if (!currentPath || newLine === undefined) continue;
+
+    if (combinedParentCount !== undefined) {
+      const prefix = line.slice(0, combinedParentCount);
+      if (prefix.length !== combinedParentCount || !/^[ +-]+$/.test(prefix)) continue;
+      if (prefix.includes("+")) {
+        const lines = changed.get(currentPath) ?? [];
+        lines.push(newLine);
+        changed.set(currentPath, lines);
+        newLine++;
+      } else if (/^ +$/.test(prefix)) {
+        newLine++;
+      }
+      continue;
+    }
 
     if (line.startsWith("+++")) {
       continue;

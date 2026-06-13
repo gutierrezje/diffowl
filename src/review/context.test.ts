@@ -40,6 +40,75 @@ const config: DiffOwlConfig = {
 };
 
 describe("buildReviewContext", () => {
+  it("renders combined merge diffs and maps resolved result lines", async () => {
+    const root = await createGitRepository();
+    await writeFile(join(root, "example.ts"), 'export const value = "base";\n', "utf-8");
+    await commitAll(root, "base");
+    await execa("git", ["branch", "side"], { cwd: root });
+
+    await writeFile(join(root, "example.ts"), 'export const value = "main";\n', "utf-8");
+    await commitAll(root, "main");
+    await execa("git", ["checkout", "side"], { cwd: root });
+    await writeFile(join(root, "example.ts"), 'export const value = "side";\n', "utf-8");
+    await commitAll(root, "side");
+    await execa("git", ["checkout", "-"], { cwd: root });
+    await expect(execa("git", ["merge", "side"], { cwd: root })).rejects.toThrow();
+    await writeFile(join(root, "example.ts"), 'export const value = "resolved";\n', "utf-8");
+    await commitAll(root, "resolve merge");
+    const { stdout: mergeCommit } = await execa("git", ["rev-parse", "HEAD"], { cwd: root });
+
+    process.chdir(root);
+    const context = await buildReviewContext(
+      { kind: "commit", ref: mergeCommit.trim() },
+      config,
+      "shallow",
+    );
+    const rendered = renderReviewContext(context);
+
+    expect(context.diff.files).toContainEqual(
+      expect.objectContaining({ path: "example.ts", status: "modified" }),
+    );
+    expect(context.changedFiles[0]!.changedLines).toContain(1);
+    expect(rendered).toContain("diff --cc example.ts");
+    expect(rendered).toContain('++export const value = "resolved";');
+    expect(rendered).toContain("Changed AST symbols");
+  });
+
+  it("renders synthetic diff --combined sections", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
+    tempDirs.push(root);
+    await writeFile(join(root, "example.ts"), 'export const value = "resolved";\n', "utf-8");
+    const raw = [
+      "diff --combined example.ts",
+      "index 1111111,2222222..3333333",
+      "--- a/example.ts",
+      "+++ b/example.ts",
+      "@@@ -1,1 -1,1 +1,1 @@@",
+      '- export const value = "main";',
+      ' -export const value = "side";',
+      '++export const value = "resolved";',
+    ].join("\n");
+
+    const context = await buildReviewContextFromDiff(
+      {
+        root,
+        target: { kind: "commit", ref: "HEAD" },
+        diff: {
+          raw,
+          summary: "~ example.ts (+1/-2)",
+          files: [{ path: "example.ts", status: "modified", additions: 1, deletions: 2 }],
+        },
+      },
+      config,
+      "shallow",
+    );
+    const rendered = renderReviewContext(context);
+
+    expect(context.changedFiles[0]!.changedLines).toEqual([1]);
+    expect(rendered).toContain("diff --combined example.ts");
+    expect(rendered).toContain('++export const value = "resolved";');
+  });
+
   it("reads staged changed-file content from the index", async () => {
     const root = await createGitRepository();
     await mkdir(join(root, "src"));

@@ -1,5 +1,5 @@
 import { extname } from "node:path";
-import { parseGitDiffLine } from "../git/diff.js";
+import { parseCombinedDiffLine, parseGitDiffLine } from "../git/diff.js";
 import type { RenderReviewContextOptions, ReviewContext } from "./context-types.js";
 
 const MAX_DIFF_CHARS = 40_000;
@@ -165,6 +165,11 @@ function filterDiffRaw(rawDiff: string, includedPaths: Set<string>): string {
     const gitDiffPaths = parseGitDiffLine(line);
     if (gitDiffPaths) {
       includeCurrentFile = includedPaths.has(gitDiffPaths.pathB);
+    } else {
+      const combinedPath = parseCombinedDiffLine(line);
+      if (combinedPath) {
+        includeCurrentFile = includedPaths.has(combinedPath);
+      }
     }
 
     if (includeCurrentFile) {
