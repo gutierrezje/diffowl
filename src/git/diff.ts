@@ -130,11 +130,13 @@ export async function hasCommits(): Promise<boolean> {
 export function parseDiff(raw: string, diagnostics: string[] = []): DiffResult {
   const drafts: DiffFileDraft[] = [];
   const lines = raw.split(/\r?\n/).map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line));
+  let combinedParentCount: number | undefined;
 
   for (const line of lines) {
     // Parse diff --git a/path b/path
     const gitDiffPaths = parseGitDiffLine(line);
     if (gitDiffPaths) {
+      combinedParentCount = undefined;
       drafts.push({
         sourcePath: gitDiffPaths.pathA,
         path: gitDiffPaths.pathB,
@@ -148,6 +150,7 @@ export function parseDiff(raw: string, diagnostics: string[] = []): DiffResult {
     // Parse diff --cc path / diff --combined path
     const combinedPath = parseCombinedDiffLine(line);
     if (combinedPath) {
+      combinedParentCount = undefined;
       drafts.push({
         sourcePath: combinedPath,
         path: combinedPath,
@@ -155,6 +158,12 @@ export function parseDiff(raw: string, diagnostics: string[] = []): DiffResult {
         additions: 0,
         deletions: 0,
       });
+      continue;
+    }
+
+    const combinedHunk = line.match(/^(@{3,}) /);
+    if (combinedHunk) {
+      combinedParentCount = combinedHunk[1]!.length - 1;
       continue;
     }
 
@@ -178,8 +187,15 @@ export function parseDiff(raw: string, diagnostics: string[] = []): DiffResult {
         continue;
       }
 
-      // Count additions/deletions
-      if (line.startsWith("+") && !line.startsWith("+++")) {
+      if (combinedParentCount !== undefined) {
+        const prefix = line.slice(0, combinedParentCount);
+        if (prefix.length !== combinedParentCount || !/^[ +-]+$/.test(prefix)) continue;
+        if (prefix.includes("+")) {
+          lastFile.additions++;
+        } else if (prefix.includes("-")) {
+          lastFile.deletions++;
+        }
+      } else if (line.startsWith("+") && !line.startsWith("+++")) {
         lastFile.additions++;
       } else if (line.startsWith("-") && !line.startsWith("---")) {
         lastFile.deletions++;

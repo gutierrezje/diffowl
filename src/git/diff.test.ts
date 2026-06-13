@@ -272,6 +272,23 @@ describe("parseDiff", () => {
     expect(fileCombined.status).toBe("modified");
   });
 
+  it("counts combined diff result additions and deletions by parent columns", () => {
+    const result = parseDiff(
+      [
+        "diff --cc src/combined.ts",
+        "index 1111111,2222222..3333333",
+        "@@@ -1,2 -1,2 +1,2 @@@",
+        "- parent one only",
+        " -parent two only",
+        "++merged addition",
+        " +second-parent addition",
+        "  unchanged",
+      ].join("\n"),
+    );
+
+    expect(result.files[0]).toMatchObject({ additions: 2, deletions: 2 });
+  });
+
   it("parses renames with unquoted and quoted target paths", () => {
     const rawDiffRenameQuoted = [
       "diff --git a/old_name.ts b/new_name.ts",
