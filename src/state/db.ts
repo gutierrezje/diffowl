@@ -27,14 +27,29 @@ export async function openStateDatabase(diffOwlDir: string): Promise<StateDataba
   await mkdir(diffOwlDir, { recursive: true });
   const path = getStateDbPath(diffOwlDir);
   const db = new Database(path);
-  configureDatabase(db);
-  assertCompatibleSchema(db);
-  applyMigrations(db, CURRENT_SCHEMA_VERSION);
-  return { db, path };
+  try {
+    configureDatabase(db);
+    assertCompatibleSchema(db);
+    applyMigrations(db, CURRENT_SCHEMA_VERSION);
+    return { db, path };
+  } catch (error) {
+    closeDatabaseConnection(db);
+    throw error;
+  }
+}
+
+export function closeDatabaseConnection(db: Database.Database): void {
+  if (!db.open) {
+    return;
+  }
+
+  // Checkpoint WAL so Windows can release state.db, -wal, and -shm during cleanup.
+  db.pragma("wal_checkpoint(TRUNCATE)");
+  db.close();
 }
 
 export function closeStateDatabase(state: StateDatabase): void {
-  state.db.close();
+  closeDatabaseConnection(state.db);
 }
 
 function configureDatabase(db: Database.Database): void {

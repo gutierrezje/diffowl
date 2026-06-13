@@ -12,8 +12,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        node-version: [20, 22]
+        include:
+          - os: ubuntu-latest
+            node-version: 20
+          - os: ubuntu-latest
+            node-version: 22
+          - os: windows-2022
+            node-version: 20
+          - os: windows-2022
+            node-version: 22
       fail-fast: false
 
     steps:
@@ -30,6 +37,15 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: "pnpm"
+
+      # better-sqlite3@12.10.0 ships no Node 20 win32 prebuilds, so Windows
+      # falls back to node-gyp and needs the VS 2022 C++ toolchain.
+      - name: Setup MSVC toolchain (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+          vsversion: 2022
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

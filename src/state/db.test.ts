@@ -1,10 +1,11 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   applyMigrations,
+  closeDatabaseConnection,
   closeStateDatabase,
   getStateDbPath,
   openStateDatabase,
@@ -12,6 +13,7 @@ import {
   StateDatabaseError,
 } from "./db.js";
 import { MIGRATION_001_INITIAL_SCHEMA } from "./migrations/001-initial-schema.js";
+import { removeTempStateDir } from "./test-helpers.js";
 import { CURRENT_SCHEMA_VERSION } from "./types.js";
 
 const EXPECTED_TABLES = [
@@ -25,7 +27,7 @@ const EXPECTED_TABLES = [
 let tempDirs: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(tempDirs.map((dir) => removeTempStateDir(dir)));
   tempDirs = [];
 });
 
@@ -112,7 +114,7 @@ describe("openStateDatabase", () => {
         .all() as Array<{ version: number }>;
       expect(versions).toEqual([{ version: CURRENT_SCHEMA_VERSION }]);
     } finally {
-      db.close();
+      closeDatabaseConnection(db);
     }
   });
 });

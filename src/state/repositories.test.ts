@@ -1,15 +1,16 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { closeStateDatabase, openStateDatabase, runInTransaction } from "./db.js";
+import { closeStateDatabase, openStateDatabase, runInTransaction, StateDatabaseError } from "./db.js";
 import { getFindingByFingerprint, insertFinding } from "./repositories/findings.js";
 import { getReviewById, insertReview } from "./repositories/reviews.js";
+import { removeTempStateDir } from "./test-helpers.js";
 
 let tempDirs: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(tempDirs.map((dir) => removeTempStateDir(dir)));
   tempDirs = [];
 });
 
@@ -35,6 +36,32 @@ describe("review repository", () => {
       const loaded = getReviewById(state.db, inserted.id);
       expect(loaded).toEqual(inserted);
       expect(loaded?.id).toMatch(/^rev_/);
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
+  it("throws StateDatabaseError when stored review JSON is malformed", async () => {
+    const dir = await createTempDir();
+    const state = await openStateDatabase(dir);
+
+    try {
+      const inserted = insertReview(state.db, {
+        targetKind: "staged",
+        diffHash: "abc123",
+        model: "provider/model",
+        reasoning: "medium",
+        depth: "default",
+        sessionId: "session-bad-json",
+        summary: "Looks good.",
+      });
+
+      state.db
+        .prepare("UPDATE reviews SET diagnostics_json = ? WHERE id = ?")
+        .run("{not-json", inserted.id);
+
+      expect(() => getReviewById(state.db, inserted.id)).toThrow(StateDatabaseError);
+      expect(() => getReviewById(state.db, inserted.id)).toThrow(/invalid JSON in diagnostics_json/);
     } finally {
       closeStateDatabase(state);
     }

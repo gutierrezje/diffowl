@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
-import type { InsertReviewInput, ReviewRecord, ReviewTiming } from "../types.js";
+import { StateDatabaseError } from "../db.js";
+import type { InsertReviewInput, ReviewRecord } from "../types.js";
 import { createReviewId } from "../types.js";
 
 const insertReviewStatement = (db: Database.Database) =>
@@ -142,8 +143,18 @@ function mapReviewRow(row: ReviewRow): ReviewRecord {
     sessionId: row.sessionId,
     summary: row.summary,
     reportPath: row.reportPath,
-    diagnostics: JSON.parse(row.diagnosticsJson) as string[],
-    timings: JSON.parse(row.timingsJson) as ReviewTiming[],
+    diagnostics: parseReviewJsonField(row.diagnosticsJson, "diagnostics_json", row.id),
+    timings: parseReviewJsonField(row.timingsJson, "timings_json", row.id),
     skippedReason: row.skippedReason,
   };
+}
+
+function parseReviewJsonField<T>(raw: string, field: string, reviewId: string): T {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    throw new StateDatabaseError(
+      `Review ${reviewId} contains invalid JSON in ${field}.`,
+    );
+  }
 }
