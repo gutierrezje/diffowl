@@ -40,7 +40,12 @@ const MAX_INLINE_FILE_LINES = 80;
 const MAX_CONTEXT_FILE_BYTES = 512 * 1024;
 const MIN_CHANGED_RATIO_FOR_INLINE_CONTENT = 0.4;
 
-const LOCKFILE_EXCLUDES = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb"];
+const LOCKFILE_EXCLUDES = new Set([
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "bun.lockb",
+]);
 
 type TextFileResult =
   | { status: "loaded"; content: string; truncated: boolean }
@@ -228,7 +233,7 @@ async function buildRelatedFileContexts(
 }
 
 function shouldReviewFile(path: string, config: DiffOwlConfig): boolean {
-  if (LOCKFILE_EXCLUDES.includes(path)) return false;
+  if (LOCKFILE_EXCLUDES.has(basename(path))) return false;
 
   const include = config.include.length > 0 ? config.include : ["**/*"];
   if (!include.some((pattern) => picomatch.isMatch(path, pattern))) {

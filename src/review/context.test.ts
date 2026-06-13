@@ -1,6 +1,6 @@
 import { chmod, mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { execa } from "execa";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildReviewContext, buildReviewContextFromDiff, renderReviewContext } from "./context.js";
@@ -429,6 +429,16 @@ describe("buildReviewContext", () => {
     await execa("git", ["init"]);
     await writeFile("package.json", '{"name":"fixture"}\n', "utf-8");
     await writeFile("pnpm-lock.yaml", "lockfileVersion: '9.0'\n", "utf-8");
+    const nestedLockfiles = [
+      "packages/a/package-lock.json",
+      "packages/b/pnpm-lock.yaml",
+      "packages/c/yarn.lock",
+      "packages/d/bun.lockb",
+    ];
+    for (const path of nestedLockfiles) {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, `initial ${path}\n`, "utf-8");
+    }
     await execa("git", ["add", "."]);
     await execa("git", [
       "-c",
@@ -446,6 +456,9 @@ describe("buildReviewContext", () => {
       ["lockfileVersion: '9.0'", "packages:", "  /large:", "    resolution: {}"].join("\n"),
       "utf-8",
     );
+    for (const path of nestedLockfiles) {
+      await writeFile(path, `nested lock marker ${path}\n`, "utf-8");
+    }
     await execa("git", ["add", "."]);
 
     const context = await buildReviewContext({ kind: "staged" }, config);
@@ -454,8 +467,15 @@ describe("buildReviewContext", () => {
     expect(context.changedFiles.map((file) => file.file.path)).toContain("package.json");
     expect(context.changedFiles.map((file) => file.file.path)).not.toContain("pnpm-lock.yaml");
     expect(context.skippedFiles.map((file) => file.path)).toContain("pnpm-lock.yaml");
+    expect(context.skippedFiles.map((file) => file.path)).toEqual(
+      expect.arrayContaining(nestedLockfiles),
+    );
+    expect(context.changedFiles.map((file) => file.file.path)).toEqual(
+      expect.not.arrayContaining(nestedLockfiles),
+    );
     expect(rendered).toContain("Skipped by include/exclude rules");
     expect(rendered).not.toContain("packages:");
+    expect(rendered).not.toContain("nested lock marker");
   });
 
   it("skips oversized changed file content before rendering context", async () => {
