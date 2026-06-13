@@ -24,14 +24,40 @@ describe("getAvailableModels", () => {
     vi.clearAllMocks();
   });
 
-  it("does not start OpenCode when autoStart is disabled", async () => {
+  it("reports a stopped server when autoStart is disabled", async () => {
     const { getAvailableModels } = await import("./client.js");
     mocks.isServerRunning.mockResolvedValue(false);
 
-    await expect(getAvailableModels(4096, { autoStart: false })).resolves.toEqual([]);
+    await expect(getAvailableModels(4096, { autoStart: false })).rejects.toThrow(
+      "OpenCode server is not running",
+    );
 
     expect(mocks.ensureServer).not.toHaveBeenCalled();
     expect(mocks.providerList).not.toHaveBeenCalled();
+  });
+
+  it("propagates server startup failures", async () => {
+    const { getAvailableModels } = await import("./client.js");
+    mocks.isServerRunning.mockResolvedValue(false);
+    mocks.ensureServer.mockRejectedValue(new Error("failed to start OpenCode server"));
+
+    await expect(getAvailableModels(4096)).rejects.toThrow("failed to start OpenCode server");
+  });
+
+  it("propagates provider list failures", async () => {
+    const { getAvailableModels } = await import("./client.js");
+    mocks.isServerRunning.mockResolvedValue(true);
+    mocks.providerList.mockRejectedValue(new Error("connection refused"));
+
+    await expect(getAvailableModels(4096)).rejects.toThrow("connection refused");
+  });
+
+  it("returns an empty list when discovery succeeds without connected models", async () => {
+    const { getAvailableModels } = await import("./client.js");
+    mocks.isServerRunning.mockResolvedValue(true);
+    mocks.providerList.mockResolvedValue({ data: { connected: [], all: [] } });
+
+    await expect(getAvailableModels(4096)).resolves.toEqual([]);
   });
 
   it("starts OpenCode by default before listing models", async () => {

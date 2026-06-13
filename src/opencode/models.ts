@@ -11,26 +11,18 @@ export async function getAvailableModels(
 ): Promise<string[]> {
   if (!(await isServerRunning(port))) {
     if (options.autoStart === false) {
-      return [];
+      throw new Error(`OpenCode server is not running on port ${port}.`);
     }
 
-    try {
-      await ensureServer(port);
-    } catch {
-      return [];
-    }
+    await ensureServer(port);
   }
 
   const client = createOpencodeClient({
     baseUrl: `http://127.0.0.1:${port}`,
   });
 
-  try {
-    const payload = parseProviderPayload(await client.provider.list());
-    return listAvailableModels(payload);
-  } catch {
-    return [];
-  }
+  const payload = parseProviderPayload(await client.provider.list());
+  return listAvailableModels(payload);
 }
 
 export function listAvailableModels(payload: ProviderPayload | undefined): string[] {

@@ -532,8 +532,13 @@ async function selectModelInteractively(
       autoStart: config.server.auto_start,
     });
     spinner.stop();
-  } catch {
-    spinner.fail("Failed to query models from OpenCode server.");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    spinner.fail(`Failed to query models: ${message}`);
+    for (const line of getOpenCodeFailureGuidance(message)) {
+      console.error(chalk.dim(line));
+    }
+    process.exit(1);
   }
 
   let selectedModel = config.model;
