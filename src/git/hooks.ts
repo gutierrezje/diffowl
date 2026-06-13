@@ -193,6 +193,13 @@ export async function writeHookStatus(
   }
 }
 
+export async function clearHookFailure(dir: string, commit: string): Promise<void> {
+  const statusPath = join(dir, "last-hook-status.json");
+  const status = await readHookResult(statusPath);
+  if (status?.commit !== commit || status.exitCode === 0) return;
+  await unlink(statusPath).catch(() => {});
+}
+
 export function formatHookFailure(failure: HookFailure): string {
   const detail = failure.message ? `: ${failure.message}` : "";
   const header = `Post-commit hook failed at ${new Date(failure.timestamp).toLocaleString()}${detail}. Check .diffowl/hook.log`;
@@ -316,6 +323,7 @@ export async function runPendingHookReviews(): Promise<void> {
     try {
       await unlink(resultPath);
     } catch {}
+    await clearHookFailure(dir, next.sha);
   }
 }
 

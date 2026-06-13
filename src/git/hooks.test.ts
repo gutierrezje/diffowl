@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   acquireHookReviewLock,
   checkRecentHookFailure,
+  clearHookFailure,
   enqueuePendingReview,
   formatHookFailure,
   generateManagedSection,
@@ -202,6 +203,32 @@ describe("checkRecentHookFailure", () => {
       JSON.stringify(global),
     );
     await expect(readFile(resultPath, "utf-8")).resolves.toContain('"commit": "success-b"');
+  });
+
+  it("clears the matching legacy failure after a pending retry succeeds", async () => {
+    const root = await createHookStatusRoot();
+    await writeGlobalStatus(root, {
+      commit: "failed-a",
+      exitCode: 1,
+      timestamp: new Date().toISOString(),
+    });
+
+    await clearHookFailure(join(root, ".diffowl"), "failed-a");
+
+    expect(existsSync(join(root, ".diffowl", "last-hook-status.json"))).toBe(false);
+  });
+
+  it("does not clear a different commit's legacy failure", async () => {
+    const root = await createHookStatusRoot();
+    await writeGlobalStatus(root, {
+      commit: "failed-a",
+      exitCode: 1,
+      timestamp: new Date().toISOString(),
+    });
+
+    await clearHookFailure(join(root, ".diffowl"), "success-b");
+
+    expect(existsSync(join(root, ".diffowl", "last-hook-status.json"))).toBe(true);
   });
 
   it("reads hook status from the discovered project root when run from a subdirectory", async () => {
