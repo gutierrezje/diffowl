@@ -85,3 +85,91 @@ export interface InsertFindingInput {
   createdAt?: string;
   updatedAt?: string;
 }
+
+export interface FindingCandidate {
+  file: string;
+  line: number;
+  severity: ReviewSeverity;
+  confidence: ReviewConfidence;
+  title: string;
+  body: string;
+  evidence?: string;
+}
+
+export interface FindingObservationRecord {
+  id: number;
+  reviewId: string;
+  findingId: string;
+  file: string;
+  line: number;
+  severity: ReviewSeverity;
+  confidence: ReviewConfidence;
+  title: string;
+  body: string;
+  evidence: string | null;
+  ordinal: number;
+  classification: ObservationClassification;
+}
+
+export interface InsertObservationInput {
+  reviewId: string;
+  findingId: string;
+  file: string;
+  line: number;
+  severity: ReviewSeverity;
+  confidence: ReviewConfidence;
+  title: string;
+  body: string;
+  evidence?: string | null;
+  ordinal: number;
+  classification: ObservationClassification;
+}
+
+export interface FindingEventRecord {
+  id: number;
+  findingId: string;
+  reviewId: string | null;
+  eventType: FindingEventType;
+  actor: FindingActor;
+  reason: string | null;
+  commitRef: string | null;
+  verification: string[];
+  createdAt: string;
+}
+
+export interface InsertFindingEventInput {
+  findingId: string;
+  reviewId?: string | null;
+  eventType: FindingEventType;
+  actor: FindingActor;
+  reason?: string | null;
+  commitRef?: string | null;
+  verification?: string[];
+  createdAt?: string;
+}
+
+export interface PersistedObservation {
+  observation: FindingObservationRecord;
+  finding: FindingRecord;
+  fingerprint: string;
+  suppressed: boolean;
+}
+
+export interface ReconcileReviewFindingsResult {
+  observations: PersistedObservation[];
+  suppressedCounts: {
+    dismissed: number;
+    deferred: number;
+  };
+}
+
+export interface LifecycleMutationInput {
+  actor: FindingActor;
+  reason?: string;
+}
+
+export interface FixFindingInput extends LifecycleMutationInput {
+  note: string;
+  verifiedBy: string[];
+  commitRef?: string;
+}

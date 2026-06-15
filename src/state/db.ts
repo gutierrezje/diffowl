@@ -14,6 +14,10 @@ export class StateDatabaseError extends Error {
   override name = "StateDatabaseError";
 }
 
+export class InvalidFindingTransitionError extends StateDatabaseError {
+  override name = "InvalidFindingTransitionError";
+}
+
 export interface StateDatabase {
   db: Database.Database;
   path: string;

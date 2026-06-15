@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
-import type { FindingRecord, InsertFindingInput } from "../types.js";
+import { StateDatabaseError } from "../db.js";
+import type { FindingRecord, FindingStatus, InsertFindingInput } from "../types.js";
 import { createFindingId } from "../types.js";
 
 const insertFindingStatement = (db: Database.Database) =>
@@ -87,4 +88,44 @@ export function getFindingByFingerprint(
 ): FindingRecord | undefined {
   const row = getFindingByFingerprintStatement(db).get(fingerprint) as FindingRecord | undefined;
   return row;
+}
+
+const updateFindingStatement = (db: Database.Database) =>
+  db.prepare(`
+    UPDATE findings
+    SET
+      status = @status,
+      last_review_id = @lastReviewId,
+      updated_at = @updatedAt
+    WHERE id = @id
+  `);
+
+export function updateFinding(
+  db: Database.Database,
+  id: string,
+  updates: {
+    status: FindingStatus;
+    lastReviewId: string;
+    updatedAt?: string;
+  },
+): FindingRecord {
+  const existing = getFindingById(db, id);
+  if (!existing) {
+    throw new StateDatabaseError(`Finding ${id} was not found.`);
+  }
+
+  const updatedAt = updates.updatedAt ?? new Date().toISOString();
+  updateFindingStatement(db).run({
+    id,
+    status: updates.status,
+    lastReviewId: updates.lastReviewId,
+    updatedAt,
+  });
+
+  return {
+    ...existing,
+    status: updates.status,
+    lastReviewId: updates.lastReviewId,
+    updatedAt,
+  };
 }
