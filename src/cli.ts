@@ -135,7 +135,7 @@ program
     const isRepo = await isGitRepo();
     recordCliTiming(timings, "git-repo-check", "Git repository check", gitRepoStart);
     if (!isRepo) {
-      failReview(format, "Not a git repository", { hook: options.hook, hookCommit });
+      await failReview(format, "Not a git repository", { hook: options.hook, hookCommit });
     }
 
     // First run: prompt for setup
@@ -147,7 +147,7 @@ program
     const config = await loadConfigOrExit();
     const projectRoot = getProjectRoot();
     if (options.staged && options.commit) {
-      failReview(format, "Cannot use --staged and --commit together", {
+      await failReview(format, "Cannot use --staged and --commit together", {
         hook: options.hook,
         hookCommit,
       });
@@ -167,7 +167,7 @@ program
       const commitsExist = await hasCommits();
       recordCliTiming(timings, "git-commit-check", "Git commit check", hasCommitsStart);
       if (!commitsExist) {
-        failReview(format, "No commits found in this repository", {
+        await failReview(format, "No commits found in this repository", {
           hook: options.hook,
           hookCommit,
         });
@@ -1018,8 +1018,10 @@ function handleReviewInterrupt(input: {
     console.log(chalk.yellow(`\n${input.message}`));
   }
   if (input.hook) {
-    void writeHookStatus(1, input.hookCommit, input.message);
-    process.exit(0);
+    void writeHookStatus(1, input.hookCommit, input.message).finally(() => {
+      process.exit(0);
+    });
+    return;
   }
   // Force exit if the review loop does not unwind promptly after abort.
   setTimeout(() => process.exit(input.exitCode), 750).unref();
@@ -1035,11 +1037,11 @@ function resolveReviewOutputFormat(value: unknown): ReviewOutputFormat {
   }
 }
 
-function failReview(
+async function failReview(
   format: ReviewOutputFormat,
   message: string,
   options: { hook?: boolean; hookCommit?: string | undefined; exitCode?: number } = {},
-): never {
+): Promise<never> {
   const exitCode = options.exitCode ?? 1;
   if (format === "json") {
     writeJsonError(message);
@@ -1047,7 +1049,7 @@ function failReview(
     console.error(chalk.red(message));
   }
   if (options.hook) {
-    void writeHookStatus(1, options.hookCommit, message);
+    await writeHookStatus(1, options.hookCommit, message);
     process.exit(0);
   }
   process.exit(exitCode);
