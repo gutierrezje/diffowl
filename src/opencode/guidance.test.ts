@@ -37,6 +37,18 @@ describe("getOpenCodeFailureGuidance", () => {
     ]);
   });
 
+  it("explains how to recover from native module ABI mismatch", () => {
+    expect(
+      getOpenCodeFailureGuidance(
+        "NODE_MODULE_VERSION 147. This version of Node.js requires NODE_MODULE_VERSION 127",
+      ),
+    ).toEqual([
+      "Native module ABI mismatch. Rebuild for your active Node: pnpm rebuild better-sqlite3",
+      "Reinstall the hook so it uses the same Node as the CLI: diffowl hook install",
+      "Verify with: node -p process.versions.modules (CLI) vs the Hook Node line from hook install",
+    ]);
+  });
+
   it("explains how to recover from OpenCode server version skew", () => {
     expect(
       getOpenCodeFailureGuidance(

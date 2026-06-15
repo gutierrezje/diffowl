@@ -44,6 +44,18 @@ export function getOpenCodeFailureGuidance(message: string): string[] {
   }
 
   if (
+    normalized.includes("node_module_version") ||
+    (normalized.includes("better-sqlite3") &&
+      normalized.includes("compiled against a different node.js version"))
+  ) {
+    return [
+      "Native module ABI mismatch. Rebuild for your active Node: pnpm rebuild better-sqlite3",
+      "Reinstall the hook so it uses the same Node as the CLI: diffowl hook install",
+      "Verify with: node -p process.versions.modules (CLI) vs the Hook Node line from hook install",
+    ];
+  }
+
+  if (
     normalized.includes("session_message.seq") ||
     (normalized.includes("not null constraint failed") && normalized.includes("seq"))
   ) {

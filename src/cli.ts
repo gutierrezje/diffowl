@@ -38,6 +38,7 @@ import {
 } from "./opencode/server.js";
 import {
   installHook,
+  getHookCommand,
   uninstallHook,
   isHookInstalled,
   checkHookStale,
@@ -808,8 +809,10 @@ hookCmd
 
     const alreadyInstalled = await isHookInstalled();
     const hookPath = await installHook();
+    const command = await getHookCommand();
     const action = alreadyInstalled ? "updated" : "installed";
     console.log(chalk.green(`✓ Post-commit hook ${action}: ${hookPath}`));
+    console.log(chalk.dim(`Hook Node: ${command.node}`));
     console.log(chalk.dim("Reviews will run automatically after each commit (non-blocking)"));
     console.log(
       chalk.dim("Hook output: .diffowl/hook.log; latest report: .diffowl/reviews/latest.md"),

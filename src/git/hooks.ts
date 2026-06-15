@@ -235,7 +235,7 @@ export async function runHookReview(): Promise<void> {
     const existingPath = process.env["PATH"] ?? "";
     const envPath = prefix ? `${prefix}:${existingPath}` : existingPath;
 
-    const subprocess = execa(process.execPath, [fileURLToPath(import.meta.url), "hook-worker"], {
+    const subprocess = execa(command.node, [fileURLToPath(import.meta.url), "hook-worker"], {
       detached: true,
       cleanup: false,
       cwd: process.cwd(),
@@ -528,10 +528,16 @@ interface HookCommand {
   pathDirs: string[];
 }
 
+export async function getHookCommand(): Promise<HookCommand> {
+  return resolveHookCommand();
+}
+
 async function resolveHookCommand(): Promise<HookCommand> {
   const diffowl = await resolveCommand("diffowl");
   const opencode = await resolveCommand("opencode");
-  const node = process.execPath;
+  // Pin the Node binary from PATH (same one the global diffowl shim execs), not
+  // process.execPath, which can differ when install is run via an explicit node.
+  const node = await resolveCommand("node");
   return {
     diffowl,
     node,
@@ -603,17 +609,26 @@ export function generateManagedSection(command: HookCommand): string {
   const quotedNode = shellQuote(command.node);
   const quotedCli = shellQuote(command.cli);
   const pathPrefix = command.pathDirs.length ? command.pathDirs.join(":") : undefined;
-  const diffowlPathFallback = isPath
-    ? `elif [ -x ${quotedDiffOwl} ]; then
+  const diffowlPathRun = isPath
+    ? `if [ -x ${quotedDiffOwl} ]; then
   ${quotedDiffOwl} hook-run
 `
     : "";
-
-  const runBlock = `if [ -x ${quotedNode} ] && [ -f ${quotedCli} ]; then
+  const nodeCliRun = `if [ -x ${quotedNode} ] && [ -f ${quotedCli} ]; then
   ${quotedNode} ${quotedCli} hook-run
-${diffowlPathFallback}elif command -v diffowl >/dev/null 2>&1; then
+`;
+  const commandRun = `elif command -v diffowl >/dev/null 2>&1; then
   diffowl hook-run
-else
+`;
+
+  const runBlock = isPath
+    ? `${diffowlPathRun}elif [ -x ${quotedNode} ] && [ -f ${quotedCli} ]; then
+  ${quotedNode} ${quotedCli} hook-run
+${commandRun}else
+  echo "diffowl: review not started; diffowl command not found or not executable; log: $DIFFOWL_LOG_FILE"
+  echo "diffowl: review not started at $(date); diffowl command not found or not executable" >>"$DIFFOWL_LOG_FILE"
+fi`
+    : `${nodeCliRun}${commandRun}else
   echo "diffowl: review not started; diffowl command not found or not executable; log: $DIFFOWL_LOG_FILE"
   echo "diffowl: review not started at $(date); diffowl command not found or not executable" >>"$DIFFOWL_LOG_FILE"
 fi`;
