@@ -13,6 +13,7 @@ import { parseProviderPayload } from "./provider-payload.js";
 export { parseStructuredReview, looksLikeCompleteStructuredReview } from "./review-parser.js";
 export { buildToolPolicy, extractPermissionRequest } from "./tools.js";
 export { getAvailableModels } from "./models.js";
+export { isQuotaOrRateLimitError } from "./quota.js";
 export type {
   ReviewConfidence,
   ReviewFinding,
@@ -359,13 +360,29 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
                 settlement.acceptAssistantMessage({ text, error: normalized.error });
                 break;
               }
-              case "session-status":
-                const message =
-                  normalized.status === "retry"
-                    ? `OpenCode retrying: ${normalized.message ?? "unknown error"}`
-                    : `OpenCode session ${normalized.status}.`;
-                onProgress?.({ type: "session", message, sessionId });
+              case "session-status": {
+                if (normalized.status === "retry") {
+                  const retryMessage = normalized.message ?? "unknown error";
+                  onProgress?.({
+                    type: "session",
+                    message: `OpenCode retrying: ${retryMessage}`,
+                    sessionId,
+                  });
+                  const { isQuotaOrRateLimitError: isQuota } = await import("./quota.js");
+                  if (isQuota(retryMessage)) {
+                    settlement.reject(
+                      new Error(`Provider quota or rate limit reached: ${retryMessage}`),
+                    );
+                  }
+                } else {
+                  onProgress?.({
+                    type: "session",
+                    message: `OpenCode session ${normalized.status}.`,
+                    sessionId,
+                  });
+                }
                 break;
+              }
               case "session-idle":
                 if (fullResponse.length === 0) break;
                 onProgress?.({ type: "idle", message: "OpenCode session is idle." });

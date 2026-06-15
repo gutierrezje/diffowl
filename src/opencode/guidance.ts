@@ -1,3 +1,5 @@
+import { isQuotaOrRateLimitError } from "./quota.js";
+
 export function getOpenCodeFailureGuidance(message: string): string[] {
   const normalized = message.toLowerCase();
 
@@ -37,6 +39,14 @@ export function getOpenCodeFailureGuidance(message: string): string[] {
     normalized.includes("connection refused")
   ) {
     return ["Start the managed server: diffowl server start", "Then retry the DiffOwl command."];
+  }
+
+  if (isQuotaOrRateLimitError(normalized)) {
+    return [
+      "Provider quota or rate limit reached. Wait a few minutes and retry.",
+      "If persistent, check your provider dashboard for usage limits and billing.",
+      "You can also try a different model: diffowl review --model <model>",
+    ];
   }
 
   if (normalized.includes("timed out") || normalized.includes("timeout")) {

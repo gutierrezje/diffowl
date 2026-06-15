@@ -61,6 +61,30 @@ describe("getOpenCodeFailureGuidance", () => {
     ]);
   });
 
+  it("explains how to recover from provider quota or rate limit errors", () => {
+    const expected = [
+      "Provider quota or rate limit reached. Wait a few minutes and retry.",
+      "If persistent, check your provider dashboard for usage limits and billing.",
+      "You can also try a different model: diffowl review --model <model>",
+    ];
+
+    expect(
+      getOpenCodeFailureGuidance("Provider quota or rate limit reached: 429 Too Many Requests"),
+    ).toEqual(expected);
+
+    expect(
+      getOpenCodeFailureGuidance("Provider quota or rate limit reached: insufficient_quota"),
+    ).toEqual(expected);
+
+    expect(
+      getOpenCodeFailureGuidance("Provider quota or rate limit reached: overloaded_error"),
+    ).toEqual(expected);
+
+    expect(
+      getOpenCodeFailureGuidance("Provider quota or rate limit reached: RESOURCE_EXHAUSTED"),
+    ).toEqual(expected);
+  });
+
   it("does not guess at unrelated failures", () => {
     expect(getOpenCodeFailureGuidance("Unexpected formatter failure")).toEqual([]);
   });
