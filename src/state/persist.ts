@@ -99,17 +99,31 @@ export function splitFindingsByLifecycleSuppression(
   actionableFindings: ReviewFinding[];
   lifecycleSuppressedFindings: ReviewFinding[];
 } {
+  const findingsByFingerprint = new Map<string, ReviewFinding>();
+  for (const finding of findings) {
+    findingsByFingerprint.set(computeFindingFingerprint(toFindingCandidate(finding)), finding);
+  }
+
   const actionableFindings: ReviewFinding[] = [];
   const lifecycleSuppressedFindings: ReviewFinding[] = [];
+  const matchedFingerprints = new Set<string>();
 
-  for (const [index, observation] of reconcile.observations.entries()) {
-    const finding = findings[index];
+  for (const observation of reconcile.observations) {
+    const finding = findingsByFingerprint.get(observation.fingerprint);
     if (!finding) {
       continue;
     }
+    matchedFingerprints.add(observation.fingerprint);
     if (observation.suppressed) {
       lifecycleSuppressedFindings.push(finding);
     } else {
+      actionableFindings.push(finding);
+    }
+  }
+
+  for (const finding of findings) {
+    const fingerprint = computeFindingFingerprint(toFindingCandidate(finding));
+    if (!matchedFingerprints.has(fingerprint)) {
       actionableFindings.push(finding);
     }
   }
@@ -169,14 +183,9 @@ export async function updatePersistedReview(
 
   try {
     runInTransaction(state.db, () => {
-      const existing = getReviewById(state.db, reviewId);
-      if (!existing) {
-        throw new Error(`Review ${reviewId} was not found in state database.`);
-      }
-
       updateReview(state.db, reviewId, {
         ...(input.reportPath !== undefined ? { reportPath: input.reportPath } : {}),
-        diagnostics: input.diagnostics ?? existing.diagnostics,
+        ...(input.diagnostics !== undefined ? { diagnostics: input.diagnostics } : {}),
       });
     });
   } finally {

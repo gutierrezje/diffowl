@@ -12,6 +12,7 @@ import {
   toFindingCandidate,
   updatePersistedReview,
 } from "./persist.js";
+import { computeFindingFingerprint } from "./fingerprint.js";
 import { getReviewById } from "./repositories/reviews.js";
 import { removeTempStateDir } from "./test-helpers.js";
 import type { ReviewFinding } from "../review/types.js";
@@ -169,20 +170,68 @@ describe("persist helpers", () => {
           },
           finding: {
             id: "fnd_test",
-            fingerprint: "v1:test",
+            fingerprint: computeFindingFingerprint(toFindingCandidate(sampleFinding)),
             status: "dismissed",
             firstReviewId: "rev_test",
             lastReviewId: "rev_test",
             createdAt: "2026-01-01T00:00:00.000Z",
             updatedAt: "2026-01-01T00:00:00.000Z",
           },
-          fingerprint: "v1:test",
+          fingerprint: computeFindingFingerprint(toFindingCandidate(sampleFinding)),
           suppressed: true,
         },
       ],
       suppressedCounts: { dismissed: 1, deferred: 0 },
     })).toEqual({
       actionableFindings: [],
+      lifecycleSuppressedFindings: [sampleFinding],
+    });
+  });
+
+  it("matches lifecycle suppression by fingerprint when observation order differs", () => {
+    const otherFinding: ReviewFinding = {
+      ...sampleFinding,
+      file: "src/other.ts",
+      title: "Different issue",
+      body: "Another problem.",
+      evidence: "doThing();",
+    };
+
+    const result = splitFindingsByLifecycleSuppression([otherFinding, sampleFinding], {
+      observations: [
+        {
+          observation: {
+            id: 1,
+            reviewId: "rev_test",
+            findingId: "fnd_test",
+            file: sampleFinding.file,
+            line: sampleFinding.line,
+            severity: sampleFinding.severity,
+            confidence: sampleFinding.confidence,
+            title: sampleFinding.title,
+            body: sampleFinding.body,
+            evidence: sampleFinding.evidence ?? null,
+            ordinal: 1,
+            classification: "existing",
+          },
+          finding: {
+            id: "fnd_test",
+            fingerprint: computeFindingFingerprint(toFindingCandidate(sampleFinding)),
+            status: "dismissed",
+            firstReviewId: "rev_test",
+            lastReviewId: "rev_test",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          },
+          fingerprint: computeFindingFingerprint(toFindingCandidate(sampleFinding)),
+          suppressed: true,
+        },
+      ],
+      suppressedCounts: { dismissed: 1, deferred: 0 },
+    });
+
+    expect(result).toEqual({
+      actionableFindings: [otherFinding],
       lifecycleSuppressedFindings: [sampleFinding],
     });
   });
@@ -204,6 +253,24 @@ describe("persist helpers", () => {
         "context warning",
         "Report write failed: disk full.",
       ]);
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
+  it("preserves diagnostics when only the report path is updated", async () => {
+    const dir = await createTempDir();
+    const persisted = await persistReviewRun(dir, basePersistInput([sampleFinding]));
+
+    await updatePersistedReview(dir, persisted.reviewId, {
+      reportPath: ".diffowl/reviews/latest.md",
+    });
+
+    const state = await openStateDatabase(dir);
+    try {
+      const review = getReviewById(state.db, persisted.reviewId);
+      expect(review?.reportPath).toBe(".diffowl/reviews/latest.md");
+      expect(review?.diagnostics).toEqual(["context warning"]);
     } finally {
       closeStateDatabase(state);
     }

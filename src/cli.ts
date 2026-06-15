@@ -414,6 +414,7 @@ program
         });
         await updatePersistedReview(getDiffOwlDir(), persisted.reviewId, {
           reportPath,
+          diagnostics,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
