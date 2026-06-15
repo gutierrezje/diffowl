@@ -211,6 +211,44 @@ describe("ensureServer", () => {
       expect.objectContaining({ detached: true }),
     );
   });
+
+  it("fails when a stale server does not release its port in time", async () => {
+    vi.useFakeTimers();
+    const { ensureServer } = await import("./server.js");
+
+    mocks.getDiffOwlDir.mockReturnValue("/tmp/diffowl");
+    mocks.existsSync.mockReturnValue(false);
+    mocks.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ healthy: true, version: "1.15.13" }),
+    });
+    vi.stubGlobal("fetch", mocks.fetch);
+
+    mocks.execa.mockImplementation((command: string, args?: string[]) => {
+      if (command === "opencode" && args?.[0] === "--version") {
+        return Promise.resolve({ stdout: "1.17.7\n" });
+      }
+      if (command === "lsof") {
+        return Promise.resolve({ stdout: "11111\n" });
+      }
+      if (command === "ps") {
+        return Promise.resolve({ stdout: "opencode serve --port 4096" });
+      }
+      return Promise.resolve({ stdout: "" });
+    });
+
+    const originalKill = process.kill.bind(process);
+    vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+      mocks.kill(pid, signal);
+      return originalKill(pid, 0);
+    });
+
+    const result = expect(ensureServer(4096)).rejects.toThrow(
+      "OpenCode server on port 4096 did not stop within",
+    );
+    await vi.runAllTimersAsync();
+    await result;
+  });
 });
 
 describe("stopServer", () => {

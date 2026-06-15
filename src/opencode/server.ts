@@ -288,6 +288,12 @@ async function waitUntilPortFree(port: number): Promise<void> {
     }
     await sleep(PORT_RELEASE_POLL_MS);
   }
+
+  if (await isServerRunning(port)) {
+    throw new Error(
+      `OpenCode server on port ${port} did not stop within ${PORT_RELEASE_WAIT_MS}ms. Retry: diffowl server stop && diffowl server start`,
+    );
+  }
 }
 
 async function isOpencodeProcess(pid: number): Promise<boolean> {
