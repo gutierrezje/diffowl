@@ -39,6 +39,13 @@ vi.mock("../config.js", async () => {
   };
 });
 
+/**
+ * Build a netstat -ano line that `findOpencodeListenerPidWindows` will parse.
+ */
+function netstatLine(port: number, pid: number): string {
+  return `  TCP    0.0.0.0:${port}           0.0.0.0:0              LISTENING       ${pid}\r\n`;
+}
+
 describe("getServerHealth", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -96,7 +103,8 @@ describe("ensureServer", () => {
     mocks.writeFile.mockResolvedValue(undefined);
     mocks.existsSync.mockReturnValue(false);
     mocks.execa.mockImplementation((command: string, args?: string[]) => {
-      if (command === "which") {
+      // checkOpencodeInstalled: Unix `which`, Windows `where`
+      if (command === "which" || command === "where") {
         return Promise.resolve({ stdout: "/usr/local/bin/opencode" });
       }
       if (command === "opencode" && args?.[0] === "serve") {
@@ -179,13 +187,24 @@ describe("ensureServer", () => {
       if (command === "opencode" && args?.[0] === "--version") {
         return Promise.resolve({ stdout: "1.17.7\n" });
       }
+      // findOpencodeListenerPid: Unix
       if (command === "lsof") {
         return Promise.resolve({ stdout: "11111\n" });
       }
+      // findOpencodeListenerPidWindows
+      if (command === "netstat") {
+        return Promise.resolve({ stdout: netstatLine(4096, 11111) });
+      }
+      // isOpencodeProcess: Unix
       if (command === "ps") {
         return Promise.resolve({ stdout: "opencode serve --port 4096" });
       }
-      if (command === "which") {
+      // isOpencodeProcess: Windows (powershell tried first, then wmic, then tasklist)
+      if (command === "powershell" || command === "wmic" || command === "tasklist") {
+        return Promise.resolve({ stdout: "opencode serve --port 4096" });
+      }
+      // checkOpencodeInstalled: Unix `which`, Windows `where`
+      if (command === "which" || command === "where") {
         return Promise.resolve({ stdout: "/usr/local/bin/opencode" });
       }
       if (command === "opencode" && args?.[0] === "serve") {
@@ -228,10 +247,20 @@ describe("ensureServer", () => {
       if (command === "opencode" && args?.[0] === "--version") {
         return Promise.resolve({ stdout: "1.17.7\n" });
       }
+      // findOpencodeListenerPid: Unix
       if (command === "lsof") {
         return Promise.resolve({ stdout: "11111\n" });
       }
+      // findOpencodeListenerPidWindows
+      if (command === "netstat") {
+        return Promise.resolve({ stdout: netstatLine(4096, 11111) });
+      }
+      // isOpencodeProcess: Unix
       if (command === "ps") {
+        return Promise.resolve({ stdout: "opencode serve --port 4096" });
+      }
+      // isOpencodeProcess: Windows
+      if (command === "powershell" || command === "wmic" || command === "tasklist") {
         return Promise.resolve({ stdout: "opencode serve --port 4096" });
       }
       return Promise.resolve({ stdout: "" });
@@ -271,10 +300,20 @@ describe("stopServer", () => {
     mocks.getDiffOwlDir.mockReturnValue("/tmp/diffowl");
     mocks.existsSync.mockReturnValue(false);
     mocks.execa.mockImplementation((command: string) => {
+      // findOpencodeListenerPid: Unix
       if (command === "lsof") {
         return Promise.resolve({ stdout: "33333\n" });
       }
+      // findOpencodeListenerPidWindows
+      if (command === "netstat") {
+        return Promise.resolve({ stdout: netstatLine(4096, 33333) });
+      }
+      // isOpencodeProcess: Unix
       if (command === "ps") {
+        return Promise.resolve({ stdout: "opencode serve --port 4096" });
+      }
+      // isOpencodeProcess: Windows
+      if (command === "powershell" || command === "wmic" || command === "tasklist") {
         return Promise.resolve({ stdout: "opencode serve --port 4096" });
       }
       return Promise.resolve({ stdout: "" });
@@ -300,7 +339,12 @@ describe("stopServer", () => {
     mocks.readFile.mockResolvedValue("44444");
     mocks.unlink.mockRejectedValue(new Error("permission denied"));
     mocks.execa.mockImplementation((command: string) => {
+      // isOpencodeProcess: Unix
       if (command === "ps") {
+        return Promise.resolve({ stdout: "opencode serve --port 4096" });
+      }
+      // isOpencodeProcess: Windows
+      if (command === "powershell" || command === "wmic" || command === "tasklist") {
         return Promise.resolve({ stdout: "opencode serve --port 4096" });
       }
       return Promise.resolve({ stdout: "" });
