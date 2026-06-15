@@ -216,6 +216,9 @@ describe("ensureServer", () => {
     const originalKill = process.kill.bind(process);
     vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
       mocks.kill(pid, signal);
+      if (signal === "SIGTERM") {
+        return true;
+      }
       return originalKill(pid, 0);
     });
 
@@ -269,6 +272,9 @@ describe("ensureServer", () => {
     const originalKill = process.kill.bind(process);
     vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
       mocks.kill(pid, signal);
+      if (signal === "SIGTERM") {
+        return true;
+      }
       return originalKill(pid, 0);
     });
 
@@ -277,6 +283,32 @@ describe("ensureServer", () => {
     );
     await vi.runAllTimersAsync();
     await result;
+  });
+
+  it("fails clearly when a stale server cannot be stopped", async () => {
+    const { ensureServer } = await import("./server.js");
+
+    mocks.getDiffOwlDir.mockReturnValue("/tmp/diffowl");
+    mocks.existsSync.mockReturnValue(false);
+    mocks.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ healthy: true, version: "1.15.13" }),
+    });
+    vi.stubGlobal("fetch", mocks.fetch);
+
+    mocks.execa.mockImplementation((command: string, args?: string[]) => {
+      if (command === "opencode" && args?.[0] === "--version") {
+        return Promise.resolve({ stdout: "1.17.7\n" });
+      }
+      if (command === "lsof" || command === "netstat") {
+        return Promise.resolve({ stdout: "" });
+      }
+      return Promise.resolve({ stdout: "" });
+    });
+
+    await expect(ensureServer(4096)).rejects.toThrow(
+      "Could not locate or stop stale OpenCode server on port 4096.",
+    );
   });
 });
 
@@ -299,6 +331,8 @@ describe("stopServer", () => {
     const { stopServer } = await import("./server.js");
     mocks.getDiffOwlDir.mockReturnValue("/tmp/diffowl");
     mocks.existsSync.mockReturnValue(false);
+    mocks.fetch.mockResolvedValue({ ok: false });
+    vi.stubGlobal("fetch", mocks.fetch);
     mocks.execa.mockImplementation((command: string) => {
       // findOpencodeListenerPid: Unix
       if (command === "lsof") {
@@ -338,6 +372,8 @@ describe("stopServer", () => {
     mocks.existsSync.mockReturnValue(true);
     mocks.readFile.mockResolvedValue("44444");
     mocks.unlink.mockRejectedValue(new Error("permission denied"));
+    mocks.fetch.mockResolvedValue({ ok: false });
+    vi.stubGlobal("fetch", mocks.fetch);
     mocks.execa.mockImplementation((command: string) => {
       // isOpencodeProcess: Unix
       if (command === "ps") {

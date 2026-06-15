@@ -79,7 +79,9 @@ export async function ensureServer(port: number): Promise<string> {
   if (health?.healthy) {
     const cliVersion = await getInstalledOpencodeVersion();
     if (health.version && cliVersion && health.version !== cliVersion) {
-      await stopServer(port);
+      if (!(await stopServer(port))) {
+        throw new Error(`Could not locate or stop stale OpenCode server on port ${port}.`);
+      }
       await waitUntilPortFree(port);
     } else {
       return baseUrl;
@@ -154,6 +156,7 @@ async function spawnServer(port: number): Promise<void> {
  */
 export async function stopServer(port: number): Promise<boolean> {
   if (await stopManagedServer()) {
+    await waitUntilPortFree(port);
     return true;
   }
 
@@ -173,6 +176,7 @@ export async function stopServer(port: number): Promise<boolean> {
   }
 
   await cleanupPidFile();
+  await waitUntilPortFree(port);
   return true;
 }
 

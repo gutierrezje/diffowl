@@ -56,5 +56,9 @@ describe("isQuotaOrRateLimitError", () => {
     expect(isQuotaOrRateLimitError("failed to read src/billing/service.ts")).toBe(false);
     expect(isQuotaOrRateLimitError("failed to parse quota.json")).toBe(false);
     expect(isQuotaOrRateLimitError("missing capacity-planning.md")).toBe(false);
+    expect(
+      isQuotaOrRateLimitError("Maximum call stack size exceeded while parsing src/quota.ts"),
+    ).toBe(false);
+    expect(isQuotaOrRateLimitError("Timeout exceeded when reading quota.json")).toBe(false);
   });
 });

@@ -4,7 +4,7 @@ const QUOTA_PATTERNS = [
   /usage limit/,
   /insufficient[_ -]?quota/,
   /quota (exceeded|reached)/,
-  /(exceeded|reached) .*quota/,
+  /(exceeded|reached) (your )?(current )?quota/,
   /resource.?exhausted/,
   /too many requests/,
   /overloaded/,

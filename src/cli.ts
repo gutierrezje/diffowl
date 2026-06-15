@@ -227,7 +227,6 @@ program
       if (target.kind === "staged" && diff.files.length === 0) {
         spinner?.stop();
         if (jsonMode) {
-          writeJsonError("No staged changes to review");
           process.exit(0);
         }
         console.log(chalk.yellow("No staged changes to review"));
