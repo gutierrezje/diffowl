@@ -90,6 +90,49 @@ export function getFindingByFingerprint(
   return row;
 }
 
+export function listFindingsByStatuses(
+  db: Database.Database,
+  statuses: FindingRecord["status"][],
+): FindingRecord[] {
+  if (statuses.length === 0) {
+    return [];
+  }
+
+  const placeholders = statuses.map(() => "?").join(", ");
+  return db
+    .prepare(`
+      SELECT
+        id,
+        fingerprint,
+        status,
+        first_review_id AS firstReviewId,
+        last_review_id AS lastReviewId,
+        created_at AS createdAt,
+        updated_at AS updatedAt
+      FROM findings
+      WHERE status IN (${placeholders})
+      ORDER BY updated_at DESC, id ASC
+    `)
+    .all(...statuses) as FindingRecord[];
+}
+
+export function listAllFindings(db: Database.Database): FindingRecord[] {
+  return db
+    .prepare(`
+      SELECT
+        id,
+        fingerprint,
+        status,
+        first_review_id AS firstReviewId,
+        last_review_id AS lastReviewId,
+        created_at AS createdAt,
+        updated_at AS updatedAt
+      FROM findings
+      ORDER BY updated_at DESC, id ASC
+    `)
+    .all() as FindingRecord[];
+}
+
 const updateFindingStatement = (db: Database.Database) =>
   db.prepare(`
     UPDATE findings

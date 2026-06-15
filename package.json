@@ -26,9 +26,14 @@
   ],
   "type": "module",
   "scripts": {
+    "check:native-runtime": "node scripts/check-native-runtime.mjs",
+    "prebuild": "pnpm run check:native-runtime",
     "build": "tsup",
+    "predev": "pnpm run check:native-runtime",
     "dev": "tsup --watch",
+    "pretest": "pnpm run check:native-runtime",
     "test": "vitest run",
+    "pretypecheck": "pnpm run check:native-runtime",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint . && pnpm run typecheck",
     "format": "oxfmt --write .",
@@ -57,7 +62,7 @@
     "vitest": "^4.1.7"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.14.0 <23"
   },
   "packageManager": "pnpm@10.15.1",
   "pnpm": {

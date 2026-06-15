@@ -87,6 +87,24 @@ import {
   writeReviewJsonSuccess,
   type ReviewOutputFormat,
 } from "./output/json.js";
+import {
+  formatFindingDetail,
+  formatFindingList,
+  renderFindingDetailJson,
+} from "./output/findings.js";
+import {
+  deferFindingByLocator,
+  dismissFindingByLocator,
+  fixFindingByLocator,
+  listUnresolvedFindings,
+  LocatorAmbiguousError,
+  LocatorNotFoundError,
+  reopenFindingByLocator,
+  requireFindingDetail,
+  withFindingDatabase,
+} from "./state/findings-query.js";
+import { InvalidFindingTransitionError } from "./state/db.js";
+import type { FindingActor } from "./state/types.js";
 
 import { readFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
@@ -942,7 +960,181 @@ serverCmd
     }
   });
 
+// Findings commands
+const findingsCmd = program.command("findings").description("Inspect and manage durable findings");
+
+findingsCmd
+  .command("list", { isDefault: true })
+  .description("List unresolved findings")
+  .action(async () => {
+    await loadConfigOrExit();
+    const items = await withFindingDatabase(getDiffOwlDir(), listUnresolvedFindings);
+    if (items.length === 0) {
+      console.log(chalk.green("No unresolved findings."));
+      return;
+    }
+    console.log(formatFindingList(items));
+  });
+
+findingsCmd
+  .command("show")
+  .description("Show one finding by locator")
+  .argument("<locator>", "Finding id, id prefix, or latest:N")
+  .option("--format <format>", "Output format: text or json", "text")
+  .action(async (locator: string, options: { format?: string }) => {
+    await loadConfigOrExit();
+    const format = resolveReviewOutputFormat(options.format);
+    try {
+      const detail = await withFindingDatabase(getDiffOwlDir(), (db) =>
+        requireFindingDetail(db, locator),
+      );
+      if (format === "json") {
+        process.stdout.write(renderFindingDetailJson(detail));
+        return;
+      }
+      console.log(formatFindingDetail(detail));
+    } catch (err) {
+      failFindingsCommand(format, err);
+    }
+  });
+
+findingsCmd
+  .command("dismiss")
+  .description("Dismiss a finding")
+  .argument("<locator>", "Finding id, id prefix, or latest:N")
+  .requiredOption("--reason <text>", "Dismissal reason")
+  .option("--actor <actor>", "Actor: user or agent", "user")
+  .option("--format <format>", "Output format: text or json", "json")
+  .action(async (locator: string, options: { reason: string; actor?: string; format?: string }) => {
+    await runFindingMutation(locator, options.format, (db) =>
+      dismissFindingByLocator(db, locator, {
+        actor: parseFindingActor(options.actor),
+        reason: options.reason,
+      }),
+    );
+  });
+
+findingsCmd
+  .command("defer")
+  .description("Defer a finding")
+  .argument("<locator>", "Finding id, id prefix, or latest:N")
+  .requiredOption("--reason <text>", "Deferral reason")
+  .option("--actor <actor>", "Actor: user or agent", "user")
+  .option("--format <format>", "Output format: text or json", "json")
+  .action(async (locator: string, options: { reason: string; actor?: string; format?: string }) => {
+    await runFindingMutation(locator, options.format, (db) =>
+      deferFindingByLocator(db, locator, {
+        actor: parseFindingActor(options.actor),
+        reason: options.reason,
+      }),
+    );
+  });
+
+findingsCmd
+  .command("fix")
+  .description("Mark a finding fixed")
+  .argument("<locator>", "Finding id, id prefix, or latest:N")
+  .requiredOption("--note <text>", "Fix note")
+  .option("--verified-by <command>", "Verification command (repeatable)", collectValues, [])
+  .option("--commit <ref>", "Commit reference")
+  .option("--actor <actor>", "Actor: user or agent", "user")
+  .option("--format <format>", "Output format: text or json", "json")
+  .action(
+    async (
+      locator: string,
+      options: {
+        note: string;
+        verifiedBy?: string[];
+        commit?: string;
+        actor?: string;
+        format?: string;
+      },
+    ) => {
+      const verifiedBy = options.verifiedBy ?? [];
+      if (verifiedBy.length === 0) {
+        console.error(chalk.red("At least one --verified-by command is required."));
+        process.exit(1);
+      }
+      await runFindingMutation(locator, options.format, (db) =>
+        fixFindingByLocator(db, locator, {
+          actor: parseFindingActor(options.actor),
+          note: options.note,
+          verifiedBy,
+          ...(options.commit ? { commitRef: options.commit } : {}),
+        }),
+      );
+    },
+  );
+
+findingsCmd
+  .command("reopen")
+  .description("Reopen a fixed finding")
+  .argument("<locator>", "Finding id, id prefix, or latest:N")
+  .requiredOption("--reason <text>", "Reopen reason")
+  .option("--actor <actor>", "Actor: user or agent", "user")
+  .option("--format <format>", "Output format: text or json", "json")
+  .action(async (locator: string, options: { reason: string; actor?: string; format?: string }) => {
+    await runFindingMutation(locator, options.format, (db) =>
+      reopenFindingByLocator(db, locator, {
+        actor: parseFindingActor(options.actor),
+        reason: options.reason,
+      }),
+    );
+  });
+
 program.parse();
+
+async function runFindingMutation(
+  _locator: string,
+  formatValue: string | undefined,
+  mutate: (
+    db: import("better-sqlite3").Database,
+  ) => import("./state/findings-query.js").FindingDetail,
+): Promise<void> {
+  await loadConfigOrExit();
+  const format = resolveReviewOutputFormat(formatValue);
+  try {
+    const detail = await withFindingDatabase(getDiffOwlDir(), mutate);
+    if (format === "json") {
+      process.stdout.write(renderFindingDetailJson(detail));
+      return;
+    }
+    console.log(formatFindingDetail(detail));
+  } catch (err) {
+    failFindingsCommand(format, err);
+  }
+}
+
+function failFindingsCommand(format: ReviewOutputFormat, err: unknown): never {
+  const message =
+    err instanceof LocatorNotFoundError ||
+    err instanceof LocatorAmbiguousError ||
+    err instanceof InvalidFindingTransitionError
+      ? err.message
+      : err instanceof Error
+        ? err.message
+        : String(err);
+  if (format === "json") {
+    writeJsonError(message);
+  } else {
+    console.error(chalk.red(message));
+  }
+  process.exit(1);
+}
+
+function parseFindingActor(value: string | undefined): FindingActor {
+  if (value === undefined || value === "user") {
+    return "user";
+  }
+  if (value === "agent") {
+    return "agent";
+  }
+  throw new Error(`Invalid actor: ${value}. Expected user or agent.`);
+}
+
+function collectValues(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
 
 async function loadConfigOrExit(): Promise<DiffOwlConfig> {
   try {

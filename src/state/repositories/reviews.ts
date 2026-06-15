@@ -129,6 +129,38 @@ export function getReviewById(db: Database.Database, id: string): ReviewRecord |
   return mapReviewRow(row);
 }
 
+export function getLatestReview(db: Database.Database): ReviewRecord | undefined {
+  const row = db
+    .prepare(`
+      SELECT
+        id,
+        created_at AS createdAt,
+        target_kind AS targetKind,
+        target_ref AS targetRef,
+        target_commit AS targetCommit,
+        diff_hash AS diffHash,
+        model,
+        reasoning,
+        depth,
+        session_id AS sessionId,
+        summary,
+        report_path AS reportPath,
+        diagnostics_json AS diagnosticsJson,
+        timings_json AS timingsJson,
+        skipped_reason AS skippedReason
+      FROM reviews
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+    `)
+    .get() as ReviewRow | undefined;
+
+  if (!row) {
+    return undefined;
+  }
+
+  return mapReviewRow(row);
+}
+
 export interface UpdateReviewInput {
   reportPath?: string | null;
   diagnostics?: string[];

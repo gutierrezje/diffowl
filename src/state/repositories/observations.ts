@@ -132,3 +132,30 @@ export function countObservationsByFindingIds(
   }
   return counts;
 }
+
+export function getLatestObservationForFinding(
+  db: Database.Database,
+  findingId: string,
+): FindingObservationRecord | undefined {
+  return db
+    .prepare(`
+      SELECT
+        id,
+        review_id AS reviewId,
+        finding_id AS findingId,
+        file,
+        line,
+        severity,
+        confidence,
+        title,
+        body,
+        evidence,
+        ordinal,
+        classification
+      FROM finding_observations
+      WHERE finding_id = ?
+      ORDER BY id DESC
+      LIMIT 1
+    `)
+    .get(findingId) as FindingObservationRecord | undefined;
+}
