@@ -535,9 +535,9 @@ export async function getHookCommand(): Promise<HookCommand> {
 async function resolveHookCommand(): Promise<HookCommand> {
   const diffowl = await resolveCommand("diffowl");
   const opencode = await resolveCommand("opencode");
-  // Pin the Node binary from PATH (same one the global diffowl shim execs), not
-  // process.execPath, which can differ when install is run via an explicit node.
-  const node = await resolveCommand("node");
+  // Pin the exact Node runtime that launched this CLI. Hook environments can
+  // resolve a different `node` from PATH than the user's interactive shell.
+  const node = process.execPath;
   return {
     diffowl,
     node,
@@ -609,8 +609,8 @@ export function generateManagedSection(command: HookCommand): string {
   const quotedNode = shellQuote(command.node);
   const quotedCli = shellQuote(command.cli);
   const pathPrefix = command.pathDirs.length ? command.pathDirs.join(":") : undefined;
-  const diffowlPathRun = isPath
-    ? `if [ -x ${quotedDiffOwl} ]; then
+  const diffowlPathFallback = isPath
+    ? `elif [ -x ${quotedDiffOwl} ]; then
   ${quotedDiffOwl} hook-run
 `
     : "";
@@ -620,15 +620,7 @@ export function generateManagedSection(command: HookCommand): string {
   const commandRun = `elif command -v diffowl >/dev/null 2>&1; then
   diffowl hook-run
 `;
-
-  const runBlock = isPath
-    ? `${diffowlPathRun}elif [ -x ${quotedNode} ] && [ -f ${quotedCli} ]; then
-  ${quotedNode} ${quotedCli} hook-run
-${commandRun}else
-  echo "diffowl: review not started; diffowl command not found or not executable; log: $DIFFOWL_LOG_FILE"
-  echo "diffowl: review not started at $(date); diffowl command not found or not executable" >>"$DIFFOWL_LOG_FILE"
-fi`
-    : `${nodeCliRun}${commandRun}else
+  const runBlock = `${nodeCliRun}${diffowlPathFallback}${commandRun}else
   echo "diffowl: review not started; diffowl command not found or not executable; log: $DIFFOWL_LOG_FILE"
   echo "diffowl: review not started at $(date); diffowl command not found or not executable" >>"$DIFFOWL_LOG_FILE"
 fi`;

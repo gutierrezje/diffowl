@@ -421,7 +421,7 @@ describe("generateManagedSection", () => {
     expect(section).toContain("command -v diffowl");
   });
 
-  it("prefers the linked diffowl shim and extends PATH for hook environments", () => {
+  it("prefers the explicit Node runtime over the linked diffowl shim", () => {
     const section = generateManagedSection({
       diffowl: "/usr/local/bin/diffowl",
       node: "/opt/node/bin/node",
@@ -430,10 +430,12 @@ describe("generateManagedSection", () => {
     });
 
     expect(section).toContain("PATH='/opt/node/bin:/opt/homebrew/bin'\":$PATH\"");
-    expect(section).toContain("if [ -x '/usr/local/bin/diffowl' ]; then");
-    expect(section).toContain("'/usr/local/bin/diffowl' hook-run");
-    expect(section).toContain("elif [ -x '/opt/node/bin/node' ] && [ -f '/usr/local/lib/diffowl/dist/cli.js' ]; then");
+    expect(section).toContain(
+      "if [ -x '/opt/node/bin/node' ] && [ -f '/usr/local/lib/diffowl/dist/cli.js' ]; then",
+    );
     expect(section).toContain("'/opt/node/bin/node' '/usr/local/lib/diffowl/dist/cli.js' hook-run");
+    expect(section).toContain("elif [ -x '/usr/local/bin/diffowl' ]; then");
+    expect(section).toContain("'/usr/local/bin/diffowl' hook-run");
   });
 
   it.skipIf(process.platform === "win32")(

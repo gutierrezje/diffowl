@@ -583,6 +583,20 @@ function formatReviewProgress(event: ReviewProgressEvent): string {
   }
 }
 
+async function describeNodeRuntime(node: string): Promise<string> {
+  try {
+    const { stdout } = await execa(node, [
+      "-p",
+      "JSON.stringify({ version: process.version, modules: process.versions.modules })",
+    ]);
+    const parsed = JSON.parse(stdout) as { version?: unknown; modules?: unknown };
+    if (typeof parsed.version === "string" && typeof parsed.modules === "string") {
+      return `${node} (${parsed.version}, ABI ${parsed.modules})`;
+    }
+  } catch {}
+  return node;
+}
+
 function resolveReviewDepth(value: unknown, config: DiffOwlConfig): ReviewContextDepth {
   if (value === undefined) {
     return config.context.depth;
@@ -813,7 +827,8 @@ hookCmd
     const command = await getHookCommand();
     const action = alreadyInstalled ? "updated" : "installed";
     console.log(chalk.green(`✓ Post-commit hook ${action}: ${hookPath}`));
-    console.log(chalk.dim(`Hook Node: ${command.node}`));
+    console.log(chalk.dim(`Hook Node: ${await describeNodeRuntime(command.node)}`));
+    console.log(chalk.dim(`Hook Entrypoint: ${command.cli}`));
     console.log(chalk.dim("Reviews will run automatically after each commit (non-blocking)"));
     console.log(
       chalk.dim("Hook output: .diffowl/hook.log; latest report: .diffowl/reviews/latest.md"),

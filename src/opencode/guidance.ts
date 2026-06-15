@@ -61,7 +61,7 @@ export function getOpenCodeFailureGuidance(message: string): string[] {
     return [
       "Native module ABI mismatch. Rebuild for your active Node: pnpm rebuild better-sqlite3",
       "Reinstall the hook so it uses the same Node as the CLI: diffowl hook install",
-      "Verify with: node -p process.versions.modules (CLI) vs the Hook Node line from hook install",
+      "Compare the required NODE_MODULE_VERSION with the Hook Node ABI from `diffowl hook install`.",
     ];
   }
 
