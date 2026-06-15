@@ -31,6 +31,7 @@ export interface ReviewOptions {
   localContext?: string;
   depth: ReviewContextDepth;
   onProgress?: (event: ReviewProgressEvent) => void;
+  signal?: AbortSignal;
 }
 
 export interface ReviewResult {
@@ -45,6 +46,14 @@ export type ReviewProgressEvent =
   | { type: "output"; message: string; characters: number }
   | { type: "timing"; message: string; phase: string; ms: number }
   | { type: "idle"; message: string };
+
+export class ReviewCancelledError extends Error {
+  override name = "ReviewCancelledError";
+}
+
+export function isReviewCancellation(error: unknown): boolean {
+  return error instanceof ReviewCancelledError;
+}
 
 type OpencodeDirectoryOptions = { query: { directory: string } };
 type OpenCodeClient = ReturnType<typeof createOpencodeClient>;
@@ -208,7 +217,11 @@ function normalizeAssistantMessage(
  * Creates a session, sends the review prompt, and returns a structured report.
  */
 export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
-  const { target, directory, config, localContext, depth, onProgress } = options;
+  const { target, directory, config, localContext, depth, onProgress, signal } = options;
+  if (signal?.aborted) {
+    throw new ReviewCancelledError("Review cancelled by user.");
+  }
+
   const port = config.server.port;
   const directoryOptions = opencodeDirectoryOptions(directory);
   const timings: ReviewTiming[] = [];
@@ -266,6 +279,11 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
   // Set up SSE event listener to capture the final structured response
   let fullResponse = "";
   const eventsController = new AbortController();
+  const cancelReview = () => {
+    eventsController.abort();
+  };
+  signal?.addEventListener("abort", cancelReview, { once: true });
+
   const eventStart = performance.now();
   const sseResult = await withOpenCodeDiagnostics("event-stream-connect", { port, sessionId }, () =>
     client.global.event({
@@ -364,51 +382,60 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
             settlement.finish();
           }
         } catch (streamErr) {
-          if (!settlement.isSettled() && !eventsController.signal.aborted) {
-            settlement.reject(
-              describeOpenCodeError(streamErr, "event-stream-read", { port, sessionId }),
-            );
+          if (settlement.isSettled()) {
+            return;
           }
+          if (eventsController.signal.aborted) {
+            settlement.reject(new ReviewCancelledError("Review cancelled by user."));
+            return;
+          }
+          settlement.reject(
+            describeOpenCodeError(streamErr, "event-stream-read", { port, sessionId }),
+          );
         }
       })();
     }),
   );
 
-  // Send the review prompt
-  onProgress?.({ type: "session", message: "Sending review prompt.", sessionId });
-  const promptSendStart = performance.now();
-  await withOpenCodeDiagnostics("prompt-send", { port, sessionId }, () =>
-    client.session.promptAsync({
-      path: { id: sessionId },
-      ...directoryOptions,
-      body: {
-        system: REVIEW_AGENT_PROMPT,
-        model: { providerID, modelID },
-        tools,
-        ...(reasoning.variant ? { variant: reasoning.variant } : {}),
-        parts: [{ type: "text", text: prompt }],
-      },
-    }),
-  );
-  recordTiming(timings, onProgress, "prompt-send", "OpenCode prompt request", promptSendStart);
+  try {
+    // Send the review prompt
+    onProgress?.({ type: "session", message: "Sending review prompt.", sessionId });
+    const promptSendStart = performance.now();
+    await withOpenCodeDiagnostics("prompt-send", { port, sessionId }, () =>
+      client.session.promptAsync({
+        path: { id: sessionId },
+        ...directoryOptions,
+        body: {
+          system: REVIEW_AGENT_PROMPT,
+          model: { providerID, modelID },
+          tools,
+          ...(reasoning.variant ? { variant: reasoning.variant } : {}),
+          parts: [{ type: "text", text: prompt }],
+        },
+      }),
+    );
+    recordTiming(timings, onProgress, "prompt-send", "OpenCode prompt request", promptSendStart);
 
-  const agentWaitStart = performance.now();
-  const raw = await withOpenCodeDiagnostics(
-    "agent-wait",
-    { port, sessionId },
-    () => responsePromise,
-  );
-  recordTiming(timings, onProgress, "agent-wait", "OpenCode review generation", agentWaitStart);
+    const agentWaitStart = performance.now();
+    const raw = await withOpenCodeDiagnostics(
+      "agent-wait",
+      { port, sessionId },
+      () => responsePromise,
+    );
+    recordTiming(timings, onProgress, "agent-wait", "OpenCode review generation", agentWaitStart);
 
-  const parseStart = performance.now();
-  const report = parseStructuredReview(raw);
-  recordTiming(timings, onProgress, "parse-review", "Review JSON parsing", parseStart);
-  const diagnostics = [...(report.diagnostics ?? []), ...reasoning.diagnostics];
+    const parseStart = performance.now();
+    const report = parseStructuredReview(raw);
+    recordTiming(timings, onProgress, "parse-review", "Review JSON parsing", parseStart);
+    const diagnostics = [...(report.diagnostics ?? []), ...reasoning.diagnostics];
 
-  return {
-    report: { ...report, ...(diagnostics.length > 0 ? { diagnostics } : {}), timings },
-    sessionId,
-  };
+    return {
+      report: { ...report, ...(diagnostics.length > 0 ? { diagnostics } : {}), timings },
+      sessionId,
+    };
+  } finally {
+    signal?.removeEventListener("abort", cancelReview);
+  }
 }
 
 export function extractSessionMessageResult(response: unknown): ReconciliationResult {

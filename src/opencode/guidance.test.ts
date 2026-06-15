@@ -37,6 +37,18 @@ describe("getOpenCodeFailureGuidance", () => {
     ]);
   });
 
+  it("explains how to recover from OpenCode server version skew", () => {
+    expect(
+      getOpenCodeFailureGuidance(
+        "OpenCode session failed: SQLiteError: NOT NULL constraint failed: session_message.seq",
+      ),
+    ).toEqual([
+      "OpenCode server version may be stale. Check: diffowl server status",
+      "Restart the server: diffowl server stop && diffowl server start",
+      "Confirm server and CLI versions match: opencode --version",
+    ]);
+  });
+
   it("does not guess at unrelated failures", () => {
     expect(getOpenCodeFailureGuidance("Unexpected formatter failure")).toEqual([]);
   });

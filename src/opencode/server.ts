@@ -7,11 +7,18 @@ import { ensureDiffOwlDir, getDiffOwlDir } from "../config.js";
 const HEALTH_TIMEOUT_MS = 2000;
 const STARTUP_WAIT_MS = 3000;
 const MAX_RETRIES = 10;
+const PORT_RELEASE_WAIT_MS = 5000;
+const PORT_RELEASE_POLL_MS = 200;
+
+export type ServerHealth = {
+  healthy: boolean;
+  version?: string;
+};
 
 /**
- * Check if an OpenCode server is running on the given port
+ * Fetch OpenCode server health, including the running server version when reported.
  */
-export async function isServerRunning(port: number): Promise<boolean> {
+export async function getServerHealth(port: number): Promise<ServerHealth | null> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
@@ -19,28 +26,68 @@ export async function isServerRunning(port: number): Promise<boolean> {
       signal: controller.signal,
     });
     clearTimeout(timeout);
-    return res.ok;
+    if (!res.ok) {
+      return null;
+    }
+
+    const body = (await res.json()) as { healthy?: boolean; version?: string };
+    const health: ServerHealth = { healthy: body.healthy === true };
+    if (typeof body.version === "string") {
+      health.version = body.version;
+    }
+    return health;
   } catch {
-    return false;
+    return null;
   }
 }
 
 /**
+ * Read the installed OpenCode CLI version from PATH.
+ */
+export async function getInstalledOpencodeVersion(): Promise<string | null> {
+  try {
+    const { stdout } = await execa("opencode", ["--version"], { timeout: 5000 });
+    const trimmed = stdout.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    const match = trimmed.match(/(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)/);
+    return match?.[1] ?? trimmed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if an OpenCode server is running on the given port
+ */
+export async function isServerRunning(port: number): Promise<boolean> {
+  const health = await getServerHealth(port);
+  return health?.healthy === true;
+}
+
+/**
  * Ensure an OpenCode server is running. Connects to existing or spawns new.
+ * Restarts a stale listener when its reported version differs from the CLI.
  * Returns the base URL.
  */
 export async function ensureServer(port: number): Promise<string> {
   const baseUrl = `http://127.0.0.1:${port}`;
 
-  // Check if already running
-  if (await isServerRunning(port)) {
-    return baseUrl;
+  const health = await getServerHealth(port);
+  if (health?.healthy) {
+    const cliVersion = await getInstalledOpencodeVersion();
+    if (health.version && cliVersion && health.version !== cliVersion) {
+      await stopServer(port);
+      await waitUntilPortFree(port);
+    } else {
+      return baseUrl;
+    }
   }
 
-  // Spawn a new server
   await spawnServer(port);
 
-  // Wait for it to be ready
   for (let i = 0; i < MAX_RETRIES; i++) {
     await sleep(STARTUP_WAIT_MS / MAX_RETRIES);
     if (await isServerRunning(port)) {
@@ -48,7 +95,6 @@ export async function ensureServer(port: number): Promise<string> {
     }
   }
 
-  // Try a bit longer
   await sleep(STARTUP_WAIT_MS);
   if (await isServerRunning(port)) {
     return baseUrl;
@@ -95,23 +141,47 @@ async function spawnServer(port: number): Promise<void> {
   // rejection before hook-mode reviews can write failure status.
   void subprocess.catch(() => {});
 
-  // Write PID for later cleanup
   if (subprocess.pid) {
     await writeFile(pidFile, String(subprocess.pid), "utf-8");
   }
 
-  // Unref so our process can exit
   subprocess.unref();
 }
 
 /**
- * Stop a previously spawned server
+ * Stop the OpenCode server on the configured port.
+ * Tries the managed PID file first, then any opencode serve listener on the port.
  */
-export async function stopServer(): Promise<boolean> {
+export async function stopServer(port: number): Promise<boolean> {
+  if (await stopManagedServer()) {
+    return true;
+  }
+
+  const listenerPid = await findOpencodeListenerPid(port);
+  if (listenerPid === null) {
+    return false;
+  }
+
+  if (!(await isOpencodeProcess(listenerPid))) {
+    return false;
+  }
+
+  try {
+    process.kill(listenerPid, "SIGTERM");
+    await cleanupPidFile();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function stopManagedServer(): Promise<boolean> {
   const dir = getDiffOwlDir();
   const pidFile = join(dir, "server.pid");
 
-  if (!existsSync(pidFile)) return false;
+  if (!existsSync(pidFile)) {
+    return false;
+  }
 
   let pid: number;
   try {
@@ -124,19 +194,15 @@ export async function stopServer(): Promise<boolean> {
   }
 
   try {
-    // Check if the process is alive
     process.kill(pid, 0);
   } catch {
-    // Process is dead (ESRCH), clean up stale pid file
     try {
       await unlink(pidFile);
     } catch {}
     return false;
   }
 
-  // Double-check if the process is actually OpenCode
   if (!(await isOpencodeProcess(pid))) {
-    // Recycled PID belongs to an unrelated process. Clean up but do not kill.
     try {
       await unlink(pidFile);
     } catch {}
@@ -152,12 +218,83 @@ export async function stopServer(): Promise<boolean> {
   }
 }
 
+async function cleanupPidFile(): Promise<void> {
+  const pidFile = join(getDiffOwlDir(), "server.pid");
+  if (!existsSync(pidFile)) {
+    return;
+  }
+
+  try {
+    await unlink(pidFile);
+  } catch {}
+}
+
+async function findOpencodeListenerPid(port: number): Promise<number | null> {
+  if (process.platform === "win32") {
+    return findOpencodeListenerPidWindows(port);
+  }
+
+  try {
+    const { stdout } = await execa("lsof", ["-tiTCP:" + String(port), "-sTCP:LISTEN"], {
+      timeout: 5000,
+    });
+    const pids = stdout
+      .trim()
+      .split(/\s+/)
+      .map((value) => parseInt(value, 10))
+      .filter((value) => Number.isInteger(value) && value > 0);
+
+    for (const pid of pids) {
+      if (await isOpencodeProcess(pid)) {
+        return pid;
+      }
+    }
+  } catch {}
+
+  return null;
+}
+
+async function findOpencodeListenerPidWindows(port: number): Promise<number | null> {
+  try {
+    const { stdout } = await execa("netstat", ["-ano"], { timeout: 5000 });
+    const portToken = `:${port}`;
+    const lines = stdout.split(/\r?\n/);
+
+    for (const line of lines) {
+      if (!line.includes("LISTENING") || !line.includes(portToken)) {
+        continue;
+      }
+
+      const parts = line.trim().split(/\s+/);
+      const pid = parseInt(parts[parts.length - 1] ?? "", 10);
+      if (!Number.isInteger(pid) || pid <= 0) {
+        continue;
+      }
+
+      if (await isOpencodeProcess(pid)) {
+        return pid;
+      }
+    }
+  } catch {}
+
+  return null;
+}
+
+async function waitUntilPortFree(port: number): Promise<void> {
+  const deadline = Date.now() + PORT_RELEASE_WAIT_MS;
+  while (Date.now() < deadline) {
+    if (!(await isServerRunning(port))) {
+      return;
+    }
+    await sleep(PORT_RELEASE_POLL_MS);
+  }
+}
+
 async function isOpencodeProcess(pid: number): Promise<boolean> {
   const isWin = process.platform === "win32";
 
   try {
     if (isWin) {
-      // Try using PowerShell to get full CommandLine (most robust)
       try {
         const { stdout } = await execa("powershell", [
           "-NoProfile",
@@ -167,14 +304,8 @@ async function isOpencodeProcess(pid: number): Promise<boolean> {
         if (stdout.toLowerCase().includes("opencode")) {
           return true;
         }
-      } catch {
-        // Fall back to wmic if PowerShell query fails
-      }
+      } catch {}
 
-      // Try using wmic to get full CommandLine (intentionally legacy second-level fallback)
-      // Note: wmic is deprecated since Windows 10 1809 and removed in Windows 11 24H2.
-      // This is kept strictly as a legacy compatibility check for older environments.
-      // If missing on modern Windows, it will throw immediately and fall through to tasklist.
       try {
         const { stdout } = await execa("wmic", [
           "process",
@@ -186,18 +317,14 @@ async function isOpencodeProcess(pid: number): Promise<boolean> {
         if (stdout.toLowerCase().includes("opencode")) {
           return true;
         }
-      } catch {
-        // Fall back to tasklist if wmic fails or is missing
-      }
+      } catch {}
 
-      // Fallback: use tasklist to check image name (strictly look for opencode)
       const { stdout } = await execa("tasklist", ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"]);
       return stdout.toLowerCase().includes("opencode");
-    } else {
-      // POSIX: Keep ps -p ... (works on Linux/macOS)
-      const { stdout } = await execa("ps", ["-p", String(pid), "-o", "command="]);
-      return stdout.toLowerCase().includes("opencode");
     }
+
+    const { stdout } = await execa("ps", ["-p", String(pid), "-o", "command="]);
+    return stdout.toLowerCase().includes("opencode");
   } catch {
     return false;
   }

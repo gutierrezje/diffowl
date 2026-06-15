@@ -21,6 +21,7 @@ import {
 import {
   runReview,
   getAvailableModels,
+  isReviewCancellation,
   type ReviewProgressEvent,
   type ReviewReport,
   type ReviewTiming,
@@ -28,7 +29,13 @@ import {
 } from "./opencode/client.js";
 import { getOpenCodeFailureGuidance } from "./opencode/guidance.js";
 import { canSelectModelInteractively, selectModel } from "./opencode/model-selection.js";
-import { ensureServer, isServerRunning, stopServer } from "./opencode/server.js";
+import {
+  ensureServer,
+  getInstalledOpencodeVersion,
+  getServerHealth,
+  isServerRunning,
+  stopServer,
+} from "./opencode/server.js";
 import {
   installHook,
   uninstallHook,
@@ -183,32 +190,33 @@ program
           color: "cyan",
           discardStdin: false,
         }).start();
+    const cancelController = new AbortController();
 
     // Register signal handlers immediately after spinner starts so they
     // cover the entire review lifecycle (context build, server connect, SSE).
     // discardStdin: false above ensures the terminal delivers SIGINT natively
     // instead of routing through stdin-discarder's raw-mode byte conversion.
     process.once("SIGINT", () => {
-      try {
-        spinner?.stop();
-      } catch {}
-      if (jsonMode) {
-        writeJsonError("Review cancelled by user (Ctrl+C).");
-      } else {
-        console.log(chalk.yellow("\nReview cancelled by user (Ctrl+C)."));
-      }
-      process.exit(130);
+      handleReviewInterrupt({
+        cancelController,
+        spinner,
+        jsonMode,
+        message: "Review cancelled by user (Ctrl+C).",
+        exitCode: 130,
+        hook: options.hook,
+        hookCommit,
+      });
     });
     process.once("SIGTSTP", () => {
-      try {
-        spinner?.stop();
-      } catch {}
-      if (jsonMode) {
-        writeJsonError("Review cancelled by user (Ctrl+Z).");
-      } else {
-        console.log(chalk.yellow("\nReview cancelled by user (Ctrl+Z)."));
-      }
-      process.exit(146);
+      handleReviewInterrupt({
+        cancelController,
+        spinner,
+        jsonMode,
+        message: "Review cancelled by user (Ctrl+Z).",
+        exitCode: 146,
+        hook: options.hook,
+        hookCommit,
+      });
     });
 
     try {
@@ -315,6 +323,7 @@ program
         config,
         localContext,
         depth,
+        signal: cancelController.signal,
         onProgress: (event) => {
           if (spinner) {
             spinner.text = formatReviewProgress(event);
@@ -443,6 +452,16 @@ program
       }
     } catch (err) {
       spinner?.stop();
+      if (cancelController.signal.aborted || isReviewCancellation(err)) {
+        if (options.hook) {
+          await writeHookStatus(1, hookCommit, "Review cancelled by user.");
+          process.exit(0);
+        }
+        if (!cancelController.signal.aborted) {
+          process.exit(130);
+        }
+        return;
+      }
       const message = err instanceof Error ? err.message : String(err);
       if (jsonMode) {
         writeJsonError(message);
@@ -869,10 +888,11 @@ serverCmd
   .command("stop")
   .description("Stop the OpenCode server")
   .action(async () => {
-    if (await stopServer()) {
+    const config = await loadConfigOrExit();
+    if (await stopServer(config.server.port)) {
       console.log(chalk.green("✓ Server stopped"));
     } else {
-      console.log(chalk.yellow("No managed server found"));
+      console.log(chalk.yellow(`No OpenCode server found on port ${config.server.port}`));
     }
   });
 
@@ -881,11 +901,26 @@ serverCmd
   .description("Check if the OpenCode server is running")
   .action(async () => {
     const config = await loadConfigOrExit();
-    const running = await isServerRunning(config.server.port);
-    if (running) {
-      console.log(chalk.green(`✓ Server running on port ${config.server.port}`));
-    } else {
+    const health = await getServerHealth(config.server.port);
+    if (!health?.healthy) {
       console.log(chalk.yellow(`✗ No server on port ${config.server.port}`));
+      return;
+    }
+
+    console.log(chalk.green(`✓ Server running on port ${config.server.port}`));
+    const cliVersion = await getInstalledOpencodeVersion();
+    if (health.version) {
+      console.log(`  Server version: ${health.version}`);
+    }
+    if (cliVersion) {
+      console.log(`  CLI version: ${cliVersion}`);
+    }
+    if (health.version && cliVersion && health.version !== cliVersion) {
+      console.log(
+        chalk.yellow(
+          "⚠ Version mismatch. Restart with: diffowl server stop && diffowl server start",
+        ),
+      );
     }
   });
 
@@ -958,6 +993,32 @@ async function resolveTargetCommit(
     case "commit":
       return resolveCommitRef(target.ref);
   }
+}
+
+function handleReviewInterrupt(input: {
+  cancelController: AbortController;
+  spinner: ReturnType<typeof ora> | null;
+  jsonMode: boolean;
+  message: string;
+  exitCode: number;
+  hook?: boolean;
+  hookCommit?: string | undefined;
+}): void {
+  input.cancelController.abort();
+  try {
+    input.spinner?.stop();
+  } catch {}
+  if (input.jsonMode) {
+    writeJsonError(input.message);
+  } else {
+    console.log(chalk.yellow(`\n${input.message}`));
+  }
+  if (input.hook) {
+    void writeHookStatus(1, input.hookCommit, input.message);
+    process.exit(0);
+  }
+  // Force exit if the review loop does not unwind promptly after abort.
+  setTimeout(() => process.exit(input.exitCode), 750).unref();
 }
 
 function resolveReviewOutputFormat(value: unknown): ReviewOutputFormat {

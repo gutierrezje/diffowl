@@ -43,5 +43,16 @@ export function getOpenCodeFailureGuidance(message: string): string[] {
     return ["Retry with less context: diffowl review --depth shallow"];
   }
 
+  if (
+    normalized.includes("session_message.seq") ||
+    (normalized.includes("not null constraint failed") && normalized.includes("seq"))
+  ) {
+    return [
+      "OpenCode server version may be stale. Check: diffowl server status",
+      "Restart the server: diffowl server stop && diffowl server start",
+      "Confirm server and CLI versions match: opencode --version",
+    ];
+  }
+
   return [];
 }
