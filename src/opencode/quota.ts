@@ -1,6 +1,7 @@
 const QUOTA_PATTERNS = [
   /\b429\b/,
   /rate.?limit/,
+  /usage limit/,
   /quota/,
   /resource.?exhausted/,
   /too many requests/,

@@ -14,6 +14,14 @@ describe("isQuotaOrRateLimitError", () => {
     expect(isQuotaOrRateLimitError("rate_limit_exceeded")).toBe(true);
   });
 
+  it("matches OpenCode subscription usage limits", () => {
+    expect(
+      isQuotaOrRateLimitError(
+        "5 hour usage limit reached. It will reset in 46 minutes. To continue using this model now, enable usage from your available balance",
+      ),
+    ).toBe(true);
+  });
+
   it("matches OpenAI quota and billing errors", () => {
     expect(isQuotaOrRateLimitError("insufficient_quota")).toBe(true);
     expect(isQuotaOrRateLimitError("billing_hard_limit_reached")).toBe(true);
