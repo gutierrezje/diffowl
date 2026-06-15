@@ -256,6 +256,8 @@ describe("stopServer", () => {
     vi.resetModules();
     mocks.execa.mockReset();
     mocks.existsSync.mockReset();
+    mocks.readFile.mockReset();
+    mocks.unlink.mockReset();
     mocks.getDiffOwlDir.mockReset();
     mocks.kill.mockReset();
   });
@@ -289,5 +291,30 @@ describe("stopServer", () => {
 
     await expect(stopServer(4096)).resolves.toBe(true);
     expect(killSpy).toHaveBeenCalledWith(33333, "SIGTERM");
+  });
+
+  it("returns true when managed server kill succeeds but pid file cleanup fails", async () => {
+    const { stopServer } = await import("./server.js");
+    mocks.getDiffOwlDir.mockReturnValue("/tmp/diffowl");
+    mocks.existsSync.mockReturnValue(true);
+    mocks.readFile.mockResolvedValue("44444");
+    mocks.unlink.mockRejectedValue(new Error("permission denied"));
+    mocks.execa.mockImplementation((command: string) => {
+      if (command === "ps") {
+        return Promise.resolve({ stdout: "opencode serve --port 4096" });
+      }
+      return Promise.resolve({ stdout: "" });
+    });
+
+    const originalKill = process.kill.bind(process);
+    vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+      if (signal === 0 || signal === "SIGTERM") {
+        return true;
+      }
+      return originalKill(pid, signal);
+    });
+
+    await expect(stopServer(4096)).resolves.toBe(true);
+    expect(mocks.unlink).toHaveBeenCalled();
   });
 });

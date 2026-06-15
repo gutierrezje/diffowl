@@ -168,11 +168,12 @@ export async function stopServer(port: number): Promise<boolean> {
 
   try {
     process.kill(listenerPid, "SIGTERM");
-    await cleanupPidFile();
-    return true;
   } catch {
     return false;
   }
+
+  await cleanupPidFile();
+  return true;
 }
 
 async function stopManagedServer(): Promise<boolean> {
@@ -211,11 +212,15 @@ async function stopManagedServer(): Promise<boolean> {
 
   try {
     process.kill(pid, "SIGTERM");
-    await unlink(pidFile);
-    return true;
   } catch {
     return false;
   }
+
+  try {
+    await unlink(pidFile);
+  } catch {}
+
+  return true;
 }
 
 async function cleanupPidFile(): Promise<void> {

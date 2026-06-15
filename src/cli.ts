@@ -1018,7 +1018,9 @@ function handleReviewInterrupt(input: {
     console.log(chalk.yellow(`\n${input.message}`));
   }
   if (input.hook) {
+    const forceExit = setTimeout(() => process.exit(0), 2000);
     void writeHookStatus(1, input.hookCommit, input.message).finally(() => {
+      clearTimeout(forceExit);
       process.exit(0);
     });
     return;
