@@ -65,10 +65,20 @@ import {
 import {
   computeDiffHash,
   formatLifecycleSuppressedSummary,
+  getPersistedReview,
+  loadFindingOccurrenceCounts,
   mapReviewTarget,
   persistReviewRun,
   updatePersistedReview,
+  type PersistReviewRunResult,
 } from "./state/persist.js";
+import {
+  buildReviewJsonDocument,
+  parseReviewOutputFormat,
+  writeJsonError,
+  writeReviewJsonSuccess,
+  type ReviewOutputFormat,
+} from "./output/json.js";
 
 import { readFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
@@ -95,7 +105,10 @@ program
     "Reasoning variant: auto, none, minimal, low, medium, high, max, or xhigh",
   )
   .option("--verbose", "Include suppressed findings and extra review details")
+  .option("--format <format>", "Output format: text or json", "text")
   .action(async (options) => {
+    const format = resolveReviewOutputFormat(options.format);
+    const jsonMode = format === "json";
     const hookCommit = options.hook && options.commit ? String(options.commit) : undefined;
     const hookLock = options.hook ? process.env["DIFFOWL_HOOK_LOCK"] : undefined;
     if (hookLock) {
@@ -114,8 +127,7 @@ program
     const isRepo = await isGitRepo();
     recordCliTiming(timings, "git-repo-check", "Git repository check", gitRepoStart);
     if (!isRepo) {
-      console.error(chalk.red("Not a git repository"));
-      process.exit(1);
+      failReview(format, "Not a git repository", { hook: options.hook, hookCommit });
     }
 
     // First run: prompt for setup
@@ -127,8 +139,10 @@ program
     const config = await loadConfigOrExit();
     const projectRoot = getProjectRoot();
     if (options.staged && options.commit) {
-      console.error(chalk.red("Cannot use --staged and --commit together"));
-      process.exit(1);
+      failReview(format, "Cannot use --staged and --commit together", {
+        hook: options.hook,
+        hookCommit,
+      });
     }
 
     const target = options.staged
@@ -145,24 +159,30 @@ program
       const commitsExist = await hasCommits();
       recordCliTiming(timings, "git-commit-check", "Git commit check", hasCommitsStart);
       if (!commitsExist) {
-        console.error(chalk.red("No commits found in this repository"));
-        process.exit(1);
+        failReview(format, "No commits found in this repository", {
+          hook: options.hook,
+          hookCommit,
+        });
       }
     }
 
-    printHeader();
+    if (!jsonMode) {
+      printHeader();
+    }
 
     const hookFailure = await checkRecentHookFailure();
-    if (hookFailure) {
+    if (hookFailure && !jsonMode) {
       console.log(chalk.yellow(`⚠ ${formatHookFailure(hookFailure)}`));
       console.log();
     }
 
-    const spinner = ora({
-      text: "Building local review context...",
-      color: "cyan",
-      discardStdin: false,
-    }).start();
+    const spinner = jsonMode
+      ? null
+      : ora({
+          text: "Building local review context...",
+          color: "cyan",
+          discardStdin: false,
+        }).start();
 
     // Register signal handlers immediately after spinner starts so they
     // cover the entire review lifecycle (context build, server connect, SSE).
@@ -170,16 +190,24 @@ program
     // instead of routing through stdin-discarder's raw-mode byte conversion.
     process.once("SIGINT", () => {
       try {
-        spinner.stop();
+        spinner?.stop();
       } catch {}
-      console.log(chalk.yellow("\nReview cancelled by user (Ctrl+C)."));
+      if (jsonMode) {
+        writeJsonError("Review cancelled by user (Ctrl+C).");
+      } else {
+        console.log(chalk.yellow("\nReview cancelled by user (Ctrl+C)."));
+      }
       process.exit(130);
     });
     process.once("SIGTSTP", () => {
       try {
-        spinner.stop();
+        spinner?.stop();
       } catch {}
-      console.log(chalk.yellow("\nReview cancelled by user (Ctrl+Z)."));
+      if (jsonMode) {
+        writeJsonError("Review cancelled by user (Ctrl+Z).");
+      } else {
+        console.log(chalk.yellow("\nReview cancelled by user (Ctrl+Z)."));
+      }
       process.exit(146);
     });
 
@@ -188,14 +216,20 @@ program
       const { diff } = snapshot;
 
       if (target.kind === "staged" && diff.files.length === 0) {
-        spinner.stop();
+        spinner?.stop();
+        if (jsonMode) {
+          writeJsonError("No staged changes to review");
+          process.exit(0);
+        }
         console.log(chalk.yellow("No staged changes to review"));
         process.exit(0);
       }
 
       if (config.skip_doc_only && isDocOnlyDiff(diff)) {
-        spinner.stop();
-        console.warn(chalk.yellow("Documentation-only changes detected. Skipping review."));
+        spinner?.stop();
+        if (!jsonMode) {
+          console.warn(chalk.yellow("Documentation-only changes detected. Skipping review."));
+        }
         const skipContent = buildDocOnlySkipMarkdown(diff);
         const diffHash = computeDiffHash(diff.raw);
         const targetFields = mapReviewTarget(target);
@@ -228,7 +262,18 @@ program
           });
           throw err;
         }
-        console.log(chalk.dim(`Report saved: ${reportPath}`));
+        if (jsonMode) {
+          await emitReviewJsonSuccess({
+            diffOwlDir: getDiffOwlDir(),
+            reviewId: persisted.reviewId,
+            persisted,
+            suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+            verbose,
+            timings,
+          });
+        } else {
+          console.log(chalk.dim(`Report saved: ${reportPath}`));
+        }
         if (options.hook) {
           await writeHookStatus(0, hookCommit);
         }
@@ -243,7 +288,7 @@ program
       const localContext = renderReviewContext(reviewContext, { depth });
       recordCliTiming(timings, "context-render", "Local review context render", contextRenderStart);
 
-      if (reviewContext.diagnostics.length > 0) {
+      if (reviewContext.diagnostics.length > 0 && spinner) {
         spinner.warn("Local review context built with warnings.");
         for (const diagnostic of reviewContext.diagnostics) {
           console.log(chalk.yellow(`  - ${diagnostic}`));
@@ -253,11 +298,15 @@ program
       }
 
       // Ensure server and start review
-      spinner.text = "Connecting to OpenCode...";
+      if (spinner) {
+        spinner.text = "Connecting to OpenCode...";
+      }
       const serverStart = performance.now();
       await prepareReviewServer(config);
       recordCliTiming(timings, "server-ensure", "OpenCode server ensure", serverStart);
-      spinner.text = "Reviewing changes...";
+      if (spinner) {
+        spinner.text = "Reviewing changes...";
+      }
 
       const reviewStart = performance.now();
       const reviewResult = await runReview({
@@ -267,13 +316,17 @@ program
         localContext,
         depth,
         onProgress: (event) => {
-          spinner.text = formatReviewProgress(event);
+          if (spinner) {
+            spinner.text = formatReviewProgress(event);
+          }
         },
       });
       const report: ReviewReport = reviewResult.report;
       recordCliTiming(timings, "review-run", "OpenCode review run", reviewStart);
-      spinner.succeed("Review complete.");
-      console.log(); // Space after spinner
+      spinner?.succeed("Review complete.");
+      if (!jsonMode) {
+        console.log(); // Space after spinner
+      }
 
       const diagnostics = report.diagnostics ?? [];
 
@@ -365,21 +418,39 @@ program
       recordCliTiming(timings, "write-report", "Report write", writeStart);
       recordCliTiming(timings, "total", "Total review command", totalStart);
 
-      // Print the rendered, colorized markdown to stdout
-      console.log(colorizeMarkdown(markdown));
+      if (jsonMode) {
+        await emitReviewJsonSuccess({
+          diffOwlDir: getDiffOwlDir(),
+          reviewId: persisted.reviewId,
+          persisted,
+          suppressed: {
+            outsideChangedFiles: changedFileFilter.suppressed.length,
+            belowConfidence: confidenceFilter.dropped,
+          },
+          verbose,
+          timings: [...timings, ...(report.timings ?? [])],
+        });
+      } else {
+        // Print the rendered, colorized markdown to stdout
+        console.log(colorizeMarkdown(markdown));
 
-      printFooter(report, reportPath);
-      printTimingSummary([...timings, ...(report.timings ?? [])]);
+        printFooter(report, reportPath);
+        printTimingSummary([...timings, ...(report.timings ?? [])]);
+      }
       if (options.hook) {
         await writeHookStatus(0, hookCommit);
         process.exit(0);
       }
     } catch (err) {
-      spinner.stop();
+      spinner?.stop();
       const message = err instanceof Error ? err.message : String(err);
-      console.error(chalk.red(`\nReview failed: ${message}`));
-      for (const line of getOpenCodeFailureGuidance(message)) {
-        console.log(chalk.dim(line));
+      if (jsonMode) {
+        writeJsonError(message);
+      } else {
+        console.error(chalk.red(`\nReview failed: ${message}`));
+        for (const line of getOpenCodeFailureGuidance(message)) {
+          console.log(chalk.dim(line));
+        }
       }
       if (options.hook) {
         await writeHookStatus(1, hookCommit, message);
@@ -887,4 +958,64 @@ async function resolveTargetCommit(
     case "commit":
       return resolveCommitRef(target.ref);
   }
+}
+
+function resolveReviewOutputFormat(value: unknown): ReviewOutputFormat {
+  try {
+    return parseReviewOutputFormat(value);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(chalk.red(message));
+    process.exit(1);
+  }
+}
+
+function failReview(
+  format: ReviewOutputFormat,
+  message: string,
+  options: { hook?: boolean; hookCommit?: string | undefined; exitCode?: number } = {},
+): never {
+  const exitCode = options.exitCode ?? 1;
+  if (format === "json") {
+    writeJsonError(message);
+  } else {
+    console.error(chalk.red(message));
+  }
+  if (options.hook) {
+    void writeHookStatus(1, options.hookCommit, message);
+    process.exit(0);
+  }
+  process.exit(exitCode);
+}
+
+async function emitReviewJsonSuccess(input: {
+  diffOwlDir: string;
+  reviewId: string;
+  persisted: PersistReviewRunResult;
+  suppressed: {
+    outsideChangedFiles: number;
+    belowConfidence: number;
+  };
+  verbose: boolean;
+  timings?: ReviewTiming[];
+}): Promise<void> {
+  const review = await getPersistedReview(input.diffOwlDir, input.reviewId);
+  if (!review) {
+    throw new Error(`Review ${input.reviewId} was not found in state database.`);
+  }
+
+  const findingIds = input.persisted.reconcile.observations.map((item) => item.finding.id);
+  const occurrenceCounts = await loadFindingOccurrenceCounts(input.diffOwlDir, findingIds);
+  const document = buildReviewJsonDocument({
+    review,
+    persisted: input.persisted,
+    occurrenceCounts,
+    suppressed: {
+      outsideChangedFiles: input.suppressed.outsideChangedFiles,
+      belowConfidence: input.suppressed.belowConfidence,
+    },
+    verbose: input.verbose,
+    ...(input.timings ? { timings: input.timings } : {}),
+  });
+  writeReviewJsonSuccess(document);
 }

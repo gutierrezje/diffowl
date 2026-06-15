@@ -4,10 +4,12 @@ import { closeStateDatabase, openStateDatabase, runInTransaction } from "./db.js
 import { computeFindingFingerprint } from "./fingerprint.js";
 import { reconcileReviewFindings } from "./reconcile.js";
 import { getReviewById, insertReview, updateReview } from "./repositories/reviews.js";
+import { countObservationsByFindingIds } from "./repositories/observations.js";
 import type {
   FindingCandidate,
   ReconcileReviewFindingsResult,
   ReviewTargetKind,
+  ReviewRecord,
 } from "./types.js";
 
 export interface PersistReviewRunInput {
@@ -177,6 +179,30 @@ export async function updatePersistedReview(
         diagnostics: input.diagnostics ?? existing.diagnostics,
       });
     });
+  } finally {
+    closeStateDatabase(state);
+  }
+}
+
+export async function getPersistedReview(
+  diffOwlDir: string,
+  reviewId: string,
+): Promise<ReviewRecord | undefined> {
+  const state = await openStateDatabase(diffOwlDir);
+  try {
+    return getReviewById(state.db, reviewId);
+  } finally {
+    closeStateDatabase(state);
+  }
+}
+
+export async function loadFindingOccurrenceCounts(
+  diffOwlDir: string,
+  findingIds: string[],
+): Promise<Map<string, number>> {
+  const state = await openStateDatabase(diffOwlDir);
+  try {
+    return countObservationsByFindingIds(state.db, findingIds);
   } finally {
     closeStateDatabase(state);
   }

@@ -1,0 +1,226 @@
+import { describe, expect, it } from "vitest";
+import {
+  buildReviewJsonDocument,
+  parseReviewOutputFormat,
+  renderJsonErrorDocument,
+  renderReviewJsonDocument,
+} from "./json.js";
+import type { PersistReviewRunResult } from "../state/persist.js";
+import type { ReviewRecord } from "../state/types.js";
+
+const review: ReviewRecord = {
+  id: "rev_test",
+  createdAt: "2026-06-15T01:00:00.000Z",
+  targetKind: "staged",
+  targetRef: null,
+  targetCommit: null,
+  diffHash: "abc123",
+  model: "provider/model",
+  reasoning: "medium",
+  depth: "default",
+  sessionId: "session-1",
+  summary: "Needs work.",
+  reportPath: ".diffowl/reviews/latest.md",
+  diagnostics: ["context warning"],
+  timings: [{ phase: "total", label: "Total", ms: 42 }],
+  skippedReason: null,
+};
+
+const persisted: PersistReviewRunResult = {
+  reviewId: "rev_test",
+  actionableFindings: [],
+  lifecycleSuppressedFindings: [],
+  reconcile: {
+    observations: [
+      {
+        observation: {
+          id: 1,
+          reviewId: "rev_test",
+          findingId: "fnd_test",
+          file: "src/auth.ts",
+          line: 12,
+          severity: "warning",
+          confidence: "high",
+          title: "Missing null check",
+          body: "Validate the payload.",
+          evidence: "if (!payload) return;",
+          ordinal: 1,
+          classification: "new",
+        },
+        finding: {
+          id: "fnd_test",
+          fingerprint: "v1:abc",
+          status: "open",
+          firstReviewId: "rev_test",
+          lastReviewId: "rev_test",
+          createdAt: "2026-06-15T01:00:00.000Z",
+          updatedAt: "2026-06-15T01:00:00.000Z",
+        },
+        fingerprint: "v1:abc",
+        suppressed: false,
+      },
+      {
+        observation: {
+          id: 2,
+          reviewId: "rev_test",
+          findingId: "fnd_dismissed",
+          file: "src/other.ts",
+          line: 4,
+          severity: "info",
+          confidence: "medium",
+          title: "Unused import",
+          body: "Remove the import.",
+          evidence: null,
+          ordinal: 2,
+          classification: "existing",
+        },
+        finding: {
+          id: "fnd_dismissed",
+          fingerprint: "v1:def",
+          status: "dismissed",
+          firstReviewId: "rev_old",
+          lastReviewId: "rev_test",
+          createdAt: "2026-06-14T01:00:00.000Z",
+          updatedAt: "2026-06-15T01:00:00.000Z",
+        },
+        fingerprint: "v1:def",
+        suppressed: true,
+      },
+    ],
+    suppressedCounts: { dismissed: 1, deferred: 0 },
+  },
+};
+
+describe("parseReviewOutputFormat", () => {
+  it("defaults to text", () => {
+    expect(parseReviewOutputFormat(undefined)).toBe("text");
+    expect(parseReviewOutputFormat("text")).toBe("text");
+  });
+
+  it("accepts json", () => {
+    expect(parseReviewOutputFormat("json")).toBe("json");
+  });
+
+  it("rejects unknown formats", () => {
+    expect(() => parseReviewOutputFormat("yaml")).toThrow(/Invalid output format/);
+  });
+});
+
+describe("buildReviewJsonDocument", () => {
+  it("renders schema version 1 with review metadata and findings", () => {
+    const document = buildReviewJsonDocument({
+      review,
+      persisted,
+      occurrenceCounts: new Map([
+        ["fnd_test", 2],
+        ["fnd_dismissed", 3],
+      ]),
+      suppressed: {
+        outsideChangedFiles: 1,
+        belowConfidence: 2,
+      },
+    });
+
+    expect(document.schema_version).toBe(1);
+    expect(document.review.id).toBe("rev_test");
+    expect(document.review.status).toBe("open");
+    expect(document.findings).toHaveLength(1);
+    expect(document.findings[0]?.id).toBe("fnd_test");
+    expect(document.findings[0]?.occurrence_count).toBe(2);
+    expect(document.suppressed).toEqual({
+      lifecycle: { dismissed: 1, deferred: 0 },
+      outside_changed_files: 1,
+      below_confidence: 2,
+    });
+    expect(document.diagnostics).toEqual(["context warning"]);
+  });
+
+  it("includes suppressed lifecycle findings when verbose", () => {
+    const document = buildReviewJsonDocument({
+      review,
+      persisted,
+      occurrenceCounts: new Map(),
+      suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+      verbose: true,
+    });
+
+    expect(document.findings).toHaveLength(2);
+    expect(document.findings[1]?.suppressed).toBe(true);
+  });
+
+  it("marks skipped reviews as skipped with no actionable findings", () => {
+    const document = buildReviewJsonDocument({
+      review: {
+        ...review,
+        summary: "Documentation-only changes detected. No code review performed.",
+        skippedReason: "documentation-only",
+        sessionId: "",
+      },
+      persisted: {
+        reviewId: "rev_skip",
+        actionableFindings: [],
+        lifecycleSuppressedFindings: [],
+        reconcile: { observations: [], suppressedCounts: { dismissed: 0, deferred: 0 } },
+      },
+      occurrenceCounts: new Map(),
+      suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+    });
+
+    expect(document.review.status).toBe("skipped");
+    expect(document.review.skipped_reason).toBe("documentation-only");
+    expect(document.findings).toHaveLength(0);
+  });
+
+  it("marks resolved reviews when no actionable findings remain", () => {
+    const document = buildReviewJsonDocument({
+      review,
+      persisted: {
+        ...persisted,
+        reconcile: {
+          observations: persisted.reconcile.observations.map((item) => ({
+            ...item,
+            suppressed: true,
+          })),
+          suppressedCounts: { dismissed: 1, deferred: 0 },
+        },
+      },
+      occurrenceCounts: new Map(),
+      suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+    });
+
+    expect(document.review.status).toBe("resolved");
+    expect(document.findings).toHaveLength(0);
+  });
+});
+
+describe("renderReviewJsonDocument", () => {
+  it("writes a single JSON object with trailing newline", () => {
+    const rendered = renderReviewJsonDocument(
+      buildReviewJsonDocument({
+        review,
+        persisted: {
+          ...persisted,
+          reconcile: { observations: [], suppressedCounts: { dismissed: 0, deferred: 0 } },
+        },
+        occurrenceCounts: new Map(),
+        suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+      }),
+    );
+
+    expect(rendered.endsWith("\n")).toBe(true);
+    expect(JSON.parse(rendered.trim())).toMatchObject({
+      schema_version: 1,
+      review: { id: "rev_test" },
+    });
+  });
+});
+
+describe("renderJsonErrorDocument", () => {
+  it("renders a versioned error envelope", () => {
+    const rendered = renderJsonErrorDocument("Review failed.");
+    expect(JSON.parse(rendered.trim())).toEqual({
+      schema_version: 1,
+      error: { message: "Review failed." },
+    });
+  });
+});

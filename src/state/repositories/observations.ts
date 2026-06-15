@@ -107,3 +107,28 @@ export function listObservationsForReview(
     `)
     .all(reviewId) as FindingObservationRecord[];
 }
+
+export function countObservationsByFindingIds(
+  db: Database.Database,
+  findingIds: string[],
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  if (findingIds.length === 0) {
+    return counts;
+  }
+
+  const placeholders = findingIds.map(() => "?").join(", ");
+  const rows = db
+    .prepare(`
+      SELECT finding_id AS findingId, COUNT(*) AS count
+      FROM finding_observations
+      WHERE finding_id IN (${placeholders})
+      GROUP BY finding_id
+    `)
+    .all(...findingIds) as Array<{ findingId: string; count: number }>;
+
+  for (const row of rows) {
+    counts.set(row.findingId, row.count);
+  }
+  return counts;
+}
