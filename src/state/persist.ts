@@ -1,0 +1,179 @@
+import { createHash } from "node:crypto";
+import type { ReviewFinding, ReviewTiming } from "../review/types.js";
+import { closeStateDatabase, openStateDatabase, runInTransaction } from "./db.js";
+import { reconcileReviewFindings } from "./reconcile.js";
+import { getReviewById, insertReview, updateReview } from "./repositories/reviews.js";
+import type {
+  FindingCandidate,
+  ReconcileReviewFindingsResult,
+  ReviewTargetKind,
+} from "./types.js";
+
+export interface PersistReviewRunInput {
+  targetKind: ReviewTargetKind;
+  targetRef: string | null;
+  targetCommit: string | null;
+  diffHash: string;
+  model: string;
+  reasoning: string;
+  depth: string;
+  sessionId: string;
+  summary: string;
+  diagnostics: string[];
+  timings: ReviewTiming[];
+  findings: ReviewFinding[];
+  skippedReason?: string | null;
+}
+
+export interface PersistReviewRunResult {
+  reviewId: string;
+  reconcile: ReconcileReviewFindingsResult;
+  actionableFindings: ReviewFinding[];
+  lifecycleSuppressedFindings: ReviewFinding[];
+}
+
+export interface UpdatePersistedReviewInput {
+  reportPath?: string | null;
+  diagnostics?: string[];
+}
+
+export function computeDiffHash(raw: string): string {
+  return createHash("sha256").update(raw, "utf8").digest("hex");
+}
+
+export function toFindingCandidate(finding: ReviewFinding): FindingCandidate {
+  const candidate: FindingCandidate = {
+    file: finding.file,
+    line: finding.line,
+    severity: finding.severity,
+    confidence: finding.confidence,
+    title: finding.title,
+    body: finding.body,
+  };
+  if (finding.evidence !== undefined) {
+    candidate.evidence = finding.evidence;
+  }
+  return candidate;
+}
+
+export function formatLifecycleSuppressedSummary(counts: {
+  dismissed: number;
+  deferred: number;
+}): string | null {
+  const parts: string[] = [];
+  if (counts.dismissed > 0) {
+    parts.push(`${counts.dismissed} dismissed`);
+  }
+  if (counts.deferred > 0) {
+    parts.push(`${counts.deferred} deferred`);
+  }
+  if (parts.length === 0) {
+    return null;
+  }
+  return `Suppressed ${parts.join(" and ")} previously resolved finding(s).`;
+}
+
+export function splitFindingsByLifecycleSuppression(
+  findings: ReviewFinding[],
+  reconcile: ReconcileReviewFindingsResult,
+): {
+  actionableFindings: ReviewFinding[];
+  lifecycleSuppressedFindings: ReviewFinding[];
+} {
+  const actionableFindings: ReviewFinding[] = [];
+  const lifecycleSuppressedFindings: ReviewFinding[] = [];
+
+  for (const [index, observation] of reconcile.observations.entries()) {
+    const finding = findings[index];
+    if (!finding) {
+      continue;
+    }
+    if (observation.suppressed) {
+      lifecycleSuppressedFindings.push(finding);
+    } else {
+      actionableFindings.push(finding);
+    }
+  }
+
+  return { actionableFindings, lifecycleSuppressedFindings };
+}
+
+export async function persistReviewRun(
+  diffOwlDir: string,
+  input: PersistReviewRunInput,
+): Promise<PersistReviewRunResult> {
+  const state = await openStateDatabase(diffOwlDir);
+
+  try {
+    return runInTransaction(state.db, () => {
+      const review = insertReview(state.db, {
+        targetKind: input.targetKind,
+        targetRef: input.targetRef,
+        targetCommit: input.targetCommit,
+        diffHash: input.diffHash,
+        model: input.model,
+        reasoning: input.reasoning,
+        depth: input.depth,
+        sessionId: input.sessionId,
+        summary: input.summary,
+        diagnostics: input.diagnostics,
+        timings: input.timings,
+        skippedReason: input.skippedReason ?? null,
+      });
+
+      const candidates = input.findings.map(toFindingCandidate);
+      const reconcile = reconcileReviewFindings(state.db, review.id, candidates);
+      const { actionableFindings, lifecycleSuppressedFindings } = splitFindingsByLifecycleSuppression(
+        input.findings,
+        reconcile,
+      );
+
+      return {
+        reviewId: review.id,
+        reconcile,
+        actionableFindings,
+        lifecycleSuppressedFindings,
+      };
+    });
+  } finally {
+    closeStateDatabase(state);
+  }
+}
+
+export async function updatePersistedReview(
+  diffOwlDir: string,
+  reviewId: string,
+  input: UpdatePersistedReviewInput,
+): Promise<void> {
+  const state = await openStateDatabase(diffOwlDir);
+
+  try {
+    runInTransaction(state.db, () => {
+      const existing = getReviewById(state.db, reviewId);
+      if (!existing) {
+        throw new Error(`Review ${reviewId} was not found in state database.`);
+      }
+
+      updateReview(state.db, reviewId, {
+        ...(input.reportPath !== undefined ? { reportPath: input.reportPath } : {}),
+        diagnostics: input.diagnostics ?? existing.diagnostics,
+      });
+    });
+  } finally {
+    closeStateDatabase(state);
+  }
+}
+
+export function mapReviewTarget(target: {
+  kind: "staged" | "last-commit" | "commit";
+  ref?: string;
+}): { targetKind: ReviewTargetKind; targetRef: string | null } {
+  switch (target.kind) {
+    case "staged":
+      return { targetKind: "staged", targetRef: null };
+    case "last-commit":
+      return { targetKind: "last-commit", targetRef: null };
+    case "commit":
+      return { targetKind: "commit", targetRef: target.ref ?? null };
+  }
+}

@@ -129,6 +129,41 @@ export function getReviewById(db: Database.Database, id: string): ReviewRecord |
   return mapReviewRow(row);
 }
 
+export interface UpdateReviewInput {
+  reportPath?: string | null;
+  diagnostics?: string[];
+}
+
+export function updateReview(
+  db: Database.Database,
+  id: string,
+  input: UpdateReviewInput,
+): ReviewRecord {
+  const existing = getReviewById(db, id);
+  if (!existing) {
+    throw new StateDatabaseError(`Review ${id} was not found.`);
+  }
+
+  const record: ReviewRecord = {
+    ...existing,
+    reportPath: input.reportPath === undefined ? existing.reportPath : input.reportPath,
+    diagnostics: input.diagnostics ?? existing.diagnostics,
+  };
+
+  db.prepare(`
+    UPDATE reviews
+    SET report_path = @reportPath,
+        diagnostics_json = @diagnosticsJson
+    WHERE id = @id
+  `).run({
+    id: record.id,
+    reportPath: record.reportPath,
+    diagnosticsJson: JSON.stringify(record.diagnostics),
+  });
+
+  return record;
+}
+
 function mapReviewRow(row: ReviewRow): ReviewRecord {
   return {
     id: row.id,

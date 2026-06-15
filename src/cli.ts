@@ -9,6 +9,7 @@ import {
   saveConfig,
   configExists,
   getProjectRoot,
+  getDiffOwlDir,
   parseModel,
   parseReviewContextDepth,
   parseReasoningEffort,
@@ -40,7 +41,7 @@ import {
   releaseHookReviewLock,
   writeHookStatus,
 } from "./git/hooks.js";
-import { isGitRepo, hasCommits, isDocOnlyDiff } from "./git/diff.js";
+import { isGitRepo, hasCommits, isDocOnlyDiff, resolveCommitRef } from "./git/diff.js";
 import {
   buildReviewContextFromDiff,
   loadReviewSnapshot,
@@ -61,6 +62,13 @@ import {
   resolveReviewReportPath,
   selectReviewReportPath,
 } from "./review/report-path.js";
+import {
+  computeDiffHash,
+  formatLifecycleSuppressedSummary,
+  mapReviewTarget,
+  persistReviewRun,
+  updatePersistedReview,
+} from "./state/persist.js";
 
 import { readFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
@@ -189,7 +197,37 @@ program
         spinner.stop();
         console.warn(chalk.yellow("Documentation-only changes detected. Skipping review."));
         const skipContent = buildDocOnlySkipMarkdown(diff);
-        const reportPath = await writeMarkdownReport(skipContent);
+        const diffHash = computeDiffHash(diff.raw);
+        const targetFields = mapReviewTarget(target);
+        const targetCommit = await resolveTargetCommit(target);
+        const persisted = await persistReviewRun(getDiffOwlDir(), {
+          ...targetFields,
+          targetCommit,
+          diffHash,
+          model: config.model,
+          reasoning: config.reasoning.effort,
+          depth,
+          sessionId: "",
+          summary: "Documentation-only changes detected. No code review performed.",
+          diagnostics: [],
+          timings,
+          findings: [],
+          skippedReason: "documentation-only",
+        });
+        let reportPath: string;
+        try {
+          reportPath = await writeMarkdownReport(skipContent);
+          await updatePersistedReview(getDiffOwlDir(), persisted.reviewId, {
+            reportPath,
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          await updatePersistedReview(getDiffOwlDir(), persisted.reviewId, {
+            reportPath: null,
+            diagnostics: [`Report write failed: ${message}`],
+          });
+          throw err;
+        }
         console.log(chalk.dim(`Report saved: ${reportPath}`));
         if (options.hook) {
           await writeHookStatus(0, hookCommit);
@@ -265,16 +303,65 @@ program
         report.diagnostics = diagnostics;
       }
 
+      const diffHash = computeDiffHash(diff.raw);
+      const targetFields = mapReviewTarget(target);
+      const targetCommit = await resolveTargetCommit(target);
+      const persistStart = performance.now();
+      const persisted = await persistReviewRun(getDiffOwlDir(), {
+        ...targetFields,
+        targetCommit,
+        diffHash,
+        model: config.model,
+        reasoning: config.reasoning.effort,
+        depth,
+        sessionId: reviewResult.sessionId,
+        summary: report.summary,
+        diagnostics,
+        timings: [...timings, ...(report.timings ?? [])],
+        findings: report.findings,
+      });
+      recordCliTiming(timings, "persist-state", "Persist review state", persistStart);
+
+      report.findings = persisted.actionableFindings;
+      const lifecycleSummary = formatLifecycleSuppressedSummary(
+        persisted.reconcile.suppressedCounts,
+      );
+      if (lifecycleSummary) {
+        diagnostics.push(lifecycleSummary);
+        report.diagnostics = diagnostics;
+      }
+      if (verbose && persisted.lifecycleSuppressedFindings.length > 0) {
+        report.suppressedFindings = [
+          ...(report.suppressedFindings ?? []),
+          ...persisted.lifecycleSuppressedFindings,
+        ];
+      }
+
       const renderStart = performance.now();
       const markdown = renderMarkdown(report);
       recordCliTiming(timings, "render-report", "Markdown render", renderStart);
 
       // Write markdown report
       const writeStart = performance.now();
-      const reportPath = await writeMarkdownReport(markdown, {
-        session_id: reviewResult.sessionId,
-        project_root: projectRoot,
-      });
+      let reportPath: string;
+      try {
+        reportPath = await writeMarkdownReport(markdown, {
+          session_id: reviewResult.sessionId,
+          project_root: projectRoot,
+        });
+        await updatePersistedReview(getDiffOwlDir(), persisted.reviewId, {
+          reportPath,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        diagnostics.push(`Report write failed: ${message}`);
+        report.diagnostics = diagnostics;
+        await updatePersistedReview(getDiffOwlDir(), persisted.reviewId, {
+          reportPath: null,
+          diagnostics,
+        });
+        throw err;
+      }
       recordCliTiming(timings, "write-report", "Report write", writeStart);
       recordCliTiming(timings, "total", "Total review command", totalStart);
 
@@ -787,4 +874,17 @@ function buildDocOnlySkipMarkdown(diff: {
     lines.push(`- ${file.path} (+${file.additions}/-${file.deletions})`);
   }
   return lines.join("\n");
+}
+
+async function resolveTargetCommit(
+  target: { kind: "staged" } | { kind: "last-commit" } | { kind: "commit"; ref: string },
+): Promise<string | null> {
+  switch (target.kind) {
+    case "staged":
+      return null;
+    case "last-commit":
+      return resolveCommitRef("HEAD");
+    case "commit":
+      return resolveCommitRef(target.ref);
+  }
 }
