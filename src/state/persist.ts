@@ -100,9 +100,13 @@ export function splitFindingsByLifecycleSuppression(
   lifecycleSuppressedFindings: ReviewFinding[];
 } {
   const dedupedFindings = deduplicateReviewFindings(findings);
+  const fingerprintedFindings = dedupedFindings.map((finding) => ({
+    finding,
+    fingerprint: computeFindingFingerprint(toFindingCandidate(finding)),
+  }));
   const findingsByFingerprint = new Map<string, ReviewFinding>();
-  for (const finding of dedupedFindings) {
-    findingsByFingerprint.set(computeFindingFingerprint(toFindingCandidate(finding)), finding);
+  for (const { finding, fingerprint } of fingerprintedFindings) {
+    findingsByFingerprint.set(fingerprint, finding);
   }
 
   const actionableFindings: ReviewFinding[] = [];
@@ -122,8 +126,7 @@ export function splitFindingsByLifecycleSuppression(
     }
   }
 
-  for (const finding of dedupedFindings) {
-    const fingerprint = computeFindingFingerprint(toFindingCandidate(finding));
+  for (const { finding, fingerprint } of fingerprintedFindings) {
     if (!matchedFingerprints.has(fingerprint)) {
       actionableFindings.push(finding);
     }
