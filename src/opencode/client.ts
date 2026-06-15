@@ -10,10 +10,11 @@ import {
   type PermissionRequest,
 } from "./tools.js";
 import { parseProviderPayload } from "./provider-payload.js";
+import { isQuotaOrRateLimitError } from "./quota.js";
 export { parseStructuredReview, looksLikeCompleteStructuredReview } from "./review-parser.js";
 export { buildToolPolicy, extractPermissionRequest } from "./tools.js";
 export { getAvailableModels } from "./models.js";
-export { isQuotaOrRateLimitError } from "./quota.js";
+export { isQuotaOrRateLimitError };
 export type {
   ReviewConfidence,
   ReviewFinding,
@@ -368,8 +369,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
                     message: `OpenCode retrying: ${retryMessage}`,
                     sessionId,
                   });
-                  const { isQuotaOrRateLimitError: isQuota } = await import("./quota.js");
-                  if (isQuota(retryMessage)) {
+                  if (isQuotaOrRateLimitError(retryMessage)) {
                     settlement.reject(
                       new Error(`Provider quota or rate limit reached: ${retryMessage}`),
                     );

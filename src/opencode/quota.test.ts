@@ -53,5 +53,8 @@ describe("isQuotaOrRateLimitError", () => {
     expect(isQuotaOrRateLimitError("connection refused")).toBe(false);
     expect(isQuotaOrRateLimitError("opencode not found")).toBe(false);
     expect(isQuotaOrRateLimitError("timeout")).toBe(false);
+    expect(isQuotaOrRateLimitError("failed to read src/billing/service.ts")).toBe(false);
+    expect(isQuotaOrRateLimitError("failed to parse quota.json")).toBe(false);
+    expect(isQuotaOrRateLimitError("missing capacity-planning.md")).toBe(false);
   });
 });
