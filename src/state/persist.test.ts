@@ -236,6 +236,23 @@ describe("persist helpers", () => {
     });
   });
 
+  it("deduplicates duplicate findings before lifecycle suppression split", () => {
+    const duplicate: ReviewFinding = {
+      ...sampleFinding,
+      line: 99,
+    };
+
+    const result = splitFindingsByLifecycleSuppression([sampleFinding, duplicate], {
+      observations: [],
+      suppressedCounts: { dismissed: 0, deferred: 0 },
+    });
+
+    expect(result).toEqual({
+      actionableFindings: [sampleFinding],
+      lifecycleSuppressedFindings: [],
+    });
+  });
+
   it("updates persisted review report path and diagnostics", async () => {
     const dir = await createTempDir();
     const persisted = await persistReviewRun(dir, basePersistInput([sampleFinding]));

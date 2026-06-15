@@ -99,8 +99,9 @@ export function splitFindingsByLifecycleSuppression(
   actionableFindings: ReviewFinding[];
   lifecycleSuppressedFindings: ReviewFinding[];
 } {
+  const dedupedFindings = deduplicateReviewFindings(findings);
   const findingsByFingerprint = new Map<string, ReviewFinding>();
-  for (const finding of findings) {
+  for (const finding of dedupedFindings) {
     findingsByFingerprint.set(computeFindingFingerprint(toFindingCandidate(finding)), finding);
   }
 
@@ -121,7 +122,7 @@ export function splitFindingsByLifecycleSuppression(
     }
   }
 
-  for (const finding of findings) {
+  for (const finding of dedupedFindings) {
     const fingerprint = computeFindingFingerprint(toFindingCandidate(finding));
     if (!matchedFingerprints.has(fingerprint)) {
       actionableFindings.push(finding);
