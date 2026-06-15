@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ReviewFinding, ReviewTiming } from "../review/types.js";
 import { closeStateDatabase, openStateDatabase, runInTransaction } from "./db.js";
+import { computeFindingFingerprint } from "./fingerprint.js";
 import { reconcileReviewFindings } from "./reconcile.js";
 import { getReviewById, insertReview, updateReview } from "./repositories/reviews.js";
 import type {
@@ -39,6 +40,22 @@ export interface UpdatePersistedReviewInput {
 
 export function computeDiffHash(raw: string): string {
   return createHash("sha256").update(raw, "utf8").digest("hex");
+}
+
+export function deduplicateReviewFindings(findings: ReviewFinding[]): ReviewFinding[] {
+  const seen = new Set<string>();
+  const deduped: ReviewFinding[] = [];
+
+  for (const finding of findings) {
+    const fingerprint = computeFindingFingerprint(toFindingCandidate(finding));
+    if (seen.has(fingerprint)) {
+      continue;
+    }
+    seen.add(fingerprint);
+    deduped.push(finding);
+  }
+
+  return deduped;
 }
 
 export function toFindingCandidate(finding: ReviewFinding): FindingCandidate {
@@ -121,10 +138,11 @@ export async function persistReviewRun(
         skippedReason: input.skippedReason ?? null,
       });
 
-      const candidates = input.findings.map(toFindingCandidate);
+      const findings = deduplicateReviewFindings(input.findings);
+      const candidates = findings.map(toFindingCandidate);
       const reconcile = reconcileReviewFindings(state.db, review.id, candidates);
       const { actionableFindings, lifecycleSuppressedFindings } = splitFindingsByLifecycleSuppression(
-        input.findings,
+        findings,
         reconcile,
       );
 

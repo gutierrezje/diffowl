@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { FindingCandidate } from "./types.js";
 
 export const FINGERPRINT_VERSION = 1;
 
@@ -21,4 +22,20 @@ export function computeFindingFingerprint(input: FindingFingerprintInput): strin
   const payload = `v${FINGERPRINT_VERSION}|${file}|${title}|${identity}`;
   const digest = createHash("sha256").update(payload, "utf8").digest("hex");
   return `v${FINGERPRINT_VERSION}:${digest}`;
+}
+
+export function deduplicateFindingCandidates(candidates: FindingCandidate[]): FindingCandidate[] {
+  const seen = new Set<string>();
+  const deduped: FindingCandidate[] = [];
+
+  for (const candidate of candidates) {
+    const fingerprint = computeFindingFingerprint(candidate);
+    if (seen.has(fingerprint)) {
+      continue;
+    }
+    seen.add(fingerprint);
+    deduped.push(candidate);
+  }
+
+  return deduped;
 }

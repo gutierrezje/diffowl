@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { computeFindingFingerprint } from "./fingerprint.js";
+import { computeFindingFingerprint, deduplicateFindingCandidates } from "./fingerprint.js";
 import { insertFindingEvent } from "./repositories/events.js";
 import { getFindingByFingerprint, insertFinding, updateFinding } from "./repositories/findings.js";
 import { insertObservation } from "./repositories/observations.js";
@@ -17,8 +17,9 @@ export function reconcileReviewFindings(
 ): ReconcileReviewFindingsResult {
   const observations: ReconcileReviewFindingsResult["observations"] = [];
   const suppressedCounts = { dismissed: 0, deferred: 0 };
+  const uniqueCandidates = deduplicateFindingCandidates(candidates);
 
-  for (const [index, candidate] of candidates.entries()) {
+  for (const [index, candidate] of uniqueCandidates.entries()) {
     const fingerprint = computeFindingFingerprint(candidate);
     const existing = getFindingByFingerprint(db, fingerprint);
     const timestamp = new Date().toISOString();

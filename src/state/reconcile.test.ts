@@ -133,6 +133,22 @@ describe("reconcileReviewFindings", () => {
     }
   });
 
+  it("deduplicates duplicate fingerprints within a single review", async () => {
+    const dir = await createTempDir();
+    const state = await openStateDatabase(dir);
+
+    try {
+      const review = insertReview(state.db, baseReview());
+      const duplicateLine = { ...candidate, line: 48 };
+      const result = reconcileReviewFindings(state.db, review.id, [candidate, duplicateLine]);
+
+      expect(result.observations).toHaveLength(1);
+      expect(result.observations[0]?.observation.line).toBe(12);
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
   it("reopens fixed findings as regressed and keeps them actionable", async () => {
     const dir = await createTempDir();
     const state = await openStateDatabase(dir);
