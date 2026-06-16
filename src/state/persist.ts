@@ -99,11 +99,7 @@ export function splitFindingsByLifecycleSuppression(
   actionableFindings: ReviewFinding[];
   lifecycleSuppressedFindings: ReviewFinding[];
 } {
-  const dedupedFindings = deduplicateReviewFindings(findings);
-  const fingerprintedFindings = dedupedFindings.map((finding) => ({
-    finding,
-    fingerprint: computeFindingFingerprint(toFindingCandidate(finding)),
-  }));
+  const fingerprintedFindings = fingerprintUniqueReviewFindings(findings);
   const findingsByFingerprint = new Map<string, ReviewFinding>();
   for (const { finding, fingerprint } of fingerprintedFindings) {
     findingsByFingerprint.set(fingerprint, finding);
@@ -133,6 +129,24 @@ export function splitFindingsByLifecycleSuppression(
   }
 
   return { actionableFindings, lifecycleSuppressedFindings };
+}
+
+function fingerprintUniqueReviewFindings(
+  findings: ReviewFinding[],
+): { finding: ReviewFinding; fingerprint: string }[] {
+  const seen = new Set<string>();
+  const fingerprinted: { finding: ReviewFinding; fingerprint: string }[] = [];
+
+  for (const finding of findings) {
+    const fingerprint = computeFindingFingerprint(toFindingCandidate(finding));
+    if (seen.has(fingerprint)) {
+      continue;
+    }
+    seen.add(fingerprint);
+    fingerprinted.push({ finding, fingerprint });
+  }
+
+  return fingerprinted;
 }
 
 export function enrichReviewFindingsWithDurableMetadata(
