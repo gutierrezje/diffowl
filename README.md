@@ -143,9 +143,9 @@ The agent will:
 5. Append or merge resolution state without rewriting the generated review body.
 6. Move fully handled timestamped reports into `.diffowl/reviews/resolved/` when every finding is complete.
 
-`latest.md` is only a copy of the newest report and is overwritten by future reviews. Markdown reports are immutable snapshots; SQLite is the authoritative backlog for durable findings.
+`latest.md` is only a copy of the newest report and is overwritten by future reviews. Markdown reports from 0.3+ are immutable snapshots; SQLite is the authoritative backlog for durable findings.
 
-The generated review content remains unchanged. Resolution state is appended under `## Resolution`. To reopen the OpenCode session for an archived report, pass its explicit path:
+For legacy pre-0.3 reports, resolution state is appended under `## Resolution`. To reopen the OpenCode session for an archived report, pass its explicit path:
 
 ```bash
 diffowl chat .diffowl/reviews/resolved/review-<timestamp>.md
@@ -399,7 +399,7 @@ Finding headings in 0.3+ reports look like:
 Missing null check
 ```
 
-This metadata is used by `diffowl chat`. Agents may append a `## Resolution` section to legacy timestamped reports, but should use `diffowl findings *` for durable lifecycle changes. DiffOwl does not delete review history automatically.
+This metadata is used by `diffowl chat`. For legacy pre-0.3 reports, agents may append a `## Resolution` section. For 0.3+ reports, use `diffowl findings *` only—do not edit markdown. DiffOwl does not delete review history automatically.
 
 ### Upgrading to 0.3
 
