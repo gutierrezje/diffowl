@@ -82,7 +82,6 @@ export async function ensureServer(port: number): Promise<string> {
       if (!(await stopServer(port))) {
         throw new Error(`Could not locate or stop stale OpenCode server on port ${port}.`);
       }
-      await waitUntilPortFree(port);
     } else {
       return baseUrl;
     }

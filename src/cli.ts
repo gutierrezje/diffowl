@@ -247,6 +247,28 @@ program
       if (target.kind === "staged" && diff.files.length === 0) {
         spinner?.stop();
         if (jsonMode) {
+          const persisted = await persistReviewRun(getDiffOwlDir(), {
+            ...mapReviewTarget(target),
+            targetCommit: null,
+            diffHash: computeDiffHash(diff.raw),
+            model: config.model,
+            reasoning: config.reasoning.effort,
+            depth,
+            sessionId: "",
+            summary: "No staged changes to review.",
+            diagnostics: [],
+            timings,
+            findings: [],
+            skippedReason: "empty-diff",
+          });
+          await emitReviewJsonSuccess({
+            diffOwlDir: getDiffOwlDir(),
+            reviewId: persisted.reviewId,
+            persisted,
+            suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+            verbose,
+            timings,
+          });
           process.exit(0);
         }
         console.log(chalk.yellow("No staged changes to review"));
@@ -1067,8 +1089,10 @@ findingsCmd
     ) => {
       const verifiedBy = options.verifiedBy ?? [];
       if (verifiedBy.length === 0) {
-        console.error(chalk.red("At least one --verified-by command is required."));
-        process.exit(1);
+        failFindingsCommand(
+          resolveReviewOutputFormat(options.format),
+          new Error("At least one --verified-by command is required."),
+        );
       }
       await runFindingMutation(locator, options.format, (db) =>
         fixFindingByLocator(db, locator, {
