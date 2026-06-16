@@ -31,7 +31,11 @@ describe("npm package metadata", () => {
   });
 
   it("pins the editor and shell Node runtime to the native dependency ABI", async () => {
-    await expect(readFile(".nvmrc", "utf-8")).resolves.toBe("22.14.0\n");
-    await expect(readFile(".node-version", "utf-8")).resolves.toBe("22.14.0\n");
+    await expect(readRuntimeVersion(".nvmrc")).resolves.toBe("22.14.0");
+    await expect(readRuntimeVersion(".node-version")).resolves.toBe("22.14.0");
   });
 });
+
+async function readRuntimeVersion(path: string): Promise<string> {
+  return (await readFile(path, "utf-8")).trim();
+}

@@ -14,13 +14,9 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            node-version: 20
-          - os: ubuntu-latest
-            node-version: 22
+            node-version: 22.14.0
           - os: windows-2022
-            node-version: 20
-          - os: windows-2022
-            node-version: 22
+            node-version: 22.14.0
       fail-fast: false
 
     steps:
@@ -38,8 +34,8 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: "pnpm"
 
-      # better-sqlite3@12.10.0 ships no Node 20 win32 prebuilds, so Windows
-      # falls back to node-gyp and needs the VS 2022 C++ toolchain.
+      # Keep the Windows native toolchain available if better-sqlite3 needs to
+      # fall back to node-gyp for the pinned Node ABI.
       - name: Setup MSVC toolchain (Windows)
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
