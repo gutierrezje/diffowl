@@ -3,12 +3,33 @@ import { writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
-import type { ReviewReport } from "./types.js";
+import type { ReviewFinding, ReviewReport } from "./types.js";
 import { getDiffOwlDir } from "../config.js";
 
+export const REPORT_SCHEMA_VERSION = 1 as const;
+
 export interface ReviewMetadata {
+  schema_version?: typeof REPORT_SCHEMA_VERSION;
+  review_id?: string;
   session_id: string;
   project_root: string;
+}
+
+function formatFindingHeading(index: number, finding: ReviewFinding): string {
+  const ordinal = `Finding ${index + 1}`;
+  if (!finding.durable) {
+    return `#### ${ordinal}`;
+  }
+
+  const classification = formatFindingClassification(finding.durable);
+  return `#### ${ordinal} (\`${finding.durable.id}\`) — ${classification}`;
+}
+
+function formatFindingClassification(durable: NonNullable<ReviewFinding["durable"]>): string {
+  if (durable.lifecycleSuppressed) {
+    return `**suppressed (${durable.status})**`;
+  }
+  return `**${durable.classification}**`;
 }
 
 /**
@@ -27,7 +48,7 @@ export function renderMarkdown(report: ReviewReport): string {
     lines.push("No issues were reported.");
   } else {
     for (const [index, finding] of report.findings.entries()) {
-      lines.push(`#### Finding ${index + 1}`);
+      lines.push(formatFindingHeading(index, finding));
       lines.push(`**[${finding.severity.toUpperCase()}] ${finding.file}:${finding.line}**`);
       lines.push(finding.title.trim());
       lines.push("");
@@ -43,10 +64,10 @@ export function renderMarkdown(report: ReviewReport): string {
   if (report.suppressedFindings && report.suppressedFindings.length > 0) {
     lines.push("");
     lines.push("### Suppressed Findings");
-    lines.push("These findings are outside files changed in this diff.");
+    lines.push("These findings were excluded from the actionable review set.");
     lines.push("");
     for (const [index, finding] of report.suppressedFindings.entries()) {
-      lines.push(`#### Finding ${report.findings.length + index + 1}`);
+      lines.push(formatFindingHeading(report.findings.length + index, finding));
       lines.push(
         `**[${finding.severity.toUpperCase()}] ${finding.file}:${finding.line}** (${finding.confidence} confidence)`,
       );
@@ -121,6 +142,8 @@ export function parseReviewMetadata(content: string): ReviewMetadata | undefined
 
   const sessionId = (diffowl as { session_id?: unknown }).session_id;
   const projectRoot = (diffowl as { project_root?: unknown }).project_root;
+  const schemaVersion = (diffowl as { schema_version?: unknown }).schema_version;
+  const reviewId = (diffowl as { review_id?: unknown }).review_id;
   if (
     typeof sessionId !== "string" ||
     sessionId.trim() === "" ||
@@ -130,7 +153,22 @@ export function parseReviewMetadata(content: string): ReviewMetadata | undefined
     return undefined;
   }
 
-  return { session_id: sessionId, project_root: projectRoot };
+  const metadata: ReviewMetadata = {
+    session_id: sessionId,
+    project_root: projectRoot,
+  };
+  if (
+    typeof schemaVersion === "number" &&
+    Number.isInteger(schemaVersion) &&
+    schemaVersion > 0
+  ) {
+    metadata.schema_version = schemaVersion as typeof REPORT_SCHEMA_VERSION;
+  }
+  if (typeof reviewId === "string" && reviewId.trim() !== "") {
+    metadata.review_id = reviewId;
+  }
+
+  return metadata;
 }
 
 function renderReviewFrontmatter(metadata: ReviewMetadata): string {

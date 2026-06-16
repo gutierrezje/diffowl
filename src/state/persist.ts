@@ -135,6 +135,33 @@ export function splitFindingsByLifecycleSuppression(
   return { actionableFindings, lifecycleSuppressedFindings };
 }
 
+export function enrichReviewFindingsWithDurableMetadata(
+  findings: ReviewFinding[],
+  reconcile: ReconcileReviewFindingsResult,
+): ReviewFinding[] {
+  const observationsByFingerprint = new Map(
+    reconcile.observations.map((item) => [item.fingerprint, item]),
+  );
+
+  return findings.map((finding) => {
+    const fingerprint = computeFindingFingerprint(toFindingCandidate(finding));
+    const observation = observationsByFingerprint.get(fingerprint);
+    if (!observation) {
+      return finding;
+    }
+
+    return {
+      ...finding,
+      durable: {
+        id: observation.finding.id,
+        classification: observation.observation.classification,
+        status: observation.finding.status,
+        lifecycleSuppressed: observation.suppressed,
+      },
+    };
+  });
+}
+
 export async function persistReviewRun(
   diffOwlDir: string,
   input: PersistReviewRunInput,

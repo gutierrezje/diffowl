@@ -63,6 +63,7 @@ import {
   colorizeMarkdown,
   formatExcludedCandidateSummary,
   parseReviewMetadata,
+  REPORT_SCHEMA_VERSION,
 } from "./review/formatter.js";
 import {
   canSelectReviewInteractively,
@@ -72,6 +73,7 @@ import {
 } from "./review/report-path.js";
 import {
   computeDiffHash,
+  enrichReviewFindingsWithDurableMetadata,
   formatLifecycleSuppressedSummary,
   getPersistedReview,
   loadFindingOccurrenceCounts,
@@ -417,6 +419,17 @@ program
         ];
       }
 
+      report.findings = enrichReviewFindingsWithDurableMetadata(
+        report.findings,
+        persisted.reconcile,
+      );
+      if (report.suppressedFindings) {
+        report.suppressedFindings = enrichReviewFindingsWithDurableMetadata(
+          report.suppressedFindings,
+          persisted.reconcile,
+        );
+      }
+
       const renderStart = performance.now();
       const markdown = renderMarkdown(report);
       recordCliTiming(timings, "render-report", "Markdown render", renderStart);
@@ -426,6 +439,8 @@ program
       let reportPath: string;
       try {
         reportPath = await writeMarkdownReport(markdown, {
+          schema_version: REPORT_SCHEMA_VERSION,
+          review_id: persisted.reviewId,
           session_id: reviewResult.sessionId,
           project_root: projectRoot,
         });

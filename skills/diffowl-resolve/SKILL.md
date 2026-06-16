@@ -30,7 +30,7 @@ Never infer a wider scope. Do not reprocess reports under `.diffowl/reviews/reso
 3. Resolve `latest.md` to its canonical `review-*.md` by matching its `diffowl.session_id`; if unavailable, match the generated review body. Never edit or archive `latest.md`.
 4. For `latest N`, sort unresolved timestamped reports by filename timestamp and select the newest `N`.
 5. Process only entries under `### Issues Found`. Diagnostics and suppressed candidates are not findings unless the user explicitly asks to investigate them.
-6. Parse each finding and investigate it against the current worktree, surrounding code, tests, and relevant history. Use durable `fnd_*` IDs when available; otherwise use the explicit `Finding N` heading as its stable ID. For older reports without headings, assign IDs by report order.
+6. Parse each finding and investigate it against the current worktree, surrounding code, tests, and relevant history. Prefer durable `fnd_*` IDs from report headings or `diffowl findings`; otherwise use the explicit `Finding N` heading as its stable ID. For older reports without headings or IDs, assign IDs by report order.
 7. Classify each finding:
    - **Fixed**: changed code or configuration to address a confirmed issue.
    - **Already fixed**: the current worktree no longer exhibits the issue.
@@ -77,7 +77,11 @@ Do not mark a durable finding fixed unless at least one relevant verification co
 
 ## Resolution Format
 
-Use one item per finding, preserving the report's explicit `Finding N` IDs. For older reports without explicit IDs, number findings by report order:
+For **legacy reports** without durable findings, use one item per finding, preserving the report's explicit `Finding N` IDs. For older reports without explicit IDs, number findings by report order.
+
+For **0.3+ reports** with `fnd_*` IDs in headings, prefer `diffowl findings *` lifecycle commands. You may still append a `## Resolution` checklist for human readability, but SQLite lifecycle records are authoritative when durable findings exist.
+
+Legacy checklist example:
 
 ```md
 ## Resolution

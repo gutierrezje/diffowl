@@ -25,7 +25,8 @@ DiffOwl is a lightweight CLI that integrates into your Git workflow to provide h
 - **Intelligent File Filtering**: Supports `include` and `exclude` glob patterns to focus reviews on source directories while skipping build artifacts, lockfiles, and node modules.
 - **Project-Specific Rules**: Inject custom guidelines directly into the reviewer's system prompt (e.g., "Check for SQL injection", "Ensure TypeScript types are explicit").
 - **Interactive Model Selector**: Automatically queries OpenCode to present a clean, interactive list of your connected providers and models.
-- **Local Reports**: Generates markdown reviews under `.diffowl/reviews/`, including hidden session metadata that makes reports chat-capable.
+- **Local Reports**: Generates markdown reviews under `.diffowl/reviews/`, including durable finding IDs and hidden session metadata that makes reports chat-capable.
+- **Durable Findings (0.3)**: Persists reviews and findings in `.diffowl/state.db` with stable `fnd_*` IDs, occurrence tracking, and lifecycle commands for fix, dismiss, defer, and reopen.
 - **Agent-Assisted Resolution**: Includes an optional portable skill that lets coding agents investigate findings, fix confirmed issues, record dismissals, and archive handled reports.
 - **Hook Log Retention**: Bounds accumulated hook logs without deleting review history.
 
@@ -137,11 +138,12 @@ The agent will:
 
 1. Treat findings as candidates and verify them against the current code.
 2. Fix confirmed issues using the repository's normal workflow.
-3. Mark findings as fixed, already fixed, agent dismissed, user dismissed, deferred, or open.
-4. Append a `## Resolution` checklist without rewriting the generated review.
-5. Move fully handled timestamped reports into `.diffowl/reviews/resolved/`.
+3. For durable findings (0.3+), record lifecycle status with `diffowl findings fix`, `dismiss`, or `defer`.
+4. For legacy reports, mark findings as fixed, already fixed, agent dismissed, user dismissed, deferred, or open in a `## Resolution` checklist.
+5. Append or merge resolution state without rewriting the generated review body.
+6. Move fully handled timestamped reports into `.diffowl/reviews/resolved/` when every finding is complete.
 
-`latest.md` is only a copy of the newest report and is overwritten by future reviews. The skill updates the matching timestamped report as the durable record.
+`latest.md` is only a copy of the newest report and is overwritten by future reviews. Markdown reports are immutable snapshots; SQLite is the authoritative backlog for durable findings.
 
 The generated review content remains unchanged. Resolution state is appended under `## Resolution`. To reopen the OpenCode session for an archived report, pass its explicit path:
 
@@ -185,10 +187,11 @@ Runs a code review on your repository.
 - `--depth <depth>`: Overrides configured review depth. Valid values: `shallow`, `default`.
 - `--reasoning <effort>`: Overrides configured OpenCode reasoning variant. Valid values: `auto`, `none`, `minimal`, `low`, `medium`, `high`, `max`, `xhigh`.
 - `--verbose`: Includes suppressed findings and extra review details in the report.
+- `--format <format>`: Output format: `text` (default) or `json`. JSON writes a versioned document to stdout and persists SQLite state.
 
 Candidates below `min_confidence` or outside changed files are excluded from actionable finding counts and review status. When any are excluded, the report includes a short diagnostic summary and points to `diffowl chat` for investigation. Outside-file candidates are shown in full with `--verbose`; below-threshold candidates remain available in the OpenCode session.
 
-Rendered findings have stable `Finding N` headings, making prompts such as “investigate finding 2” map directly to resolution checklist entries.
+Rendered findings use stable `Finding N` headings. Reports from DiffOwl 0.3+ also include durable `fnd_*` IDs and observation classification (`new`, `existing`, `regressed`), making prompts such as “investigate finding 2” or `diffowl findings show fnd_abc` map directly to the backlog.
 
 Review depth controls both how much local context DiffOwl preloads and how much exploration the reviewer is expected to do:
 
@@ -275,6 +278,32 @@ diffowl server start
 diffowl server stop
 ```
 
+### `diffowl findings [list] | show | dismiss | defer | fix | reopen`
+
+Inspect and manage the durable findings backlog stored in `.diffowl/state.db`.
+
+```bash
+# List unresolved findings (open and regressed)
+diffowl findings
+
+# Inspect one finding by full id, id prefix, or latest:N
+diffowl findings show fnd_abc --format json
+
+# Mark fixed after verification
+diffowl findings fix fnd_abc --note "Added null guard." --verified-by "pnpm run test"
+
+# Dismiss a false positive
+diffowl findings dismiss fnd_abc --reason "Guarded by caller."
+
+# Defer intentionally
+diffowl findings defer fnd_abc --reason "Needs upstream change."
+
+# Reopen a previously fixed or dismissed finding
+diffowl findings reopen fnd_abc --reason "Regression in new path."
+```
+
+The unresolved backlog is durable: a finding does not auto-resolve just because a later review fails to mention it. Absence from a later model review never marks a finding fixed.
+
 ---
 
 ## Configuration (`.diffowl.yml`)
@@ -344,7 +373,8 @@ rules:
 Each completed review starts with a timestamped report and an ephemeral `latest.md` copy. The optional resolution skill moves fully handled timestamped reports into the resolved archive:
 
 ```text
-.diffowl/reviews/review-<timestamp>.md           # Durable timestamped report
+.diffowl/state.db                                 # Authoritative review and finding state (0.3+)
+.diffowl/reviews/review-<timestamp>.md           # Immutable markdown export snapshot
 .diffowl/reviews/latest.md                       # Ephemeral copy of the newest report
 .diffowl/reviews/resolved/review-<timestamp>.md  # Fully handled report archived by the skill
 ```
@@ -354,12 +384,30 @@ Review reports include YAML frontmatter similar to:
 ```yaml
 ---
 diffowl:
+  schema_version: 1
+  review_id: rev_...
   session_id: ses_...
   project_root: /path/to/project
 ---
 ```
 
-This metadata is used by `diffowl chat`. Agents may append a `## Resolution` section to timestamped reports, but should preserve the generated review body. DiffOwl does not delete review history automatically.
+Finding headings in 0.3+ reports look like:
+
+```md
+#### Finding 1 (`fnd_...`) — **new**
+**[WARNING] src/auth.ts:12**
+Missing null check
+```
+
+This metadata is used by `diffowl chat`. Agents may append a `## Resolution` section to legacy timestamped reports, but should use `diffowl findings *` for durable lifecycle changes. DiffOwl does not delete review history automatically.
+
+### Upgrading to 0.3
+
+- **No import step**: Existing markdown reports remain unchanged and chat-capable. They are not imported into SQLite.
+- **New reviews persist state**: After upgrading, each `diffowl review` writes both SQLite state and a markdown snapshot.
+- **Backlog semantics change**: Use `diffowl findings` for the unresolved backlog. Markdown `### Status` reflects the review snapshot only.
+- **Resolution workflow**: Prefer `diffowl findings fix|dismiss|defer` over editing report checklists when durable findings exist. Never mark fixed without recorded verification (`--verified-by`).
+- **Not in 0.3**: Semantic deduplication beyond fingerprint matching, automatic resolution when findings disappear, legacy report migration, retention cleanup, and SARIF export.
 
 ---
 

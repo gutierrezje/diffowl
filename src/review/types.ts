@@ -4,6 +4,13 @@ export type ReviewSeverity = "error" | "warning" | "info";
 
 export type { ReviewConfidence } from "../config.js";
 
+export interface DurableFindingMetadata {
+  id: string;
+  classification: "new" | "existing" | "regressed";
+  status: "open" | "deferred" | "dismissed" | "fixed" | "regressed";
+  lifecycleSuppressed?: boolean;
+}
+
 export interface ReviewFinding {
   severity: ReviewSeverity;
   file: string;
@@ -12,6 +19,7 @@ export interface ReviewFinding {
   title: string;
   body: string;
   confidence: ReviewConfidence;
+  durable?: DurableFindingMetadata;
 }
 
 export interface ReviewReport {

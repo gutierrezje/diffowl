@@ -6,6 +6,7 @@ import { closeStateDatabase, openStateDatabase } from "./db.js";
 import { dismissFinding } from "./lifecycle.js";
 import {
   computeDiffHash,
+  enrichReviewFindingsWithDurableMetadata,
   formatLifecycleSuppressedSummary,
   persistReviewRun,
   splitFindingsByLifecycleSuppression,
@@ -291,6 +292,23 @@ describe("persist helpers", () => {
     } finally {
       closeStateDatabase(state);
     }
+  });
+});
+
+describe("enrichReviewFindingsWithDurableMetadata", () => {
+  it("attaches durable ids and observation classification to reconciled findings", async () => {
+    const dir = await createTempDir();
+    const persisted = await persistReviewRun(dir, basePersistInput([sampleFinding]));
+    const enriched = enrichReviewFindingsWithDurableMetadata(
+      persisted.actionableFindings,
+      persisted.reconcile,
+    );
+
+    expect(enriched).toHaveLength(1);
+    expect(enriched[0]?.durable?.id).toMatch(/^fnd_/);
+    expect(enriched[0]?.durable?.classification).toBe("new");
+    expect(enriched[0]?.durable?.status).toBe("open");
+    expect(enriched[0]?.durable?.lifecycleSuppressed).toBe(false);
   });
 });
 

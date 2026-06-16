@@ -245,6 +245,95 @@ describe("renderMarkdown", () => {
 
     expect(renderMarkdown(report)).toMatch(/### Status\nResolved$/);
   });
+
+  it("renders durable finding ids and classification labels when metadata is present", () => {
+    const report: ReviewReport = {
+      summary: "Test summary",
+      findings: [
+        {
+          severity: "error",
+          file: "src/first.ts",
+          line: 1,
+          title: "New issue",
+          body: "First body.",
+          confidence: "high",
+          durable: {
+            id: "fnd_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            classification: "new",
+            status: "open",
+          },
+        },
+        {
+          severity: "warning",
+          file: "src/second.ts",
+          line: 2,
+          title: "Existing issue",
+          body: "Second body.",
+          confidence: "medium",
+          durable: {
+            id: "fnd_bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee",
+            classification: "existing",
+            status: "open",
+          },
+        },
+        {
+          severity: "error",
+          file: "src/third.ts",
+          line: 3,
+          title: "Regressed issue",
+          body: "Third body.",
+          confidence: "high",
+          durable: {
+            id: "fnd_cccccccc-bbbb-cccc-dddd-eeeeeeeeeeee",
+            classification: "regressed",
+            status: "regressed",
+          },
+        },
+      ],
+    };
+
+    const output = renderMarkdown(report);
+
+    expect(output).toContain(
+      "#### Finding 1 (`fnd_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`) — **new**",
+    );
+    expect(output).toContain(
+      "#### Finding 2 (`fnd_bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee`) — **existing**",
+    );
+    expect(output).toContain(
+      "#### Finding 3 (`fnd_cccccccc-bbbb-cccc-dddd-eeeeeeeeeeee`) — **regressed**",
+    );
+  });
+
+  it("labels lifecycle-suppressed findings distinctly in verbose output", () => {
+    const report: ReviewReport = {
+      summary: "Test summary",
+      findings: [],
+      suppressedFindings: [
+        {
+          severity: "warning",
+          file: "src/old.ts",
+          line: 9,
+          title: "Previously dismissed",
+          body: "Suppressed body.",
+          confidence: "high",
+          durable: {
+            id: "fnd_dddddddd-bbbb-cccc-dddd-eeeeeeeeeeee",
+            classification: "existing",
+            status: "dismissed",
+            lifecycleSuppressed: true,
+          },
+        },
+      ],
+    };
+
+    const output = renderMarkdown(report);
+
+    expect(output).toContain("These findings were excluded from the actionable review set.");
+    expect(output).toContain(
+      "#### Finding 1 (`fnd_dddddddd-bbbb-cccc-dddd-eeeeeeeeeeee`) — **suppressed (dismissed)**",
+    );
+  });
 });
 
 describe("formatExcludedCandidateSummary", () => {
@@ -273,6 +362,26 @@ diffowl:
 `;
 
     expect(parseReviewMetadata(content)).toEqual({
+      session_id: "ses_123",
+      project_root: "/work/repo",
+    });
+  });
+
+  it("reads durable report metadata when present", () => {
+    const content = `---
+diffowl:
+  schema_version: 1
+  review_id: rev_123
+  session_id: ses_123
+  project_root: /work/repo
+---
+
+# DiffOwl Review
+`;
+
+    expect(parseReviewMetadata(content)).toEqual({
+      schema_version: 1,
+      review_id: "rev_123",
       session_id: "ses_123",
       project_root: "/work/repo",
     });
