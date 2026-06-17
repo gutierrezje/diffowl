@@ -109,7 +109,7 @@ rules:
 
 function printChecklist(repoDir, model) {
   const cli = `node ${cliPath}`;
-  const checklistPath = join(diffowlRoot, "docs", "dogfood", "0.3-checklist.md");
+  const checklistPath = join(diffowlRoot, "dev-docs", "dogfood", "0.3-checklist.md");
 
   console.log("");
   console.log("DiffOwl 0.3 dogfood repo ready.");
@@ -147,7 +147,7 @@ function printChecklist(repoDir, model) {
   console.log('  git commit -m "chore: hook dogfood validation"');
   console.log(`  ${cli} findings`);
   console.log("");
-  console.log("Pass/fail details: docs/dogfood/0.3-checklist.md");
+  console.log("Pass/fail details: dev-docs/dogfood/0.3-checklist.md");
   console.log("");
   console.log(
     "0.3 is done when: pnpm run test and pnpm run lint pass, and this checklist passes once on a fresh repo.",
