@@ -10,7 +10,7 @@
 <!-- Open Graph / social -->
 <meta property="og:type" content="website">
 <meta property="og:title" content="DiffOwl — local code review for the age of agents">
-<meta property="og:description" content="An independent reviewer for the code your agent wrote — local, provider-neutral, with durable findings. Zero-config, no account required.">
+<meta property="og:description" content="An independent reviewer for the code your agent wrote — local, provider-neutral, with durable findings. No account, no dashboard.">
 <meta property="og:url" content="https://gutierrezje.github.io/diffowl/">
 <!-- TODO: add docs/og-image.png (1200x630) then uncomment:
 <meta property="og:image" content="https://gutierrezje.github.io/diffowl/og-image.png"> -->
@@ -198,17 +198,13 @@
     opacity:0;transition:opacity .4s,transform .4s;
     text-shadow:0 0 22px rgba(255,255,255,.25)}
   .speech-bubble.show{opacity:1;transform:translateX(-50%) translateY(0)}
-  .owl .eye{display:inline-grid;grid-template-areas:"stack";width:1ch}
-  .owl .eye .o,.owl .eye .s{grid-area:stack}
-  .owl .eye .o{animation:eyeopen 5.2s infinite}
-  .owl .eye .s{opacity:0;animation:eyeshut 5.2s infinite}
+  .owl .eye, .miniowl .eye{display:inline-grid;grid-template-areas:"stack";width:1ch}
+  .owl .eye .o, .owl .eye .s, .miniowl .eye .o, .miniowl .eye .s{grid-area:stack}
+  .owl .eye .o, .miniowl .eye .o{animation:eyeopen 5.2s infinite}
+  .owl .eye .s, .miniowl .eye .s{opacity:0;animation:eyeshut 5.2s infinite}
   @keyframes eyeopen{0%,92%,100%{opacity:1}94%,98%{opacity:0}}
   @keyframes eyeshut{0%,92%,100%{opacity:0}94%,98%{opacity:1}}
   .miniowl{font-family:var(--mono);color:var(--fg);letter-spacing:-.5px}
-  .miniowl .eye{display:inline-grid;grid-template-areas:"stack";width:1ch}
-  .miniowl .eye .o,.miniowl .eye .s{grid-area:stack}
-  .miniowl .eye .s{opacity:0;animation:eyeshut 4.8s infinite}
-  .miniowl .eye .o{animation:eyeopen 4.8s infinite}
 </style>
 </head>
 <body>
@@ -242,7 +238,7 @@
       <span class="l">Your agent wrote it.</span>
       <span class="l"><strong>DiffOwl reviews it.</strong></span>
     </h1>
-    <p class="sub">An independent, <b>local code reviewer</b> that runs on every commit — leveraging your existing LLM keys, with <b>zero SaaS onboarding friction</b> and no account required.</p>
+    <p class="sub">An independent <b>code reviewer</b> that runs locally on every commit. It uses the LLM you've already set up — <b>no account, no dashboard, no per-seat bill</b>.</p>
     <div class="cta-row">
       <a class="btn btn-p" href="#start">npm i -g diffowl</a>
       <a class="btn btn-g" href="#why">See how it works</a>
@@ -270,7 +266,7 @@
     <p class="lede">Four reasons — each provable today, not a roadmap promise.</p>
     <div class="pillars">
       <div class="pillar"><div class="n">01</div><h3>Independent eyes</h3><p>The agent that wrote the patch is biased toward approving it. DiffOwl is a <b>separate review loop</b> — implementer and reviewer stay distinct roles.</p></div>
-      <div class="pillar"><div class="n">02</div><h3>Zero SaaS friction</h3><p>No account registration, no remote dashboard, and no subscription keys. Your code goes directly from your machine to the LLM providers you already trust—and with a local model, it never leaves your network.</p></div>
+      <div class="pillar"><div class="n">02</div><h3>Nothing to sign up for</h3><p>No account, no dashboard, no subscription. The CLI runs on your machine and sends code straight to the provider you already use — point it at a local model and it never leaves your network.</p></div>
       <div class="pillar"><div class="n">03</div><h3>Any model, no new bill</h3><p>Rides on your existing OpenCode providers — Copilot, OpenAI, Ollama. <b>No separate keys, no per-seat SaaS.</b> You own the cost-vs-quality dial.</p></div>
       <div class="pillar"><div class="n">04</div><h3>Findings that remember</h3><p>Stable <code style="font-family:var(--mono);font-size:13px">fnd_*</code> IDs in SQLite, deduped across commits, with a real lifecycle: fix, dismiss, defer, <b>reopen on regression</b>.</p></div>
     </div>
@@ -361,7 +357,7 @@
 <div class="final">
   <div class="wrap reveal">
     <div class="big">Stop merging code <strong>nobody reviewed.</strong></div>
-    <p>An independent reviewer for the code your agent wrote — local, on your own terms, with no account to create.</p>
+    <p>An independent reviewer for the code your agent wrote — local, on the model you choose, with nothing to sign up for.</p>
     <div class="pill"><span class="p">$</span> <span id="cmd">npm install -g diffowl</span> <button class="copy" onclick="cp()">Copy</button></div>
     <div class="cta-row" style="justify-content:center">
       <a class="btn btn-p" href="https://github.com/gutierrezje/diffowl">Star on GitHub</a>
