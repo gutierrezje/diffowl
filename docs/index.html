@@ -4,13 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>DiffOwl — local code review for the age of agents</title>
-<meta name="description" content="DiffOwl is a local, provider-neutral code reviewer that runs on every commit — independent of the agent that wrote the patch, on the model you choose, with source that never leaves your machine.">
+<meta name="description" content="DiffOwl is a local, provider-neutral code reviewer that runs on every commit — independent of the agent that wrote the patch, on the model you choose, with no review service of its own in the loop.">
 <meta name="theme-color" content="#000000">
 <link rel="canonical" href="https://gutierrezje.github.io/diffowl/">
 <!-- Open Graph / social -->
 <meta property="og:type" content="website">
 <meta property="og:title" content="DiffOwl — local code review for the age of agents">
-<meta property="og:description" content="An independent reviewer for the code your agent wrote — local, provider-neutral, with durable findings. Your repo stays yours.">
+<meta property="og:description" content="An independent reviewer for the code your agent wrote — local, provider-neutral, with durable findings. Zero-config, no account required.">
 <meta property="og:url" content="https://gutierrezje.github.io/diffowl/">
 <!-- TODO: add docs/og-image.png (1200x630) then uncomment:
 <meta property="og:image" content="https://gutierrezje.github.io/diffowl/og-image.png"> -->
@@ -242,7 +242,7 @@
       <span class="l">Your agent wrote it.</span>
       <span class="l"><strong>DiffOwl reviews it.</strong></span>
     </h1>
-    <p class="sub">A <b>local code reviewer</b> that runs on every commit — independent of the agent that wrote the patch, on the model you choose, with source that <b>never leaves your machine</b>.</p>
+    <p class="sub">An independent, <b>local code reviewer</b> that runs on every commit — leveraging your existing LLM keys, with <b>zero SaaS onboarding friction</b> and no account required.</p>
     <div class="cta-row">
       <a class="btn btn-p" href="#start">npm i -g diffowl</a>
       <a class="btn btn-g" href="#why">See how it works</a>
@@ -270,7 +270,7 @@
     <p class="lede">Four reasons — each provable today, not a roadmap promise.</p>
     <div class="pillars">
       <div class="pillar"><div class="n">01</div><h3>Independent eyes</h3><p>The agent that wrote the patch is biased toward approving it. DiffOwl is a <b>separate review loop</b> — implementer and reviewer stay distinct roles.</p></div>
-      <div class="pillar"><div class="n">02</div><h3>Code never leaves</h3><p>Source and review state stay on infrastructure <b>you control</b>. No uploading a private repo to a third-party service. Run fully offline if you want.</p></div>
+      <div class="pillar"><div class="n">02</div><h3>Zero SaaS friction</h3><p>No account registration, no remote dashboard, and no subscription keys. Your code goes directly from your machine to the LLM providers you already trust—and with a local model, it never leaves your network.</p></div>
       <div class="pillar"><div class="n">03</div><h3>Any model, no new bill</h3><p>Rides on your existing OpenCode providers — Copilot, OpenAI, Ollama. <b>No separate keys, no per-seat SaaS.</b> You own the cost-vs-quality dial.</p></div>
       <div class="pillar"><div class="n">04</div><h3>Findings that remember</h3><p>Stable <code style="font-family:var(--mono);font-size:13px">fnd_*</code> IDs in SQLite, deduped across commits, with a real lifecycle: fix, dismiss, defer, <b>reopen on regression</b>.</p></div>
     </div>
@@ -329,16 +329,16 @@
       <table>
         <thead><tr><th>Capability</th><th class="us">DiffOwl</th><th>Hosted bots</th><th>Agent self-review</th></tr></thead>
         <tbody>
-          <tr><td>Source stays local</td><td class="us"><span class="y"></span>Yes</td><td><span class="n"></span>Uploads repo</td><td>Varies</td></tr>
+          <tr><td>No SaaS sign-up required</td><td class="us"><span class="y"></span>Yes</td><td><span class="n"></span>No (Their platform)</td><td><span class="y"></span>Yes</td></tr>
           <tr><td>Choose any model</td><td class="us"><span class="y"></span>Yes</td><td><span class="n"></span>Vendor-locked</td><td><span class="n"></span>Same model</td></tr>
           <tr><td>Independent of author</td><td class="us"><span class="y"></span>Yes</td><td><span class="y"></span>Yes</td><td><span class="n"></span>No</td></tr>
           <tr><td>Persistent findings</td><td class="us"><span class="y"></span>Yes</td><td>Partial</td><td><span class="n"></span>No</td></tr>
-          <tr><td>Works offline</td><td class="us"><span class="y"></span>Yes</td><td><span class="n"></span>No</td><td><span class="n"></span>No</td></tr>
-          <tr><td>Cost model</td><td class="us">Your tokens</td><td>Per-seat SaaS</td><td>Agent tokens</td></tr>
+          <tr><td>Local-model option</td><td class="us"><span class="y"></span>Via OpenCode</td><td><span class="n"></span>No</td><td><span class="n"></span>No</td></tr>
+          <tr><td>Subscription model</td><td class="us">None (Your keys)</td><td>Per-seat SaaS</td><td>None (Agent keys)</td></tr>
         </tbody>
       </table>
     </div>
-    <p class="cmp-note">No "catches more bugs" claims yet — accuracy waits for the measured eval harness (v0.4). We lead on what's provable: control, privacy, independence.</p>
+    <p class="cmp-note">No "catches more bugs" claims yet — accuracy waits for the measured eval harness (v0.4). We lead on what's provable: independence, model choice, and durable findings.</p>
   </div>
 </section>
 
@@ -361,7 +361,7 @@
 <div class="final">
   <div class="wrap reveal">
     <div class="big">Stop merging code <strong>nobody reviewed.</strong></div>
-    <p>An independent reviewer for the code your agent wrote — local, on the model you choose.</p>
+    <p>An independent reviewer for the code your agent wrote — local, on your own terms, with no account to create.</p>
     <div class="pill"><span class="p">$</span> <span id="cmd">npm install -g diffowl</span> <button class="copy" onclick="cp()">Copy</button></div>
     <div class="cta-row" style="justify-content:center">
       <a class="btn btn-p" href="https://github.com/gutierrezje/diffowl">Star on GitHub</a>
@@ -373,7 +373,7 @@
 <footer>
   <div class="wrap">
     <a class="brand" href="#"><span class="miniowl" aria-hidden="true">(<span class="eye"><span class="o">0</span><span class="s">-</span></span>,<span class="eye"><span class="o">0</span><span class="s">-</span></span>)</span>diffowl</a>
-    <div class="d">The local, provider-neutral verification layer for agent-generated code. MIT licensed. Powered by OpenCode. Your repo stays yours.</div>
+    <div class="d">The local, provider-neutral verification layer for agent-generated code. MIT licensed. Powered by OpenCode. Zero SaaS overhead, no account required.</div>
     <div style="font-family:var(--mono);font-size:12.5px;color:var(--mut)">© 2026 · <a href="https://github.com/gutierrezje/diffowl">github.com/gutierrezje/diffowl</a></div>
   </div>
 </footer>
@@ -387,7 +387,6 @@
     "LGTM!",
     "who wrote this?",
     "independent eyes",
-    "local & private",
     "analyzing diff...",
     "found a bug!",
     "hoot!"
