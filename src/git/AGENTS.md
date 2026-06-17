@@ -20,6 +20,7 @@ Diff collection, hand-rolled parsing, and post-commit hook management.
 - Hooks are non-blocking: spawns a detached worker process.
 - Hook result JSON includes the reviewed commit SHA so failures can print exact retry commands.
 - Pending review enumeration removes orphaned `*.result.json` files but preserves results while their commit marker exists.
+- Hook queue stops early on quota, auth, server, ABI, and missing OpenCode failures instead of draining the whole backlog with the same error.
 
 ## Anti-Patterns
 

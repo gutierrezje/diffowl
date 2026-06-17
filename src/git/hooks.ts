@@ -14,6 +14,7 @@ import { execa } from "execa";
 import type { Options as ExecaOptions } from "execa";
 import { z } from "zod";
 import { ensureDiffOwlDir, getDiffOwlDir, loadConfig } from "../config.js";
+import { isQuotaOrRateLimitError } from "../opencode/quota.js";
 import { trimHookLog } from "../review/retention.js";
 
 const HOOK_MARKER = "# diffowl-managed";
@@ -207,6 +208,63 @@ export function formatHookFailure(failure: HookFailure): string {
   return `${header}\nRetry:\n  diffowl review --commit ${failure.commit}\n  diffowl review --commit ${failure.commit} --depth shallow`;
 }
 
+/**
+ * Failures that should stop processing the rest of the hook queue. Retrying
+ * the remaining commits immediately would hit the same provider or environment
+ * error (quota, auth, server down, ABI mismatch, missing OpenCode).
+ */
+export function isHookQueueStopFailure(message: string | undefined): boolean {
+  if (!message || message === "Review started.") {
+    return false;
+  }
+
+  const normalized = message.toLowerCase();
+  if (isQuotaOrRateLimitError(normalized)) {
+    return true;
+  }
+
+  if (
+    normalized.includes("unauthorized") ||
+    normalized.includes("authentication") ||
+    normalized.includes("invalid api key") ||
+    normalized.includes("missing api key") ||
+    /\b(401|403)\b/.test(normalized) ||
+    normalized.includes("no active provider") ||
+    normalized.includes("no connected provider") ||
+    normalized.includes("model not found") ||
+    normalized.includes("unknown model")
+  ) {
+    return true;
+  }
+
+  if (
+    normalized.includes("server is not running") ||
+    normalized.includes("failed to start opencode server") ||
+    normalized.includes("econnrefused") ||
+    normalized.includes("connection refused")
+  ) {
+    return true;
+  }
+
+  if (
+    normalized.includes("node_module_version") ||
+    (normalized.includes("better-sqlite3") &&
+      normalized.includes("compiled against a different node.js version"))
+  ) {
+    return true;
+  }
+
+  if (
+    normalized.includes("opencode not found") ||
+    normalized.includes("opencode: command not found") ||
+    (normalized.includes("enoent") && normalized.includes("opencode"))
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 export async function runHookReview(): Promise<void> {
   const dir = await ensureDiffOwlDir();
   const logFile = join(dir, "hook.log");
@@ -304,6 +362,17 @@ export async function runPendingHookReviews(): Promise<void> {
     if (status?.exitCode !== 0 || status.message) {
       if (status && status.exitCode !== 0) {
         await writeHookStatus(status.exitCode, status.commit, status.message, null, dir);
+        if (isHookQueueStopFailure(status.message)) {
+          const remaining = (await listPendingReviews(dir)).filter((item) => item.sha !== next.sha);
+          if (remaining.length > 0) {
+            await appendFile(
+              logFile,
+              `diffowl: stopping hook queue after ${next.sha}; ${remaining.length} pending review(s) left for later (${status.message})\n`,
+              "utf-8",
+            );
+          }
+          return;
+        }
       }
       continue;
     }
