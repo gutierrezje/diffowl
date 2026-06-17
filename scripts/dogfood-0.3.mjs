@@ -134,12 +134,17 @@ function printChecklist(repoDir, model) {
   );
   console.log(`  ${cli} review --staged --verbose`);
   console.log(`  ${cli} findings`);
+  console.log('  git commit -m "chore: dogfood bug fixtures"');
   console.log("  # edit src/harmless.ts, then:");
   console.log(`  git add src/harmless.ts`);
+  console.log("  git status --short   # only src/harmless.ts should be staged");
   console.log(`  ${cli} review --staged --verbose`);
   console.log(`  ${cli} findings`);
   console.log(`  ${cli} hook install`);
-  console.log(`  git add src/harmless.ts && git commit -m "chore: hook dogfood validation"`);
+  console.log("  # edit src/harmless.ts if needed, then:");
+  console.log(`  git add src/harmless.ts`);
+  console.log("  git status --short   # only src/harmless.ts should be staged");
+  console.log('  git commit -m "chore: hook dogfood validation"');
   console.log(`  ${cli} findings`);
   console.log("");
   console.log("Pass/fail details: docs/dogfood/0.3-checklist.md");

@@ -222,6 +222,31 @@ describe("durable 0.3 lifecycle flow", () => {
     }
   });
 
+  it("keeps open findings unresolved when a later review has no matching candidates", async () => {
+    const diffOwlDir = await createDiffOwlDir();
+    const first = await persistReviewRun(diffOwlDir, basePersistInput([repeatedFinding], "review-1"));
+    const openId = first.reconcile.observations[0]?.finding.id;
+    if (!openId) {
+      throw new Error("Expected finding id.");
+    }
+
+    await persistReviewRun(
+      diffOwlDir,
+      basePersistInput([], "review-empty", "diff-hash-empty"),
+    );
+
+    const stateAfter = await openStateDatabase(diffOwlDir);
+    try {
+      const backlog = listUnresolvedFindings(stateAfter.db);
+      expect(backlog).toHaveLength(1);
+      expect(backlog[0]?.finding.id).toBe(openId);
+      expect(backlog[0]?.finding.status).toBe("open");
+      expect(getFindingById(stateAfter.db, openId)?.status).toBe("open");
+    } finally {
+      closeStateDatabase(stateAfter);
+    }
+  });
+
   it("leaves persisted markdown bytes unchanged after lifecycle mutations", async () => {
     const diffOwlDir = await createDiffOwlDir();
     const persisted = await persistReviewRun(
