@@ -42,7 +42,10 @@ export function resolveFindingIdFromCandidates(
     return prefixMatches[0]!.id;
   }
   if (prefixMatches.length > 1) {
-    throw new LocatorAmbiguousError(trimmed, prefixMatches.map((finding) => finding.id));
+    throw new LocatorAmbiguousError(
+      trimmed,
+      prefixMatches.map((finding) => finding.id),
+    );
   }
 
   throw new LocatorNotFoundError(`Finding locator not found: ${trimmed}`);

@@ -100,7 +100,10 @@ export function parseReviewOutputFormat(value: unknown): ReviewOutputFormat {
 }
 
 export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJsonDocumentV1 {
-  const observations = selectJsonObservations(input.persisted.reconcile.observations, input.verbose);
+  const observations = selectJsonObservations(
+    input.persisted.reconcile.observations,
+    input.verbose,
+  );
   const actionableCount = input.persisted.reconcile.observations.filter(
     (item) => !item.suppressed,
   ).length;

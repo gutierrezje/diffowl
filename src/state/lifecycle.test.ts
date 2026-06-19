@@ -3,12 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { closeStateDatabase, InvalidFindingTransitionError, openStateDatabase } from "./db.js";
-import {
-  deferFinding,
-  dismissFinding,
-  fixFinding,
-  reopenFinding,
-} from "./lifecycle.js";
+import { deferFinding, dismissFinding, fixFinding, reopenFinding } from "./lifecycle.js";
 import { listFindingEvents } from "./repositories/events.js";
 import { insertReview } from "./repositories/reviews.js";
 import { reconcileReviewFindings } from "./reconcile.js";

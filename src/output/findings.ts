@@ -36,9 +36,7 @@ export function formatFindingList(
   const lines: string[] = [];
 
   lines.push(
-    color
-      ? chalk.bold(`Open findings: ${items.length}`)
-      : `Open findings: ${items.length}`,
+    color ? chalk.bold(`Open findings: ${items.length}`) : `Open findings: ${items.length}`,
   );
   lines.push(
     color
@@ -75,9 +73,7 @@ export function formatFindingList(
   lines.push("");
   lines.push(
     color
-      ? chalk.dim(
-          "Mark resolved: diffowl findings fix <id> --note <text> --verified-by <command>",
-        )
+      ? chalk.dim("Mark resolved: diffowl findings fix <id> --note <text> --verified-by <command>")
       : "Mark resolved: diffowl findings fix <id> --note <text> --verified-by <command>",
   );
 
@@ -127,7 +123,10 @@ export function renderFindingDetailJson(detail: FindingDetail): string {
 
 function computeListLayout(columns: number): ListLayout {
   const fixedWidth = fixedPrefixWidth();
-  const flexibleWidth = Math.max(columns - fixedWidth, MIN_LOCATION_WIDTH + COLUMN_GAP + MIN_TITLE_WIDTH);
+  const flexibleWidth = Math.max(
+    columns - fixedWidth,
+    MIN_LOCATION_WIDTH + COLUMN_GAP + MIN_TITLE_WIDTH,
+  );
   let locationWidth = Math.max(
     MIN_LOCATION_WIDTH,
     Math.min(
@@ -138,10 +137,7 @@ function computeListLayout(columns: number): ListLayout {
   let titleWidth = flexibleWidth - locationWidth - COLUMN_GAP;
   if (titleWidth < MIN_TITLE_WIDTH) {
     titleWidth = MIN_TITLE_WIDTH;
-    locationWidth = Math.max(
-      MIN_LOCATION_WIDTH,
-      flexibleWidth - COLUMN_GAP - titleWidth,
-    );
+    locationWidth = Math.max(MIN_LOCATION_WIDTH, flexibleWidth - COLUMN_GAP - titleWidth);
   }
 
   return {

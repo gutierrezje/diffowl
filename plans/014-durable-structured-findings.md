@@ -1,6 +1,6 @@
 # DiffOwl 0.3: Durable Structured Findings
 
-**Status:** planned
+**Status:** implemented
 **Version target:** 0.3.0
 
 ## Summary
@@ -11,19 +11,19 @@ Make SQLite the system of record for reviews and findings while retaining Markdo
 
 ## Data Model
 
-- Add `better-sqlite3` and its TypeScript definitions while preserving Node 20 support.
+- Add `better-sqlite3` and its TypeScript definitions using the pinned Node 22.14 runtime.
 - Use WAL mode, foreign keys, a 5-second busy timeout, and transactional schema migrations.
 - Store the database at `.diffowl/state.db`; `.diffowl/` remains gitignored.
 
 ### Tables
 
-| Table | Purpose |
-| ----- | ------- |
-| `schema_migrations` | Version and application timestamp |
-| `reviews` | ID, timestamp, target kind/ref/commit, diff hash, model, reasoning, depth, session, summary, report path, diagnostics, timings, skipped reason |
-| `findings` | Stable ID, fingerprint, current status, first/last review, timestamps |
-| `finding_observations` | Review-specific file, line, severity, confidence, title, body, evidence, ordinal, observation classification |
-| `finding_events` | observed, dismissed, deferred, fixed, reopened, or regressed events with actor, reason, commit, verification evidence |
+| Table                  | Purpose                                                                                                                                        |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schema_migrations`    | Version and application timestamp                                                                                                              |
+| `reviews`              | ID, timestamp, target kind/ref/commit, diff hash, model, reasoning, depth, session, summary, report path, diagnostics, timings, skipped reason |
+| `findings`             | Stable ID, fingerprint, current status, first/last review, timestamps                                                                          |
+| `finding_observations` | Review-specific file, line, severity, confidence, title, body, evidence, ordinal, observation classification                                   |
+| `finding_events`       | observed, dismissed, deferred, fixed, reopened, or regressed events with actor, reason, commit, verification evidence                          |
 
 ### IDs and statuses
 
@@ -42,12 +42,12 @@ Do **not** use fuzzy, embedding, or model-assisted identity in 0.3.
 
 ### Reconciliation rules
 
-| Existing status | Behavior |
-| --------------- | -------- |
-| Unknown fingerprint | Create `open` finding, classify as `new` |
-| `open` or `regressed` | Preserve status, classify as `existing` |
+| Existing status           | Behavior                                            |
+| ------------------------- | --------------------------------------------------- |
+| Unknown fingerprint       | Create `open` finding, classify as `new`            |
+| `open` or `regressed`     | Preserve status, classify as `existing`             |
 | `deferred` or `dismissed` | Record observation, suppress from actionable output |
-| `fixed` | Transition to `regressed`, surface as actionable |
+| `fixed`                   | Transition to `regressed`, surface as actionable    |
 
 Store only candidates that pass confidence and changed-file filtering. Outside-file and below-threshold candidates remain diagnostics, not durable findings.
 
@@ -62,14 +62,14 @@ Store only candidates that pass confidence and changed-file filtering. Outside-f
 
 ### `diffowl findings` commands
 
-| Command | Purpose |
-| ------- | ------- |
-| `diffowl findings` | List unresolved findings (default) |
-| `diffowl findings show <locator>` | Inspect one finding |
-| `diffowl findings dismiss <locator> --reason <text>` | Dismiss |
-| `diffowl findings defer <locator> --reason <text>` | Defer |
-| `diffowl findings fix <locator> --note <text> --verified-by <text> [...] [--commit <ref>]` | Mark fixed |
-| `diffowl findings reopen <locator> --reason <text>` | Reopen |
+| Command                                                                                    | Purpose                            |
+| ------------------------------------------------------------------------------------------ | ---------------------------------- |
+| `diffowl findings`                                                                         | List unresolved findings (default) |
+| `diffowl findings show <locator>`                                                          | Inspect one finding                |
+| `diffowl findings dismiss <locator> --reason <text>`                                       | Dismiss                            |
+| `diffowl findings defer <locator> --reason <text>`                                         | Defer                              |
+| `diffowl findings fix <locator> --note <text> --verified-by <text> [...] [--commit <ref>]` | Mark fixed                         |
+| `diffowl findings reopen <locator> --reason <text>`                                        | Reopen                             |
 
 Locators: full ID, unambiguous ID prefix, or `latest:<ordinal>`. Ambiguous/missing locators fail without changing state.
 
@@ -106,7 +106,7 @@ Mutation commands accept `--actor user|agent` (default `user`) and return the up
 - Markdown reports contain durable IDs and stay unchanged after lifecycle mutations.
 - Legacy report listing and `diffowl chat` continue working.
 - Hook reviews persist state without changing non-blocking behavior.
-- `pnpm run test`, `lint`, `format:check`, `build` on Ubuntu and Windows with Node 20 and 22.
+- `pnpm run test`, `lint`, `format:check`, `build` on Ubuntu and Windows with Node 22.14.
 
 ## Assumptions
 
@@ -118,15 +118,15 @@ Mutation commands accept `--actor user|agent` (default `user`) and return the up
 
 ## Current Codebase Gaps (0.2.1)
 
-| Area | Today | 0.3 needs |
-| ---- | ----- | --------- |
-| Persistence | Markdown only in `.diffowl/reviews/` | `.diffowl/state.db` + immutable Markdown export |
-| Finding identity | Ordinal `Finding N` per report | `fnd_<UUID>` + versioned SHA-256 fingerprint |
-| Lifecycle | Markdown `## Resolution` checklist via skill | SQLite events + `diffowl findings *` commands |
-| Review output | Text + colored Markdown to stdout | `--format json` with schema v1 on stdout |
-| Frontmatter | `session_id`, `project_root` | + `schema_version`, `review_id` |
-| Status | `Open` if any finding in snapshot | Computed from durable finding statuses |
-| Filtering | In `cli.ts` after model run | Same point, but only filtered candidates become durable |
+| Area             | Today                                        | 0.3 needs                                               |
+| ---------------- | -------------------------------------------- | ------------------------------------------------------- |
+| Persistence      | Markdown only in `.diffowl/reviews/`         | `.diffowl/state.db` + immutable Markdown export         |
+| Finding identity | Ordinal `Finding N` per report               | `fnd_<UUID>` + versioned SHA-256 fingerprint            |
+| Lifecycle        | Markdown `## Resolution` checklist via skill | SQLite events + `diffowl findings *` commands           |
+| Review output    | Text + colored Markdown to stdout            | `--format json` with schema v1 on stdout                |
+| Frontmatter      | `session_id`, `project_root`                 | + `schema_version`, `review_id`                         |
+| Status           | `Open` if any finding in snapshot            | Computed from durable finding statuses                  |
+| Filtering        | In `cli.ts` after model run                  | Same point, but only filtered candidates become durable |
 
 ## Proposed Module Layout
 

@@ -45,15 +45,13 @@ describe("resolveFindingIdFromCandidates", () => {
   });
 
   it("resolves an unambiguous id prefix", () => {
-    expect(
-      resolveFindingIdFromCandidates("fnd_aaaaaaaa", [findingA, findingB]),
-    ).toBe(findingA.id);
+    expect(resolveFindingIdFromCandidates("fnd_aaaaaaaa", [findingA, findingB])).toBe(findingA.id);
   });
 
   it("throws when a prefix is ambiguous", () => {
-    expect(() =>
-      resolveFindingIdFromCandidates("fnd_", [findingA, findingB]),
-    ).toThrow(LocatorAmbiguousError);
+    expect(() => resolveFindingIdFromCandidates("fnd_", [findingA, findingB])).toThrow(
+      LocatorAmbiguousError,
+    );
   });
 
   it("throws when no finding matches", () => {

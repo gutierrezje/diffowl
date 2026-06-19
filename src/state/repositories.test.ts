@@ -2,7 +2,12 @@ import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { closeStateDatabase, openStateDatabase, runInTransaction, StateDatabaseError } from "./db.js";
+import {
+  closeStateDatabase,
+  openStateDatabase,
+  runInTransaction,
+  StateDatabaseError,
+} from "./db.js";
 import { getFindingByFingerprint, insertFinding } from "./repositories/findings.js";
 import { getReviewById, insertReview } from "./repositories/reviews.js";
 import { removeTempStateDir } from "./test-helpers.js";
@@ -61,7 +66,9 @@ describe("review repository", () => {
         .run("{not-json", inserted.id);
 
       expect(() => getReviewById(state.db, inserted.id)).toThrow(StateDatabaseError);
-      expect(() => getReviewById(state.db, inserted.id)).toThrow(/invalid JSON in diagnostics_json/);
+      expect(() => getReviewById(state.db, inserted.id)).toThrow(
+        /invalid JSON in diagnostics_json/,
+      );
     } finally {
       closeStateDatabase(state);
     }

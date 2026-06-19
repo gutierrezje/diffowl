@@ -10,11 +10,7 @@ vi.mock("execa", () => ({
   execa: execaMock,
 }));
 
-import {
-  enqueuePendingReview,
-  isHookQueueStopFailure,
-  runPendingHookReviews,
-} from "./hooks.js";
+import { enqueuePendingReview, isHookQueueStopFailure, runPendingHookReviews } from "./hooks.js";
 
 const originalCwd = process.cwd();
 let tempDirs: string[] = [];

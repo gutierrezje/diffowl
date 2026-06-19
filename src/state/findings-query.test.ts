@@ -125,13 +125,16 @@ describe("findings query", () => {
     const dir = await createTempDir();
     await withFindingDatabase(dir, (db) => {
       const review = insertReview(db, baseReview());
-      reconcileReviewFindings(db, review.id, [candidate, {
-        ...candidate,
-        file: "src/other.ts",
-        title: "Other",
-        body: "Other body.",
-        evidence: "x();",
-      }]);
+      reconcileReviewFindings(db, review.id, [
+        candidate,
+        {
+          ...candidate,
+          file: "src/other.ts",
+          title: "Other",
+          body: "Other body.",
+          evidence: "x();",
+        },
+      ]);
 
       expect(() => requireFindingDetail(db, "fnd_")).toThrow(LocatorAmbiguousError);
       expect(() => requireFindingDetail(db, "latest:9")).toThrow(LocatorNotFoundError);

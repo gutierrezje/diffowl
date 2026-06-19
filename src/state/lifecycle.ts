@@ -2,11 +2,7 @@ import type Database from "better-sqlite3";
 import { InvalidFindingTransitionError } from "./db.js";
 import { insertFindingEvent } from "./repositories/events.js";
 import { getFindingById, updateFinding } from "./repositories/findings.js";
-import type {
-  FindingRecord,
-  FixFindingInput,
-  LifecycleMutationInput,
-} from "./types.js";
+import type { FindingRecord, FixFindingInput, LifecycleMutationInput } from "./types.js";
 
 export function dismissFinding(
   db: Database.Database,

@@ -220,8 +220,6 @@ function parseReviewJsonField<T>(raw: string, field: string, reviewId: string): 
   try {
     return JSON.parse(raw) as T;
   } catch {
-    throw new StateDatabaseError(
-      `Review ${reviewId} contains invalid JSON in ${field}.`,
-    );
+    throw new StateDatabaseError(`Review ${reviewId} contains invalid JSON in ${field}.`);
   }
 }

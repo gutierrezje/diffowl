@@ -28,11 +28,13 @@ const baseObservation: FindingObservationRecord = {
   classification: "new",
 };
 
-function listItem(overrides: {
-  finding?: Partial<FindingRecord>;
-  observation?: Partial<FindingObservationRecord> | null;
-  occurrence_count?: number;
-} = {}): FindingListItem {
+function listItem(
+  overrides: {
+    finding?: Partial<FindingRecord>;
+    observation?: Partial<FindingObservationRecord> | null;
+    occurrence_count?: number;
+  } = {},
+): FindingListItem {
   const observation =
     overrides.observation === null
       ? null
@@ -109,10 +111,10 @@ describe("formatFindingList", () => {
 
   it("wraps long titles onto indented continuation lines with spaces preserved", () => {
     const title = "resolution fails when payload is empty and retry is disabled";
-    const output = formatFindingList(
-      [listItem({ observation: { title } })],
-      { columns: 72, color: false },
-    );
+    const output = formatFindingList([listItem({ observation: { title } })], {
+      columns: 72,
+      color: false,
+    });
 
     const lines = output.split("\n");
     const titleLineIndex = lines.findIndex((line) => line.includes("fnd_aaaaaaaa"));
@@ -131,20 +133,20 @@ describe("formatFindingList", () => {
 
   it("does not concatenate words at narrow terminal widths", () => {
     const title = "alpha beta gamma delta epsilon zeta eta theta iota";
-    const output = formatFindingList(
-      [listItem({ observation: { title } })],
-      { columns: 40, color: false },
-    );
+    const output = formatFindingList([listItem({ observation: { title } })], {
+      columns: 40,
+      color: false,
+    });
 
     expect(output).toContain("alpha beta");
     expect(output).not.toMatch(/alphabeta|betagamma|gammadelta/);
   });
 
   it("renders unknown fields safely when observation metadata is missing", () => {
-    const output = formatFindingList(
-      [listItem({ observation: null, occurrence_count: 2 })],
-      { columns: 100, color: false },
-    );
+    const output = formatFindingList([listItem({ observation: null, occurrence_count: 2 })], {
+      columns: 100,
+      color: false,
+    });
 
     expect(output).toContain("fnd_aaaaaaaa");
     expect(output).toContain("open");

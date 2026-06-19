@@ -62,9 +62,7 @@ describe("reconcileReviewFindings", () => {
 
       expect(second.observations[0]?.observation.classification).toBe("existing");
       expect(second.observations[0]?.finding.id).toBe(first.observations[0]?.finding.id);
-      expect(
-        computeFindingFingerprint(candidate),
-      ).toBe(computeFindingFingerprint(movedLine));
+      expect(computeFindingFingerprint(candidate)).toBe(computeFindingFingerprint(movedLine));
     } finally {
       closeStateDatabase(state);
     }

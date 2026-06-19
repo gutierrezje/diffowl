@@ -157,11 +157,7 @@ export function parseReviewMetadata(content: string): ReviewMetadata | undefined
     session_id: sessionId,
     project_root: projectRoot,
   };
-  if (
-    typeof schemaVersion === "number" &&
-    Number.isInteger(schemaVersion) &&
-    schemaVersion > 0
-  ) {
+  if (typeof schemaVersion === "number" && Number.isInteger(schemaVersion) && schemaVersion > 0) {
     metadata.schema_version = schemaVersion as typeof REPORT_SCHEMA_VERSION;
   }
   if (typeof reviewId === "string" && reviewId.trim() !== "") {

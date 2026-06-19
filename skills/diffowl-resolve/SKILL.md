@@ -13,10 +13,10 @@ Run this skill from a repository where DiffOwl has produced `.diffowl/reviews/la
 
 ## Two Workflows
 
-| Report type | How to tell | Resolution state | Edit markdown? |
-| ----------- | ----------- | ---------------- | -------------- |
-| **Durable (0.3+)** | Frontmatter has `schema_version` and/or headings include `` `fnd_*` `` IDs | `diffowl findings *` → SQLite | **Never** |
-| **Legacy (pre-0.3)** | No `schema_version`, no `fnd_*` IDs in headings | `## Resolution` checklist in the timestamped report | Append/merge `## Resolution` only |
+| Report type          | How to tell                                                                | Resolution state                                    | Edit markdown?                    |
+| -------------------- | -------------------------------------------------------------------------- | --------------------------------------------------- | --------------------------------- |
+| **Durable (0.3+)**   | Frontmatter has `schema_version` and/or headings include `` `fnd_*` `` IDs | `diffowl findings *` → SQLite                       | **Never**                         |
+| **Legacy (pre-0.3)** | No `schema_version`, no `fnd_*` IDs in headings                            | `## Resolution` checklist in the timestamped report | Append/merge `## Resolution` only |
 
 Markdown reports from 0.3+ are **immutable snapshots**. Lifecycle commands update SQLite only. Do not append, merge, or rewrite durable report bodies—even for a human-readable checklist.
 

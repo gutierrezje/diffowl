@@ -152,38 +152,40 @@ describe("persist helpers", () => {
   });
 
   it("splits findings by lifecycle suppression from reconciliation", () => {
-    expect(splitFindingsByLifecycleSuppression([sampleFinding], {
-      observations: [
-        {
-          observation: {
-            id: 1,
-            reviewId: "rev_test",
-            findingId: "fnd_test",
-            file: sampleFinding.file,
-            line: sampleFinding.line,
-            severity: sampleFinding.severity,
-            confidence: sampleFinding.confidence,
-            title: sampleFinding.title,
-            body: sampleFinding.body,
-            evidence: sampleFinding.evidence ?? null,
-            ordinal: 1,
-            classification: "existing",
-          },
-          finding: {
-            id: "fnd_test",
+    expect(
+      splitFindingsByLifecycleSuppression([sampleFinding], {
+        observations: [
+          {
+            observation: {
+              id: 1,
+              reviewId: "rev_test",
+              findingId: "fnd_test",
+              file: sampleFinding.file,
+              line: sampleFinding.line,
+              severity: sampleFinding.severity,
+              confidence: sampleFinding.confidence,
+              title: sampleFinding.title,
+              body: sampleFinding.body,
+              evidence: sampleFinding.evidence ?? null,
+              ordinal: 1,
+              classification: "existing",
+            },
+            finding: {
+              id: "fnd_test",
+              fingerprint: computeFindingFingerprint(toFindingCandidate(sampleFinding)),
+              status: "dismissed",
+              firstReviewId: "rev_test",
+              lastReviewId: "rev_test",
+              createdAt: "2026-01-01T00:00:00.000Z",
+              updatedAt: "2026-01-01T00:00:00.000Z",
+            },
             fingerprint: computeFindingFingerprint(toFindingCandidate(sampleFinding)),
-            status: "dismissed",
-            firstReviewId: "rev_test",
-            lastReviewId: "rev_test",
-            createdAt: "2026-01-01T00:00:00.000Z",
-            updatedAt: "2026-01-01T00:00:00.000Z",
+            suppressed: true,
           },
-          fingerprint: computeFindingFingerprint(toFindingCandidate(sampleFinding)),
-          suppressed: true,
-        },
-      ],
-      suppressedCounts: { dismissed: 1, deferred: 0 },
-    })).toEqual({
+        ],
+        suppressedCounts: { dismissed: 1, deferred: 0 },
+      }),
+    ).toEqual({
       actionableFindings: [],
       lifecycleSuppressedFindings: [sampleFinding],
     });
@@ -267,10 +269,7 @@ describe("persist helpers", () => {
     try {
       const review = getReviewById(state.db, persisted.reviewId);
       expect(review?.reportPath).toBe(".diffowl/reviews/latest.md");
-      expect(review?.diagnostics).toEqual([
-        "context warning",
-        "Report write failed: disk full.",
-      ]);
+      expect(review?.diagnostics).toEqual(["context warning", "Report write failed: disk full."]);
     } finally {
       closeStateDatabase(state);
     }

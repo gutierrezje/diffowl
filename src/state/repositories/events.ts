@@ -76,10 +76,7 @@ export function insertFindingEvent(
   return mapEventRow(row);
 }
 
-export function listFindingEvents(
-  db: Database.Database,
-  findingId: string,
-): FindingEventRecord[] {
+export function listFindingEvents(db: Database.Database, findingId: string): FindingEventRecord[] {
   const rows = db
     .prepare(`
       SELECT

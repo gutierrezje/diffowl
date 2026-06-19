@@ -7,12 +7,7 @@ import {
   resolveLatestOrdinalFindingId,
 } from "../output/locator.js";
 import { closeStateDatabase, openStateDatabase, runInTransaction } from "./db.js";
-import {
-  deferFinding,
-  dismissFinding,
-  fixFinding,
-  reopenFinding,
-} from "./lifecycle.js";
+import { deferFinding, dismissFinding, fixFinding, reopenFinding } from "./lifecycle.js";
 import { countObservationsByFindingIds } from "./repositories/observations.js";
 import { listFindingEvents } from "./repositories/events.js";
 import {
@@ -20,7 +15,10 @@ import {
   listAllFindings,
   listFindingsByStatuses,
 } from "./repositories/findings.js";
-import { getLatestObservationForFinding, listObservationsForReview } from "./repositories/observations.js";
+import {
+  getLatestObservationForFinding,
+  listObservationsForReview,
+} from "./repositories/observations.js";
 import { getLatestReview } from "./repositories/reviews.js";
 import { isActionableStatus } from "./reconcile.js";
 import type {
@@ -62,7 +60,10 @@ export function listUnresolvedFindings(db: Database.Database): FindingListItem[]
   );
 }
 
-export function getFindingDetail(db: Database.Database, findingId: string): FindingDetail | undefined {
+export function getFindingDetail(
+  db: Database.Database,
+  findingId: string,
+): FindingDetail | undefined {
   const finding = getFindingById(db, findingId);
   if (!finding) {
     return undefined;
@@ -114,9 +115,7 @@ export function dismissFindingByLocator(
   locator: string,
   input: { actor: FindingActor; reason: string },
 ): FindingDetail {
-  return mutateFinding(db, locator, (findingId) =>
-    dismissFinding(db, findingId, input),
-  );
+  return mutateFinding(db, locator, (findingId) => dismissFinding(db, findingId, input));
 }
 
 export function deferFindingByLocator(

@@ -1,8 +1,5 @@
 import type Database from "better-sqlite3";
-import type {
-  FindingObservationRecord,
-  InsertObservationInput,
-} from "../types.js";
+import type { FindingObservationRecord, InsertObservationInput } from "../types.js";
 
 const insertObservationStatement = (db: Database.Database) =>
   db.prepare(`

@@ -51,7 +51,10 @@ const regressionFinding: ReviewFinding = {
 describe("durable 0.3 lifecycle flow", () => {
   it("deduplicates the same fingerprint across reviews including a line move", async () => {
     const diffOwlDir = await createDiffOwlDir();
-    const first = await persistReviewRun(diffOwlDir, basePersistInput([repeatedFinding], "review-1"));
+    const first = await persistReviewRun(
+      diffOwlDir,
+      basePersistInput([repeatedFinding], "review-1"),
+    );
     const movedLine = { ...repeatedFinding, line: 18 };
     const second = await persistReviewRun(
       diffOwlDir,
@@ -75,7 +78,10 @@ describe("durable 0.3 lifecycle flow", () => {
 
   it("suppresses dismissed and deferred findings from the unresolved backlog", async () => {
     const diffOwlDir = await createDiffOwlDir();
-    const first = await persistReviewRun(diffOwlDir, basePersistInput([repeatedFinding], "review-1"));
+    const first = await persistReviewRun(
+      diffOwlDir,
+      basePersistInput([repeatedFinding], "review-1"),
+    );
     const deferredFirst = await persistReviewRun(
       diffOwlDir,
       basePersistInput([regressionFinding], "review-1b", "diff-hash-1b"),
@@ -181,7 +187,10 @@ describe("durable 0.3 lifecycle flow", () => {
 
   it("does not resurrect resolved findings when a later review has no matching candidates", async () => {
     const diffOwlDir = await createDiffOwlDir();
-    const first = await persistReviewRun(diffOwlDir, basePersistInput([repeatedFinding], "review-1"));
+    const first = await persistReviewRun(
+      diffOwlDir,
+      basePersistInput([repeatedFinding], "review-1"),
+    );
     const second = await persistReviewRun(
       diffOwlDir,
       basePersistInput([regressionFinding], "review-2", "diff-hash-2"),
@@ -207,10 +216,7 @@ describe("durable 0.3 lifecycle flow", () => {
       closeStateDatabase(state);
     }
 
-    await persistReviewRun(
-      diffOwlDir,
-      basePersistInput([], "review-empty", "diff-hash-empty"),
-    );
+    await persistReviewRun(diffOwlDir, basePersistInput([], "review-empty", "diff-hash-empty"));
 
     const stateAfter = await openStateDatabase(diffOwlDir);
     try {
@@ -224,16 +230,16 @@ describe("durable 0.3 lifecycle flow", () => {
 
   it("keeps open findings unresolved when a later review has no matching candidates", async () => {
     const diffOwlDir = await createDiffOwlDir();
-    const first = await persistReviewRun(diffOwlDir, basePersistInput([repeatedFinding], "review-1"));
+    const first = await persistReviewRun(
+      diffOwlDir,
+      basePersistInput([repeatedFinding], "review-1"),
+    );
     const openId = first.reconcile.observations[0]?.finding.id;
     if (!openId) {
       throw new Error("Expected finding id.");
     }
 
-    await persistReviewRun(
-      diffOwlDir,
-      basePersistInput([], "review-empty", "diff-hash-empty"),
-    );
+    await persistReviewRun(diffOwlDir, basePersistInput([], "review-empty", "diff-hash-empty"));
 
     const stateAfter = await openStateDatabase(diffOwlDir);
     try {
@@ -277,7 +283,10 @@ describe("durable 0.3 lifecycle flow", () => {
 
   it("renders durable report headings and lifecycle-suppressed labels", async () => {
     const diffOwlDir = await createDiffOwlDir();
-    const first = await persistReviewRun(diffOwlDir, basePersistInput([repeatedFinding], "review-1"));
+    const first = await persistReviewRun(
+      diffOwlDir,
+      basePersistInput([repeatedFinding], "review-1"),
+    );
     const findingId = first.reconcile.observations[0]?.finding.id;
     if (!findingId) {
       throw new Error("Expected finding id.");
@@ -295,11 +304,7 @@ describe("durable 0.3 lifecycle flow", () => {
 
     const second = await persistReviewRun(
       diffOwlDir,
-      basePersistInput(
-        [repeatedFinding, regressionFinding],
-        "review-2",
-        "diff-hash-verbose",
-      ),
+      basePersistInput([repeatedFinding, regressionFinding], "review-2", "diff-hash-verbose"),
     );
 
     const report: ReviewReport = {

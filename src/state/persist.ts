@@ -202,10 +202,8 @@ export async function persistReviewRun(
       const findings = deduplicateReviewFindings(input.findings);
       const candidates = findings.map(toFindingCandidate);
       const reconcile = reconcileReviewFindings(state.db, review.id, candidates);
-      const { actionableFindings, lifecycleSuppressedFindings } = splitFindingsByLifecycleSuppression(
-        findings,
-        reconcile,
-      );
+      const { actionableFindings, lifecycleSuppressedFindings } =
+        splitFindingsByLifecycleSuppression(findings, reconcile);
 
       return {
         reviewId: review.id,

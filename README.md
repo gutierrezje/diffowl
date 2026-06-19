@@ -36,7 +36,7 @@ DiffOwl is a lightweight CLI that integrates into your Git workflow to provide h
 
 ### 1. Prerequisites
 
-1. **Verify Node.js 20 or newer is installed**:
+1. **Verify Node.js 22.14.0 is installed**:
    ```bash
    node --version
    ```
@@ -395,6 +395,7 @@ Finding headings in 0.3+ reports look like:
 
 ```md
 #### Finding 1 (`fnd_...`) — **new**
+
 **[WARNING] src/auth.ts:12**
 Missing null check
 ```
