@@ -4,3 +4,5 @@ dist/
 *.log
 .pi/
 .pnpm-store/
+
+plans/

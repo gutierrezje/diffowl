@@ -565,6 +565,57 @@
         color: var(--dim);
         font-weight: 300;
       }
+      @media (max-width: 680px) {
+        .cmp {
+          overflow: visible;
+        }
+        .cmp table,
+        .cmp thead,
+        .cmp tbody,
+        .cmp tr,
+        .cmp th,
+        .cmp td {
+          display: block;
+        }
+        .cmp thead {
+          display: none;
+        }
+        .cmp tr {
+          border-bottom: 1px solid var(--line);
+          padding: 14px 0;
+        }
+        .cmp tr:last-child {
+          border-bottom: none;
+        }
+        .cmp td {
+          display: grid;
+          grid-template-columns: minmax(112px, 42%) 1fr;
+          gap: 14px;
+          padding: 7px 18px;
+          border-bottom: none;
+          line-height: 1.45;
+        }
+        .cmp td:first-child {
+          display: block;
+          padding-bottom: 12px;
+          font-size: 15px;
+        }
+        .cmp td:not(:first-child)::before {
+          content: attr(data-label);
+          font-family: var(--mono);
+          font-size: 10.5px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--dim);
+        }
+        .cmp td.us::before {
+          color: var(--fg);
+        }
+        .cmp-note {
+          font-size: 12px;
+          line-height: 1.55;
+        }
+      }
 
       /* roadmap */
       .road {
@@ -1003,46 +1054,46 @@
               <tbody>
                 <tr>
                   <td>No SaaS sign-up required</td>
-                  <td class="us"><span class="y"></span>Yes</td>
-                  <td><span class="n"></span>No (Their platform)</td>
-                  <td><span class="y"></span>Yes</td>
+                  <td class="us" data-label="DiffOwl"><span class="y"></span>Yes</td>
+                  <td data-label="Hosted bots"><span class="n"></span>No (Their platform)</td>
+                  <td data-label="Agent self-review"><span class="y"></span>Yes</td>
                 </tr>
                 <tr>
                   <td>Choose any model</td>
-                  <td class="us"><span class="y"></span>Yes</td>
-                  <td><span class="n"></span>Vendor-locked</td>
-                  <td><span class="n"></span>Same model</td>
+                  <td class="us" data-label="DiffOwl"><span class="y"></span>Yes</td>
+                  <td data-label="Hosted bots"><span class="n"></span>Vendor-locked</td>
+                  <td data-label="Agent self-review"><span class="n"></span>Same model</td>
                 </tr>
                 <tr>
                   <td>Independent of author</td>
-                  <td class="us"><span class="y"></span>Yes</td>
-                  <td><span class="y"></span>Yes</td>
-                  <td><span class="n"></span>No</td>
+                  <td class="us" data-label="DiffOwl"><span class="y"></span>Yes</td>
+                  <td data-label="Hosted bots"><span class="y"></span>Yes</td>
+                  <td data-label="Agent self-review"><span class="n"></span>No</td>
                 </tr>
                 <tr>
                   <td>Persistent findings</td>
-                  <td class="us"><span class="y"></span>Yes</td>
-                  <td>Partial</td>
-                  <td><span class="n"></span>No</td>
+                  <td class="us" data-label="DiffOwl"><span class="y"></span>Yes</td>
+                  <td data-label="Hosted bots">Partial</td>
+                  <td data-label="Agent self-review"><span class="n"></span>No</td>
                 </tr>
                 <tr>
                   <td>Local-model option</td>
-                  <td class="us"><span class="y"></span>Via OpenCode</td>
-                  <td><span class="n"></span>No</td>
-                  <td><span class="n"></span>No</td>
+                  <td class="us" data-label="DiffOwl"><span class="y"></span>Via OpenCode</td>
+                  <td data-label="Hosted bots"><span class="n"></span>No</td>
+                  <td data-label="Agent self-review"><span class="n"></span>No</td>
                 </tr>
                 <tr>
                   <td>Subscription model</td>
-                  <td class="us">None (Your keys)</td>
-                  <td>Per-seat SaaS</td>
-                  <td>None (Agent keys)</td>
+                  <td class="us" data-label="DiffOwl">None (Your keys)</td>
+                  <td data-label="Hosted bots">Per-seat SaaS</td>
+                  <td data-label="Agent self-review">None (Agent keys)</td>
                 </tr>
               </tbody>
             </table>
           </div>
           <p class="cmp-note">
-            No "catches more bugs" claims yet — accuracy waits for the measured eval harness (v0.4).
-            We lead on what's provable: independence, model choice, and durable findings.
+            DiffOwl is built around practical control: local execution, model choice, and findings
+            that stay traceable after the first review.
           </p>
         </div>
       </section>
