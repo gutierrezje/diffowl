@@ -8,7 +8,7 @@ import {
   writeFileSync,
   writeSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
 import type { Options as ExecaOptions } from "execa";
@@ -44,13 +44,20 @@ async function getHooksDir(): Promise<string> {
   return hooksDir;
 }
 
+async function getHookPath(): Promise<string> {
+  const hooksDir = await getHooksDir();
+  if (basename(hooksDir) === "_" && basename(dirname(hooksDir)) === ".husky") {
+    return join(dirname(hooksDir), "post-commit");
+  }
+  return join(hooksDir, "post-commit");
+}
+
 /**
  * Install the post-commit hook. Runs diffowl in the background (non-blocking).
  */
 export async function installHook(): Promise<string> {
-  const hooksDir = await getHooksDir();
-  await mkdir(hooksDir, { recursive: true });
-  const hookPath = join(hooksDir, "post-commit");
+  const hookPath = await getHookPath();
+  await mkdir(dirname(hookPath), { recursive: true });
   const command = await resolveHookCommand();
 
   // Check if hook already exists and is not ours
@@ -75,8 +82,7 @@ export async function installHook(): Promise<string> {
  * Uninstall the post-commit hook
  */
 export async function uninstallHook(): Promise<boolean> {
-  const hooksDir = await getHooksDir();
-  const hookPath = join(hooksDir, "post-commit");
+  const hookPath = await getHookPath();
 
   if (!existsSync(hookPath)) return false;
 
@@ -97,8 +103,7 @@ export async function uninstallHook(): Promise<boolean> {
  * Check if the hook is installed
  */
 export async function isHookInstalled(): Promise<boolean> {
-  const hooksDir = await getHooksDir();
-  const hookPath = join(hooksDir, "post-commit");
+  const hookPath = await getHookPath();
   if (!existsSync(hookPath)) return false;
   const content = await readFile(hookPath, "utf-8");
   return content.includes(HOOK_MARKER);
@@ -526,14 +531,12 @@ function isHookReviewLockActive(lockFile: string): boolean {
  * or changed script logic).
  */
 export async function checkHookStale(): Promise<HookStatus> {
-  let hooksDir: string;
+  let hookPath: string;
   try {
-    hooksDir = await getHooksDir();
+    hookPath = await getHookPath();
   } catch {
     return { installed: false, stale: false, reason: "Not a git repository" };
   }
-
-  const hookPath = join(hooksDir, "post-commit");
 
   if (!existsSync(hookPath)) {
     return { installed: false, stale: false, reason: "No post-commit hook found" };

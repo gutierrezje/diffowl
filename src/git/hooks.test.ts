@@ -8,6 +8,7 @@ import { removeTempDir } from "../test/helpers.js";
 import {
   acquireHookReviewLock,
   checkRecentHookFailure,
+  checkHookStale,
   clearHookFailure,
   enqueuePendingReview,
   formatHookFailure,
@@ -73,6 +74,28 @@ describe("installHook", () => {
     await expect(isHookInstalled()).resolves.toBe(true);
     await expect(uninstallHook()).resolves.toBe(true);
     expect(existsSync(hookPath)).toBe(false);
+  });
+
+  it("installs Husky hooks in the user hook file instead of the internal shim", async () => {
+    const root = await createGitRepo();
+    const huskyInternalDir = join(root, ".husky", "_");
+    const huskyShim = join(huskyInternalDir, "post-commit");
+    const huskyUserHook = join(root, ".husky", "post-commit");
+    await mkdir(huskyInternalDir, { recursive: true });
+    await writeFile(huskyShim, '#!/usr/bin/env sh\n. "$(dirname "$0")/h"\n', "utf-8");
+    await execa("git", ["config", "core.hooksPath", ".husky/_"], { cwd: root });
+    process.chdir(root);
+
+    const hookPath = await installHook();
+
+    expect(hookPath).toBe(huskyUserHook);
+    await expect(readFile(huskyShim, "utf-8")).resolves.not.toContain("# diffowl-managed");
+    await expect(readFile(huskyUserHook, "utf-8")).resolves.toContain("# diffowl-managed");
+    await expect(isHookInstalled()).resolves.toBe(true);
+    await expect(checkHookStale()).resolves.toMatchObject({ installed: true, stale: false });
+    await expect(uninstallHook()).resolves.toBe(true);
+    expect(existsSync(huskyUserHook)).toBe(false);
+    expect(existsSync(huskyShim)).toBe(true);
   });
 
   it("creates an absolute core.hooksPath when installing", async () => {
