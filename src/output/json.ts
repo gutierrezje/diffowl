@@ -1,4 +1,4 @@
-import type { ReviewTiming } from "../review/types.js";
+import type { ReviewTiming, ReviewUsage } from "../review/types.js";
 import type { PersistReviewRunResult } from "../state/persist.js";
 import type {
   FindingStatus,
@@ -75,6 +75,7 @@ export interface ReviewJsonDocumentV1 {
   };
   diagnostics: string[];
   timings: ReviewTiming[];
+  usage?: ReviewUsage | null;
 }
 
 export interface BuildReviewJsonInput {
@@ -87,6 +88,7 @@ export interface BuildReviewJsonInput {
   };
   verbose?: boolean;
   timings?: ReviewTiming[];
+  usage?: ReviewUsage | null;
 }
 
 export function parseReviewOutputFormat(value: unknown): ReviewOutputFormat {
@@ -135,6 +137,7 @@ export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJson
     },
     diagnostics: input.review.diagnostics,
     timings: input.timings ?? input.review.timings,
+    ...(input.usage !== undefined ? { usage: input.usage } : {}),
   };
 }
 

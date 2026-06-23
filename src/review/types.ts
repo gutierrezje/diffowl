@@ -1,8 +1,10 @@
 import type { ReviewConfidence } from "../config.js";
+import type { ReviewUsage } from "./usage.js";
 
 export type ReviewSeverity = "error" | "warning" | "info";
 
 export type { ReviewConfidence } from "../config.js";
+export type { ReviewUsage, ReviewUsageTokens } from "./usage.js";
 
 export interface DurableFindingMetadata {
   id: string;
@@ -28,6 +30,7 @@ export interface ReviewReport {
   suppressedFindings?: ReviewFinding[];
   diagnostics?: string[];
   timings?: ReviewTiming[];
+  usage?: ReviewUsage;
 }
 
 export interface ReviewTiming {

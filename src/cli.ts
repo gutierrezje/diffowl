@@ -25,6 +25,7 @@ import {
   type ReviewProgressEvent,
   type ReviewReport,
   type ReviewTiming,
+  type ReviewUsage,
   type ReviewFinding,
 } from "./opencode/client.js";
 import { getOpenCodeFailureGuidance } from "./opencode/guidance.js";
@@ -494,6 +495,7 @@ program
           },
           verbose,
           timings: [...timings, ...(report.timings ?? [])],
+          usage: reviewResult.usage ?? null,
         });
       } else {
         // Print the rendered, colorized markdown to stdout
@@ -1312,6 +1314,7 @@ async function emitReviewJsonSuccess(input: {
   };
   verbose: boolean;
   timings?: ReviewTiming[];
+  usage?: ReviewUsage | null;
 }): Promise<void> {
   const review = await getPersistedReview(input.diffOwlDir, input.reviewId);
   if (!review) {
@@ -1330,6 +1333,7 @@ async function emitReviewJsonSuccess(input: {
     },
     verbose: input.verbose,
     ...(input.timings ? { timings: input.timings } : {}),
+    ...(input.usage !== undefined ? { usage: input.usage } : {}),
   });
   writeReviewJsonSuccess(document);
 }

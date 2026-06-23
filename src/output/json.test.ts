@@ -191,6 +191,45 @@ describe("buildReviewJsonDocument", () => {
     expect(document.review.status).toBe("resolved");
     expect(document.findings).toHaveLength(0);
   });
+
+  it("includes usage when provided", () => {
+    const document = buildReviewJsonDocument({
+      review,
+      persisted,
+      occurrenceCounts: new Map(),
+      suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+      usage: {
+        tokens: {
+          input: 1000,
+          output: 200,
+          reasoning: 50,
+          cache: { read: 100, write: 20 },
+        },
+        cost: 0.003,
+      },
+    });
+
+    expect(document.usage).toEqual({
+      tokens: {
+        input: 1000,
+        output: 200,
+        reasoning: 50,
+        cache: { read: 100, write: 20 },
+      },
+      cost: 0.003,
+    });
+  });
+
+  it("omits usage when not provided", () => {
+    const document = buildReviewJsonDocument({
+      review,
+      persisted,
+      occurrenceCounts: new Map(),
+      suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+    });
+
+    expect(document).not.toHaveProperty("usage");
+  });
 });
 
 describe("renderReviewJsonDocument", () => {

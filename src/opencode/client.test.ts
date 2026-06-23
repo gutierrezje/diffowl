@@ -78,6 +78,41 @@ describe("normalizeOpenCodeEvent", () => {
       messageId: "message-1",
       error: new Error("provider failed"),
     });
+
+    expect(
+      normalizeOpenCodeEvent({
+        payload: {
+          type: "message.updated",
+          properties: {
+            info: {
+              role: "assistant",
+              sessionID: "session-1",
+              id: "message-2",
+              cost: 0.002,
+              tokens: {
+                input: 100,
+                output: 25,
+                reasoning: 0,
+                cache: { read: 0, write: 0 },
+              },
+            },
+          },
+        },
+      }),
+    ).toEqual({
+      type: "assistant-message",
+      sessionId: "session-1",
+      messageId: "message-2",
+      usage: {
+        tokens: {
+          input: 100,
+          output: 25,
+          reasoning: 0,
+          cache: { read: 0, write: 0 },
+        },
+        cost: 0.002,
+      },
+    });
   });
 
   it("normalizes session status and permission events", () => {

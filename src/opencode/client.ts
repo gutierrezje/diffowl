@@ -21,9 +21,11 @@ export type {
   ReviewReport,
   ReviewSeverity,
   ReviewTiming,
+  ReviewUsage,
 } from "../review/types.js";
 import type { DiffOwlConfig, ReasoningEffort, ReviewContextDepth } from "../config.js";
-import type { ReviewReport, ReviewTiming } from "../review/types.js";
+import type { ReviewReport, ReviewTiming, ReviewUsage } from "../review/types.js";
+import { aggregateReviewUsage, parseAssistantUsage } from "../review/usage.js";
 import type { ReviewTarget } from "../review/target.js";
 
 export interface ReviewOptions {
@@ -39,6 +41,7 @@ export interface ReviewOptions {
 export interface ReviewResult {
   report: ReviewReport;
   sessionId: string;
+  usage?: ReviewUsage;
 }
 
 export type ReviewProgressEvent =
@@ -76,6 +79,7 @@ type OpenCodeEvent =
       sessionId: string;
       messageId: string;
       error?: Error;
+      usage?: ReviewUsage;
     }
   | { type: "session-status"; sessionId: string; status: string; message?: string }
   | { type: "session-idle"; sessionId: string };
@@ -204,6 +208,7 @@ function normalizeAssistantMessage(
     return undefined;
   }
 
+  const usage = parseAssistantUsage(value);
   return {
     type: "assistant-message",
     sessionId: value["sessionID"],
@@ -211,6 +216,7 @@ function normalizeAssistantMessage(
     ...(value["error"]
       ? { error: new Error(describeSessionError(value["error"]) || "Review failed") }
       : {}),
+    ...(usage ? { usage } : {}),
   };
 }
 
@@ -293,6 +299,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
     }),
   );
   recordTiming(timings, onProgress, "event-stream", "OpenCode event stream connection", eventStart);
+  const usageByMessageId = new Map<string, ReviewUsage>();
   const responsePromise = handledAwaitable(
     new Promise<string>((resolve, reject) => {
       const assistantMessageIds = new Set<string>();
@@ -357,6 +364,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
                 break;
               case "assistant-message": {
                 assistantMessageIds.add(normalized.messageId);
+                if (normalized.usage) {
+                  usageByMessageId.set(normalized.messageId, normalized.usage);
+                }
                 const text = textPartsByMessageId.get(normalized.messageId);
                 settlement.acceptAssistantMessage({ text, error: normalized.error });
                 break;
@@ -445,10 +455,17 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
     const report = parseStructuredReview(raw);
     recordTiming(timings, onProgress, "parse-review", "Review JSON parsing", parseStart);
     const diagnostics = [...(report.diagnostics ?? []), ...reasoning.diagnostics];
+    const usage = aggregateReviewUsage([...usageByMessageId.values()]);
 
     return {
-      report: { ...report, ...(diagnostics.length > 0 ? { diagnostics } : {}), timings },
+      report: {
+        ...report,
+        ...(diagnostics.length > 0 ? { diagnostics } : {}),
+        timings,
+        ...(usage ? { usage } : {}),
+      },
       sessionId,
+      ...(usage ? { usage } : {}),
     };
   } finally {
     signal?.removeEventListener("abort", cancelReview);
