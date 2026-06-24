@@ -7,19 +7,22 @@
 " "
 ```
 
-> **Local AI Code Review Agent**
+> **The verification layer for agent-written code.**
 >
-> Build-time quality reviews, running locally, on your own terms.
+> An independent reviewer that runs locally on every commit — on the model you already use, no matter which agent (or human) wrote the code.
 
-DiffOwl is a lightweight CLI that integrates into your Git workflow to provide high-quality code reviews locally. Instead of rebuilding LLM integrations or managing provider keys from scratch, DiffOwl orchestrates a headless [OpenCode Server](https://opencode.ai/docs/server/) session, builds bounded local review context, and asks the local agent for structured findings.
+Coding agents now write much of the code, but the agent that wrote a patch shouldn't be its only reviewer. DiffOwl is a separate, independent review pass: it builds bounded local context from your diff and asks a model for structured, durable findings. It works the same whether the change came from Claude Code, Cursor, OpenCode, or your own hands.
+
+Under the hood it drives a headless [OpenCode](https://opencode.ai/docs/server/) session for model execution, so you bring your own provider and pay no one but them — no DiffOwl account, no service in the loop.
 
 ---
 
 ## Features
 
-- **Powered by OpenCode**: Integrates with OpenCode's local environment and configured providers while keeping DiffOwl's review workflow local and repeatable.
+- **Agent-Agnostic**: Reviews code from any source — Claude Code, Cursor, OpenCode, or a human. The reviewer stays independent from whoever wrote the patch.
+- **Provider-Neutral**: Runs on whatever model and provider you have configured in OpenCode (Copilot, OpenAI, local, and more). No separate keys, no DiffOwl account, no per-seat bill.
 - **First-Class TypeScript Support**: Automatically extracts modified TypeScript AST nodes (functions, classes, interfaces, types, enums, methods, properties, and top-level const declarations) to feed rich, structured context to the AI reviewer.
-- **Non-Blocking Git Hooks**: Runs post-commit reviews asynchronously in the background. It will never slow down or block your `git commit` operation.
+- **Automatic Git Hooks**: Reviews run on every commit and stay out of your way — results land in `.diffowl/` when they are ready.
 - **Review Chat Handoff**: Reopen the OpenCode session behind the latest or any selected review with `diffowl chat`.
 - **Review Depth Profiles**: Choose `shallow` or `default` context strategies to match fast hooks or normal reviews.
 - **Intelligent File Filtering**: Supports `include` and `exclude` glob patterns to focus reviews on source directories while skipping build artifacts, lockfiles, and node modules.

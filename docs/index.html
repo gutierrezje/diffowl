@@ -3,28 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DiffOwl — local code review for the age of agents</title>
+    <title>DiffOwl — the verification layer for agent-written code</title>
     <meta
       name="description"
-      content="DiffOwl is a local, provider-neutral code reviewer that runs on every commit — independent of the agent that wrote the patch, on the model you choose, with no review service of its own in the loop."
+      content="DiffOwl is the independent, provider-neutral verification layer for agent-written code. It reviews every commit on the model you already use — whichever agent wrote it — with no account and no service of its own in the loop."
     />
     <meta name="theme-color" content="#000000" />
     <link rel="canonical" href="https://gutierrezje.github.io/diffowl/" />
     <!-- Open Graph / social -->
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="DiffOwl — local code review for the age of agents" />
+    <meta property="og:title" content="DiffOwl — the verification layer for agent-written code" />
     <meta
       property="og:description"
-      content="An independent reviewer for the code your agent wrote — local, provider-neutral, with durable findings. No account, no dashboard."
+      content="The independent reviewer for code your agents write — provider-neutral, durable findings, on the model you already use. No account, no dashboard."
     />
     <meta property="og:url" content="https://gutierrezje.github.io/diffowl/" />
     <!-- TODO: add docs/og-image.png (1200x630) then uncomment:
 <meta property="og:image" content="https://gutierrezje.github.io/diffowl/og-image.png"> -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="DiffOwl — local code review for the age of agents" />
+    <meta name="twitter:title" content="DiffOwl — the verification layer for agent-written code" />
     <meta
       name="twitter:description"
-      content="An independent reviewer for the code your agent wrote — local, provider-neutral, with durable findings."
+      content="The independent reviewer for code your agents write — provider-neutral, durable findings, on the model you already use."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -871,14 +871,15 @@
   -"-"-</pre>
           </div>
           <br />
-          <span class="tag">local · provider-neutral · v0.3</span>
+          <span class="tag">independent · provider-neutral · open source</span>
           <h1>
             <span class="l">Your agent wrote it.</span>
             <span class="l"><strong>DiffOwl reviews it.</strong></span>
           </h1>
           <p class="sub">
-            An independent <b>code reviewer</b> that runs locally on every commit. It uses the LLM
-            you've already set up — <b>no account, no dashboard, no per-seat bill</b>.
+            The independent <b>verification layer</b> for agent-written code. Reviews every commit on
+            the model you already use — <b>whichever agent (or human) wrote it</b>. No account, no
+            dashboard, no per-seat bill.
           </p>
           <div class="cta-row">
             <a class="btn btn-p" href="#start">npm i -g diffowl</a>
@@ -894,7 +895,7 @@
               <div>
                 <span class="p">$</span> <span class="c">git commit -m "feat: agent patch"</span>
               </div>
-              <div class="o ok">commit complete — review dispatched (non-blocking)</div>
+              <div class="o ok">commit complete — review started</div>
               <div><span class="p">$</span> <span class="c">diffowl review</span></div>
               <div class="o wa">
                 <span class="fid">fnd_a91c</span> unvalidated path in resolve()
@@ -1020,8 +1021,8 @@
               <li>
                 <h4>Hook it into git</h4>
                 <p>
-                  Optional non-blocking post-commit reviews run in the background. Your
-                  <code>git commit</code> never waits.
+                  Reviews fire automatically on every commit and stay out of your way — read the
+                  report whenever you're ready.
                 </p>
               </li>
               <li>
