@@ -1,0 +1,18 @@
+{
+  "id": "missing-validation",
+  "category": "bug",
+  "language": "typescript",
+  "description": "Replaces empty-id validation with an undefined-only guard.",
+  "target": "commit",
+  "tags": [
+    "error-handling"
+  ],
+  "expected": [
+    {
+      "file": "src/user.ts",
+      "line": 3,
+      "category": "error-handling",
+      "must_detect": true
+    }
+  ]
+}

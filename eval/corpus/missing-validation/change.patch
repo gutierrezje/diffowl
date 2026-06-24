@@ -1,0 +1,14 @@
+diff --git a/src/user.ts b/src/user.ts
+index 454f735..9179335 100644
+--- a/src/user.ts
++++ b/src/user.ts
+@@ -1,6 +1,7 @@
+ export function loadUser(id: string) {
+-  if (!id) {
+-    throw new Error("id is required");
++  // dogfood: missing validation on empty id
++  if (id === undefined) {
++    return null;
+   }
+   return { id };
+ }

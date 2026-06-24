@@ -6,3 +6,5 @@ dist/
 .pnpm-store/
 
 plans/
+
+eval/results/

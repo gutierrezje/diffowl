@@ -1,0 +1,11 @@
+{
+  "id": "harmless-trim",
+  "category": "clean",
+  "language": "typescript",
+  "description": "Adds a comment to harmless label formatting logic.",
+  "target": "staged",
+  "tags": [
+    "false-positive-stress"
+  ],
+  "expected": []
+}

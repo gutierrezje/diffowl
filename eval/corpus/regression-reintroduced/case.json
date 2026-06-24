@@ -1,0 +1,19 @@
+{
+  "id": "regression-reintroduced",
+  "category": "bug",
+  "language": "typescript",
+  "description": "Reintroduces a previously fixed fire-and-forget async defect.",
+  "target": "commit",
+  "tags": [
+    "regression",
+    "async"
+  ],
+  "expected": [
+    {
+      "file": "src/fetch.ts",
+      "line": 3,
+      "category": "async",
+      "must_detect": true
+    }
+  ]
+}

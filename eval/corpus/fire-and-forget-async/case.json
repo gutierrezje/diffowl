@@ -1,0 +1,18 @@
+{
+  "id": "fire-and-forget-async",
+  "category": "bug",
+  "language": "typescript",
+  "description": "Discards the fetch response and always returns true.",
+  "target": "commit",
+  "tags": [
+    "async"
+  ],
+  "expected": [
+    {
+      "file": "src/fetch.ts",
+      "line": 3,
+      "category": "async",
+      "must_detect": true
+    }
+  ]
+}

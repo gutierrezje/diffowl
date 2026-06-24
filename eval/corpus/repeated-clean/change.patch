@@ -1,0 +1,10 @@
+diff --git a/src/user.ts b/src/user.ts
+index 454f735..574fb78 100644
+--- a/src/user.ts
++++ b/src/user.ts
+@@ -1,4 +1,5 @@
+ export function loadUser(id: string) {
++  // validate before returning user payload
+   if (!id) {
+     throw new Error("id is required");
+   }

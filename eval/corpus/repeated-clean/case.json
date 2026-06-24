@@ -1,0 +1,11 @@
+{
+  "id": "repeated-clean",
+  "category": "clean",
+  "language": "typescript",
+  "description": "Adds a comment to an already safe validation path.",
+  "target": "commit",
+  "tags": [
+    "false-positive-stress"
+  ],
+  "expected": []
+}

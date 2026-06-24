@@ -1,0 +1,190 @@
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  applyCasePatch,
+  copyCaseBase,
+  hashCase,
+  hashCorpus,
+  loadEvalCase,
+  loadEvalCorpus,
+  materializeCaseWorkspace,
+  verifyEvalCaseAnchors,
+} from "./corpus.js";
+
+const corpusDir = join(import.meta.dirname, "../../eval/corpus");
+let tempDirs: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
+  tempDirs = [];
+});
+
+describe("loadEvalCase", () => {
+  it("loads a committed corpus case", async () => {
+    const evalCase = await loadEvalCase(join(corpusDir, "missing-validation"));
+
+    expect(evalCase.id).toBe("missing-validation");
+    expect(evalCase.category).toBe("bug");
+    expect(evalCase.expected[0]?.file).toBe("src/user.ts");
+  });
+
+  it("rejects id and directory mismatches", async () => {
+    const caseDir = await createMalformedCase({
+      dirName: "wrong-dir",
+      caseJson: {
+        id: "right-id",
+        category: "clean",
+        language: "typescript",
+        description: "mismatch",
+      },
+    });
+
+    await expect(loadEvalCase(caseDir)).rejects.toThrow(/does not match directory/);
+  });
+
+  it("rejects bug cases without expected findings", async () => {
+    const caseDir = await createMalformedCase({
+      dirName: "empty-bug",
+      caseJson: {
+        id: "empty-bug",
+        category: "bug",
+        language: "typescript",
+        description: "missing expected",
+        expected: [],
+      },
+    });
+
+    await expect(loadEvalCase(caseDir)).rejects.toThrow(/requires expected findings/);
+  });
+});
+
+describe("materializeCaseWorkspace", () => {
+  it("copies base files and applies the patch", async () => {
+    const evalCase = await loadEvalCase(join(corpusDir, "missing-validation"));
+    const workDir = await createTempDir("eval-work-");
+    await materializeCaseWorkspace(evalCase, workDir);
+
+    const content = await readFile(join(workDir, "src/user.ts"), "utf8");
+    expect(content).toContain("id === undefined");
+    expect(content).not.toContain('throw new Error("id is required")');
+  });
+
+  it("verifies expected anchors after patch application", async () => {
+    const corpus = await loadEvalCorpus(corpusDir);
+
+    for (const evalCase of corpus.cases) {
+      const workDir = await createTempDir(`eval-${evalCase.id}-`);
+      await materializeCaseWorkspace(evalCase, workDir);
+      await expect(verifyEvalCaseAnchors(evalCase, workDir)).resolves.toBeUndefined();
+    }
+  });
+});
+
+describe("hashCorpus", () => {
+  it("is stable across repeated reads", async () => {
+    const first = await hashCorpus(corpusDir);
+    const second = await hashCorpus(corpusDir);
+    expect(first).toBe(second);
+    expect(first).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("changes when case content changes", async () => {
+    const tempCorpus = await createTempDir("eval-corpus-");
+    const sourceCase = join(corpusDir, "harmless-trim");
+    const targetCase = join(tempCorpus, "harmless-trim");
+    await cp(sourceCase, targetCase, { recursive: true });
+
+    const before = await hashCorpus(tempCorpus);
+    const caseJsonPath = join(targetCase, "case.json");
+    const caseJson = JSON.parse(await readFile(caseJsonPath, "utf8"));
+    caseJson.description = "Updated description.";
+    await writeFile(caseJsonPath, `${JSON.stringify(caseJson, null, 2)}\n`, "utf8");
+    const after = await hashCorpus(tempCorpus);
+
+    expect(after).not.toBe(before);
+  });
+});
+
+describe("loadEvalCorpus", () => {
+  it("loads cases sorted by id with a corpus version", async () => {
+    const corpus = await loadEvalCorpus(corpusDir);
+
+    expect(corpus.cases.map((item) => item.id)).toEqual([
+      "async-clean",
+      "fire-and-forget-async",
+      "harmless-trim",
+      "missing-validation",
+      "regression-reintroduced",
+      "repeated-clean",
+    ]);
+    expect(corpus.version).toBe(await hashCorpus(corpusDir));
+  });
+});
+
+describe("hashCase", () => {
+  it("hashes case metadata and patch independently", async () => {
+    const hashes = await hashCase(join(corpusDir, "missing-validation"));
+    expect(hashes.caseJsonHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(hashes.patchHash).toMatch(/^[a-f0-9]{64}$/);
+  });
+});
+
+describe("applyCasePatch", () => {
+  it("rejects invalid patches", async () => {
+    const caseDir = await createMalformedCase({
+      dirName: "bad-patch",
+      caseJson: {
+        id: "bad-patch",
+        category: "clean",
+        language: "typescript",
+        description: "broken patch",
+      },
+      patch: "not a real patch\n",
+      baseFiles: {
+        "src/example.ts": "export const value = 1;\n",
+      },
+    });
+    const evalCase = await loadEvalCase(caseDir);
+    const workDir = await createTempDir("eval-bad-patch-");
+    await copyCaseBase(evalCase, workDir);
+
+    await expect(applyCasePatch(evalCase, workDir)).rejects.toThrow(/Failed to apply patch/);
+  });
+});
+
+async function createTempDir(prefix: string): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+}
+
+async function createMalformedCase(input: {
+  dirName: string;
+  caseJson: Record<string, unknown>;
+  patch?: string;
+  baseFiles?: Record<string, string>;
+}): Promise<string> {
+  const root = await createTempDir("eval-fixture-");
+  const caseDir = join(root, input.dirName);
+  const baseDir = join(caseDir, "base");
+  await mkdir(join(baseDir, "src"), { recursive: true });
+  await writeFile(join(caseDir, "case.json"), `${JSON.stringify(input.caseJson, null, 2)}\n`, "utf8");
+  await writeFile(
+    join(caseDir, "change.patch"),
+    input.patch ?? await readFile(join(corpusDir, "harmless-trim/change.patch"), "utf8"),
+    "utf8",
+  );
+
+  const baseFiles = input.baseFiles ?? {
+    "src/example.ts": "export const value = 1;\n",
+  };
+  for (const [relativePath, content] of Object.entries(baseFiles)) {
+    const filePath = join(baseDir, relativePath);
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, content, "utf8");
+  }
+
+  return caseDir;
+}

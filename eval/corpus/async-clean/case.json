@@ -1,0 +1,12 @@
+{
+  "id": "async-clean",
+  "category": "clean",
+  "language": "typescript",
+  "description": "Adds a comment to an async helper that already awaits its response.",
+  "target": "commit",
+  "tags": [
+    "false-positive-stress",
+    "async"
+  ],
+  "expected": []
+}
