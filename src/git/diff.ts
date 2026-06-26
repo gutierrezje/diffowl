@@ -29,41 +29,42 @@ export async function getLastCommitDiff(): Promise<DiffResult> {
   return getCommitDiff("HEAD");
 }
 
-export async function getCommitDiff(ref: string): Promise<DiffResult> {
-  const commit = await resolveCommitRef(ref);
-  return getResolvedCommitDiff(commit);
+export async function getCommitDiff(ref: string, cwd?: string): Promise<DiffResult> {
+  const commit = await resolveCommitRef(ref, cwd);
+  return getResolvedCommitDiff(commit, cwd);
 }
 
-export async function getResolvedCommitDiff(commit: string): Promise<DiffResult> {
-  const raw = await collectGitDiff([
-    "-c",
-    "diff.noprefix=false",
-    "-c",
-    "diff.mnemonicprefix=false",
-    "show",
-    "--format=",
-    "--diff-merges=combined",
-    "--stat",
-    "--patch",
-    commit,
-  ]);
+export async function getResolvedCommitDiff(commit: string, cwd?: string): Promise<DiffResult> {
+  const raw = await collectGitDiff(
+    [
+      "-c",
+      "diff.noprefix=false",
+      "-c",
+      "diff.mnemonicprefix=false",
+      "show",
+      "--format=",
+      "--diff-merges=combined",
+      "--stat",
+      "--patch",
+      commit,
+    ],
+    cwd,
+  );
   return parseDiff(raw.stdout, raw.diagnostics);
 }
 
-export async function resolveCommitRef(ref: string): Promise<string> {
+export async function resolveCommitRef(ref: string, cwd?: string): Promise<string> {
   const trimmed = ref.trim();
   if (trimmed === "") {
     throw new Error("Commit ref must not be empty.");
   }
 
   try {
-    const { stdout } = await execa("git", [
-      "rev-parse",
-      "--verify",
-      "--quiet",
-      "--end-of-options",
-      `${trimmed}^{commit}`,
-    ]);
+    const { stdout } = await execa(
+      "git",
+      ["rev-parse", "--verify", "--quiet", "--end-of-options", `${trimmed}^{commit}`],
+      cwd ? { cwd } : {},
+    );
     return stdout.trim();
   } catch {
     throw new Error(`Invalid commit ref: ${ref}`);
@@ -73,23 +74,32 @@ export async function resolveCommitRef(ref: string): Promise<string> {
 /**
  * Get the diff for staged changes
  */
-export async function getStagedDiff(): Promise<DiffResult> {
-  const raw = await collectGitDiff([
-    "-c",
-    "diff.noprefix=false",
-    "-c",
-    "diff.mnemonicprefix=false",
-    "diff",
-    "--staged",
-    "--stat",
-    "--patch",
-  ]);
+export async function getStagedDiff(cwd?: string): Promise<DiffResult> {
+  const raw = await collectGitDiff(
+    [
+      "-c",
+      "diff.noprefix=false",
+      "-c",
+      "diff.mnemonicprefix=false",
+      "diff",
+      "--staged",
+      "--stat",
+      "--patch",
+    ],
+    cwd,
+  );
   return parseDiff(raw.stdout, raw.diagnostics);
 }
 
-async function collectGitDiff(args: string[]): Promise<{ stdout: string; diagnostics: string[] }> {
+async function collectGitDiff(
+  args: string[],
+  cwd?: string,
+): Promise<{ stdout: string; diagnostics: string[] }> {
   try {
-    const { stdout } = await execa("git", args, { maxBuffer: MAX_DIFF_OUTPUT_BYTES });
+    const { stdout } = await execa("git", args, {
+      maxBuffer: MAX_DIFF_OUTPUT_BYTES,
+      ...(cwd ? { cwd } : {}),
+    });
     return { stdout, diagnostics: [] };
   } catch (err) {
     if (isMaxBufferError(err)) {

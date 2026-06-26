@@ -141,7 +141,11 @@ function findConfigPath(): string {
 }
 
 export async function loadConfig(): Promise<DiffOwlConfig> {
-  const configPath = findConfigPath();
+  return loadConfigFromRoot(dirname(findConfigPath()));
+}
+
+export async function loadConfigFromRoot(root: string): Promise<DiffOwlConfig> {
+  const configPath = join(root, CONFIG_FILENAME);
   if (!existsSync(configPath)) {
     return parseConfigInput({});
   }

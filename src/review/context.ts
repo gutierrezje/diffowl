@@ -79,24 +79,24 @@ export async function loadReviewSnapshot(
       return {
         root,
         target,
-        diff: await getStagedDiff(),
+        diff: await getStagedDiff(root),
         source: createGitContextSource(root, { kind: "staged" }),
       };
     case "commit": {
-      const sha = await resolveCommitRef(target.ref);
+      const sha = await resolveCommitRef(target.ref, root);
       return {
         root,
         target,
-        diff: await getResolvedCommitDiff(sha),
+        diff: await getResolvedCommitDiff(sha, root),
         source: createGitContextSource(root, { kind: "commit", sha }),
       };
     }
     case "last-commit": {
-      const sha = await resolveCommitRef("HEAD");
+      const sha = await resolveCommitRef("HEAD", root);
       return {
         root,
         target,
-        diff: await getResolvedCommitDiff(sha),
+        diff: await getResolvedCommitDiff(sha, root),
         source: createGitContextSource(root, { kind: "commit", sha }),
       };
     }

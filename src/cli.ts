@@ -15,7 +15,6 @@ import {
   parseReasoningEffort,
   type DiffOwlConfig,
   type ReviewContextDepth,
-  type ReviewConfidence,
   type ReasoningEffort,
 } from "./config.js";
 import {
@@ -26,7 +25,6 @@ import {
   type ReviewReport,
   type ReviewTiming,
   type ReviewUsage,
-  type ReviewFinding,
 } from "./opencode/client.js";
 import { getOpenCodeFailureGuidance } from "./opencode/guidance.js";
 import { canSelectModelInteractively, selectModel } from "./opencode/model-selection.js";
@@ -56,6 +54,10 @@ import {
   loadReviewSnapshot,
   renderReviewContext,
 } from "./review/context.js";
+import {
+  filterFindingsByChangedFiles,
+  filterFindingsByConfidence,
+} from "./review/filters.js";
 import {
   printHeader,
   printFooter,
@@ -1185,38 +1187,6 @@ async function loadConfigOrExit(): Promise<DiffOwlConfig> {
     console.error(chalk.red(`Config error: ${message}`));
     process.exit(1);
   }
-}
-
-function filterFindingsByConfidence(
-  findings: ReviewFinding[],
-  minConfidence: ReviewConfidence,
-): { findings: ReviewFinding[]; dropped: number } {
-  const levels = ["low", "medium", "high"];
-  const minIndex = levels.indexOf(minConfidence);
-
-  const kept = findings.filter((f) => {
-    const idx = levels.indexOf(f.confidence.toLowerCase());
-    return idx >= minIndex;
-  });
-  return { findings: kept, dropped: findings.length - kept.length };
-}
-
-function filterFindingsByChangedFiles(
-  findings: ReviewFinding[],
-  changedFiles: Set<string>,
-): { findings: ReviewFinding[]; suppressed: ReviewFinding[] } {
-  const kept: ReviewFinding[] = [];
-  const suppressed: ReviewFinding[] = [];
-  for (const finding of findings) {
-    // If the file wasn't changed in this diff at all, it's a hallucinated file.
-    // Drop it unconditionally, since confidence is not a guarantee of correctness.
-    if (changedFiles.has(finding.file)) {
-      kept.push(finding);
-    } else {
-      suppressed.push(finding);
-    }
-  }
-  return { findings: kept, suppressed };
 }
 
 function buildDocOnlySkipMarkdown(diff: {
