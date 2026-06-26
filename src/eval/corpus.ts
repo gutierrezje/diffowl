@@ -167,6 +167,10 @@ async function assertDirectory(path: string, message: string): Promise<void> {
     if (!info.isDirectory()) {
       throw new Error(message);
     }
+    const entries = await readdir(path);
+    if (entries.length === 0) {
+      throw new Error(message);
+    }
   } catch (error) {
     if (error instanceof Error && error.message === message) {
       throw error;

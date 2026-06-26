@@ -58,6 +58,22 @@ describe("loadEvalCase", () => {
 
     await expect(loadEvalCase(caseDir)).rejects.toThrow(/requires expected findings/);
   });
+
+  it("rejects cases with an empty base directory", async () => {
+    const caseDir = await createMalformedCase({
+      dirName: "empty-base",
+      caseJson: {
+        id: "empty-base",
+        category: "clean",
+        language: "typescript",
+        description: "empty base",
+      },
+      baseFiles: {},
+    });
+    await rm(join(caseDir, "base", "src"), { recursive: true, force: true });
+
+    await expect(loadEvalCase(caseDir)).rejects.toThrow(/non-empty base\/ directory/);
+  });
 });
 
 describe("materializeCaseWorkspace", () => {
