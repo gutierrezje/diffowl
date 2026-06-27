@@ -3,9 +3,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DiffOwlConfig } from "../config.js";
 import type { ReviewResult } from "../opencode/client.js";
 import type { ReviewFinding } from "../review/types.js";
+import { BASELINE_AGENT_PROMPT } from "./baseline.js";
 import { loadEvalCase } from "./corpus.js";
 import * as repo from "./repo.js";
-import { resolveEvalModel, resolveEvalRunnerConfig, runEvalCase, runEvalCaseTrial } from "./runner.js";
+import {
+  resolveEvalModel,
+  resolveEvalRunnerConfig,
+  runEvalCase,
+  runEvalCaseBoth,
+  runEvalCaseTrial,
+} from "./runner.js";
 
 const corpusDir = join(import.meta.dirname, "../../eval/corpus");
 
@@ -113,6 +120,7 @@ describe("runEvalCaseTrial", () => {
     );
 
     expect(result.error).toBeUndefined();
+    expect(result.mode).toBe("diffowl");
     expect(result.sessionId).toBe("session-eval");
     expect(result.findings).toHaveLength(1);
     expect(result.findings[0]?.title).toBe("Missing validation");
@@ -123,6 +131,34 @@ describe("runEvalCaseTrial", () => {
     expect(runReview).toHaveBeenCalledWith(
       expect.objectContaining({
         directory: expect.stringContaining("diffowl-eval-missing-validation-"),
+        localContext: expect.stringContaining("Local Review Context"),
+      }),
+    );
+  });
+
+  it("runs baseline reviews with diff-only prompts", async () => {
+    const evalCase = await loadEvalCase(join(corpusDir, "missing-validation"));
+    const runReview = vi.fn(async (): Promise<ReviewResult> => ({
+      sessionId: "baseline-session",
+      report: { summary: "Baseline.", findings: [] },
+    }));
+
+    const result = await runEvalCaseTrial(
+      evalCase,
+      { mode: "baseline" },
+      { runReview, prepareReviewServer: vi.fn(async () => undefined) },
+    );
+
+    expect(result.mode).toBe("baseline");
+    expect(runReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemPrompt: BASELINE_AGENT_PROMPT,
+        userPrompt: expect.stringContaining("diff --git"),
+      }),
+    );
+    expect(runReview).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        localContext: expect.anything(),
       }),
     );
   });
@@ -176,7 +212,33 @@ describe("runEvalCase", () => {
     );
 
     expect(result.trials).toHaveLength(2);
+    expect(result.mode).toBe("diffowl");
     expect(result.trials.map((trial) => trial.trial)).toEqual([0, 1]);
     expect(runReview).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("runEvalCaseBoth", () => {
+  it("runs diffowl and baseline trials for the same case", async () => {
+    const evalCase = await loadEvalCase(join(corpusDir, "harmless-trim"));
+    const runReview = vi.fn(async (): Promise<ReviewResult> => ({
+      sessionId: "session-eval",
+      report: { summary: "Clean.", findings: [] },
+    }));
+
+    const result = await runEvalCaseBoth(
+      evalCase,
+      { trials: 2 },
+      {
+        runReview,
+        prepareReviewServer: vi.fn(async () => undefined),
+      },
+    );
+
+    expect(result.diffowl.mode).toBe("diffowl");
+    expect(result.baseline.mode).toBe("baseline");
+    expect(result.diffowl.trials).toHaveLength(2);
+    expect(result.baseline.trials).toHaveLength(2);
+    expect(runReview).toHaveBeenCalledTimes(4);
   });
 });

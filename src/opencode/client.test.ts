@@ -12,10 +12,54 @@ import {
   opencodeDirectoryOptions,
   parseStructuredReview,
   resolveReasoningVariant,
+  resolveReviewPrompts,
   looksLikeCompleteStructuredReview,
 } from "./client.js";
+import { REVIEW_AGENT_PROMPT } from "./agent.js";
 
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
+
+describe("resolveReviewPrompts", () => {
+  const config = {
+    model: "provider/model",
+    server: { port: 4096, auto_start: false },
+    context: { depth: "default" as const },
+    reasoning: { effort: "auto" as const },
+    retention: { hook_log_kb: 1024 },
+    timeout: 300,
+    min_confidence: "medium" as const,
+    include: ["**/*"],
+    exclude: [],
+    rules: ["No empty ids."],
+    skip_doc_only: false,
+    verbose: false,
+  };
+
+  it("uses custom system and user prompts when provided", () => {
+    expect(
+      resolveReviewPrompts({
+        target: { kind: "staged" },
+        config,
+        depth: "default",
+        systemPrompt: "SYSTEM",
+        userPrompt: "USER",
+      }),
+    ).toEqual({ system: "SYSTEM", user: "USER" });
+  });
+
+  it("falls back to DiffOwl defaults when overrides are omitted", () => {
+    const prompts = resolveReviewPrompts({
+      target: { kind: "staged" },
+      config,
+      depth: "default",
+      localContext: "## context",
+    });
+
+    expect(prompts.system).toBe(REVIEW_AGENT_PROMPT);
+    expect(prompts.user).toContain("DiffOwl has already collected");
+    expect(prompts.user).toContain("## context");
+  });
+});
 
 describe("normalizeOpenCodeEvent", () => {
   it("normalizes handled SDK event envelopes", () => {

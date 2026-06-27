@@ -13,9 +13,16 @@ import {
 } from "../review/filters.js";
 import { formatExcludedCandidateSummary } from "../review/formatter.js";
 import type { ReviewFinding } from "../review/types.js";
+import { BASELINE_AGENT_PROMPT, buildBaselinePrompt, renderBaselineDiff } from "./baseline.js";
 import type { EvalCase } from "./case-types.js";
 import { cleanupMaterializedRepo, materializeEvalCaseRepo } from "./repo.js";
-import type { EvalCaseRunResult, EvalRunnerOptions, EvalTrialResult } from "./runner-types.js";
+import type {
+  EvalCaseRunResult,
+  EvalDualCaseRunResult,
+  EvalRunMode,
+  EvalRunnerOptions,
+  EvalTrialResult,
+} from "./runner-types.js";
 
 export interface EvalRunnerDependencies {
   runReview: typeof runReview;
@@ -27,20 +34,35 @@ const defaultDependencies: EvalRunnerDependencies = {
   prepareReviewServer,
 };
 
+function resolveEvalRunMode(options: EvalRunnerOptions): EvalRunMode {
+  return options.mode ?? "diffowl";
+}
+
 /** Runs trials sequentially. Each trial uses an explicit repo root, not process.cwd(). */
 export async function runEvalCase(
   evalCase: EvalCase,
   options: EvalRunnerOptions = {},
   dependencies: EvalRunnerDependencies = defaultDependencies,
 ): Promise<EvalCaseRunResult> {
+  const mode = resolveEvalRunMode(options);
   const trials = options.trials ?? 1;
   const results: EvalTrialResult[] = [];
 
   for (let trial = 0; trial < trials; trial++) {
-    results.push(await runEvalCaseTrial(evalCase, options, dependencies, trial));
+    results.push(await runEvalCaseTrial(evalCase, { ...options, mode }, dependencies, trial));
   }
 
-  return { caseId: evalCase.id, trials: results };
+  return { caseId: evalCase.id, mode, trials: results };
+}
+
+export async function runEvalCaseBoth(
+  evalCase: EvalCase,
+  options: Omit<EvalRunnerOptions, "mode"> = {},
+  dependencies: EvalRunnerDependencies = defaultDependencies,
+): Promise<EvalDualCaseRunResult> {
+  const diffowl = await runEvalCase(evalCase, { ...options, mode: "diffowl" }, dependencies);
+  const baseline = await runEvalCase(evalCase, { ...options, mode: "baseline" }, dependencies);
+  return { caseId: evalCase.id, diffowl, baseline };
 }
 
 export async function runEvalCaseTrial(
@@ -49,6 +71,7 @@ export async function runEvalCaseTrial(
   dependencies: EvalRunnerDependencies = defaultDependencies,
   trial = 0,
 ): Promise<EvalTrialResult> {
+  const mode = resolveEvalRunMode(options);
   const startedAt = performance.now();
   let workDir: string | undefined;
 
@@ -62,23 +85,41 @@ export async function runEvalCaseTrial(
     );
     const depth = config.context.depth;
     const snapshot = await loadReviewSnapshot(materialized.workDir, materialized.target);
-    const reviewContext = await buildReviewContextFromDiff(snapshot, config, depth);
-    const localContext = renderReviewContext(reviewContext, { depth });
+    const reviewContext =
+      mode === "diffowl" ? await buildReviewContextFromDiff(snapshot, config, depth) : undefined;
+    const changedFiles =
+      reviewContext?.changedFiles.map((file) => file.file.path) ??
+      snapshot.diff.files.map((file) => file.path);
 
     await dependencies.prepareReviewServer(config);
-    const reviewResult = await dependencies.runReview({
-      target: materialized.target,
-      directory: materialized.workDir,
-      config,
-      localContext,
-      depth,
-      ...(options.signal ? { signal: options.signal } : {}),
-    });
+    const reviewResult =
+      mode === "baseline"
+        ? await dependencies.runReview({
+            target: materialized.target,
+            directory: materialized.workDir,
+            config,
+            depth,
+            systemPrompt: BASELINE_AGENT_PROMPT,
+            userPrompt: buildBaselinePrompt(
+              materialized.target,
+              renderBaselineDiff(snapshot, depth),
+              config,
+            ),
+            ...(options.signal ? { signal: options.signal } : {}),
+          })
+        : await dependencies.runReview({
+            target: materialized.target,
+            directory: materialized.workDir,
+            config,
+            localContext: renderReviewContext(reviewContext!, { depth }),
+            depth,
+            ...(options.signal ? { signal: options.signal } : {}),
+          });
 
     const filtered = applyActionableFindingFilters(
       reviewResult.report.findings,
       reviewResult.report.diagnostics ?? [],
-      reviewContext.changedFiles.map((file) => file.file.path),
+      changedFiles,
       config.min_confidence,
     );
 
@@ -87,6 +128,7 @@ export async function runEvalCaseTrial(
     return {
       caseId: evalCase.id,
       trial,
+      mode,
       findings: filtered.findings,
       timings: reviewResult.report.timings ?? [],
       ...(usage ? { usage } : {}),
@@ -99,6 +141,7 @@ export async function runEvalCaseTrial(
     return {
       caseId: evalCase.id,
       trial,
+      mode,
       findings: [],
       timings: [],
       sessionId: "",

@@ -34,6 +34,8 @@ export interface ReviewOptions {
   config: DiffOwlConfig;
   localContext?: string;
   depth: ReviewContextDepth;
+  systemPrompt?: string;
+  userPrompt?: string;
   onProgress?: (event: ReviewProgressEvent) => void;
   signal?: AbortSignal;
 }
@@ -58,6 +60,28 @@ export class ReviewCancelledError extends Error {
 
 export function isReviewCancellation(error: unknown): boolean {
   return error instanceof ReviewCancelledError;
+}
+
+export function resolveReviewPrompts(options: {
+  target: ReviewTarget;
+  config: DiffOwlConfig;
+  localContext?: string;
+  depth: ReviewContextDepth;
+  systemPrompt?: string;
+  userPrompt?: string;
+}): { system: string; user: string } {
+  const user =
+    options.userPrompt ??
+    buildReviewPrompt(
+      options.target,
+      options.config.rules,
+      options.config.include,
+      options.config.exclude,
+      options.localContext,
+      options.depth,
+    );
+  const system = options.systemPrompt ?? REVIEW_AGENT_PROMPT;
+  return { system, user };
 }
 
 type OpencodeDirectoryOptions = { query: { directory: string } };
@@ -263,14 +287,14 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
 
   // Build the review prompt
   const promptStart = performance.now();
-  const prompt = buildReviewPrompt(
+  const { system, user: prompt } = resolveReviewPrompts({
     target,
-    config.rules,
-    config.include,
-    config.exclude,
-    localContext,
+    config,
     depth,
-  );
+    ...(localContext !== undefined ? { localContext } : {}),
+    ...(options.systemPrompt !== undefined ? { systemPrompt: options.systemPrompt } : {}),
+    ...(options.userPrompt !== undefined ? { userPrompt: options.userPrompt } : {}),
+  });
   recordTiming(timings, onProgress, "prompt-build", "Review prompt build", promptStart);
 
   // Parse the model string (e.g. "anthropic/claude-sonnet-4-20250514")
@@ -433,7 +457,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
         path: { id: sessionId },
         ...directoryOptions,
         body: {
-          system: REVIEW_AGENT_PROMPT,
+          system,
           model: { providerID, modelID },
           tools,
           ...(reasoning.variant ? { variant: reasoning.variant } : {}),

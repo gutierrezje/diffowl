@@ -53,6 +53,7 @@ function makeTrial(
   return {
     caseId: "test-case",
     trial,
+    mode: "diffowl",
     findings,
     timings: [],
     sessionId: "session",
@@ -192,6 +193,7 @@ describe("scoreEvalCase", () => {
     const repeatedFinding = makeFinding({ file: "src/noise.ts", line: 1, title: "Repeated noise" });
     const run: EvalCaseRunResult = {
       caseId: "test-case",
+      mode: "diffowl",
       trials: [
         makeTrial([repeatedFinding], 1),
         makeTrial([repeatedFinding], 2),
@@ -227,6 +229,7 @@ describe("end-to-end scoring and metrics", () => {
 
     const bugRun: EvalCaseRunResult = {
       caseId: bugCase.id,
+      mode: "diffowl",
       trials: [
         makeTrial([makeFinding({ file: "src/user.ts", line: 4, title: "Empty id accepted" })], 1, {
           durationMs: 1200,
@@ -240,6 +243,7 @@ describe("end-to-end scoring and metrics", () => {
     };
     const cleanRun: EvalCaseRunResult = {
       caseId: cleanCase.id,
+      mode: "diffowl",
       trials: [
         makeTrial([], 1, { durationMs: 800 }),
         makeTrial([makeFinding({ file: "src/util.ts", line: 1, title: "Nit" })], 2, { durationMs: 700 }),
