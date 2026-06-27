@@ -156,13 +156,15 @@ describe("ensureServer", () => {
     vi.stubGlobal("fetch", mocks.fetch);
 
     let lsofCalls = 0;
+    let netstatCalls = 0;
     mocks.execa.mockImplementation((command: string, args?: string[]) => {
       if (command === "lsof") {
         lsofCalls += 1;
         return Promise.resolve({ stdout: lsofCalls === 1 ? "11111\n" : "" });
       }
       if (command === "netstat") {
-        return Promise.resolve({ stdout: "" });
+        netstatCalls += 1;
+        return Promise.resolve({ stdout: netstatCalls === 1 ? netstatLine(4096, 11111) : "" });
       }
       if (command === "ps") {
         return Promise.resolve({ stdout: "opencode serve --port 4096" });
@@ -261,6 +263,7 @@ describe("ensureServer", () => {
     vi.stubGlobal("fetch", mocks.fetch);
 
     let lsofCalls = 0;
+    let netstatCalls = 0;
     mocks.execa.mockImplementation((command: string, args?: string[]) => {
       if (command === "opencode" && args?.[0] === "--version") {
         return Promise.resolve({ stdout: "1.17.7\n" });
@@ -272,7 +275,8 @@ describe("ensureServer", () => {
       }
       // findOpencodeListenerPidWindows
       if (command === "netstat") {
-        return Promise.resolve({ stdout: netstatLine(4096, 11111) });
+        netstatCalls += 1;
+        return Promise.resolve({ stdout: netstatCalls === 1 ? netstatLine(4096, 11111) : "" });
       }
       // isOpencodeProcess: Unix
       if (command === "ps") {
@@ -413,6 +417,7 @@ describe("stopServer", () => {
     mocks.fetch.mockResolvedValue({ ok: false });
     vi.stubGlobal("fetch", mocks.fetch);
     let lsofCalls = 0;
+    let netstatCalls = 0;
     mocks.execa.mockImplementation((command: string) => {
       // findOpencodeListenerPid: Unix
       if (command === "lsof") {
@@ -421,7 +426,8 @@ describe("stopServer", () => {
       }
       // findOpencodeListenerPidWindows
       if (command === "netstat") {
-        return Promise.resolve({ stdout: netstatLine(4096, 33333) });
+        netstatCalls += 1;
+        return Promise.resolve({ stdout: netstatCalls === 1 ? netstatLine(4096, 33333) : "" });
       }
       // isOpencodeProcess: Unix
       if (command === "ps") {
