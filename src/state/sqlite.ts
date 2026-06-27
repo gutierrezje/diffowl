@@ -62,7 +62,8 @@ async function importNodeSqliteWithoutWarning(): Promise<SqliteModule> {
   } as typeof process.emitWarning;
 
   try {
-    return await import("node:sqlite");
+    const nodeSqlite = ["node", "sqlite"].join(":");
+    return await import(nodeSqlite);
   } finally {
     process.emitWarning = emitWarning;
   }

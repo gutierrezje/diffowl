@@ -9,4 +9,5 @@ export default defineConfig({
   sourcemap: true,
   dts: false,
   shims: true,
+  external: ["node:sqlite"],
 });
