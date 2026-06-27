@@ -87,6 +87,10 @@ export async function ensureServer(port: number): Promise<string> {
     }
   }
 
+  if (await stopUnhealthyServerListener(port)) {
+    await waitUntilPortFree(port);
+  }
+
   await spawnServer(port);
 
   for (let i = 0; i < MAX_RETRIES; i++) {
@@ -226,6 +230,22 @@ async function stopManagedServer(): Promise<boolean> {
   return true;
 }
 
+async function stopUnhealthyServerListener(port: number): Promise<boolean> {
+  const listenerPid = await findOpencodeListenerPid(port);
+  if (listenerPid === null) {
+    return false;
+  }
+
+  try {
+    process.kill(listenerPid, "SIGTERM");
+  } catch {
+    return false;
+  }
+
+  await cleanupPidFile();
+  return true;
+}
+
 async function cleanupPidFile(): Promise<void> {
   const pidFile = join(getDiffOwlDir(), "server.pid");
   if (!existsSync(pidFile)) {
@@ -291,13 +311,13 @@ async function findOpencodeListenerPidWindows(port: number): Promise<number | nu
 async function waitUntilPortFree(port: number): Promise<void> {
   const deadline = Date.now() + PORT_RELEASE_WAIT_MS;
   while (Date.now() < deadline) {
-    if (!(await isServerRunning(port))) {
+    if ((await findOpencodeListenerPid(port)) === null) {
       return;
     }
     await sleep(PORT_RELEASE_POLL_MS);
   }
 
-  if (await isServerRunning(port)) {
+  if ((await findOpencodeListenerPid(port)) !== null) {
     throw new Error(
       `OpenCode server on port ${port} did not stop within ${PORT_RELEASE_WAIT_MS}ms. Retry: diffowl server stop && diffowl server start`,
     );
