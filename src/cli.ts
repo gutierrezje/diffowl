@@ -54,10 +54,7 @@ import {
   loadReviewSnapshot,
   renderReviewContext,
 } from "./review/context.js";
-import {
-  filterFindingsByChangedFiles,
-  filterFindingsByConfidence,
-} from "./review/filters.js";
+import { filterFindingsByChangedFiles, filterFindingsByConfidence } from "./review/filters.js";
 import {
   printHeader,
   printFooter,
@@ -109,6 +106,7 @@ import {
   withFindingDatabase,
 } from "./state/findings-query.js";
 import { InvalidFindingTransitionError } from "./state/db.js";
+import type { SqliteDatabase } from "./state/sqlite.js";
 import type { FindingActor } from "./state/types.js";
 
 import { readFile } from "node:fs/promises";
@@ -1130,9 +1128,7 @@ program.parse();
 async function runFindingMutation(
   _locator: string,
   formatValue: string | undefined,
-  mutate: (
-    db: import("better-sqlite3").Database,
-  ) => import("./state/findings-query.js").FindingDetail,
+  mutate: (db: SqliteDatabase) => import("./state/findings-query.js").FindingDetail,
 ): Promise<void> {
   await loadConfigOrExit();
   const format = resolveReviewOutputFormat(formatValue);

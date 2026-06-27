@@ -15,6 +15,8 @@ jobs:
         include:
           - os: ubuntu-latest
             node-version: 22.14.0
+          - os: ubuntu-latest
+            node-version: 24.x
           - os: windows-2022
             node-version: 22.14.0
       fail-fast: false
@@ -33,15 +35,6 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: "pnpm"
-
-      # Keep the Windows native toolchain available if better-sqlite3 needs to
-      # fall back to node-gyp for the pinned Node ABI.
-      - name: Setup MSVC toolchain (Windows)
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-          vsversion: 2022
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

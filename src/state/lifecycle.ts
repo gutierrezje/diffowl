@@ -1,11 +1,11 @@
-import type Database from "better-sqlite3";
+import type { SqliteDatabase } from "./sqlite.js";
 import { InvalidFindingTransitionError } from "./db.js";
 import { insertFindingEvent } from "./repositories/events.js";
 import { getFindingById, updateFinding } from "./repositories/findings.js";
 import type { FindingRecord, FixFindingInput, LifecycleMutationInput } from "./types.js";
 
 export function dismissFinding(
-  db: Database.Database,
+  db: SqliteDatabase,
   findingId: string,
   input: LifecycleMutationInput & { reason: string },
 ): FindingRecord {
@@ -19,7 +19,7 @@ export function dismissFinding(
 }
 
 export function deferFinding(
-  db: Database.Database,
+  db: SqliteDatabase,
   findingId: string,
   input: LifecycleMutationInput & { reason: string },
 ): FindingRecord {
@@ -33,7 +33,7 @@ export function deferFinding(
 }
 
 export function fixFinding(
-  db: Database.Database,
+  db: SqliteDatabase,
   findingId: string,
   input: FixFindingInput,
 ): FindingRecord {
@@ -58,7 +58,7 @@ export function fixFinding(
 }
 
 export function reopenFinding(
-  db: Database.Database,
+  db: SqliteDatabase,
   findingId: string,
   input: LifecycleMutationInput & { reason: string },
 ): FindingRecord {
@@ -72,7 +72,7 @@ export function reopenFinding(
 }
 
 function transitionFinding(
-  db: Database.Database,
+  db: SqliteDatabase,
   findingId: string,
   options: {
     allowedFrom: FindingRecord["status"][];
@@ -100,7 +100,7 @@ function transitionFinding(
   return updated;
 }
 
-function requireFinding(db: Database.Database, findingId: string): FindingRecord {
+function requireFinding(db: SqliteDatabase, findingId: string): FindingRecord {
   const finding = getFindingById(db, findingId);
   if (!finding) {
     throw new InvalidFindingTransitionError(`Finding ${findingId} was not found.`);

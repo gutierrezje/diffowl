@@ -28,10 +28,9 @@ describe("isHookQueueStopFailure", () => {
     expect(isHookQueueStopFailure("insufficient_quota")).toBe(true);
   });
 
-  it("stops on auth, server, and environment failures", () => {
+  it("stops on auth, server, and missing OpenCode failures", () => {
     expect(isHookQueueStopFailure("Unauthorized: invalid API key")).toBe(true);
     expect(isHookQueueStopFailure("OpenCode server is not running on port 4096")).toBe(true);
-    expect(isHookQueueStopFailure("NODE_MODULE_VERSION 127 vs 147")).toBe(true);
     expect(isHookQueueStopFailure("opencode: command not found")).toBe(true);
   });
 

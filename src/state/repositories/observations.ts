@@ -1,7 +1,7 @@
-import type Database from "better-sqlite3";
+import type { SqliteDatabase } from "../sqlite.js";
 import type { FindingObservationRecord, InsertObservationInput } from "../types.js";
 
-const insertObservationStatement = (db: Database.Database) =>
+const insertObservationStatement = (db: SqliteDatabase) =>
   db.prepare(`
     INSERT INTO finding_observations (
       review_id,
@@ -30,7 +30,7 @@ const insertObservationStatement = (db: Database.Database) =>
     )
   `);
 
-const getObservationStatement = (db: Database.Database) =>
+const getObservationStatement = (db: SqliteDatabase) =>
   db.prepare(`
     SELECT
       id,
@@ -52,7 +52,7 @@ const getObservationStatement = (db: Database.Database) =>
 type ObservationRow = FindingObservationRecord;
 
 export function insertObservation(
-  db: Database.Database,
+  db: SqliteDatabase,
   input: InsertObservationInput,
 ): FindingObservationRecord {
   insertObservationStatement(db).run({
@@ -80,7 +80,7 @@ export function insertObservation(
 }
 
 export function listObservationsForReview(
-  db: Database.Database,
+  db: SqliteDatabase,
   reviewId: string,
 ): FindingObservationRecord[] {
   return db
@@ -106,7 +106,7 @@ export function listObservationsForReview(
 }
 
 export function countObservationsByFindingIds(
-  db: Database.Database,
+  db: SqliteDatabase,
   findingIds: string[],
 ): Map<string, number> {
   const counts = new Map<string, number>();
@@ -131,7 +131,7 @@ export function countObservationsByFindingIds(
 }
 
 export function getLatestObservationForFinding(
-  db: Database.Database,
+  db: SqliteDatabase,
   findingId: string,
 ): FindingObservationRecord | undefined {
   return db

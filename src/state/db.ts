@@ -1,7 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import Database from "better-sqlite3";
 import { MIGRATION_001_INITIAL_SCHEMA } from "./migrations/001-initial-schema.js";
+import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.js";
 import { CURRENT_SCHEMA_VERSION } from "./types.js";
 
 const BUSY_TIMEOUT_MS = 5000;
@@ -19,7 +19,7 @@ export class InvalidFindingTransitionError extends StateDatabaseError {
 }
 
 export interface StateDatabase {
-  db: Database.Database;
+  db: SqliteDatabase;
   path: string;
 }
 
@@ -30,7 +30,7 @@ export function getStateDbPath(diffOwlDir: string): string {
 export async function openStateDatabase(diffOwlDir: string): Promise<StateDatabase> {
   await mkdir(diffOwlDir, { recursive: true });
   const path = getStateDbPath(diffOwlDir);
-  const db = new Database(path);
+  const db = await openSqliteDatabase(path);
   try {
     configureDatabase(db);
     assertCompatibleSchema(db);
@@ -46,7 +46,7 @@ export async function openStateDatabase(diffOwlDir: string): Promise<StateDataba
   }
 }
 
-export function closeDatabaseConnection(db: Database.Database): void {
+export function closeDatabaseConnection(db: SqliteDatabase): void {
   if (!db.open) {
     return;
   }
@@ -63,13 +63,13 @@ export function closeStateDatabase(state: StateDatabase): void {
   closeDatabaseConnection(state.db);
 }
 
-function configureDatabase(db: Database.Database): void {
+function configureDatabase(db: SqliteDatabase): void {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.pragma(`busy_timeout = ${BUSY_TIMEOUT_MS}`);
 }
 
-function assertCompatibleSchema(db: Database.Database): void {
+function assertCompatibleSchema(db: SqliteDatabase): void {
   const table = db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'")
     .get() as { name: string } | undefined;
@@ -89,7 +89,7 @@ function assertCompatibleSchema(db: Database.Database): void {
 }
 
 export function applyMigrations(
-  db: Database.Database,
+  db: SqliteDatabase,
   targetVersion: number,
   migrations: Record<number, string> = MIGRATIONS,
 ): void {
@@ -118,7 +118,7 @@ export function applyMigrations(
   }
 }
 
-function listAppliedMigrationVersions(db: Database.Database): number[] {
+function listAppliedMigrationVersions(db: SqliteDatabase): number[] {
   const table = db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'")
     .get() as { name: string } | undefined;
@@ -132,7 +132,7 @@ function listAppliedMigrationVersions(db: Database.Database): number[] {
   return rows.map((row) => row.version);
 }
 
-export function runInTransaction<T>(db: Database.Database, fn: () => T): T {
+export function runInTransaction<T>(db: SqliteDatabase, fn: () => T): T {
   const transaction = db.transaction(fn);
   return transaction();
 }

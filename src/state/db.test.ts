@@ -1,7 +1,6 @@
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   applyMigrations,
@@ -13,6 +12,7 @@ import {
   StateDatabaseError,
 } from "./db.js";
 import { MIGRATION_001_INITIAL_SCHEMA } from "./migrations/001-initial-schema.js";
+import { openSqliteDatabase } from "./sqlite.js";
 import { removeTempStateDir } from "./test-helpers.js";
 import { CURRENT_SCHEMA_VERSION } from "./types.js";
 
@@ -79,12 +79,15 @@ describe("openStateDatabase", () => {
     const state = await openStateDatabase(dir);
     closeStateDatabase(state);
 
-    const db = new Database(getStateDbPath(dir));
-    db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(
-      CURRENT_SCHEMA_VERSION + 1,
-      new Date().toISOString(),
-    );
-    db.close();
+    const db = await openSqliteDatabase(getStateDbPath(dir));
+    try {
+      db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(
+        CURRENT_SCHEMA_VERSION + 1,
+        new Date().toISOString(),
+      );
+    } finally {
+      db.close();
+    }
 
     await expect(openStateDatabase(dir)).rejects.toThrow(StateDatabaseError);
     await expect(openStateDatabase(dir)).rejects.toThrow(/newer than supported version/);
@@ -95,7 +98,7 @@ describe("openStateDatabase", () => {
     const first = await openStateDatabase(dir);
     closeStateDatabase(first);
 
-    const db = new Database(getStateDbPath(dir));
+    const db = await openSqliteDatabase(getStateDbPath(dir));
     try {
       expect(() =>
         applyMigrations(db, 2, {

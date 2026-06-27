@@ -1,4 +1,4 @@
-import type Database from "better-sqlite3";
+import type { SqliteDatabase } from "./sqlite.js";
 import {
   LocatorAmbiguousError,
   LocatorNotFoundError,
@@ -44,7 +44,7 @@ export interface FindingListItem {
 
 export async function withFindingDatabase<T>(
   diffOwlDir: string,
-  fn: (db: Database.Database) => T,
+  fn: (db: SqliteDatabase) => T,
 ): Promise<T> {
   const state = await openStateDatabase(diffOwlDir);
   try {
@@ -54,16 +54,13 @@ export async function withFindingDatabase<T>(
   }
 }
 
-export function listUnresolvedFindings(db: Database.Database): FindingListItem[] {
+export function listUnresolvedFindings(db: SqliteDatabase): FindingListItem[] {
   return listFindingsByStatuses(db, ["open", "regressed"]).map((finding) =>
     toFindingListItem(db, finding),
   );
 }
 
-export function getFindingDetail(
-  db: Database.Database,
-  findingId: string,
-): FindingDetail | undefined {
+export function getFindingDetail(db: SqliteDatabase, findingId: string): FindingDetail | undefined {
   const finding = getFindingById(db, findingId);
   if (!finding) {
     return undefined;
@@ -71,7 +68,7 @@ export function getFindingDetail(
   return toFindingDetail(db, finding);
 }
 
-export function resolveFindingLocator(db: Database.Database, locator: string): string {
+export function resolveFindingLocator(db: SqliteDatabase, locator: string): string {
   const latestOrdinal = parseLatestOrdinalLocator(locator);
   if (latestOrdinal !== null) {
     const latestReview = getLatestReview(db);
@@ -85,7 +82,7 @@ export function resolveFindingLocator(db: Database.Database, locator: string): s
   return resolveFindingIdFromCandidates(locator, listAllFindings(db));
 }
 
-export function requireFindingDetail(db: Database.Database, locator: string): FindingDetail {
+export function requireFindingDetail(db: SqliteDatabase, locator: string): FindingDetail {
   const findingId = resolveFindingLocator(db, locator);
   const detail = getFindingDetail(db, findingId);
   if (!detail) {
@@ -95,7 +92,7 @@ export function requireFindingDetail(db: Database.Database, locator: string): Fi
 }
 
 export function mutateFinding(
-  db: Database.Database,
+  db: SqliteDatabase,
   locator: string,
   mutation: (findingId: string) => FindingRecord,
 ): FindingDetail {
@@ -111,7 +108,7 @@ export function mutateFinding(
 }
 
 export function dismissFindingByLocator(
-  db: Database.Database,
+  db: SqliteDatabase,
   locator: string,
   input: { actor: FindingActor; reason: string },
 ): FindingDetail {
@@ -119,7 +116,7 @@ export function dismissFindingByLocator(
 }
 
 export function deferFindingByLocator(
-  db: Database.Database,
+  db: SqliteDatabase,
   locator: string,
   input: { actor: FindingActor; reason: string },
 ): FindingDetail {
@@ -127,7 +124,7 @@ export function deferFindingByLocator(
 }
 
 export function fixFindingByLocator(
-  db: Database.Database,
+  db: SqliteDatabase,
   locator: string,
   input: FixFindingInput,
 ): FindingDetail {
@@ -135,7 +132,7 @@ export function fixFindingByLocator(
 }
 
 export function reopenFindingByLocator(
-  db: Database.Database,
+  db: SqliteDatabase,
   locator: string,
   input: { actor: FindingActor; reason: string },
 ): FindingDetail {
@@ -148,7 +145,7 @@ export function isUnresolvedFinding(status: FindingRecord["status"]): boolean {
 
 export { LocatorAmbiguousError, LocatorNotFoundError };
 
-function toFindingListItem(db: Database.Database, finding: FindingRecord): FindingListItem {
+function toFindingListItem(db: SqliteDatabase, finding: FindingRecord): FindingListItem {
   const counts = countObservationsByFindingIds(db, [finding.id]);
   return {
     finding,
@@ -157,7 +154,7 @@ function toFindingListItem(db: Database.Database, finding: FindingRecord): Findi
   };
 }
 
-function toFindingDetail(db: Database.Database, finding: FindingRecord): FindingDetail {
+function toFindingDetail(db: SqliteDatabase, finding: FindingRecord): FindingDetail {
   const counts = countObservationsByFindingIds(db, [finding.id]);
   return {
     finding,

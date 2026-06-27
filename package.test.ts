@@ -6,6 +6,8 @@ describe("npm package metadata", () => {
     const packageJson = JSON.parse(await readFile("package.json", "utf-8")) as {
       files?: string[];
       engines?: { node?: string };
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
       scripts?: Record<string, string>;
       repository?: { type?: string; url?: string };
       homepage?: string;
@@ -13,14 +15,14 @@ describe("npm package metadata", () => {
     };
 
     expect(packageJson.files).toEqual(["dist"]);
-    expect(packageJson.engines?.node).toBe(">=22.14.0 <23");
-    expect(packageJson.scripts?.["check:native-runtime"]).toBe(
-      "node scripts/check-native-runtime.mjs",
-    );
-    expect(packageJson.scripts?.prebuild).toBe("pnpm run check:native-runtime");
-    expect(packageJson.scripts?.predev).toBe("pnpm run check:native-runtime");
-    expect(packageJson.scripts?.pretest).toBe("pnpm run check:native-runtime");
-    expect(packageJson.scripts?.pretypecheck).toBe("pnpm run check:native-runtime");
+    expect(packageJson.engines?.node).toBe(">=22.14.0");
+    expect(packageJson.dependencies?.["better-sqlite3"]).toBeUndefined();
+    expect(packageJson.devDependencies?.["@types/better-sqlite3"]).toBeUndefined();
+    expect(packageJson.scripts?.["check:runtime"]).toBe("node scripts/check-runtime.mjs");
+    expect(packageJson.scripts?.prebuild).toBe("pnpm run check:runtime");
+    expect(packageJson.scripts?.predev).toBe("pnpm run check:runtime");
+    expect(packageJson.scripts?.pretest).toBe("pnpm run check:runtime");
+    expect(packageJson.scripts?.pretypecheck).toBe("pnpm run check:runtime");
     expect(packageJson.scripts?.prepack).toBe("npm run build");
     expect(packageJson.repository).toEqual({
       type: "git",
@@ -30,7 +32,7 @@ describe("npm package metadata", () => {
     expect(packageJson.bugs?.url).toBe("https://github.com/gutierrezje/diffowl/issues");
   });
 
-  it("pins the editor and shell Node runtime to the native dependency ABI", async () => {
+  it("pins the local development runtime to the oldest supported Node version", async () => {
     await expect(readRuntimeVersion(".nvmrc")).resolves.toBe("22.14.0");
     await expect(readRuntimeVersion(".node-version")).resolves.toBe("22.14.0");
   });

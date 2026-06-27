@@ -252,14 +252,6 @@ export function isHookQueueStopFailure(message: string | undefined): boolean {
   }
 
   if (
-    normalized.includes("node_module_version") ||
-    (normalized.includes("better-sqlite3") &&
-      normalized.includes("compiled against a different node.js version"))
-  ) {
-    return true;
-  }
-
-  if (
     normalized.includes("opencode not found") ||
     normalized.includes("opencode: command not found") ||
     (normalized.includes("enoent") && normalized.includes("opencode"))

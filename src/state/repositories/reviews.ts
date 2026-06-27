@@ -1,9 +1,9 @@
-import type Database from "better-sqlite3";
+import type { SqliteDatabase } from "../sqlite.js";
 import { StateDatabaseError } from "../db.js";
 import type { InsertReviewInput, ReviewRecord } from "../types.js";
 import { createReviewId } from "../types.js";
 
-const insertReviewStatement = (db: Database.Database) =>
+const insertReviewStatement = (db: SqliteDatabase) =>
   db.prepare(`
     INSERT INTO reviews (
       id,
@@ -40,7 +40,7 @@ const insertReviewStatement = (db: Database.Database) =>
     )
   `);
 
-const getReviewByIdStatement = (db: Database.Database) =>
+const getReviewByIdStatement = (db: SqliteDatabase) =>
   db.prepare(`
     SELECT
       id,
@@ -80,7 +80,7 @@ type ReviewRow = {
   skippedReason: string | null;
 };
 
-export function insertReview(db: Database.Database, input: InsertReviewInput): ReviewRecord {
+export function insertReview(db: SqliteDatabase, input: InsertReviewInput): ReviewRecord {
   const record: ReviewRecord = {
     id: input.id ?? createReviewId(),
     createdAt: input.createdAt ?? new Date().toISOString(),
@@ -120,7 +120,7 @@ export function insertReview(db: Database.Database, input: InsertReviewInput): R
   return record;
 }
 
-export function getReviewById(db: Database.Database, id: string): ReviewRecord | undefined {
+export function getReviewById(db: SqliteDatabase, id: string): ReviewRecord | undefined {
   const row = getReviewByIdStatement(db).get(id) as ReviewRow | undefined;
   if (!row) {
     return undefined;
@@ -129,7 +129,7 @@ export function getReviewById(db: Database.Database, id: string): ReviewRecord |
   return mapReviewRow(row);
 }
 
-export function getLatestReview(db: Database.Database): ReviewRecord | undefined {
+export function getLatestReview(db: SqliteDatabase): ReviewRecord | undefined {
   const row = db
     .prepare(`
       SELECT
@@ -167,7 +167,7 @@ export interface UpdateReviewInput {
 }
 
 export function updateReview(
-  db: Database.Database,
+  db: SqliteDatabase,
   id: string,
   input: UpdateReviewInput,
 ): ReviewRecord {

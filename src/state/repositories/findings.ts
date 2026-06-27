@@ -1,9 +1,9 @@
-import type Database from "better-sqlite3";
+import type { SqliteDatabase } from "../sqlite.js";
 import { StateDatabaseError } from "../db.js";
 import type { FindingRecord, FindingStatus, InsertFindingInput } from "../types.js";
 import { createFindingId } from "../types.js";
 
-const insertFindingStatement = (db: Database.Database) =>
+const insertFindingStatement = (db: SqliteDatabase) =>
   db.prepare(`
     INSERT INTO findings (
       id,
@@ -24,7 +24,7 @@ const insertFindingStatement = (db: Database.Database) =>
     )
   `);
 
-const getFindingByIdStatement = (db: Database.Database) =>
+const getFindingByIdStatement = (db: SqliteDatabase) =>
   db.prepare(`
     SELECT
       id,
@@ -38,7 +38,7 @@ const getFindingByIdStatement = (db: Database.Database) =>
     WHERE id = ?
   `);
 
-const getFindingByFingerprintStatement = (db: Database.Database) =>
+const getFindingByFingerprintStatement = (db: SqliteDatabase) =>
   db.prepare(`
     SELECT
       id,
@@ -52,7 +52,7 @@ const getFindingByFingerprintStatement = (db: Database.Database) =>
     WHERE fingerprint = ?
   `);
 
-export function insertFinding(db: Database.Database, input: InsertFindingInput): FindingRecord {
+export function insertFinding(db: SqliteDatabase, input: InsertFindingInput): FindingRecord {
   const timestamp = input.createdAt ?? new Date().toISOString();
   const record: FindingRecord = {
     id: input.id ?? createFindingId(),
@@ -77,13 +77,13 @@ export function insertFinding(db: Database.Database, input: InsertFindingInput):
   return record;
 }
 
-export function getFindingById(db: Database.Database, id: string): FindingRecord | undefined {
+export function getFindingById(db: SqliteDatabase, id: string): FindingRecord | undefined {
   const row = getFindingByIdStatement(db).get(id) as FindingRecord | undefined;
   return row;
 }
 
 export function getFindingByFingerprint(
-  db: Database.Database,
+  db: SqliteDatabase,
   fingerprint: string,
 ): FindingRecord | undefined {
   const row = getFindingByFingerprintStatement(db).get(fingerprint) as FindingRecord | undefined;
@@ -91,7 +91,7 @@ export function getFindingByFingerprint(
 }
 
 export function listFindingsByStatuses(
-  db: Database.Database,
+  db: SqliteDatabase,
   statuses: FindingRecord["status"][],
 ): FindingRecord[] {
   if (statuses.length === 0) {
@@ -116,7 +116,7 @@ export function listFindingsByStatuses(
     .all(...statuses) as FindingRecord[];
 }
 
-export function listAllFindings(db: Database.Database): FindingRecord[] {
+export function listAllFindings(db: SqliteDatabase): FindingRecord[] {
   return db
     .prepare(`
       SELECT
@@ -133,7 +133,7 @@ export function listAllFindings(db: Database.Database): FindingRecord[] {
     .all() as FindingRecord[];
 }
 
-const updateFindingStatement = (db: Database.Database) =>
+const updateFindingStatement = (db: SqliteDatabase) =>
   db.prepare(`
     UPDATE findings
     SET
@@ -144,7 +144,7 @@ const updateFindingStatement = (db: Database.Database) =>
   `);
 
 export function updateFinding(
-  db: Database.Database,
+  db: SqliteDatabase,
   id: string,
   updates: {
     status: FindingStatus;

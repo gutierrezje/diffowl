@@ -1,4 +1,4 @@
-import type Database from "better-sqlite3";
+import type { SqliteDatabase } from "./sqlite.js";
 import { computeFindingFingerprint, deduplicateFindingCandidates } from "./fingerprint.js";
 import { insertFindingEvent } from "./repositories/events.js";
 import { getFindingByFingerprint, insertFinding, updateFinding } from "./repositories/findings.js";
@@ -11,7 +11,7 @@ import type {
 } from "./types.js";
 
 export function reconcileReviewFindings(
-  db: Database.Database,
+  db: SqliteDatabase,
   reviewId: string,
   candidates: FindingCandidate[],
 ): ReconcileReviewFindingsResult {

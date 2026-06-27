@@ -1,7 +1,7 @@
-import type Database from "better-sqlite3";
+import type { SqliteDatabase } from "../sqlite.js";
 import type { FindingEventRecord, InsertFindingEventInput } from "../types.js";
 
-const insertEventStatement = (db: Database.Database) =>
+const insertEventStatement = (db: SqliteDatabase) =>
   db.prepare(`
     INSERT INTO finding_events (
       finding_id,
@@ -24,7 +24,7 @@ const insertEventStatement = (db: Database.Database) =>
     )
   `);
 
-const getEventStatement = (db: Database.Database) =>
+const getEventStatement = (db: SqliteDatabase) =>
   db.prepare(`
     SELECT
       id,
@@ -53,7 +53,7 @@ type EventRow = {
 };
 
 export function insertFindingEvent(
-  db: Database.Database,
+  db: SqliteDatabase,
   input: InsertFindingEventInput,
 ): FindingEventRecord {
   const createdAt = input.createdAt ?? new Date().toISOString();
@@ -76,7 +76,7 @@ export function insertFindingEvent(
   return mapEventRow(row);
 }
 
-export function listFindingEvents(db: Database.Database, findingId: string): FindingEventRecord[] {
+export function listFindingEvents(db: SqliteDatabase, findingId: string): FindingEventRecord[] {
   const rows = db
     .prepare(`
       SELECT

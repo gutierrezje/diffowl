@@ -39,7 +39,7 @@ Under the hood it drives a headless [OpenCode](https://opencode.ai/docs/server/)
 
 ### 1. Prerequisites
 
-1. **Verify Node.js 22.14.0 is installed**:
+1. **Verify Node.js 22.14.0 or newer is installed**:
    ```bash
    node --version
    ```
