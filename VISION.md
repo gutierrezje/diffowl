@@ -104,7 +104,10 @@ dates.
 - Add CLI commands to list, inspect, dismiss, defer, and resolve findings.
 - Keep Markdown as an export generated from structured state.
 
-### 0.4 - Measured Review Quality
+### 0.3.x - Measured Review Quality (in progress)
+
+Ship incrementally on `0.3.x` patch releases, developed on a feature branch
+until the harness is usable end-to-end:
 
 - Add a replayable evaluation harness using known bug-introducing and clean
   changes.
@@ -113,8 +116,9 @@ dates.
 - Record the exact review input and configuration needed to reproduce results.
 - Use evaluation results to guide context and prompt changes.
 
-Evaluation may begin during 0.3 development, but quality claims should not be
-made until the harness produces repeatable results.
+The eval harness is internal tooling until `diffowl eval` lands; target
+**0.3.2+**, not a `0.4.0` minor bump. Quality claims should not be made until
+the harness produces repeatable results on a stabilized corpus.
 
 ### 0.5 - Incremental Impact Graph
 
