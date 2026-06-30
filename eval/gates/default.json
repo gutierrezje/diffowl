@@ -1,0 +1,6 @@
+{
+  "min_precision": 0.7,
+  "min_recall_must_detect": 0.8,
+  "max_repeated_fp_rate": 0.1,
+  "min_empty_on_clean_rate": 0.9
+}
