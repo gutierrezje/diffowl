@@ -14,6 +14,7 @@ Local AI code review CLI. Orchestrates a headless OpenCode server and delegates 
 │   ├── config.ts           # .diffowl.yml load/save
 │   ├── opencode/ (AGENTS.md)   # OpenCode SDK integration
 │   ├── git/ (AGENTS.md)        # Git diff / hooks
+│   ├── eval/                   # Measured review quality harness
 │   └── review/ (AGENTS.md)     # Output formatting & context
 ├── package.json
 └── tsup.config.ts
@@ -24,6 +25,7 @@ Local AI code review CLI. Orchestrates a headless OpenCode server and delegates 
 | Task                                  | Location                                               |
 | ------------------------------------- | ------------------------------------------------------ |
 | Add CLI command                       | `src/cli.ts`                                           |
+| Run eval harness                      | `src/eval/command.ts`, `pnpm run eval`                 |
 | Change review prompt / agent behavior | `src/opencode/agent.ts`                                |
 | Tweak diff parser                     | `src/git/diff.ts`                                      |
 | Change report format                  | `src/review/formatter.ts`                              |

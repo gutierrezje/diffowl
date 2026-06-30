@@ -27,6 +27,7 @@ import {
   type ReviewUsage,
 } from "./opencode/client.js";
 import { getOpenCodeFailureGuidance } from "./opencode/guidance.js";
+import { runEvalCommand } from "./eval/command.js";
 import { canSelectModelInteractively, selectModel } from "./opencode/model-selection.js";
 import {
   ensureServer,
@@ -939,6 +940,28 @@ program
       process.once("exit", () => releaseHookReviewLock(hookLock));
     }
     await runPendingHookReviews();
+  });
+
+function collectEvalCaseIds(value: string, previous: string[]): string[] {
+  return previous.concat([value]);
+}
+
+program
+  .command("eval", { hidden: true })
+  .description("Run measured review quality eval harness")
+  .option("--corpus <dir>", "Corpus directory", "eval/corpus")
+  .option("--case <id>", "Run specific case(s) only", collectEvalCaseIds, [] as string[])
+  .option("--trials <n>", "Trials per case", "1")
+  .option("--mode <mode>", "Run mode: diffowl, baseline, or both", "diffowl")
+  .option("--model <id>", "Review model override")
+  .option("--depth <depth>", "Review context depth: shallow or default")
+  .option("--reasoning <effort>", "Reasoning effort override")
+  .option("--min-confidence <level>", "Minimum finding confidence: low, medium, or high")
+  .option("--out <dir>", "Output directory for eval results")
+  .option("--gate <path>", "Gate thresholds JSON file")
+  .option("--format <format>", "Output format: text or json", "text")
+  .action(async (options) => {
+    process.exit(await runEvalCommand(options));
   });
 
 // Server commands

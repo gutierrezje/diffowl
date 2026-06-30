@@ -39,6 +39,7 @@
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "dogfood:0.3": "pnpm run build && node scripts/dogfood-0.3.mjs",
+    "eval": "pnpm run build && node dist/cli.js eval",
     "prepack": "npm run build"
   },
   "dependencies": {
