@@ -12,6 +12,7 @@ import {
   materializeCaseWorkspace,
   verifyEvalCaseAnchors,
 } from "./corpus.js";
+import { assertCorpusMatchesManifest, loadCorpusManifest } from "./corpus-manifest.js";
 
 const corpusDir = join(import.meta.dirname, "../../eval/corpus");
 let tempDirs: string[] = [];
@@ -136,6 +137,23 @@ describe("loadEvalCorpus", () => {
       "repeated-clean",
     ]);
     expect(corpus.version).toBe(await hashCorpus(corpusDir));
+  });
+});
+
+describe("corpus manifest", () => {
+  it("matches the pinned eval/corpus-manifest.json", async () => {
+    const manifestPath = join(import.meta.dirname, "../../eval/corpus-manifest.json");
+    const manifest = await loadCorpusManifest(manifestPath);
+
+    await expect(assertCorpusMatchesManifest(corpusDir, manifest)).resolves.toBeUndefined();
+    expect(manifest.cases).toEqual([
+      "async-clean",
+      "fire-and-forget-async",
+      "harmless-trim",
+      "missing-validation",
+      "regression-reintroduced",
+      "repeated-clean",
+    ]);
   });
 });
 

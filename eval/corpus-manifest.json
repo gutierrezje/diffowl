@@ -1,0 +1,13 @@
+{
+  "version": "cfb05b57acb95ecc69b8da23b081236791ce31182b94e161dc19e782b0be81d4",
+  "cases": [
+    "async-clean",
+    "fire-and-forget-async",
+    "harmless-trim",
+    "missing-validation",
+    "regression-reintroduced",
+    "repeated-clean"
+  ],
+  "frozen_at": "2026-06-29",
+  "notes": "v1 seed corpus. Manifest lives outside eval/corpus/ so hashCorpus() stays non-self-referential."
+}
