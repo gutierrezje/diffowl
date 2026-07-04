@@ -244,6 +244,9 @@ async function stopUnhealthyServerListener(port: number): Promise<boolean> {
   try {
     process.kill(listenerPid, "SIGTERM");
   } catch (error) {
+    if (isProcessMissingError(error)) {
+      return false;
+    }
     throw new Error(
       `Could not stop unhealthy OpenCode server on port ${port}: ${describeError(error)}`,
     );
@@ -390,4 +393,12 @@ function sleep(ms: number): Promise<void> {
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isProcessMissingError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const code = (error as { code?: unknown }).code;
+  return code === "ESRCH";
 }

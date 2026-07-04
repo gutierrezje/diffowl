@@ -259,6 +259,68 @@ describe("ensureServer", () => {
     );
   });
 
+  it("spawns when an unhealthy listener exits before signal delivery", async () => {
+    vi.useFakeTimers();
+    const { ensureServer } = await import("./server.js");
+    const child = Promise.resolve() as Promise<unknown> & {
+      pid: number;
+      unref: () => void;
+      catch: (handler: (err: unknown) => void) => void;
+    };
+    child.pid = 22222;
+    child.unref = vi.fn();
+    child.catch = vi.fn();
+
+    mocks.ensureDiffOwlDir.mockResolvedValue("/tmp/diffowl");
+    mocks.getDiffOwlDir.mockReturnValue("/tmp/diffowl");
+    mocks.writeFile.mockResolvedValue(undefined);
+    mocks.existsSync.mockReturnValue(false);
+
+    let healthChecks = 0;
+    mocks.fetch.mockImplementation(async () => {
+      healthChecks += 1;
+      if (healthChecks === 1) {
+        throw new Error("connection reset");
+      }
+      return {
+        ok: true,
+        json: async () => ({ healthy: true, version: "1.17.7" }),
+      };
+    });
+    vi.stubGlobal("fetch", mocks.fetch);
+
+    let lsofCalls = 0;
+    mocks.execa.mockImplementation((command: string, args?: string[]) => {
+      if (command === "lsof") {
+        lsofCalls += 1;
+        return Promise.resolve({ stdout: lsofCalls === 1 ? "11111\n" : "" });
+      }
+      if (command === "ps") {
+        return Promise.resolve({ stdout: "opencode serve --port 4096" });
+      }
+      if (command === "which" || command === "where") {
+        return Promise.resolve({ stdout: "/usr/local/bin/opencode" });
+      }
+      if (command === "opencode" && args?.[0] === "serve") {
+        return child;
+      }
+      return Promise.resolve({ stdout: "" });
+    });
+
+    vi.spyOn(process, "kill").mockImplementation(() => {
+      throw Object.assign(new Error("no such process"), { code: "ESRCH" });
+    });
+
+    const result = ensureServer(4096);
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toBe("http://127.0.0.1:4096");
+    expect(mocks.execa).toHaveBeenCalledWith(
+      "opencode",
+      ["serve", "--port", "4096"],
+      expect.objectContaining({ detached: true }),
+    );
+  });
+
   it("reuses a healthy server when versions match", async () => {
     const { ensureServer } = await import("./server.js");
     mocks.fetch.mockResolvedValue({
