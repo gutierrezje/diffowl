@@ -42,21 +42,23 @@ Committed baselines live under `eval/baselines/<label>/`:
 | `eval-results.json` | Full schema v1 results (machine-readable) |
 | `eval-summary.md` | Human-readable summary |
 
-### Capture policy (v1)
+### Capture Policy
 
 1. Confirm `eval/corpus-manifest.json` matches the live corpus (`pnpm run test src/eval/corpus.test.ts`).
 2. Run the full corpus with `--mode both --trials 3` and a fixed model.
-3. Copy `eval-results.json` and `eval-summary.md` into `eval/baselines/v1/`.
-4. Add `eval/baselines/v1/manifest.json` recording model, trials, `corpus_version`, DiffOwl version, and whether gates passed.
+3. Copy `eval-results.json` and `eval-summary.md` into `eval/baselines/<label>/`.
+4. Add `eval/baselines/<label>/manifest.json` recording model, trials, `corpus_version`, DiffOwl version, and whether gates passed.
 5. If `eval/gates/default.json` fails on real numbers, record actual metrics anyway; adjust gates or add a baseline-specific gate file in the baseline manifest — do not fake a passing run.
 
-Refresh the baseline when the corpus version changes or when claiming a measured quality improvement.
+Do not commit fixture-built or synthetic baselines under `eval/baselines/`. If no live snapshot exists for a label, leave that directory absent until capture is complete.
+
+Refresh a baseline when the corpus version changes or when claiming a measured quality improvement.
 
 ## Comparing against a baseline
 
 ```bash
 pnpm run eval -- \
-  --compare eval/baselines/v1/eval-results.json \
+  --compare eval/baselines/<label>/eval-results.json \
   --out /tmp/diffowl-eval-run
 ```
 
