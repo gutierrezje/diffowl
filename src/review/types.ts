@@ -1,5 +1,4 @@
 import type { ReviewConfidence } from "../config.js";
-import type { ReviewUsage } from "./usage.js";
 
 export type ReviewSeverity = "error" | "warning" | "info";
 
@@ -30,7 +29,6 @@ export interface ReviewReport {
   suppressedFindings?: ReviewFinding[];
   diagnostics?: string[];
   timings?: ReviewTiming[];
-  usage?: ReviewUsage;
 }
 
 export interface ReviewTiming {

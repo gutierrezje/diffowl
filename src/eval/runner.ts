@@ -123,15 +123,13 @@ export async function runEvalCaseTrial(
       config.min_confidence,
     );
 
-    const usage = reviewResult.usage ?? reviewResult.report.usage;
-
     return {
       caseId: evalCase.id,
       trial,
       mode,
       findings: filtered.findings,
       timings: reviewResult.report.timings ?? [],
-      ...(usage ? { usage } : {}),
+      ...(reviewResult.usage ? { usage: reviewResult.usage } : {}),
       sessionId: reviewResult.sessionId,
       summary: reviewResult.report.summary,
       diagnostics: filtered.diagnostics,
