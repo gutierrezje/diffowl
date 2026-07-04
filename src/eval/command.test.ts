@@ -239,8 +239,8 @@ describe("runEvalCommand", () => {
     const baselineDir = await mkdtemp(join(tmpdir(), "diffowl-eval-baseline-"));
     const baselinePath = join(baselineDir, "eval-results.json");
     await writeFile(baselinePath, `${JSON.stringify(reference, null, 2)}\n`, "utf8");
-    const referenceRuns = new Map(
-      reference.cases.map((entry) => [entry.id, entry.diffowl!.run]),
+    const referenceRuns = new Map<string, EvalCaseRunResult>(
+      reference.cases.map((entry) => [entry.id, entry.diffowl!.run as EvalCaseRunResult]),
     );
 
     const stderr: string[] = [];
