@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { hashCorpus, loadEvalCorpus } from "./corpus.js";
+import { loadEvalCorpus } from "./corpus.js";
 import {
   parseEvalCorpusManifest,
   type EvalCorpusManifest,
@@ -19,26 +18,15 @@ export async function loadCorpusManifest(manifestPath: string): Promise<EvalCorp
   return parseEvalCorpusManifest(raw);
 }
 
-export function defaultCorpusManifestPath(evalRootDir: string): string {
-  return join(evalRootDir, "corpus-manifest.json");
-}
-
 export async function assertCorpusMatchesManifest(
   corpusDir: string,
   manifest: EvalCorpusManifest,
 ): Promise<void> {
   const corpus = await loadEvalCorpus(corpusDir);
-  const liveVersion = await hashCorpus(corpusDir);
-
-  if (liveVersion !== manifest.version) {
-    throw new Error(
-      `Corpus version mismatch: manifest has ${manifest.version}, live hash is ${liveVersion}. Update eval/corpus-manifest.json after corpus changes.`,
-    );
-  }
 
   if (corpus.version !== manifest.version) {
     throw new Error(
-      `Loaded corpus version ${corpus.version} does not match manifest ${manifest.version}.`,
+      `Corpus version mismatch: manifest has ${manifest.version}, live hash is ${corpus.version}. Update eval/corpus-manifest.json after corpus changes.`,
     );
   }
 
