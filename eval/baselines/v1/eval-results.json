@@ -1,0 +1,1463 @@
+{
+  "schema_version": 1,
+  "manifest": {
+    "corpus_version": "cfb05b57acb95ecc69b8da23b081236791ce31182b94e161dc19e782b0be81d4",
+    "cases": [
+      {
+        "id": "async-clean",
+        "case_json_hash": "a7750573d680216e53cff8fcb4001312a6768bce5f4a9177bd65ff8bdc9f2933",
+        "patch_hash": "ca44cf32f3da961abae367ab4c17a3de9322edcb8b9f421b9a6ebcf3d0971e44"
+      },
+      {
+        "id": "fire-and-forget-async",
+        "case_json_hash": "7a7accd462c2e2d88106416952c6bb19a1289aa616d24d5e3e0c3a440439d10f",
+        "patch_hash": "7210e762ba09789bdbc4560413dd53bcf616b2807ccbaef440e9f1d62dd4334c"
+      },
+      {
+        "id": "harmless-trim",
+        "case_json_hash": "9c253b4321c4d7d67d1166a64216c337c18f43ee625d4415b844a3bc0535c6fe",
+        "patch_hash": "2a52225c739b4384efc33fc33e530734555f84c8abe4124b50d41fa7b3c640ad"
+      },
+      {
+        "id": "missing-validation",
+        "case_json_hash": "244a088ccabaca2420cfcaa401ebf56d1fb6aac9702cd8babbd0b3b3180e0365",
+        "patch_hash": "c11e0a74ab8f130954aa525ebeac289655da49a70d459a8ea03ce510256f5bb2"
+      },
+      {
+        "id": "regression-reintroduced",
+        "case_json_hash": "950ffb9366cfcf8c791959c9718c60b8a02c2e751b7b60a39143da1c778a133c",
+        "patch_hash": "7210e762ba09789bdbc4560413dd53bcf616b2807ccbaef440e9f1d62dd4334c"
+      },
+      {
+        "id": "repeated-clean",
+        "case_json_hash": "e15a2578e72882ee0879ca15c78472851b37f182a83c654bbde26df422ed58f3",
+        "patch_hash": "aadbe1c45a6b62d1d037b28b7ae1a0fff9a228b8ed2fed68d9a6caa70e1ebcd5"
+      }
+    ],
+    "model": "provider/model",
+    "reasoning": "auto",
+    "depth": "default",
+    "min_confidence": "medium",
+    "trials": 3,
+    "mode": "diffowl",
+    "diffowl_version": "0.3.1",
+    "node_version": "v22.14.0",
+    "opencode_version": null,
+    "started_at": "2026-06-29T12:00:00.000Z",
+    "finished_at": "2026-06-29T12:30:00.000Z"
+  },
+  "cases": [
+    {
+      "id": "async-clean",
+      "category": "clean",
+      "tags": [
+        "false-positive-stress",
+        "async"
+      ],
+      "expected": [],
+      "case_json_hash": "a7750573d680216e53cff8fcb4001312a6768bce5f4a9177bd65ff8bdc9f2933",
+      "patch_hash": "ca44cf32f3da961abae367ab4c17a3de9322edcb8b9f421b9a6ebcf3d0971e44",
+      "diffowl": {
+        "run": {
+          "caseId": "async-clean",
+          "mode": "diffowl",
+          "trials": [
+            {
+              "caseId": "async-clean",
+              "trial": 0,
+              "mode": "diffowl",
+              "findings": [],
+              "timings": [],
+              "sessionId": "session",
+              "summary": "",
+              "diagnostics": [],
+              "durationMs": 1000
+            },
+            {
+              "caseId": "async-clean",
+              "trial": 1,
+              "mode": "diffowl",
+              "findings": [],
+              "timings": [],
+              "sessionId": "session",
+              "summary": "",
+              "diagnostics": [],
+              "durationMs": 1000
+            },
+            {
+              "caseId": "async-clean",
+              "trial": 2,
+              "mode": "diffowl",
+              "findings": [],
+              "timings": [],
+              "sessionId": "session",
+              "summary": "",
+              "diagnostics": [],
+              "durationMs": 1000
+            }
+          ]
+        },
+        "score": {
+          "caseId": "async-clean",
+          "category": "clean",
+          "tags": [
+            "false-positive-stress",
+            "async"
+          ],
+          "trials": [
+            {
+              "caseId": "async-clean",
+              "trial": 0,
+              "truePositives": [],
+              "falsePositives": [],
+              "falseNegatives": [],
+              "redundancies": [],
+              "counts": {
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "redundancy": 0
+              }
+            },
+            {
+              "caseId": "async-clean",
+              "trial": 1,
+              "truePositives": [],
+              "falsePositives": [],
+              "falseNegatives": [],
+              "redundancies": [],
+              "counts": {
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "redundancy": 0
+              }
+            },
+            {
+              "caseId": "async-clean",
+              "trial": 2,
+              "truePositives": [],
+              "falsePositives": [],
+              "falseNegatives": [],
+              "redundancies": [],
+              "counts": {
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "redundancy": 0
+              }
+            }
+          ],
+          "repeatedFalsePositives": []
+        },
+        "metrics": {
+          "caseId": "async-clean",
+          "category": "clean",
+          "tags": [
+            "false-positive-stress",
+            "async"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": 1,
+          "latencyMs": {
+            "p50": 1000,
+            "p95": 1000,
+            "values": [
+              1000,
+              1000,
+              1000
+            ]
+          },
+          "usage": {
+            "meanCost": null,
+            "totalCost": null,
+            "meanTokens": null,
+            "coverage": 0
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 1000,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": true
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 1000,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": true
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 1000,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fire-and-forget-async",
+      "category": "bug",
+      "tags": [
+        "async"
+      ],
+      "expected": [
+        {
+          "file": "src/fetch.ts",
+          "line": 3,
+          "line_tolerance": 2,
+          "category": "async",
+          "min_severity": "warning",
+          "must_detect": true
+        }
+      ],
+      "case_json_hash": "7a7accd462c2e2d88106416952c6bb19a1289aa616d24d5e3e0c3a440439d10f",
+      "patch_hash": "7210e762ba09789bdbc4560413dd53bcf616b2807ccbaef440e9f1d62dd4334c",
+      "diffowl": {
+        "run": {
+          "caseId": "fire-and-forget-async",
+          "mode": "diffowl",
+          "trials": [
+            {
+              "caseId": "fire-and-forget-async",
+              "trial": 0,
+              "mode": "diffowl",
+              "findings": [
+                {
+                  "severity": "warning",
+                  "file": "src/fetch.ts",
+                  "line": 3,
+                  "title": "async fire and forget",
+                  "body": "Details",
+                  "confidence": "high"
+                }
+              ],
+              "timings": [],
+              "sessionId": "session",
+              "summary": "",
+              "diagnostics": [],
+              "durationMs": 1000
+            },
+            {
+              "caseId": "fire-and-forget-async",
+              "trial": 1,
+              "mode": "diffowl",
+              "findings": [],
+              "timings": [],
+              "sessionId": "session",
+              "summary": "",
+              "diagnostics": [],
+              "durationMs": 1000
+            },
+            {
+              "caseId": "fire-and-forget-async",
+              "trial": 2,
+              "mode": "diffowl",
+              "findings": [
+                {
+                  "severity": "warning",
+                  "file": "src/fetch.ts",
+                  "line": 3,
+                  "title": "async fire and forget",
+                  "body": "Details",
+                  "confidence": "high"
+                }
+              ],
+              "timings": [],
+              "sessionId": "session",
+              "summary": "",
+              "diagnostics": [],
+              "durationMs": 1000
+            }
+          ]
+        },
+        "score": {
+          "caseId": "fire-and-forget-async",
+          "category": "bug",
+          "tags": [
+            "async"
+          ],
+          "trials": [
+            {
+              "caseId": "fire-and-forget-async",
+              "trial": 0,
+              "truePositives": [
+                {
+                  "expectedIndex": 0,
+                  "reportedIndex": 0,
+                  "lineDistance": 0
+                }
+              ],
+              "falsePositives": [],
+              "falseNegatives": [],
+              "redundancies": [],
+              "counts": {
+                "tp": 1,
+                "fp": 0,
+                "fn": 0,
+                "redundancy": 0
+              }
+            },
+            {
+              "caseId": "fire-and-forget-async",
+              "trial": 1,
+              "truePositives": [],
+              "falsePositives": [],
+              "falseNegatives": [
+                {
+                  "file": "src/fetch.ts",
+                  "line": 3,
+                  "line_tolerance": 2,
+                  "category": "async",
+                  "min_severity": "warning",
+                  "must_detect": true
+                }
+              ],
+              "redundancies": [],
+              "counts": {
+                "tp": 0,
+                "fp": 0,
+                "fn": 1,
+                "redundancy": 0
+              }
+            },
+            {
+              "caseId": "fire-and-forget-async",
+              "trial": 2,
+              "truePositives": [
+                {
+                  "expectedIndex": 0,
+                  "reportedIndex": 0,
+                  "lineDistance": 0
+                }
+              ],
+              "falsePositives": [],
+              "falseNegatives": [],
+              "redundancies": [],
+              "counts": {
+                "tp": 1,
+                "fp": 0,
+                "fn": 0,
+                "redundancy": 0
+              }
+            }
+          ],
+          "repeatedFalsePositives": []
+        },
+        "metrics": {
+          "caseId": "fire-and-forget-async",
+          "category": "bug",
+          "tags": [
+            "async"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 0.6666666666666666,
+            "stddev": 0.4714045207910317,
+            "values": [
+              1,
+              0,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 0.6666666666666666,
+            "stddev": 0.4714045207910317,
+            "values": [
+              1,
+              0,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 1000,
+            "p95": 1000,
+            "values": [
+              1000,
+              1000,
+              1000
+            ]
+          },
+          "usage": {
+            "meanCost": null,
+            "totalCost": null,
+            "meanTokens": null,
+            "coverage": 0
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 1000,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 0,
+              "fBeta": 0,
+              "durationMs": 1000,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 1000,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "harmless-trim",
+      "category": "clean",
+      "tags": [
+        "false-positive-stress"
+      ],
+      "expected": [],
+      "case_json_hash": "9c253b4321c4d7d67d1166a64216c337c18f43ee625d4415b844a3bc0535c6fe",
+      "patch_hash": "2a52225c739b4384efc33fc33e530734555f84c8abe4124b50d41fa7b3c640ad",
+      "diffowl": {
+        "run": {
+          "caseId": "harmless-trim",
+          "mode": "diffowl",
+          "trials": [
+            {
+              "caseId": "harmless-trim",
+              "trial": 0,
+              "mode": "diffowl",
+              "findings": [],
+              "timings": [],
+              "sessionId": "session",
+              "summary": "",
+              "diagnostics": [],
+              "durationMs": 1000
+            },
+            {
+              "caseId": "harmless-trim",
+              "trial": 1,
+              "mode": "diffowl",
+              "findings": [],
+              "timings": [],
+              "sessionId": "session",
+              "summary": "",
+              "diagnostics": [],
+              "durationMs": 1000
+            },
+            {
+              "caseId": "harmless-trim",
+              "trial": 2,
+              "mode": "diffowl",
+              "findings": [],
+              "timings": [],
+              "sessionId": "session",
+              "summary": "",
+              "diagnostics": [],
+              "durationMs": 1000
+            }
+          ]
+        },
+        "score": {
+          "caseId": "harmless-trim",
+          "category": "clean",
+          "tags": [
+            "false-positive-stress"
+          ],
+          "trials": [
+            {
+              "caseId": "harmless-trim",
+              "trial": 0,
+              "truePositives": [],
+              "falsePositives": [],
+              "falseNegatives": [],
+              "redundancies": [],
+              "counts": {
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "redundancy": 0
+              }
+            },
+            {
+              "caseId": "harmless-trim",
+              "trial": 1,
+              "truePositives": [],
+              "falsePositives": [],
+              "falseNegatives": [],
+              "redundancies": [],
+              "counts": {
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "redundancy": 0
+              }
+            },
+            {
+              "caseId": "harmless-trim",
+              "trial": 2,
+              "truePositives": [],
+              "falsePositives": [],
+              "falseNegatives": [],
+              "redundancies": [],
+              "counts": {
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "redundancy": 0
+              }
+            }
+          ],
+          "repeatedFalsePositives": []
+        },
+        "metrics": {
+          "caseId": "harmless-trim",
+          "category": "clean",
+          "tags": [
+            "false-positive-stress"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": 1,
+          "latencyMs": {
+            "p50": 1000,
+            "p95": 1000,
+            "values": [
+              1000,
+              1000,
+              1000
+            ]
+          },
+          "usage": {
+            "meanCost": null,
+            "totalCost": null,
+            "meanTokens": null,
+            "coverage": 0
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 1000,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": true
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 1000,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": true
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 1000,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "missing-validation",
+      "category": "bug",
+      "tags": [
+        "error-handling"
+      ],
+      "expected": [
+        {
+          "file": "src/user.ts",
+          "line": 3,
+          "line_tolerance": 2,
+          "category": "error-handling",
+          "min_severity": "warning",
+          "must_detect": true
+        }
+      ],
+      "case_json_hash": "244a088ccabaca2420cfcaa401ebf56d1fb6aac9702cd8babbd0b3b3180e0365",
+      "patch_hash": "c11e0a74ab8f130954aa525ebeac289655da49a70d459a8ea03ce510256f5bb2",
+      "diffowl": {
+        "run": {
+          "caseId": "missing-validation",
+          "mode": "diffowl",
+          "trials": [
+            {
+              "caseId": "missing-validation",
+              "trial": 0,
+              "mode": "diffowl",
+              "findings": [
+                {
+                  "severity": "warning",
+                  "file": "src/user.ts",
+                  "line": 4,
+                  "title": "Empty id accepted",
+                  "body": "Details",
+                  "confidence": "high"
+                }
+              ],
+              "timings": [],
+              "sessionId": "session",
+              "summary": "",
+              "diagnostics": [],
+              "durationMs": 1000
+            },
+            {
+              "caseId": "missing-validation",
+              "trial": 1,
+              "mode": "diffowl",
+              "findings": [],
+              "timings": [],
+              "sessionId": "session",
+              "summary": "",
+              "diagnostics": [],
+              "durationMs": 1000
+            },
+            {
+              "caseId": "missing-validation",
+              "trial": 2,
+              "mode": "diffowl",
+              "findings": [
+                {
+                  "severity": "warning",
+                  "file": "src/user.ts",
+                  "line": 4,
+                  "title": "Empty id accepted",
+                  "body": "Details",
+                  "confidence": "high"
+                }
+              ],
+              "timings": [],
+              "sessionId": "session",
+              "summary": "",
+              "diagnostics": [],
+              "durationMs": 1000
+            }
+          ]
+        },
+        "score": {
+          "caseId": "missing-validation",
+          "category": "bug",
+          "tags": [
+            "error-handling"
+          ],
+          "trials": [
+            {
+              "caseId": "missing-validation",
+              "trial": 0,
+              "truePositives": [
+                {
+                  "expectedIndex": 0,
+                  "reportedIndex": 0,
+                  "lineDistance": 1
+                }
+              ],
+              "falsePositives": [],
+              "falseNegatives": [],
+              "redundancies": [],
+              "counts": {
+                "tp": 1,
+                "fp": 0,
+                "fn": 0,
+                "redundancy": 0
+              }
+            },
+            {
+              "caseId": "missing-validation",
+              "trial": 1,
+              "truePositives": [],
+              "falsePositives": [],
+              "falseNegatives": [
+                {
+                  "file": "src/user.ts",
+                  "line": 3,
+                  "line_tolerance": 2,
+                  "category": "error-handling",
+                  "min_severity": "warning",
+                  "must_detect": true
+                }
+              ],
+              "redundancies": [],
+              "counts": {
+                "tp": 0,
+                "fp": 0,
+                "fn": 1,
+                "redundancy": 0
+              }
+            },
+            {
+              "caseId": "missing-validation",
+              "trial": 2,
+              "truePositives": [
+                {
+                  "expectedIndex": 0,
+                  "reportedIndex": 0,
+                  "lineDistance": 1
+                }
+              ],
+              "falsePositives": [],
+              "falseNegatives": [],
+              "redundancies": [],
+              "counts": {
+                "tp": 1,
+                "fp": 0,
+                "fn": 0,
+                "redundancy": 0
+              }
+            }
+          ],
+          "repeatedFalsePositives": []
+        },
+        "metrics": {
+          "caseId": "missing-validation",
+          "category": "bug",
+          "tags": [
+            "error-handling"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 0.6666666666666666,
+            "stddev": 0.4714045207910317,
+            "values": [
+              1,
+              0,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 0.6666666666666666,
+            "stddev": 0.4714045207910317,
+            "values": [
+              1,
+              0,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 1000,
+            "p95": 1000,
+            "values": [
+              1000,
+              1000,
+              1000
+            ]
+          },
+          "usage": {
+            "meanCost": null,
+            "totalCost": null,
+            "meanTokens": null,
+            "coverage": 0
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 1000,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 0,
+              "fBeta": 0,
+              "durationMs": 1000,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 1000,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "regression-reintroduced",
+      "category": "bug",
+      "tags": [
+        "regression",
+        "async"
+      ],
+      "expected": [
+        {
+          "file": "src/fetch.ts",
+          "line": 3,
+          "line_tolerance": 2,
+          "category": "async",
+          "min_severity": "warning",
+          "must_detect": true
+        }
+      ],
+      "case_json_hash": "950ffb9366cfcf8c791959c9718c60b8a02c2e751b7b60a39143da1c778a133c",
+      "patch_hash": "7210e762ba09789bdbc4560413dd53bcf616b2807ccbaef440e9f1d62dd4334c",
+      "diffowl": {
+        "run": {
+          "caseId": "regression-reintroduced",
+          "mode": "diffowl",
+          "trials": [
+            {
+              "caseId": "regression-reintroduced",
+              "trial": 0,
+              "mode": "diffowl",
+              "findings": [],
+              "timings": [],
+              "sessionId": "session",
+              "summary": "",
+              "diagnostics": [],
+              "durationMs": 1000
+            },
+            {
+              "caseId": "regression-reintroduced",
+              "trial": 1,
+              "mode": "diffowl",
+              "findings": [
+                {
+                  "severity": "warning",
+                  "file": "src/fetch.ts",
+                  "line": 3,
+                  "title": "async regression",
+                  "body": "Details",
+                  "confidence": "high"
+                }
+              ],
+              "timings": [],
+              "sessionId": "session",
+              "summary": "",
+              "diagnostics": [],
+              "durationMs": 1000
+            },
+            {
+              "caseId": "regression-reintroduced",
+              "trial": 2,
+              "mode": "diffowl",
+              "findings": [],
+              "timings": [],
+              "sessionId": "session",
+              "summary": "",
+              "diagnostics": [],
+              "durationMs": 1000
+            }
+          ]
+        },
+        "score": {
+          "caseId": "regression-reintroduced",
+          "category": "bug",
+          "tags": [
+            "regression",
+            "async"
+          ],
+          "trials": [
+            {
+              "caseId": "regression-reintroduced",
+              "trial": 0,
+              "truePositives": [],
+              "falsePositives": [],
+              "falseNegatives": [
+                {
+                  "file": "src/fetch.ts",
+                  "line": 3,
+                  "line_tolerance": 2,
+                  "category": "async",
+                  "min_severity": "warning",
+                  "must_detect": true
+                }
+              ],
+              "redundancies": [],
+              "counts": {
+                "tp": 0,
+                "fp": 0,
+                "fn": 1,
+                "redundancy": 0
+              }
+            },
+            {
+              "caseId": "regression-reintroduced",
+              "trial": 1,
+              "truePositives": [
+                {
+                  "expectedIndex": 0,
+                  "reportedIndex": 0,
+                  "lineDistance": 0
+                }
+              ],
+              "falsePositives": [],
+              "falseNegatives": [],
+              "redundancies": [],
+              "counts": {
+                "tp": 1,
+                "fp": 0,
+                "fn": 0,
+                "redundancy": 0
+              }
+            },
+            {
+              "caseId": "regression-reintroduced",
+              "trial": 2,
+              "truePositives": [],
+              "falsePositives": [],
+              "falseNegatives": [
+                {
+                  "file": "src/fetch.ts",
+                  "line": 3,
+                  "line_tolerance": 2,
+                  "category": "async",
+                  "min_severity": "warning",
+                  "must_detect": true
+                }
+              ],
+              "redundancies": [],
+              "counts": {
+                "tp": 0,
+                "fp": 0,
+                "fn": 1,
+                "redundancy": 0
+              }
+            }
+          ],
+          "repeatedFalsePositives": []
+        },
+        "metrics": {
+          "caseId": "regression-reintroduced",
+          "category": "bug",
+          "tags": [
+            "regression",
+            "async"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 0.3333333333333333,
+            "stddev": 0.4714045207910317,
+            "values": [
+              0,
+              1,
+              0
+            ]
+          },
+          "fBeta": {
+            "mean": 0.3333333333333333,
+            "stddev": 0.4714045207910317,
+            "values": [
+              0,
+              1,
+              0
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 1000,
+            "p95": 1000,
+            "values": [
+              1000,
+              1000,
+              1000
+            ]
+          },
+          "usage": {
+            "meanCost": null,
+            "totalCost": null,
+            "meanTokens": null,
+            "coverage": 0
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 0,
+              "fBeta": 0,
+              "durationMs": 1000,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 1000,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 0,
+              "fBeta": 0,
+              "durationMs": 1000,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "repeated-clean",
+      "category": "clean",
+      "tags": [
+        "false-positive-stress"
+      ],
+      "expected": [],
+      "case_json_hash": "e15a2578e72882ee0879ca15c78472851b37f182a83c654bbde26df422ed58f3",
+      "patch_hash": "aadbe1c45a6b62d1d037b28b7ae1a0fff9a228b8ed2fed68d9a6caa70e1ebcd5",
+      "diffowl": {
+        "run": {
+          "caseId": "repeated-clean",
+          "mode": "diffowl",
+          "trials": [
+            {
+              "caseId": "repeated-clean",
+              "trial": 0,
+              "mode": "diffowl",
+              "findings": [],
+              "timings": [],
+              "sessionId": "session",
+              "summary": "",
+              "diagnostics": [],
+              "durationMs": 1000
+            },
+            {
+              "caseId": "repeated-clean",
+              "trial": 1,
+              "mode": "diffowl",
+              "findings": [],
+              "timings": [],
+              "sessionId": "session",
+              "summary": "",
+              "diagnostics": [],
+              "durationMs": 1000
+            },
+            {
+              "caseId": "repeated-clean",
+              "trial": 2,
+              "mode": "diffowl",
+              "findings": [],
+              "timings": [],
+              "sessionId": "session",
+              "summary": "",
+              "diagnostics": [],
+              "durationMs": 1000
+            }
+          ]
+        },
+        "score": {
+          "caseId": "repeated-clean",
+          "category": "clean",
+          "tags": [
+            "false-positive-stress"
+          ],
+          "trials": [
+            {
+              "caseId": "repeated-clean",
+              "trial": 0,
+              "truePositives": [],
+              "falsePositives": [],
+              "falseNegatives": [],
+              "redundancies": [],
+              "counts": {
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "redundancy": 0
+              }
+            },
+            {
+              "caseId": "repeated-clean",
+              "trial": 1,
+              "truePositives": [],
+              "falsePositives": [],
+              "falseNegatives": [],
+              "redundancies": [],
+              "counts": {
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "redundancy": 0
+              }
+            },
+            {
+              "caseId": "repeated-clean",
+              "trial": 2,
+              "truePositives": [],
+              "falsePositives": [],
+              "falseNegatives": [],
+              "redundancies": [],
+              "counts": {
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "redundancy": 0
+              }
+            }
+          ],
+          "repeatedFalsePositives": []
+        },
+        "metrics": {
+          "caseId": "repeated-clean",
+          "category": "clean",
+          "tags": [
+            "false-positive-stress"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": 1,
+          "latencyMs": {
+            "p50": 1000,
+            "p95": 1000,
+            "values": [
+              1000,
+              1000,
+              1000
+            ]
+          },
+          "usage": {
+            "meanCost": null,
+            "totalCost": null,
+            "meanTokens": null,
+            "coverage": 0
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 1000,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": true
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 1000,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": true
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 1000,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": true
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "aggregate": {
+    "diffowl": {
+      "caseCount": 6,
+      "trialCount": 18,
+      "precision": {
+        "mean": 1,
+        "stddev": 0,
+        "values": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "recall": {
+        "mean": 0.7777777777777777,
+        "stddev": 0.24845199749997665,
+        "values": [
+          1,
+          0.6666666666666666,
+          1,
+          0.6666666666666666,
+          0.3333333333333333,
+          1
+        ]
+      },
+      "fBeta": {
+        "mean": 0.7777777777777777,
+        "stddev": 0.24845199749997665,
+        "values": [
+          1,
+          0.6666666666666666,
+          1,
+          0.6666666666666666,
+          0.3333333333333333,
+          1
+        ]
+      },
+      "repeatedFpRate": 0,
+      "emptyOnCleanRate": 1,
+      "latencyMs": {
+        "p50": 1000,
+        "p95": 1000,
+        "values": [
+          1000,
+          1000,
+          1000,
+          1000,
+          1000,
+          1000,
+          1000,
+          1000,
+          1000,
+          1000,
+          1000,
+          1000,
+          1000,
+          1000,
+          1000,
+          1000,
+          1000,
+          1000
+        ]
+      },
+      "usage": {
+        "meanCost": null,
+        "totalCost": null,
+        "meanTokens": null,
+        "coverage": 0
+      },
+      "byCategory": [
+        {
+          "category": "bug",
+          "caseCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 0.5555555555555555,
+            "stddev": 0.15713484026367722,
+            "values": [
+              0.6666666666666666,
+              0.6666666666666666,
+              0.3333333333333333
+            ]
+          },
+          "fBeta": {
+            "mean": 0.5555555555555555,
+            "stddev": 0.15713484026367722,
+            "values": [
+              0.6666666666666666,
+              0.6666666666666666,
+              0.3333333333333333
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null
+        },
+        {
+          "category": "clean",
+          "caseCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": 1
+        }
+      ]
+    }
+  },
+  "gates": {
+    "passed": true,
+    "failures": []
+  }
+}

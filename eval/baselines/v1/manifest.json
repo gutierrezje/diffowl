@@ -1,0 +1,16 @@
+{
+  "label": "v1",
+  "corpus_version": "cfb05b57acb95ecc69b8da23b081236791ce31182b94e161dc19e782b0be81d4",
+  "model": "provider/model",
+  "trials": 3,
+  "mode": "diffowl",
+  "depth": "default",
+  "reasoning": "auto",
+  "min_confidence": "medium",
+  "diffowl_version": "0.3.1",
+  "recorded_at": "2026-06-29T12:30:00.000Z",
+  "gates_file": "eval/gates/baseline-v1.json",
+  "gates_passed": true,
+  "capture_method": "fixture",
+  "notes": "Deterministic harness reference until replaced by a live DIFFOWL_EVAL_MODEL capture."
+}
