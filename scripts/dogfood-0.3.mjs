@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-import { execSync } from "node:child_process";
-import { mkdir, readFile, writeFile, mkdtemp } from "node:fs/promises";
+import { mkdir, readFile, writeFile, mkdtemp, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parse } from "yaml";
+import { execa } from "execa";
+import { parse, stringify } from "yaml";
 
 const diffowlRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const cliPath = join(diffowlRoot, "dist", "cli.js");
@@ -44,15 +44,27 @@ const regressionBuggy = `export async function fetchData(url: string) {
 }
 `;
 
-function run(command, options = {}) {
-  execSync(command, {
+async function run(command, args, options = {}) {
+  await execa(command, args, {
     stdio: "inherit",
     ...options,
   });
 }
 
-function runCapture(command, cwd) {
-  return execSync(command, { cwd, encoding: "utf8" }).trim();
+async function runCapture(command, args, cwd) {
+  const { stdout } = await execa(command, args, { cwd });
+  return stdout.trim();
+}
+
+async function ensureBuiltCli() {
+  try {
+    await access(cliPath);
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      throw new Error(`Built CLI not found at ${cliPath}. Run pnpm run build first.`);
+    }
+    throw error;
+  }
 }
 
 async function resolveDogfoodModel() {
@@ -60,40 +72,49 @@ async function resolveDogfoodModel() {
     return process.env.DIFFOWL_DOGFOOD_MODEL.trim();
   }
 
+  const configPath = join(diffowlRoot, ".diffowl.yml");
+  let config;
   try {
-    const config = await readFile(join(diffowlRoot, ".diffowl.yml"), "utf8");
-    const parsed = parse(config);
-    if (parsed && typeof parsed === "object" && typeof parsed.model === "string") {
-      return parsed.model;
+    config = await readFile(configPath, "utf8");
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return "opencode-go/big-pickle";
     }
-  } catch {
-    // Fall back to a generic default when the DiffOwl repo has no local config.
+    throw error;
   }
 
-  return "opencode-go/big-pickle";
+  const parsed = parse(config);
+  if (!parsed || typeof parsed !== "object" || typeof parsed.model !== "string") {
+    throw new Error(`${configPath} must contain a string model value.`);
+  }
+
+  return parsed.model;
 }
 
 async function writeDogfoodFiles(repoDir, model) {
-  const config = `model: ${model}
-server:
-  port: 4096
-  auto_start: true
-context:
-  depth: default
-reasoning:
-  effort: auto
-timeout: 900
-min_confidence: low
-verbose: true
-skip_doc_only: false
-include:
-  - "src/**/*"
-exclude:
-  - "**/node_modules/**"
-rules:
-  - "Treat intentional dogfood bugs as reviewable correctness findings."
-  - "Report missing validation, unsafe async usage, and obvious logic errors."
-`;
+  const config = stringify({
+    model,
+    server: {
+      port: 4096,
+      auto_start: true,
+    },
+    context: {
+      depth: "default",
+    },
+    reasoning: {
+      effort: "auto",
+    },
+    timeout: 900,
+    min_confidence: "low",
+    verbose: true,
+    skip_doc_only: false,
+    include: ["src/**/*"],
+    exclude: ["**/node_modules/**"],
+    rules: [
+      "Treat intentional dogfood bugs as reviewable correctness findings.",
+      "Report missing validation, unsafe async usage, and obvious logic errors.",
+    ],
+  });
 
   await writeFile(join(repoDir, ".diffowl.yml"), config, "utf8");
   await mkdir(join(repoDir, "src"), { recursive: true });
@@ -155,27 +176,44 @@ function printChecklist(repoDir, model) {
 }
 
 async function main() {
+  await ensureBuiltCli();
   const model = await resolveDogfoodModel();
   const repoDir = await mkdtemp(join(tmpdir(), "diffowl-dogfood-0.3-"));
 
   await writeDogfoodFiles(repoDir, model);
 
-  run("git init", { cwd: repoDir, stdio: "pipe" });
-  run('git config user.email "dogfood@diffowl.local"', { cwd: repoDir, stdio: "pipe" });
-  run('git config user.name "DiffOwl Dogfood"', { cwd: repoDir, stdio: "pipe" });
-  run("git add .", { cwd: repoDir, stdio: "pipe" });
-  run('git commit -m "chore: dogfood baseline"', { cwd: repoDir, stdio: "pipe" });
+  await run("git", ["init"], { cwd: repoDir, stdio: "pipe" });
+  await run("git", ["config", "user.email", "dogfood@diffowl.local"], {
+    cwd: repoDir,
+    stdio: "pipe",
+  });
+  await run("git", ["config", "user.name", "DiffOwl Dogfood"], {
+    cwd: repoDir,
+    stdio: "pipe",
+  });
+  await run("git", ["add", "."], { cwd: repoDir, stdio: "pipe" });
+  await run("git", ["commit", "-m", "chore: dogfood baseline"], {
+    cwd: repoDir,
+    stdio: "pipe",
+  });
 
   await writeFile(join(repoDir, "src", "repeated.ts"), repeatedBuggy, "utf8");
   await writeFile(join(repoDir, "src", "regression.ts"), regressionBuggy, "utf8");
-  run("git add src/repeated.ts src/regression.ts", { cwd: repoDir, stdio: "pipe" });
+  await run("git", ["add", "src/repeated.ts", "src/regression.ts"], {
+    cwd: repoDir,
+    stdio: "pipe",
+  });
 
-  const status = runCapture("git status --short", repoDir);
+  const status = await runCapture("git", ["status", "--short"], repoDir);
   if (!status.includes("repeated.ts") || !status.includes("regression.ts")) {
     throw new Error("Expected staged dogfood issues before printing checklist.");
   }
 
   printChecklist(repoDir, model);
+}
+
+function isNodeError(error) {
+  return typeof error === "object" && error !== null && "code" in error;
 }
 
 main().catch((error) => {
