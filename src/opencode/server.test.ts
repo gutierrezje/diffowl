@@ -203,6 +203,62 @@ describe("ensureServer", () => {
     );
   });
 
+  it("fails clearly when a non-opencode process occupies the port", async () => {
+    const { ensureServer } = await import("./server.js");
+
+    mocks.fetch.mockRejectedValue(new Error("connection reset"));
+    vi.stubGlobal("fetch", mocks.fetch);
+
+    mocks.execa.mockImplementation((command: string) => {
+      if (command === "lsof") {
+        return Promise.resolve({ stdout: "55555\n" });
+      }
+      if (command === "ps") {
+        return Promise.resolve({ stdout: "python -m http.server 4096" });
+      }
+      return Promise.resolve({ stdout: "" });
+    });
+
+    await expect(ensureServer(4096)).rejects.toThrow(
+      "Port 4096 is already in use by a non-OpenCode process.",
+    );
+    expect(mocks.execa).not.toHaveBeenCalledWith(
+      "opencode",
+      ["serve", "--port", "4096"],
+      expect.anything(),
+    );
+  });
+
+  it("fails clearly when an unhealthy opencode listener cannot be stopped", async () => {
+    const { ensureServer } = await import("./server.js");
+
+    mocks.fetch.mockRejectedValue(new Error("connection reset"));
+    vi.stubGlobal("fetch", mocks.fetch);
+
+    mocks.execa.mockImplementation((command: string) => {
+      if (command === "lsof") {
+        return Promise.resolve({ stdout: "11111\n" });
+      }
+      if (command === "ps") {
+        return Promise.resolve({ stdout: "opencode serve --port 4096" });
+      }
+      return Promise.resolve({ stdout: "" });
+    });
+
+    vi.spyOn(process, "kill").mockImplementation(() => {
+      throw new Error("operation not permitted");
+    });
+
+    await expect(ensureServer(4096)).rejects.toThrow(
+      "Could not stop unhealthy OpenCode server on port 4096: operation not permitted",
+    );
+    expect(mocks.execa).not.toHaveBeenCalledWith(
+      "opencode",
+      ["serve", "--port", "4096"],
+      expect.anything(),
+    );
+  });
+
   it("reuses a healthy server when versions match", async () => {
     const { ensureServer } = await import("./server.js");
     mocks.fetch.mockResolvedValue({

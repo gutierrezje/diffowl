@@ -87,8 +87,13 @@ export async function ensureServer(port: number): Promise<string> {
     }
   }
 
-  if (await stopUnhealthyServerListener(port)) {
+  const stoppedUnhealthyListener = await stopUnhealthyServerListener(port);
+  if (stoppedUnhealthyListener) {
     await waitUntilPortFree(port);
+  } else if (await isPortListening(port)) {
+    throw new Error(
+      `Port ${port} is already in use by a non-OpenCode process. Stop that process or configure a different DiffOwl server port.`,
+    );
   }
 
   await spawnServer(port);
@@ -238,8 +243,10 @@ async function stopUnhealthyServerListener(port: number): Promise<boolean> {
 
   try {
     process.kill(listenerPid, "SIGTERM");
-  } catch {
-    return false;
+  } catch (error) {
+    throw new Error(
+      `Could not stop unhealthy OpenCode server on port ${port}: ${describeError(error)}`,
+    );
   }
 
   await cleanupPidFile();
@@ -258,35 +265,41 @@ async function cleanupPidFile(): Promise<void> {
 }
 
 async function findOpencodeListenerPid(port: number): Promise<number | null> {
+  const pids = await findListenerPids(port);
+
+  for (const pid of pids) {
+    if (await isOpencodeProcess(pid)) {
+      return pid;
+    }
+  }
+  return null;
+}
+
+async function isPortListening(port: number): Promise<boolean> {
+  return (await findListenerPids(port)).length > 0;
+}
+
+async function findListenerPids(port: number): Promise<number[]> {
   if (process.platform === "win32") {
-    return findOpencodeListenerPidWindows(port);
+    return findListenerPidsWindows(port);
   }
 
   try {
     const { stdout } = await execa("lsof", ["-tiTCP:" + String(port), "-sTCP:LISTEN"], {
       timeout: 5000,
     });
-    const pids = stdout
-      .trim()
-      .split(/\s+/)
-      .map((value) => parseInt(value, 10))
-      .filter((value) => Number.isInteger(value) && value > 0);
-
-    for (const pid of pids) {
-      if (await isOpencodeProcess(pid)) {
-        return pid;
-      }
-    }
-  } catch {}
-
-  return null;
+    return parsePids(stdout);
+  } catch {
+    return [];
+  }
 }
 
-async function findOpencodeListenerPidWindows(port: number): Promise<number | null> {
+async function findListenerPidsWindows(port: number): Promise<number[]> {
   try {
     const { stdout } = await execa("netstat", ["-ano"], { timeout: 5000 });
     const portToken = `:${port}`;
     const lines = stdout.split(/\r?\n/);
+    const pids = new Set<number>();
 
     for (const line of lines) {
       if (!line.includes("LISTENING") || !line.includes(portToken)) {
@@ -299,25 +312,32 @@ async function findOpencodeListenerPidWindows(port: number): Promise<number | nu
         continue;
       }
 
-      if (await isOpencodeProcess(pid)) {
-        return pid;
-      }
+      pids.add(pid);
     }
+    return [...pids];
   } catch {}
 
-  return null;
+  return [];
+}
+
+function parsePids(stdout: string): number[] {
+  return stdout
+    .trim()
+    .split(/\s+/)
+    .map((value) => parseInt(value, 10))
+    .filter((value) => Number.isInteger(value) && value > 0);
 }
 
 async function waitUntilPortFree(port: number): Promise<void> {
   const deadline = Date.now() + PORT_RELEASE_WAIT_MS;
   while (Date.now() < deadline) {
-    if ((await findOpencodeListenerPid(port)) === null) {
+    if (!(await isPortListening(port))) {
       return;
     }
     await sleep(PORT_RELEASE_POLL_MS);
   }
 
-  if ((await findOpencodeListenerPid(port)) !== null) {
+  if (await isPortListening(port)) {
     throw new Error(
       `OpenCode server on port ${port} did not stop within ${PORT_RELEASE_WAIT_MS}ms. Retry: diffowl server stop && diffowl server start`,
     );
@@ -366,4 +386,8 @@ async function isOpencodeProcess(pid: number): Promise<boolean> {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
