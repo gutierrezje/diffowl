@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { EvalExpectedFinding } from "./case-types.js";
 import type { EvalResultsDocumentV1 } from "./report-types.js";
 import {
   assertComparableResults,
@@ -18,6 +19,41 @@ function setCaseRecall(document: EvalResultsDocumentV1, caseId: string, recallMe
   if (metrics.fBeta) {
     metrics.fBeta = { mean: recallMean, stddev: 0, values: [recallMean] };
   }
+}
+
+function missMustDetectFindings(document: EvalResultsDocumentV1, caseId: string): void {
+  const entry = document.cases.find((item) => item.id === caseId)!;
+  const mustDetectFindings = entry.expected.filter((finding) => finding.must_detect);
+  for (const trial of entry.diffowl!.score.trials) {
+    trial.truePositives = [];
+    trial.falseNegatives = mustDetectFindings;
+    trial.counts.tp = 0;
+    trial.counts.fn = mustDetectFindings.length;
+  }
+  setCaseRecall(document, caseId, 0);
+}
+
+function addOptionalExpectedFinding(document: EvalResultsDocumentV1, caseId: string): void {
+  const entry = document.cases.find((item) => item.id === caseId)!;
+  entry.expected.push({
+    file: "src/user.ts",
+    line: 8,
+    line_tolerance: 2,
+    min_severity: "warning",
+    category: "error-handling",
+    must_detect: false,
+  } satisfies EvalExpectedFinding);
+}
+
+function reportOnlyOptionalFinding(document: EvalResultsDocumentV1, caseId: string): void {
+  const entry = document.cases.find((item) => item.id === caseId)!;
+  for (const trial of entry.diffowl!.score.trials) {
+    trial.truePositives = [{ expectedIndex: 1, reportedIndex: 0, lineDistance: 0 }];
+    trial.falseNegatives = entry.expected.filter((finding) => finding.must_detect);
+    trial.counts.tp = 1;
+    trial.counts.fn = trial.falseNegatives.length;
+  }
+  setCaseRecall(document, caseId, 1);
 }
 
 describe("assertComparableResults", () => {
@@ -53,7 +89,7 @@ describe("compareEvalResults", () => {
   it("pairs cases by id and flags must-detect recall regressions", async () => {
     const reference = await buildV1BaselineDocument();
     const current = cloneDocument(reference);
-    setCaseRecall(current, "missing-validation", 0);
+    missMustDetectFindings(current, "missing-validation");
 
     const comparison = compareEvalResults(reference, current);
     expect(comparison.hasRegressions).toBe(true);
@@ -70,12 +106,28 @@ describe("compareEvalResults", () => {
       entry.category = "mixed";
       entry.diffowl!.metrics.category = "mixed";
     }
-    setCaseRecall(current, caseId, 0);
+    missMustDetectFindings(current, caseId);
 
     const comparison = compareEvalResults(reference, current);
 
     expect(comparison.hasRegressions).toBe(true);
     expect(comparison.regressions.some((entry) => entry.includes(caseId))).toBe(true);
+  });
+
+  it("ignores optional true positives when checking must-detect recall regressions", async () => {
+    const reference = await buildV1BaselineDocument();
+    const current = cloneDocument(reference);
+    const caseId = "missing-validation";
+    addOptionalExpectedFinding(reference, caseId);
+    addOptionalExpectedFinding(current, caseId);
+    reportOnlyOptionalFinding(current, caseId);
+
+    const comparison = compareEvalResults(reference, current);
+
+    expect(comparison.hasRegressions).toBe(true);
+    expect(comparison.regressions).toContain(
+      "missing-validation: must-detect recall dropped from 0.667 to 0.000",
+    );
   });
 
   it("reports no regressions when results are unchanged", async () => {

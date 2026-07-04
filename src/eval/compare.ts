@@ -2,6 +2,7 @@ import type { StatSummary } from "./metrics-types.js";
 import type { EvalCaseMetrics } from "./metrics-types.js";
 import type { EvalCaseResultV1, EvalResultsDocumentV1 } from "./report-types.js";
 import { computeModeDeltaMetric } from "./delta.js";
+import { computeCaseMustDetectRecall } from "./gates.js";
 import type {
   EvalCaseRunComparison,
   EvalCorpusRunComparison,
@@ -251,7 +252,7 @@ function compareCaseRuns(
   };
 
   comparison.regressions.push(
-    ...detectCaseRegressions(referenceEntry, currentEntry, referenceMetrics, currentMetrics),
+    ...detectCaseRegressions(referenceEntry, currentEntry),
   );
   return comparison;
 }
@@ -259,15 +260,13 @@ function compareCaseRuns(
 function detectCaseRegressions(
   referenceEntry: EvalCaseResultV1,
   currentEntry: EvalCaseResultV1,
-  referenceMetrics: EvalCaseMetrics,
-  currentMetrics: EvalCaseMetrics,
 ): string[] {
   const regressions: string[] = [];
   const mustDetect = referenceEntry.expected.some((finding) => finding.must_detect);
 
   if (referenceEntry.category !== "clean" && mustDetect) {
-    const referenceRecall = referenceMetrics.recall?.mean ?? null;
-    const currentRecall = currentMetrics.recall?.mean ?? null;
+    const referenceRecall = computeCaseMustDetectRecall(referenceEntry, referenceEntry.diffowl);
+    const currentRecall = computeCaseMustDetectRecall(currentEntry, currentEntry.diffowl);
     if (
       referenceRecall !== null &&
       currentRecall !== null &&
@@ -280,8 +279,8 @@ function detectCaseRegressions(
   }
 
   if (referenceEntry.category === "clean") {
-    const referenceEmpty = referenceMetrics.emptyOnCleanRate;
-    const currentEmpty = currentMetrics.emptyOnCleanRate;
+    const referenceEmpty = referenceEntry.diffowl?.metrics.emptyOnCleanRate ?? null;
+    const currentEmpty = currentEntry.diffowl?.metrics.emptyOnCleanRate ?? null;
     if (referenceEmpty === 1 && currentEmpty !== null && currentEmpty < 1) {
       regressions.push("clean case now reports findings in at least one trial");
     }
