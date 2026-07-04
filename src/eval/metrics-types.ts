@@ -16,9 +16,9 @@ export const DEFAULT_EVAL_METRICS_OPTIONS = {
 
 export interface EvalTrialMetrics {
   trial: number;
-  precision: number | null;
-  recall: number | null;
-  fBeta: number | null;
+  precision: number;
+  recall: number;
+  fBeta: number;
   durationMs: number;
   usageCost: number | null;
   totalTokens: number | null;
