@@ -61,40 +61,37 @@ export function computeCaseModeDelta(
 }
 
 export function computeCorpusModeDelta(caseDeltas: EvalCaseModeDelta[]): EvalCorpusModeDelta {
-  const average = (values: Array<number | null>): number | null => {
-    const present = values.filter((value): value is number => value !== null);
+  const averagePairs = (
+    values: EvalModeDeltaMetric[],
+  ): { diffowl: number | null; baseline: number | null } => {
+    const present = values.filter(
+      (value): value is { diffowl: number; baseline: number; delta: number | null } =>
+        value.diffowl !== null && value.baseline !== null,
+    );
     if (present.length === 0) {
-      return null;
+      return { diffowl: null, baseline: null };
     }
-    return present.reduce((sum, value) => sum + value, 0) / present.length;
+    return {
+      diffowl: present.reduce((sum, value) => sum + value.diffowl, 0) / present.length,
+      baseline: present.reduce((sum, value) => sum + value.baseline, 0) / present.length,
+    };
+  };
+  const pairedMetric = (values: EvalModeDeltaMetric[]): EvalModeDeltaMetric => {
+    const average = averagePairs(values);
+    if (average.diffowl === null || average.baseline === null) {
+      return computeModeDeltaMetric(null, null);
+    }
+    return computeModeDeltaMetric(average.diffowl, average.baseline);
   };
 
   return {
     caseCount: caseDeltas.length,
-    precision: computeModeDeltaMetric(
-      average(caseDeltas.map((entry) => entry.precision.diffowl)),
-      average(caseDeltas.map((entry) => entry.precision.baseline)),
-    ),
-    recall: computeModeDeltaMetric(
-      average(caseDeltas.map((entry) => entry.recall.diffowl)),
-      average(caseDeltas.map((entry) => entry.recall.baseline)),
-    ),
-    fBeta: computeModeDeltaMetric(
-      average(caseDeltas.map((entry) => entry.fBeta.diffowl)),
-      average(caseDeltas.map((entry) => entry.fBeta.baseline)),
-    ),
-    repeatedFpRate: computeModeDeltaMetric(
-      average(caseDeltas.map((entry) => entry.repeatedFpRate.diffowl)),
-      average(caseDeltas.map((entry) => entry.repeatedFpRate.baseline)),
-    ),
-    latencyP50: computeModeDeltaMetric(
-      average(caseDeltas.map((entry) => entry.latencyP50.diffowl)),
-      average(caseDeltas.map((entry) => entry.latencyP50.baseline)),
-    ),
-    usageMeanCost: computeModeDeltaMetric(
-      average(caseDeltas.map((entry) => entry.usageMeanCost.diffowl)),
-      average(caseDeltas.map((entry) => entry.usageMeanCost.baseline)),
-    ),
+    precision: pairedMetric(caseDeltas.map((entry) => entry.precision)),
+    recall: pairedMetric(caseDeltas.map((entry) => entry.recall)),
+    fBeta: pairedMetric(caseDeltas.map((entry) => entry.fBeta)),
+    repeatedFpRate: pairedMetric(caseDeltas.map((entry) => entry.repeatedFpRate)),
+    latencyP50: pairedMetric(caseDeltas.map((entry) => entry.latencyP50)),
+    usageMeanCost: pairedMetric(caseDeltas.map((entry) => entry.usageMeanCost)),
     cases: caseDeltas,
   };
 }

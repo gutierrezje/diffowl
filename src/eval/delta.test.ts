@@ -72,4 +72,20 @@ describe("computeCorpusModeDelta", () => {
     expect(corpus.precision.baseline).toBeCloseTo(0.375);
     expect(corpus.precision.delta).toBeCloseTo(0.375);
   });
+
+  it("averages corpus deltas over paired non-null cases", () => {
+    const first = computeCaseModeDelta(
+      makeCaseMetrics({ caseId: "a", precision: { mean: 1, stddev: 0, values: [1] } }),
+      makeCaseMetrics({ caseId: "a", precision: null }),
+    );
+    const second = computeCaseModeDelta(
+      makeCaseMetrics({ caseId: "b", precision: { mean: 0.5, stddev: 0, values: [0.5] } }),
+      makeCaseMetrics({ caseId: "b", precision: { mean: 0.25, stddev: 0, values: [0.25] } }),
+    );
+
+    const corpus = computeCorpusModeDelta([first, second]);
+    expect(corpus.precision.diffowl).toBeCloseTo(0.5);
+    expect(corpus.precision.baseline).toBeCloseTo(0.25);
+    expect(corpus.precision.delta).toBeCloseTo(0.25);
+  });
 });
