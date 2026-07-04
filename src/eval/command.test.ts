@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
@@ -124,6 +124,39 @@ describe("selectEvalCases", () => {
 });
 
 describe("runEvalCommand", () => {
+  it("reports text-mode command failures through the spinner once", async () => {
+    const stderr: string[] = [];
+    const failures: string[] = [];
+
+    const exitCode = await runEvalCommand(
+      {
+        corpus: corpusDir,
+      },
+      {
+        cwd: () => "/repo",
+        now: () => new Date("2026-06-29T12:00:00.000Z"),
+        loadCorpus: async () => {
+          throw new Error("corpus unavailable");
+        },
+        stderrWrite: (chunk) => {
+          stderr.push(chunk);
+        },
+        createSpinner: () => ({
+          start: () => {},
+          update: () => {},
+          succeed: () => {},
+          fail: (text) => {
+            failures.push(text);
+          },
+        }),
+      },
+    );
+
+    expect(exitCode).toBe(1);
+    expect(failures).toEqual(["corpus unavailable"]);
+    expect(stderr.join("")).not.toContain("corpus unavailable");
+  });
+
   it("writes text results and exits 0 without gates", async () => {
     const corpus = await loadEvalCorpus(corpusDir);
     const bugCase = corpus.cases.find((entry) => entry.id === "missing-validation");
@@ -208,13 +241,16 @@ describe("runEvalCommand", () => {
   it("returns 1 when gates fail", async () => {
     const corpus = await loadEvalCorpus(corpusDir);
     const gatePath = join(import.meta.dirname, "../../eval/gates/default.json");
+    const outDir = await mkdtemp(join(tmpdir(), "diffowl-eval-gates-"));
+    const stdout: string[] = [];
+    const stderr: string[] = [];
 
     const exitCode = await runEvalCommand(
       {
         corpus: corpusDir,
         case: ["missing-validation"],
         gate: gatePath,
-        format: "json",
+        out: outDir,
       },
       {
         cwd: () => "/repo",
@@ -224,67 +260,16 @@ describe("runEvalCommand", () => {
         runCase: async (evalCase) => makeRun(evalCase.id, []),
         readDiffOwlVersion: async () => "0.3.1",
         getOpencodeVersion: async () => null,
-        stdoutWrite: () => {},
-        stderrWrite: () => {},
-        createSpinner: noopSpinner,
-      },
-    );
-
-    expect(exitCode).toBe(1);
-  });
-
-  it("reports regressions without failing unless --fail-on-regression is set", async () => {
-    const corpus = await loadEvalCorpus(corpusDir);
-    const reference = await buildV1BaselineDocument();
-    const baselineDir = await mkdtemp(join(tmpdir(), "diffowl-eval-baseline-"));
-    const baselinePath = join(baselineDir, "eval-results.json");
-    await writeFile(baselinePath, `${JSON.stringify(reference, null, 2)}\n`, "utf8");
-    const referenceRuns = new Map(
-      reference.cases.map((entry) => [entry.id, entry.diffowl!.run]),
-    );
-
-    const stderr: string[] = [];
-    const writeResults = vi.fn(async () => ({
-      jsonPath: "/tmp/eval-results.json",
-      summaryPath: "/tmp/eval-summary.md",
-    }));
-
-    const exitCode = await runEvalCommand(
-      {
-        corpus: corpusDir,
-        trials: "3",
-        compare: baselinePath,
-        out: "/tmp/eval-out",
-      },
-      {
-        cwd: () => "/repo",
-        now: () => new Date("2026-06-29T12:00:00.000Z"),
-        loadCorpus: async () => corpus,
-        loadConfig: async () => baseConfig,
-        runCase: async (evalCase) => {
-          if (evalCase.id === "missing-validation") {
-            return {
-              caseId: evalCase.id,
-              mode: "diffowl",
-              trials: [0, 1, 2].map((trial) => ({
-                caseId: evalCase.id,
-                trial,
-                mode: "diffowl" as const,
-                findings: [],
-                timings: [],
-                sessionId: "session",
-                summary: "",
-                diagnostics: [],
-                durationMs: 1000,
-              })),
-            };
-          }
-          return referenceRuns.get(evalCase.id)!;
+        writeResults: async (targetDir) => {
+          await mkdir(targetDir, { recursive: true });
+          return {
+            jsonPath: join(targetDir, "eval-results.json"),
+            summaryPath: join(targetDir, "eval-summary.md"),
+          };
         },
-        readDiffOwlVersion: async () => "0.3.1",
-        getOpencodeVersion: async () => null,
-        writeResults,
-        stdoutWrite: () => {},
+        stdoutWrite: (chunk) => {
+          stdout.push(chunk);
+        },
         stderrWrite: (chunk) => {
           stderr.push(chunk);
         },
@@ -292,7 +277,90 @@ describe("runEvalCommand", () => {
       },
     );
 
+    expect(exitCode).toBe(1);
+    expect(stdout.join("")).toContain("Gates failed");
+    expect(stdout.join("")).toContain("recall on must_detect cases");
+    expect(stderr.join("")).not.toContain("recall on must_detect cases");
+  });
+
+  it("reports regressions without failing unless --fail-on-regression is set", async () => {
+    const corpus = await loadEvalCorpus(corpusDir);
+    const reference = await buildV1BaselineDocument();
+    const baselineDir = await mkdtemp(join(tmpdir(), "diffowl-eval-baseline-"));
+    const baselinePath = join(baselineDir, "eval-results.json");
+    const outDir = await mkdtemp(join(tmpdir(), "diffowl-eval-out-"));
+    await writeFile(baselinePath, `${JSON.stringify(reference, null, 2)}\n`, "utf8");
+    const referenceRuns = new Map(
+      reference.cases.map((entry) => [entry.id, entry.diffowl!.run]),
+    );
+
+    const stderr: string[] = [];
+    const writeResults = vi.fn(async (targetDir: string) => {
+      await mkdir(targetDir, { recursive: true });
+      return {
+        jsonPath: join(targetDir, "eval-results.json"),
+        summaryPath: join(targetDir, "eval-summary.md"),
+      };
+    });
+    const deps: Partial<EvalCommandDependencies> = {
+      cwd: () => "/repo",
+      now: () => new Date("2026-06-29T12:00:00.000Z"),
+      loadCorpus: async () => corpus,
+      loadConfig: async () => baseConfig,
+      runCase: async (evalCase) => {
+        if (evalCase.id === "missing-validation") {
+          return {
+            caseId: evalCase.id,
+            mode: "diffowl",
+            trials: [0, 1, 2].map((trial) => ({
+              caseId: evalCase.id,
+              trial,
+              mode: "diffowl" as const,
+              findings: [],
+              timings: [],
+              sessionId: "session",
+              summary: "",
+              diagnostics: [],
+              durationMs: 1000,
+            })),
+          };
+        }
+        return referenceRuns.get(evalCase.id)!;
+      },
+      readDiffOwlVersion: async () => "0.3.1",
+      getOpencodeVersion: async () => null,
+      writeResults,
+      stdoutWrite: () => {},
+      stderrWrite: (chunk) => {
+        stderr.push(chunk);
+      },
+      createSpinner: noopSpinner,
+    };
+
+    const exitCode = await runEvalCommand(
+      {
+        corpus: corpusDir,
+        trials: "3",
+        compare: baselinePath,
+        out: outDir,
+      },
+      deps,
+    );
+
     expect(exitCode).toBe(0);
     expect(stderr.join("")).toContain("missing-validation");
+
+    const failExitCode = await runEvalCommand(
+      {
+        corpus: corpusDir,
+        trials: "3",
+        compare: baselinePath,
+        failOnRegression: true,
+        out: outDir,
+      },
+      deps,
+    );
+
+    expect(failExitCode).toBe(1);
   });
 });
