@@ -61,6 +61,23 @@ describe("compareEvalResults", () => {
     expect(comparison.aggregate.caseCount).toBe(reference.cases.length);
   });
 
+  it("flags mixed-case must-detect recall regressions", async () => {
+    const reference = await buildV1BaselineDocument();
+    const current = cloneDocument(reference);
+    const caseId = "missing-validation";
+    for (const document of [reference, current]) {
+      const entry = document.cases.find((item) => item.id === caseId)!;
+      entry.category = "mixed";
+      entry.diffowl!.metrics.category = "mixed";
+    }
+    setCaseRecall(current, caseId, 0);
+
+    const comparison = compareEvalResults(reference, current);
+
+    expect(comparison.hasRegressions).toBe(true);
+    expect(comparison.regressions.some((entry) => entry.includes(caseId))).toBe(true);
+  });
+
   it("reports no regressions when results are unchanged", async () => {
     const reference = await buildV1BaselineDocument();
     const comparison = compareEvalResults(reference, reference);

@@ -265,7 +265,7 @@ function detectCaseRegressions(
   const regressions: string[] = [];
   const mustDetect = referenceEntry.expected.some((finding) => finding.must_detect);
 
-  if (referenceEntry.category === "bug" && mustDetect) {
+  if (referenceEntry.category !== "clean" && mustDetect) {
     const referenceRecall = referenceMetrics.recall?.mean ?? null;
     const currentRecall = currentMetrics.recall?.mean ?? null;
     if (
