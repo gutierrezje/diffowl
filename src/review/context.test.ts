@@ -151,7 +151,10 @@ describe("buildReviewContext", () => {
     expect(rendered).not.toContain("value = 2");
   });
 
-  it("reads related files and reference snippets from the staged index", async () => {
+  // Real git repository setup plus staged-index reads and `git grep` are slow
+  // under Windows CI process-spawn overhead; the default 5s timeout misses by
+  // milliseconds there.
+  it("reads related files and reference snippets from the staged index", { timeout: 15_000 }, async () => {
     const root = await createGitRepository();
     await mkdir(join(root, "src"));
     await writeFile(
