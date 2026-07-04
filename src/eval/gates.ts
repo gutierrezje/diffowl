@@ -47,7 +47,7 @@ function averageRecallMustDetect(doc: EvalResultsDocumentV1): number | null {
   return recalls.reduce((sum, value) => sum + value, 0) / recalls.length;
 }
 
-function computeCaseMustDetectRecall(
+export function computeCaseMustDetectRecall(
   entry: EvalCaseResultV1,
   modeResult: EvalCaseModeResultV1 | undefined,
 ): number | null {
