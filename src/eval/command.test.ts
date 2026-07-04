@@ -94,11 +94,13 @@ describe("eval command parsing", () => {
   });
 
   it("resolves corpus and output directories", () => {
-    expect(resolveEvalCorpusDir("/repo", "custom/corpus")).toBe("/repo/custom/corpus");
+    // Resolved directories are platform-native filesystem paths; build the
+    // expected values with join() so Windows separators compare equal.
+    expect(resolveEvalCorpusDir("/repo", "custom/corpus")).toBe(join("/repo", "custom/corpus"));
     expect(resolveEvalOutDir("/repo", undefined, "2026-06-29T00-00-00-000Z")).toBe(
-      "/repo/eval/results/2026-06-29T00-00-00-000Z",
+      join("/repo", "eval", "results", "2026-06-29T00-00-00-000Z"),
     );
-    expect(resolveEvalOutDir("/repo", "out/run", "ignored")).toBe("/repo/out/run");
+    expect(resolveEvalOutDir("/repo", "out/run", "ignored")).toBe(join("/repo", "out/run"));
   });
 
   it("rejects invalid mode, trials, and format", () => {
