@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { cp, readdir, readFile, stat } from "node:fs/promises";
-import { basename, join, relative } from "node:path";
+import { basename, join, relative, sep } from "node:path";
 import { execa } from "execa";
 import {
   parseEvalCaseJson,
@@ -117,7 +117,10 @@ export async function hashCorpus(corpusDir: string): Promise<string> {
   const files = await listFilesRecursive(corpusDir);
   const lines: string[] = [];
 
-  for (const filePath of files.sort()) {
+  // POSIX separators keep the hash preimage and its sort order identical
+  // across platforms; `relative()` yields backslashes on Windows.
+  const posixFiles = files.map((filePath) => filePath.split(sep).join("/")).sort();
+  for (const filePath of posixFiles) {
     const content = await readFile(join(corpusDir, filePath));
     lines.push(`${filePath}:${hashBuffer(content)}`);
   }
