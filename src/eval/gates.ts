@@ -1,5 +1,9 @@
 import type { EvalCaseMetrics } from "./metrics-types.js";
-import type { EvalResultsDocumentV1 } from "./report-types.js";
+import type {
+  EvalCaseModeResultV1,
+  EvalCaseResultV1,
+  EvalResultsDocumentV1,
+} from "./report-types.js";
 import type { EvalGateResult, EvalGateThresholds } from "./gates-types.js";
 
 function primaryMetrics(doc: EvalResultsDocumentV1): EvalCaseMetrics[] {
@@ -28,18 +32,37 @@ function averageRecallMustDetect(doc: EvalResultsDocumentV1): number | null {
       return [];
     }
 
-    const metrics =
-      doc.manifest.mode === "baseline" ? entry.baseline?.metrics : entry.diffowl?.metrics;
-    if (!metrics?.recall) {
+    const modeResult = doc.manifest.mode === "baseline" ? entry.baseline : entry.diffowl;
+    const recall = computeCaseMustDetectRecall(entry, modeResult);
+    if (recall === null) {
       return [];
     }
-    return [metrics.recall.mean];
+    return [recall];
   });
 
   if (recalls.length === 0) {
     return null;
   }
 
+  return recalls.reduce((sum, value) => sum + value, 0) / recalls.length;
+}
+
+function computeCaseMustDetectRecall(
+  entry: EvalCaseResultV1,
+  modeResult: EvalCaseModeResultV1 | undefined,
+): number | null {
+  const recalls = modeResult?.score.trials.flatMap((trial) => {
+    const truePositives = trial.truePositives.filter((match) => {
+      return entry.expected[match.expectedIndex]?.must_detect === true;
+    }).length;
+    const falseNegatives = trial.falseNegatives.filter((finding) => finding.must_detect).length;
+    const denominator = truePositives + falseNegatives;
+    return denominator === 0 ? [] : [truePositives / denominator];
+  }) ?? [];
+
+  if (recalls.length === 0) {
+    return null;
+  }
   return recalls.reduce((sum, value) => sum + value, 0) / recalls.length;
 }
 

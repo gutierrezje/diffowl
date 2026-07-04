@@ -49,7 +49,17 @@ function makeDocument(overrides: Partial<EvalResultsDocumentV1> = {}): EvalResul
             caseId: "bug-case",
             category: "bug",
             tags: [],
-            trials: [],
+            trials: [
+              {
+                caseId: "bug-case",
+                trial: 0,
+                truePositives: [{ expectedIndex: 0, reportedIndex: 0, lineDistance: 0 }],
+                falsePositives: [],
+                falseNegatives: [],
+                redundancies: [],
+                counts: { tp: 1, fp: 0, fn: 0, redundancy: 0 },
+              },
+            ],
             repeatedFalsePositives: [],
           },
           metrics: {
@@ -133,7 +143,12 @@ describe("evaluateEvalGates", () => {
   });
 
   it("reports failures for missed thresholds", () => {
-    const result = evaluateEvalGates(makeDocument(), {
+    const document = makeDocument();
+    const bugCase = document.cases[0]!;
+    bugCase.diffowl!.score.trials[0]!.truePositives = [];
+    bugCase.diffowl!.score.trials[0]!.falseNegatives = [bugCase.expected[0]!];
+
+    const result = evaluateEvalGates(document, {
       min_precision: 0.99,
       min_recall_must_detect: 0.9,
       max_repeated_fp_rate: 0.05,
@@ -142,5 +157,21 @@ describe("evaluateEvalGates", () => {
 
     expect(result.passed).toBe(false);
     expect(result.failures.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("measures recall only for must_detect findings", () => {
+    const document = makeDocument();
+    const bugCase = document.cases[0]!;
+    bugCase.expected.push(makeExpected({ file: "src/b.ts", line: 2, must_detect: false }));
+    bugCase.diffowl!.score.trials[0]!.truePositives = [
+      { expectedIndex: 1, reportedIndex: 0, lineDistance: 0 },
+    ];
+    bugCase.diffowl!.score.trials[0]!.falseNegatives = [bugCase.expected[0]!];
+    bugCase.diffowl!.metrics.recall = { mean: 1, stddev: 0, values: [1] };
+
+    const result = evaluateEvalGates(document, { min_recall_must_detect: 0.5 });
+
+    expect(result.passed).toBe(false);
+    expect(result.failures[0]).toContain("recall on must_detect cases 0");
   });
 });
