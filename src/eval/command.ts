@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import chalk from "chalk";
 import ora, { type Ora } from "ora";
@@ -31,6 +31,7 @@ import {
   type EvalCaseRunBundle,
 } from "./report.js";
 import { compareEvalResults, renderEvalComparisonSummary } from "./compare.js";
+import type { EvalResultsComparison } from "./compare-types.js";
 import { parseEvalResultsDocument } from "./report-types.js";
 import { runEvalCase, runEvalCaseBoth } from "./runner.js";
 import type { EvalRunnerOptions } from "./runner-types.js";
@@ -205,7 +206,7 @@ export async function runEvalCommand(
     });
 
     const gatePassed = document.gates?.passed ?? true;
-    let comparison;
+    let comparison: EvalResultsComparison | undefined;
     if (options.comparePath) {
       const referenceRaw = JSON.parse(await readFile(options.comparePath, "utf8")) as unknown;
       const reference = parseEvalResultsDocument(referenceRaw);
@@ -226,7 +227,6 @@ export async function runEvalCommand(
     const paths = await deps.writeResults(outDir, document);
     if (comparison) {
       const comparisonSummary = renderEvalComparisonSummary(comparison);
-      await mkdir(outDir, { recursive: true });
       await writeFile(join(outDir, "eval-comparison.md"), comparisonSummary, "utf8");
     }
     spinner?.succeed(`Eval complete (${cases.length} case${cases.length === 1 ? "" : "s"})`);
@@ -249,14 +249,17 @@ export async function runEvalCommand(
       } else {
         deps.stdoutWrite(chalk.red("Gates failed\n"));
         for (const failure of document.gates.failures) {
-          deps.stderrWrite(chalk.red(`  - ${failure}\n`));
+          deps.stdoutWrite(chalk.red(`  - ${failure}\n`));
         }
       }
     }
     return exitCode;
   } catch (error) {
-    spinner?.fail(error instanceof Error ? error.message : String(error));
-    failEval(deps, options.format, error);
+    if (options.format === "text" && spinner) {
+      spinner.fail(error instanceof Error ? error.message : String(error));
+    } else {
+      failEval(deps, options.format, error);
+    }
     return 1;
   }
 }
