@@ -53,6 +53,25 @@ describe("resolveEvalRunnerConfig", () => {
     });
   });
 
+  it("preserves nested config fields while applying runner overrides", () => {
+    const config = {
+      ...baseConfig,
+      context: { ...baseConfig.context, max_files: 25 },
+      reasoning: { ...baseConfig.reasoning, model_variant: "balanced" },
+    } as unknown as DiffOwlConfig;
+
+    const resolved = resolveEvalRunnerConfig(config, {
+      depth: "shallow",
+      reasoning: "low",
+    }) as DiffOwlConfig & {
+      context: { max_files?: number };
+      reasoning: { model_variant?: string };
+    };
+
+    expect(resolved.context).toMatchObject({ depth: "shallow", max_files: 25 });
+    expect(resolved.reasoning).toMatchObject({ effort: "low", model_variant: "balanced" });
+  });
+
   it("reads DIFFOWL_EVAL_MODEL when no explicit model is provided", () => {
     const previous = process.env["DIFFOWL_EVAL_MODEL"];
     process.env["DIFFOWL_EVAL_MODEL"] = "env/model";

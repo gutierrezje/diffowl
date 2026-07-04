@@ -165,9 +165,11 @@ export function resolveEvalRunnerConfig(
     model,
     min_confidence: options.minConfidence ?? base.min_confidence,
     context: {
+      ...base.context,
       depth: options.depth ?? base.context.depth,
     },
     reasoning: {
+      ...base.reasoning,
       effort: options.reasoning ?? base.reasoning.effort,
     },
   };
