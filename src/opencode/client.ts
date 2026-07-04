@@ -486,7 +486,6 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
         ...report,
         ...(diagnostics.length > 0 ? { diagnostics } : {}),
         timings,
-        ...(usage ? { usage } : {}),
       },
       sessionId,
       ...(usage ? { usage } : {}),
