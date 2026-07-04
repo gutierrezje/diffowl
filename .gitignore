@@ -11,3 +11,4 @@ plans/
 eval/results/
 eval/output/
 eval/baselines/local/
+.DS_Store

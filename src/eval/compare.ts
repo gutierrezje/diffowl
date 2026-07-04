@@ -139,11 +139,9 @@ export function compareEvalResults(
   }
 
   const aggregate = computeCorpusRunComparison(caseComparisons);
-  const regressions = [
-    ...caseComparisons.flatMap((entry) =>
-      entry.regressions.map((message) => `${entry.caseId}: ${message}`),
-    ),
-  ];
+  const regressions = caseComparisons.flatMap((entry) =>
+    entry.regressions.map((message) => `${entry.caseId}: ${message}`),
+  );
 
   return {
     corpusVersion: reference.manifest.corpus_version,
