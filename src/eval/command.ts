@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import chalk from "chalk";
 import ora, { type Ora } from "ora";
 import {
@@ -17,35 +18,24 @@ import {
   resolveEvalCorpusDir,
   resolveEvalOutDir,
   type EvalOutputFormat,
+  type ParsedEvalCliOptions,
   type RawEvalCliOptions,
 } from "./command-types.js";
 import { loadEvalCorpus } from "./corpus.js";
 import { parseEvalGateThresholds } from "./gates-types.js";
 import { readDiffOwlVersion } from "./manifest.js";
-import type { EvalReportMode } from "./manifest-types.js";
 import {
   buildEvalReport,
   dualRunToBundles,
-  renderEvalResultsJson,
   writeEvalResults,
   type EvalCaseRunBundle,
 } from "./report.js";
+import { compareEvalResults, renderEvalComparisonSummary } from "./compare.js";
+import { parseEvalResultsDocument } from "./report-types.js";
 import { runEvalCase, runEvalCaseBoth } from "./runner.js";
 import type { EvalRunnerOptions } from "./runner-types.js";
 
-export interface ParsedEvalCliOptions {
-  corpusDir: string;
-  caseIds: string[];
-  trials: number;
-  mode: EvalReportMode;
-  model?: string;
-  depth?: EvalRunnerOptions["depth"];
-  reasoning?: EvalRunnerOptions["reasoning"];
-  minConfidence?: EvalRunnerOptions["minConfidence"];
-  out?: string;
-  gatePath?: string;
-  format: EvalOutputFormat;
-}
+export type { ParsedEvalCliOptions } from "./command-types.js";
 
 export interface EvalCommandSpinner {
   start(): void;
@@ -112,6 +102,7 @@ export function parseEvalCliOptions(cwd: string, raw: RawEvalCliOptions): Parsed
     trials: parseEvalTrials(raw.trials),
     mode: parseEvalReportMode(raw.mode),
     format: parseEvalOutputFormat(raw.format),
+    failOnRegression: raw.failOnRegression === true,
   };
 
   if (raw.model) {
@@ -131,6 +122,9 @@ export function parseEvalCliOptions(cwd: string, raw: RawEvalCliOptions): Parsed
   }
   if (raw.gate) {
     options.gatePath = raw.gate;
+  }
+  if (raw.compare) {
+    options.comparePath = raw.compare;
   }
 
   return options;
@@ -211,17 +205,44 @@ export async function runEvalCommand(
     });
 
     const gatePassed = document.gates?.passed ?? true;
-    const exitCode = gatePassed ? 0 : 1;
+    let comparison;
+    if (options.comparePath) {
+      const referenceRaw = JSON.parse(await readFile(options.comparePath, "utf8")) as unknown;
+      const reference = parseEvalResultsDocument(referenceRaw);
+      comparison = compareEvalResults(reference, document);
+    }
+
+    let exitCode = gatePassed ? 0 : 1;
+    if (comparison?.hasRegressions && options.failOnRegression) {
+      exitCode = 1;
+    }
 
     if (options.format === "json") {
-      deps.stdoutWrite(renderEvalResultsJson(document));
+      const payload = comparison ? { ...document, comparison } : document;
+      deps.stdoutWrite(`${JSON.stringify(payload, null, 2)}\n`);
       return exitCode;
     }
 
     const paths = await deps.writeResults(outDir, document);
+    if (comparison) {
+      const comparisonSummary = renderEvalComparisonSummary(comparison);
+      await mkdir(outDir, { recursive: true });
+      await writeFile(join(outDir, "eval-comparison.md"), comparisonSummary, "utf8");
+    }
     spinner?.succeed(`Eval complete (${cases.length} case${cases.length === 1 ? "" : "s"})`);
     deps.stdoutWrite(`${chalk.dim("Results:")} ${paths.jsonPath}\n`);
     deps.stdoutWrite(`${chalk.dim("Summary:")} ${paths.summaryPath}\n`);
+    if (comparison) {
+      deps.stdoutWrite(`${chalk.dim("Comparison:")} ${join(outDir, "eval-comparison.md")}\n`);
+      if (comparison.hasRegressions) {
+        deps.stdoutWrite(chalk.yellow("Regressions detected vs baseline\n"));
+        for (const regression of comparison.regressions) {
+          deps.stderrWrite(chalk.yellow(`  - ${regression}\n`));
+        }
+      } else {
+        deps.stdoutWrite(chalk.green("No regressions vs baseline\n"));
+      }
+    }
     if (document.gates) {
       if (gatePassed) {
         deps.stdoutWrite(chalk.green("Gates passed\n"));

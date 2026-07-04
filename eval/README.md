@@ -52,6 +52,20 @@ Committed baselines live under `eval/baselines/<label>/`:
 
 Refresh the baseline when the corpus version changes or when claiming a measured quality improvement.
 
+## Comparing against a baseline
+
+```bash
+pnpm run eval -- \
+  --compare eval/baselines/v1/eval-results.json \
+  --out /tmp/diffowl-eval-run
+```
+
+`--compare` reports regressions but does **not** change the exit code unless you also pass `--fail-on-regression` (for CI/strict runs).
+
+Text mode writes an additional `eval-comparison.md` beside the usual results. JSON mode embeds a top-level `comparison` object.
+
+Comparison requires matching `corpus_version`, case ids, and per-case hashes from the results manifest. Run the full corpus when using `--compare` (omit `--case`).
+
 ## Gates
 
 Default thresholds: `eval/gates/default.json`. Pass/fail is reported in results and sets CLI exit code when `--gate` is used.

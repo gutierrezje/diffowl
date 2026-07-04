@@ -1,9 +1,10 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
 import type { DiffOwlConfig } from "../config.js";
 import { loadEvalCorpus } from "./corpus.js";
+import { buildV1BaselineDocument } from "./fixtures/v1-baseline.js";
 import {
   parseEvalCliOptions,
   runEvalCommand,
@@ -230,5 +231,68 @@ describe("runEvalCommand", () => {
     );
 
     expect(exitCode).toBe(1);
+  });
+
+  it("reports regressions without failing unless --fail-on-regression is set", async () => {
+    const corpus = await loadEvalCorpus(corpusDir);
+    const reference = await buildV1BaselineDocument();
+    const baselineDir = await mkdtemp(join(tmpdir(), "diffowl-eval-baseline-"));
+    const baselinePath = join(baselineDir, "eval-results.json");
+    await writeFile(baselinePath, `${JSON.stringify(reference, null, 2)}\n`, "utf8");
+    const referenceRuns = new Map(
+      reference.cases.map((entry) => [entry.id, entry.diffowl!.run]),
+    );
+
+    const stderr: string[] = [];
+    const writeResults = vi.fn(async () => ({
+      jsonPath: "/tmp/eval-results.json",
+      summaryPath: "/tmp/eval-summary.md",
+    }));
+
+    const exitCode = await runEvalCommand(
+      {
+        corpus: corpusDir,
+        trials: "3",
+        compare: baselinePath,
+        out: "/tmp/eval-out",
+      },
+      {
+        cwd: () => "/repo",
+        now: () => new Date("2026-06-29T12:00:00.000Z"),
+        loadCorpus: async () => corpus,
+        loadConfig: async () => baseConfig,
+        runCase: async (evalCase) => {
+          if (evalCase.id === "missing-validation") {
+            return {
+              caseId: evalCase.id,
+              mode: "diffowl",
+              trials: [0, 1, 2].map((trial) => ({
+                caseId: evalCase.id,
+                trial,
+                mode: "diffowl" as const,
+                findings: [],
+                timings: [],
+                sessionId: "session",
+                summary: "",
+                diagnostics: [],
+                durationMs: 1000,
+              })),
+            };
+          }
+          return referenceRuns.get(evalCase.id)!;
+        },
+        readDiffOwlVersion: async () => "0.3.1",
+        getOpencodeVersion: async () => null,
+        writeResults,
+        stdoutWrite: () => {},
+        stderrWrite: (chunk) => {
+          stderr.push(chunk);
+        },
+        createSpinner: noopSpinner,
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(stderr.join("")).toContain("missing-validation");
   });
 });

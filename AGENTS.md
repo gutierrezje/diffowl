@@ -27,6 +27,7 @@ Local AI code review CLI. Orchestrates a headless OpenCode server and delegates 
 | Add CLI command                       | `src/cli.ts`                                           |
 | Run eval harness                      | `src/eval/command.ts`, `pnpm run eval`                 |
 | Corpus manifest / fixtures            | `eval/corpus-manifest.json`, `eval/corpus/`              |
+| Compare eval runs vs baseline         | `src/eval/compare.ts`, `--compare` on `diffowl eval`     |
 | Change review prompt / agent behavior | `src/opencode/agent.ts`                                |
 | Tweak diff parser                     | `src/git/diff.ts`                                      |
 | Change report format                  | `src/review/formatter.ts`                              |

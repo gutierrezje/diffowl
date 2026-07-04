@@ -15,6 +15,8 @@ export interface RawEvalCliOptions {
   minConfidence?: string;
   out?: string;
   gate?: string;
+  compare?: string;
+  failOnRegression?: boolean;
   format?: string;
 }
 
@@ -27,8 +29,10 @@ export interface ParsedEvalCliOptions {
   depth?: ReviewContextDepth;
   reasoning?: ReasoningEffort;
   minConfidence?: ReviewConfidence;
-  outDir?: string;
+  out?: string;
   gatePath?: string;
+  comparePath?: string;
+  failOnRegression: boolean;
   format: EvalOutputFormat;
 }
 

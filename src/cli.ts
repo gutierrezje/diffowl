@@ -959,6 +959,8 @@ program
   .option("--min-confidence <level>", "Minimum finding confidence: low, medium, or high")
   .option("--out <dir>", "Output directory for eval results")
   .option("--gate <path>", "Gate thresholds JSON file")
+  .option("--compare <path>", "Compare results against a baseline eval-results.json")
+  .option("--fail-on-regression", "Exit 1 when --compare detects regressions")
   .option("--format <format>", "Output format: text or json", "text")
   .action(async (options) => {
     process.exit(await runEvalCommand(options));
