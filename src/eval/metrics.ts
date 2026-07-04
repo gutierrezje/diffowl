@@ -20,7 +20,7 @@ function resolveMetricsOptions(options?: EvalMetricsOptions): Required<EvalMetri
   };
 }
 
-export function computePrecision(tp: number, fp: number): number | null {
+export function computePrecision(tp: number, fp: number): number {
   const denominator = tp + fp;
   if (denominator === 0) {
     return 1;
@@ -28,7 +28,7 @@ export function computePrecision(tp: number, fp: number): number | null {
   return tp / denominator;
 }
 
-export function computeRecall(tp: number, fn: number): number | null {
+export function computeRecall(tp: number, fn: number): number {
   const denominator = tp + fn;
   if (denominator === 0) {
     return 1;
@@ -36,14 +36,7 @@ export function computeRecall(tp: number, fn: number): number | null {
   return tp / denominator;
 }
 
-export function computeFBeta(
-  precision: number | null,
-  recall: number | null,
-  beta: number,
-): number | null {
-  if (precision === null || recall === null) {
-    return null;
-  }
+export function computeFBeta(precision: number, recall: number, beta: number): number {
   if (precision === 0 && recall === 0) {
     return 0;
   }
@@ -157,15 +150,9 @@ export function computeCaseMetrics(
     return trialMetricsFromScore(trialScore, trialResult, caseScore.category, resolved.beta);
   });
 
-  const precisionValues = trialMetrics
-    .map((trial) => trial.precision)
-    .filter((value): value is number => value !== null);
-  const recallValues = trialMetrics
-    .map((trial) => trial.recall)
-    .filter((value): value is number => value !== null);
-  const fBetaValues = trialMetrics
-    .map((trial) => trial.fBeta)
-    .filter((value): value is number => value !== null);
+  const precisionValues = trialMetrics.map((trial) => trial.precision);
+  const recallValues = trialMetrics.map((trial) => trial.recall);
+  const fBetaValues = trialMetrics.map((trial) => trial.fBeta);
 
   const repeatedFpRate =
     caseScore.trials.length === 0
@@ -174,7 +161,9 @@ export function computeCaseMetrics(
 
   const emptyOnCleanRate =
     caseScore.category === "clean"
-      ? trialMetrics.filter((trial) => trial.emptyOnClean).length / trialMetrics.length
+      ? trialMetrics.length === 0
+        ? 0
+        : trialMetrics.filter((trial) => trial.emptyOnClean).length / trialMetrics.length
       : null;
 
   return {

@@ -35,7 +35,7 @@ describe("computeFBeta", () => {
   it("weights recall when beta is greater than 1", () => {
     const f1 = computeFBeta(0.5, 1, 1);
     const f2 = computeFBeta(0.5, 1, 2);
-    expect(f2).toBeGreaterThan(f1 ?? 0);
+    expect(f2).toBeGreaterThan(f1);
   });
 });
 

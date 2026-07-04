@@ -266,4 +266,24 @@ describe("end-to-end scoring and metrics", () => {
     expect(corpusMetrics.latencyMs.p50).toBe(800);
     expect(corpusMetrics.usage.coverage).toBe(0.25);
   });
+
+  it("keeps clean zero-trial empty-on-clean rates finite", () => {
+    const cleanCase = makeEvalCase({
+      id: "empty-clean",
+      category: "clean",
+    });
+    const cleanRun: EvalCaseRunResult = {
+      caseId: cleanCase.id,
+      mode: "diffowl",
+      trials: [],
+    };
+
+    const cleanScore = scoreEvalCase(cleanCase, cleanRun);
+    const cleanMetrics = computeCaseMetrics(cleanScore, cleanRun.trials);
+    const corpusMetrics = computeCorpusMetrics([cleanMetrics]);
+
+    expect(cleanMetrics.emptyOnCleanRate).toBe(0);
+    expect(Number.isNaN(cleanMetrics.emptyOnCleanRate)).toBe(false);
+    expect(corpusMetrics.emptyOnCleanRate).toBe(0);
+  });
 });
