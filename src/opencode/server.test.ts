@@ -46,6 +46,15 @@ function netstatLine(port: number, pid: number): string {
   return `  TCP    0.0.0.0:${port}           0.0.0.0:0              LISTENING       ${pid}\r\n`;
 }
 
+/**
+ * Minimal stand-in for the detached execa child spawnServer creates: a real
+ * promise (so its `.catch` wiring is exercised, not mocked away) carrying the
+ * `pid` and `unref` members the production code touches.
+ */
+function fakeServeChild(pid: number, outcome: Promise<unknown> = Promise.resolve()) {
+  return Object.assign(outcome, { pid, unref: vi.fn() });
+}
+
 describe("getServerHealth", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -93,10 +102,7 @@ describe("ensureServer", () => {
     const { ensureServer } = await import("./server.js");
     const rejection = Promise.reject(new Error("serve failed"));
     rejection.catch(() => {});
-    const child = Object.assign(rejection, {
-      pid: 12345,
-      unref: vi.fn(),
-    });
+    const child = fakeServeChild(12345, rejection);
 
     mocks.ensureDiffOwlDir.mockResolvedValue("/tmp/diffowl");
     mocks.getDiffOwlDir.mockReturnValue("/tmp/diffowl");
@@ -127,14 +133,7 @@ describe("ensureServer", () => {
   it("clears an unhealthy opencode listener before spawning a replacement", async () => {
     vi.useFakeTimers();
     const { ensureServer } = await import("./server.js");
-    const child = Promise.resolve() as Promise<unknown> & {
-      pid: number;
-      unref: () => void;
-      catch: (handler: (err: unknown) => void) => void;
-    };
-    child.pid = 22222;
-    child.unref = vi.fn();
-    child.catch = vi.fn();
+    const child = fakeServeChild(22222);
 
     mocks.ensureDiffOwlDir.mockResolvedValue("/tmp/diffowl");
     mocks.getDiffOwlDir.mockReturnValue("/tmp/diffowl");
@@ -262,14 +261,7 @@ describe("ensureServer", () => {
   it("spawns when an unhealthy listener exits before signal delivery", async () => {
     vi.useFakeTimers();
     const { ensureServer } = await import("./server.js");
-    const child = Promise.resolve() as Promise<unknown> & {
-      pid: number;
-      unref: () => void;
-      catch: (handler: (err: unknown) => void) => void;
-    };
-    child.pid = 22222;
-    child.unref = vi.fn();
-    child.catch = vi.fn();
+    const child = fakeServeChild(22222);
 
     mocks.ensureDiffOwlDir.mockResolvedValue("/tmp/diffowl");
     mocks.getDiffOwlDir.mockReturnValue("/tmp/diffowl");
@@ -347,14 +339,7 @@ describe("ensureServer", () => {
   it("restarts a stale server when health and CLI versions differ", async () => {
     vi.useFakeTimers();
     const { ensureServer } = await import("./server.js");
-    const child = Promise.resolve() as Promise<unknown> & {
-      pid: number;
-      unref: () => void;
-      catch: (handler: (err: unknown) => void) => void;
-    };
-    child.pid = 22222;
-    child.unref = vi.fn();
-    child.catch = vi.fn();
+    const child = fakeServeChild(22222);
 
     mocks.ensureDiffOwlDir.mockResolvedValue("/tmp/diffowl");
     mocks.getDiffOwlDir.mockReturnValue("/tmp/diffowl");
