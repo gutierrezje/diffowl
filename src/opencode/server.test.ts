@@ -209,10 +209,18 @@ describe("ensureServer", () => {
     vi.stubGlobal("fetch", mocks.fetch);
 
     mocks.execa.mockImplementation((command: string) => {
+      // findListenerPids: Unix lsof, Windows netstat
       if (command === "lsof") {
         return Promise.resolve({ stdout: "55555\n" });
       }
+      if (command === "netstat") {
+        return Promise.resolve({ stdout: netstatLine(4096, 55555) });
+      }
+      // isOpencodeProcess: Unix ps, Windows powershell/wmic/tasklist
       if (command === "ps") {
+        return Promise.resolve({ stdout: "python -m http.server 4096" });
+      }
+      if (command === "powershell" || command === "wmic" || command === "tasklist") {
         return Promise.resolve({ stdout: "python -m http.server 4096" });
       }
       return Promise.resolve({ stdout: "" });
@@ -235,10 +243,18 @@ describe("ensureServer", () => {
     vi.stubGlobal("fetch", mocks.fetch);
 
     mocks.execa.mockImplementation((command: string) => {
+      // findListenerPids: Unix lsof, Windows netstat
       if (command === "lsof") {
         return Promise.resolve({ stdout: "11111\n" });
       }
+      if (command === "netstat") {
+        return Promise.resolve({ stdout: netstatLine(4096, 11111) });
+      }
+      // isOpencodeProcess: Unix ps, Windows powershell/wmic/tasklist
       if (command === "ps") {
+        return Promise.resolve({ stdout: "opencode serve --port 4096" });
+      }
+      if (command === "powershell" || command === "wmic" || command === "tasklist") {
         return Promise.resolve({ stdout: "opencode serve --port 4096" });
       }
       return Promise.resolve({ stdout: "" });
@@ -282,12 +298,22 @@ describe("ensureServer", () => {
     vi.stubGlobal("fetch", mocks.fetch);
 
     let lsofCalls = 0;
+    let netstatCalls = 0;
     mocks.execa.mockImplementation((command: string, args?: string[]) => {
+      // findListenerPids: Unix lsof, Windows netstat — listener gone on recheck
       if (command === "lsof") {
         lsofCalls += 1;
         return Promise.resolve({ stdout: lsofCalls === 1 ? "11111\n" : "" });
       }
+      if (command === "netstat") {
+        netstatCalls += 1;
+        return Promise.resolve({ stdout: netstatCalls === 1 ? netstatLine(4096, 11111) : "" });
+      }
+      // isOpencodeProcess: Unix ps, Windows powershell/wmic/tasklist
       if (command === "ps") {
+        return Promise.resolve({ stdout: "opencode serve --port 4096" });
+      }
+      if (command === "powershell" || command === "wmic" || command === "tasklist") {
         return Promise.resolve({ stdout: "opencode serve --port 4096" });
       }
       if (command === "which" || command === "where") {
