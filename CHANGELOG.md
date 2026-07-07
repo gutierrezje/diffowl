@@ -4,6 +4,14 @@ All notable changes to DiffOwl are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and the
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 
+## [Unreleased]
+
+### Internal
+
+- Retired the legacy `dogfood:0.3` manual release-gate script and checklist now
+  that durable-finding coverage lives in deterministic tests and the eval
+  corpus.
+
 ## [0.3.2] - 2026-07-07
 
 The **Measured Review Quality** release. DiffOwl now measures its own review

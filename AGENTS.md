@@ -74,7 +74,7 @@ pnpm run lint       # oxlint + tsc --noEmit
 pnpm run test       # vitest
 pnpm run build && pnpm link --global   # install diffowl binary
 
-# Dogfood loop
+# Review loop
 # stage → diffowl review --staged → read .diffowl/reviews/latest.md → pnpm run lint → commit
 diffowl init        # create .diffowl.yml
 diffowl hook install
