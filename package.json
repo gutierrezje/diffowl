@@ -40,9 +40,12 @@
     "format:check": "oxfmt --check .",
     "dogfood:0.3": "pnpm run build && node scripts/dogfood-0.3.mjs",
     "eval": "pnpm run build && node dist/cli.js eval",
+    "eval:backends": "pnpm run build && node dist/cli.js eval-backends",
     "prepack": "npm run build"
   },
   "dependencies": {
+    "@earendil-works/pi-ai": "^0.80.3",
+    "@earendil-works/pi-coding-agent": "^0.80.3",
     "@opencode-ai/sdk": "^1.15.11",
     "chalk": "^5.6.2",
     "commander": "^14.0.3",
