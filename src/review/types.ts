@@ -1,27 +1,40 @@
-import type { ReviewConfidence } from "../config.js";
+import { z } from "zod";
+import { ReviewConfidenceSchema } from "../config.js";
 
-export type ReviewSeverity = "error" | "warning" | "info";
+export const ReviewSeveritySchema = z.enum(["error", "warning", "info"]);
+
+export type ReviewSeverity = z.output<typeof ReviewSeveritySchema>;
 
 export type { ReviewConfidence } from "../config.js";
 export type { ReviewUsage, ReviewUsageTokens } from "./usage.js";
 
-export interface DurableFindingMetadata {
-  id: string;
-  classification: "new" | "existing" | "regressed";
-  status: "open" | "deferred" | "dismissed" | "fixed" | "regressed";
-  lifecycleSuppressed?: boolean;
-}
+export const DurableFindingMetadataSchema = z.object({
+  id: z.string(),
+  classification: z.enum(["new", "existing", "regressed"]),
+  status: z.enum(["open", "deferred", "dismissed", "fixed", "regressed"]),
+  lifecycleSuppressed: z.boolean().optional(),
+});
 
-export interface ReviewFinding {
-  severity: ReviewSeverity;
-  file: string;
-  line: number;
-  evidence?: string;
-  title: string;
-  body: string;
-  confidence: ReviewConfidence;
-  durable?: DurableFindingMetadata;
-}
+export const ReviewFindingSchema = z.object({
+  severity: ReviewSeveritySchema,
+  file: z.string(),
+  line: z.number(),
+  evidence: z.string().optional(),
+  title: z.string(),
+  body: z.string(),
+  confidence: ReviewConfidenceSchema,
+  durable: DurableFindingMetadataSchema.optional(),
+});
+
+export const ReviewTimingSchema = z.object({
+  phase: z.string(),
+  label: z.string(),
+  ms: z.number(),
+});
+
+export type DurableFindingMetadata = z.output<typeof DurableFindingMetadataSchema>;
+export type ReviewFinding = z.output<typeof ReviewFindingSchema>;
+export type ReviewTiming = z.output<typeof ReviewTimingSchema>;
 
 export interface ReviewReport {
   summary: string;
@@ -29,10 +42,4 @@ export interface ReviewReport {
   suppressedFindings?: ReviewFinding[];
   diagnostics?: string[];
   timings?: ReviewTiming[];
-}
-
-export interface ReviewTiming {
-  phase: string;
-  label: string;
-  ms: number;
 }

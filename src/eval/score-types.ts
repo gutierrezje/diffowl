@@ -1,5 +1,6 @@
-import type { EvalCaseCategory, EvalExpectedFinding } from "./case-types.js";
-import type { ReviewFinding } from "../review/types.js";
+import { z } from "zod";
+import { EvalCaseCategorySchema, EvalExpectedFindingSchema } from "./case-types.js";
+import { ReviewFindingSchema } from "../review/types.js";
 
 export type EvalFnMode = "must_detect" | "strict";
 
@@ -15,37 +16,42 @@ export const DEFAULT_EVAL_SCORE_OPTIONS = {
   repeatedFpThreshold: 2,
 } as const satisfies Required<EvalScoreOptions>;
 
-export interface EvalMatch {
-  expectedIndex: number;
-  reportedIndex: number;
-  lineDistance: number;
-}
+export const EvalMatchSchema = z.object({
+  expectedIndex: z.number(),
+  reportedIndex: z.number(),
+  lineDistance: z.number(),
+});
 
-export interface EvalTrialScore {
-  caseId: string;
-  trial: number;
-  truePositives: EvalMatch[];
-  falsePositives: ReviewFinding[];
-  falseNegatives: EvalExpectedFinding[];
-  redundancies: ReviewFinding[];
-  counts: {
-    tp: number;
-    fp: number;
-    fn: number;
-    redundancy: number;
-  };
-}
+export const EvalTrialScoreSchema = z.object({
+  caseId: z.string(),
+  trial: z.number(),
+  truePositives: z.array(EvalMatchSchema),
+  falsePositives: z.array(ReviewFindingSchema),
+  falseNegatives: z.array(EvalExpectedFindingSchema),
+  redundancies: z.array(ReviewFindingSchema),
+  counts: z.object({
+    tp: z.number(),
+    fp: z.number(),
+    fn: z.number(),
+    redundancy: z.number(),
+  }),
+});
 
-export interface RepeatedFalsePositive {
-  fingerprint: string;
-  trialCount: number;
-  example: ReviewFinding;
-}
+export const RepeatedFalsePositiveSchema = z.object({
+  fingerprint: z.string(),
+  trialCount: z.number(),
+  example: ReviewFindingSchema,
+});
 
-export interface EvalCaseScore {
-  caseId: string;
-  category: EvalCaseCategory;
-  tags: string[];
-  trials: EvalTrialScore[];
-  repeatedFalsePositives: RepeatedFalsePositive[];
-}
+export const EvalCaseScoreSchema = z.object({
+  caseId: z.string(),
+  category: EvalCaseCategorySchema,
+  tags: z.array(z.string()),
+  trials: z.array(EvalTrialScoreSchema),
+  repeatedFalsePositives: z.array(RepeatedFalsePositiveSchema),
+});
+
+export type EvalMatch = z.output<typeof EvalMatchSchema>;
+export type EvalTrialScore = z.output<typeof EvalTrialScoreSchema>;
+export type RepeatedFalsePositive = z.output<typeof RepeatedFalsePositiveSchema>;
+export type EvalCaseScore = z.output<typeof EvalCaseScoreSchema>;

@@ -1,10 +1,13 @@
-import type { EvalCaseCategory } from "./case-types.js";
+import { z } from "zod";
+import { EvalCaseCategorySchema } from "./case-types.js";
 
-export interface StatSummary {
-  mean: number;
-  stddev: number;
-  values: number[];
-}
+export const StatSummarySchema = z.object({
+  mean: z.number(),
+  stddev: z.number(),
+  values: z.array(z.number()),
+});
+
+export type StatSummary = z.output<typeof StatSummarySchema>;
 
 export interface EvalMetricsOptions {
   beta?: number;
@@ -14,64 +17,71 @@ export const DEFAULT_EVAL_METRICS_OPTIONS = {
   beta: 1,
 } as const satisfies Required<EvalMetricsOptions>;
 
-export interface EvalTrialMetrics {
-  trial: number;
-  precision: number;
-  recall: number;
-  fBeta: number;
-  durationMs: number;
-  usageCost: number | null;
-  totalTokens: number | null;
-  emptyOnClean: boolean;
-}
+export const EvalTrialMetricsSchema = z.object({
+  trial: z.number(),
+  precision: z.number(),
+  recall: z.number(),
+  fBeta: z.number(),
+  durationMs: z.number(),
+  usageCost: z.number().nullable(),
+  totalTokens: z.number().nullable(),
+  emptyOnClean: z.boolean(),
+});
 
-export interface EvalLatencyMetrics {
-  p50: number | null;
-  p95: number | null;
-  values: number[];
-}
+export const EvalLatencyMetricsSchema = z.object({
+  p50: z.number().nullable(),
+  p95: z.number().nullable(),
+  values: z.array(z.number()),
+});
 
-export interface EvalUsageMetrics {
-  meanCost: number | null;
-  totalCost: number | null;
-  meanTokens: number | null;
-  coverage: number;
-}
+export const EvalUsageMetricsSchema = z.object({
+  meanCost: z.number().nullable(),
+  totalCost: z.number().nullable(),
+  meanTokens: z.number().nullable(),
+  coverage: z.number(),
+});
 
-export interface EvalCaseMetrics {
-  caseId: string;
-  category: EvalCaseCategory;
-  tags: string[];
-  trialCount: number;
-  precision: StatSummary | null;
-  recall: StatSummary | null;
-  fBeta: StatSummary | null;
-  repeatedFpRate: number;
-  emptyOnCleanRate: number | null;
-  latencyMs: EvalLatencyMetrics;
-  usage: EvalUsageMetrics;
-  trials: EvalTrialMetrics[];
-}
+export const EvalCaseMetricsSchema = z.object({
+  caseId: z.string(),
+  category: EvalCaseCategorySchema,
+  tags: z.array(z.string()),
+  trialCount: z.number(),
+  precision: StatSummarySchema.nullable(),
+  recall: StatSummarySchema.nullable(),
+  fBeta: StatSummarySchema.nullable(),
+  repeatedFpRate: z.number(),
+  emptyOnCleanRate: z.number().nullable(),
+  latencyMs: EvalLatencyMetricsSchema,
+  usage: EvalUsageMetricsSchema,
+  trials: z.array(EvalTrialMetricsSchema),
+});
 
-export interface EvalCategoryMetrics {
-  category: EvalCaseCategory;
-  caseCount: number;
-  precision: StatSummary | null;
-  recall: StatSummary | null;
-  fBeta: StatSummary | null;
-  repeatedFpRate: number | null;
-  emptyOnCleanRate: number | null;
-}
+export const EvalCategoryMetricsSchema = z.object({
+  category: EvalCaseCategorySchema,
+  caseCount: z.number(),
+  precision: StatSummarySchema.nullable(),
+  recall: StatSummarySchema.nullable(),
+  fBeta: StatSummarySchema.nullable(),
+  repeatedFpRate: z.number().nullable(),
+  emptyOnCleanRate: z.number().nullable(),
+});
 
-export interface EvalCorpusMetrics {
-  caseCount: number;
-  trialCount: number;
-  precision: StatSummary | null;
-  recall: StatSummary | null;
-  fBeta: StatSummary | null;
-  repeatedFpRate: number | null;
-  emptyOnCleanRate: number | null;
-  latencyMs: EvalLatencyMetrics;
-  usage: EvalUsageMetrics;
-  byCategory: EvalCategoryMetrics[];
-}
+export const EvalCorpusMetricsSchema = z.object({
+  caseCount: z.number(),
+  trialCount: z.number(),
+  precision: StatSummarySchema.nullable(),
+  recall: StatSummarySchema.nullable(),
+  fBeta: StatSummarySchema.nullable(),
+  repeatedFpRate: z.number().nullable(),
+  emptyOnCleanRate: z.number().nullable(),
+  latencyMs: EvalLatencyMetricsSchema,
+  usage: EvalUsageMetricsSchema,
+  byCategory: z.array(EvalCategoryMetricsSchema),
+});
+
+export type EvalTrialMetrics = z.output<typeof EvalTrialMetricsSchema>;
+export type EvalLatencyMetrics = z.output<typeof EvalLatencyMetricsSchema>;
+export type EvalUsageMetrics = z.output<typeof EvalUsageMetricsSchema>;
+export type EvalCaseMetrics = z.output<typeof EvalCaseMetricsSchema>;
+export type EvalCategoryMetrics = z.output<typeof EvalCategoryMetricsSchema>;
+export type EvalCorpusMetrics = z.output<typeof EvalCorpusMetricsSchema>;

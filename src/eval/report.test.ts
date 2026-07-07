@@ -112,6 +112,35 @@ describe("buildEvalReport", () => {
     expect(parseEvalResultsDocument(document).schema_version).toBe(1);
   });
 
+  it("rejects malformed nested result metrics", async () => {
+    const corpus = await loadEvalCorpus(corpusDir);
+    const cleanCase = corpus.cases.find((entry) => entry.id === "harmless-trim");
+    expect(cleanCase).toBeDefined();
+
+    const run: EvalCaseRunResult = {
+      caseId: cleanCase!.id,
+      mode: "diffowl",
+      trials: [makeTrial(cleanCase!.id, [])],
+    };
+    const document = await buildEvalReport({
+      corpus,
+      config: baseConfig,
+      options: {},
+      mode: "diffowl",
+      trials: 1,
+      startedAt: "2026-06-29T00:00:00.000Z",
+      finishedAt: "2026-06-29T00:10:00.000Z",
+      versions: { diffowlVersion: "0.3.1", nodeVersion: "v22.14.0", opencodeVersion: null },
+      caseRuns: [{ evalCase: cleanCase!, diffowl: run }],
+    });
+    const raw = JSON.parse(JSON.stringify(document)) as {
+      cases: Array<{ diffowl?: { metrics: { precision: unknown } } }>;
+    };
+    raw.cases[0]!.diffowl!.metrics.precision = { mean: "bad", stddev: 0, values: [1] };
+
+    expect(() => parseEvalResultsDocument(raw)).toThrow();
+  });
+
   it("writes eval-results.json and eval-summary.md", async () => {
     const corpus = await loadEvalCorpus(corpusDir);
     const evalCase = corpus.cases.find((entry) => entry.id === "harmless-trim");

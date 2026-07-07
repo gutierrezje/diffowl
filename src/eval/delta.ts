@@ -1,31 +1,36 @@
+import { z } from "zod";
 import type { EvalCaseMetrics, StatSummary } from "./metrics-types.js";
 
-export interface EvalModeDeltaMetric {
-  diffowl: number | null;
-  baseline: number | null;
-  delta: number | null;
-}
+export const EvalModeDeltaMetricSchema = z.object({
+  diffowl: z.number().nullable(),
+  baseline: z.number().nullable(),
+  delta: z.number().nullable(),
+});
 
-export interface EvalCaseModeDelta {
-  caseId: string;
-  precision: EvalModeDeltaMetric;
-  recall: EvalModeDeltaMetric;
-  fBeta: EvalModeDeltaMetric;
-  repeatedFpRate: EvalModeDeltaMetric;
-  latencyP50: EvalModeDeltaMetric;
-  usageMeanCost: EvalModeDeltaMetric;
-}
+export const EvalCaseModeDeltaSchema = z.object({
+  caseId: z.string(),
+  precision: EvalModeDeltaMetricSchema,
+  recall: EvalModeDeltaMetricSchema,
+  fBeta: EvalModeDeltaMetricSchema,
+  repeatedFpRate: EvalModeDeltaMetricSchema,
+  latencyP50: EvalModeDeltaMetricSchema,
+  usageMeanCost: EvalModeDeltaMetricSchema,
+});
 
-export interface EvalCorpusModeDelta {
-  caseCount: number;
-  precision: EvalModeDeltaMetric;
-  recall: EvalModeDeltaMetric;
-  fBeta: EvalModeDeltaMetric;
-  repeatedFpRate: EvalModeDeltaMetric;
-  latencyP50: EvalModeDeltaMetric;
-  usageMeanCost: EvalModeDeltaMetric;
-  cases: EvalCaseModeDelta[];
-}
+export const EvalCorpusModeDeltaSchema = z.object({
+  caseCount: z.number(),
+  precision: EvalModeDeltaMetricSchema,
+  recall: EvalModeDeltaMetricSchema,
+  fBeta: EvalModeDeltaMetricSchema,
+  repeatedFpRate: EvalModeDeltaMetricSchema,
+  latencyP50: EvalModeDeltaMetricSchema,
+  usageMeanCost: EvalModeDeltaMetricSchema,
+  cases: z.array(EvalCaseModeDeltaSchema),
+});
+
+export type EvalModeDeltaMetric = z.output<typeof EvalModeDeltaMetricSchema>;
+export type EvalCaseModeDelta = z.output<typeof EvalCaseModeDeltaSchema>;
+export type EvalCorpusModeDelta = z.output<typeof EvalCorpusModeDeltaSchema>;
 
 function summaryMean(summary: StatSummary | null): number | null {
   return summary?.mean ?? null;
