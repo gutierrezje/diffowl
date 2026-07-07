@@ -78,7 +78,7 @@ async function resolveDogfoodModel() {
     config = await readFile(configPath, "utf8");
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {
-      return "opencode-go/big-pickle";
+      return "opencode/big-pickle";
     }
     throw error;
   }

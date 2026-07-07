@@ -227,7 +227,7 @@ View or interactively change the active AI model.
 diffowl model
 
 # Manually set a model
-diffowl model opencode-go/big-pickle
+diffowl model opencode/big-pickle
 ```
 
 ### `diffowl chat [report]`
@@ -315,7 +315,7 @@ Your `.diffowl.yml` configures everything for DiffOwl in your project:
 
 ```yaml
 # Model to use for reviews (provider/model)
-model: opencode-go/big-pickle
+model: opencode/big-pickle
 
 # OpenCode server settings
 server:

@@ -744,7 +744,7 @@ async function runInit() {
 program
   .command("model")
   .description("View or change the AI model")
-  .argument("[model]", "Model to use (e.g., opencode-go/big-pickle)")
+  .argument("[model]", "Model to use (e.g., opencode/big-pickle)")
   .action(async (model?: string) => {
     const config = await loadConfigOrExit();
 
@@ -760,7 +760,7 @@ program
     } catch {
       console.error(chalk.red(`Invalid model: ${model}`));
       console.error(
-        chalk.dim("Expected provider/model format, for example opencode-go/big-pickle"),
+        chalk.dim("Expected provider/model format, for example opencode/big-pickle"),
       );
       process.exit(1);
     }
