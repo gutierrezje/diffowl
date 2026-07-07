@@ -21,8 +21,13 @@ DiffOwl is:
 - Local-first: source code and review state stay on infrastructure controlled
   by the user unless they explicitly publish or synchronize them.
 - Provider-neutral: review workflows are not tied to one model vendor.
+- Forge-agnostic: DiffOwl is built on git, not on a hosting platform. It works
+  identically whether the remote is GitHub, GitLab, or bare — including forges
+  that hosted PR bots treat as second-class.
 - Agent-independent: DiffOwl can review changes produced by a person or any
-  coding agent.
+  coding agent. Independence is context independence — a clean-room prompt and
+  separately built context — not a claim that the reviewer uses different
+  weights than the writer.
 - Evidence-driven: findings identify concrete code, impact, and confidence.
 - Stateful: findings persist across commits and have a lifecycle.
 - Automation-friendly: the same review engine serves local hooks, CI, editors,
@@ -120,6 +125,35 @@ The eval harness is internal tooling until `diffowl eval` lands; target
 **0.3.2+**, not a `0.4.0` minor bump. Quality claims should not be made until
 the harness produces repeatable results on a stabilized corpus.
 
+Corpus stabilization includes a single expectation contract: every case scores
+under the same rules (line tolerance, severity floors, category requirements
+decided once, enforced by a schema-conformance gate), so aggregate metrics
+reflect model quality rather than per-case authoring drift.
+
+### 0.4 - Branch Review and the Pre-PR Gate
+
+Meet agentic workflows at their natural unit: the branch, not the commit.
+
+- Add `diffowl review --base [ref]`: review `HEAD` against the merge base with
+  the given ref (three-dot semantics, the same diff a PR shows), defaulting to
+  the auto-detected default branch. Committed state only; the working tree and
+  index stay out of branch reviews so results are reproducible.
+- Make repeat branch reviews delta-aware: as a branch grows, re-reviews lean on
+  durable findings to report `new`, `existing`, and `regressed` rather than
+  re-litigating the whole diff.
+- Add a blocking gate mode with meaningful exit codes so DiffOwl can serve as
+  a pre-push or CI quality gate. DiffOwl emits structured findings and a
+  verdict; the user composes the policy. DiffOwl produces data, it does not
+  own the pipeline outcome.
+- Validate model output against the finding schema at the session boundary and
+  retry with error feedback on invalid output instead of failing the review.
+- Spike a Codex-subprocess backend behind the existing backend seam. Rationale:
+  it is the one backend that can unlock a subscription users already pay for
+  (Anthropic's terms keep Claude subscriptions out of reach for any third-party
+  path, so for Claude a direct backend buys nothing over OpenCode). Adopt only
+  if it clears the same eval gates the pi spike failed; subscription economics
+  alone are not sufficient evidence.
+
 ### 0.5 - Incremental Impact Graph
 
 - Index supported-language symbols, imports, calls, and likely tests.
@@ -141,15 +175,52 @@ the harness produces repeatable results on a stabilized corpus.
 - Publish annotations while updating existing findings instead of posting
   duplicate comments.
 
+Running an agent review from a PR event is now commodity infrastructure —
+generic agent bridges (e.g. Pullfrog) do it with a prompt and a key. The
+Action is only defensible through what a stateless prompt-runner cannot carry:
+durable finding identity across pushes, updated rather than duplicated
+comments, and measured quality. Treat the Action as the distribution wedge —
+how people discover DiffOwl — while the local loop is why they stay. The
+Action exposes findings as structured, composable step output.
+
 ### Later - Team Intelligence
 
-- Support shared, path-scoped policy packs.
-- Learn from accepted and dismissed findings through explicit, reviewable
-  suggestions.
+Team state is three different needs, served in order and mostly through git:
+
+1. **Visibility** — teammates see findings on a change. Served by 0.6 team
+   surfaces (PR comments, SARIF, CI artifacts) under a
+   canonical-reviewer-per-change model: one review run (CI or the author's
+   machine) is the reviewer of record for a branch, and its output travels
+   with the PR. Other checkouts' local state stays a personal cache; there is
+   no multi-master database sync.
+2. **Decisions** — dispositions that should not be re-litigated. Served by an
+   append-only disposition log committed to the repo (git as the transport,
+   conflict-free by construction), attached to the canonical review's finding
+   identities. The local database becomes a rebuildable view over own reviews
+   plus the shared log.
+3. **Policy** — classes of findings the team never wants. Served by promoting
+   repeated dismissals into committed, path-scoped suppression rules through
+   an explicit, human-approved change. This is where most dismissals should
+   terminate; it drains the backlog instead of accumulating open records.
+
+Prerequisite for any shared identity: a more code-anchored fingerprint
+(anchor on file plus quoted evidence; drop model-phrased prose from the hash),
+since independently generated reviews will not phrase the same issue
+identically.
+
+Learned preferences live in three layers, strongest first: deterministic
+suppression at the reporting layer (model-independent by construction),
+prompt-injected rules (portable, A/B-tested against the corpus), and
+per-model calibration priors derived from disposition history. Team
+preferences graduate to committed policy; model-specific noise profiles stay
+in local state and evaporate when the model changes — never fossilize one
+model's quirks into policy that would suppress a better model's findings.
+
 - Add linked-repository context where users opt in.
 - Provide review-quality and acceptance analytics.
-- Consider an optional hosted synchronization layer only when local and CI
-  workflows establish demand for shared state.
+- Consider an optional hosted synchronization layer only after the git-based
+  tiers above prove insufficient; a server adds cross-repo aggregation and
+  dashboards, nothing the tiers require.
 
 ## Success Measures
 
@@ -189,10 +260,18 @@ Until the core review loop is demonstrably strong, DiffOwl will not prioritize:
 - Supporting every programming language before supported languages are
   evaluated well.
 - Competing feature-for-feature with hosted pull-request review platforms.
+- Competing on generality with agent-orchestration bridges (Pullfrog and
+  similar): arbitrary prompts, arbitrary triggers, implementation tasks. A
+  verification layer that also implements features stops being independent.
 - Silently learning or enforcing team policy from user behavior.
 
 ## Near-Term Decision
 
-The next product milestone should be 0.3: durable structured findings and JSON
-output. This establishes the data model required for evaluation, deduplication,
-agent integrations, CI annotations, and future team workflows.
+0.3 (durable structured findings, JSON output) has shipped and the eval
+harness is merged. The next milestone is finishing 0.3.x — a stabilized,
+contract-consistent corpus and a live baseline — followed by 0.4 branch
+review. Branch review is the single largest workflow unlock for agent-driven
+development: agents produce many commits per session, and the reviewable unit
+users care about before a PR is the branch delta, not each intermediate
+commit. Quality changes (prompt, contract, backends) continue to merge only
+on eval evidence.
