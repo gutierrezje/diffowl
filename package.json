@@ -34,7 +34,7 @@
     "pretest": "pnpm run check:runtime",
     "test": "vitest run",
     "pretypecheck": "pnpm run check:runtime",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node scripts/typecheck.mjs --noEmit",
     "lint": "oxlint . && pnpm run typecheck",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
