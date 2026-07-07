@@ -1,0 +1,19 @@
+{
+  "label": "v2",
+  "captured_at": "2026-07-07T22:37:14.742Z",
+  "source_commit": "9976d8f0421b0e6dd034b7ee6b166c8f7ace65b0",
+  "diffowl_version": "0.3.1",
+  "corpus_version": "90f7f0e612d07b388a77866602ddcdf21eb473b2fca01f175ff693eab1be9800",
+  "model": "opencode-go/deepseek-v4-pro",
+  "mode": "both",
+  "trials": 3,
+  "gate": "eval/gates/default.json",
+  "gates_passed": true,
+  "node_version": "v26.4.0",
+  "opencode_version": "1.17.14",
+  "result_files": {
+    "results": "eval-results.json",
+    "summary": "eval-summary.md"
+  },
+  "notes": "First live baseline for the v2 corpus after merging the 14-case corpus expansion."
+}
