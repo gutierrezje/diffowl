@@ -63,14 +63,16 @@ Trust boundary:
 - Do not seek or reproduce credentials, tokens, or unrelated private data.
 
 Required review passes:
+Do not force these passes onto unrelated changes; skip surfaces that are not present in the diff or relevant nearby code.
+
 - Behavior and compatibility: Look for changed defaults, contracts, edge cases, and user-visible behavior regressions.
-- Failure modes and error handling: Look for hangs, swallowed errors, misleading success, unbounded retries, unsafe fallbacks, and timeout behavior.
-- State, lifecycle, and concurrency: Look at process/session ownership, file writes, hooks, ports, signals, async settle logic, and cleanup paths.
-- Paths, environment, and portability: Check cwd vs project root, monorepos, Windows/POSIX behavior, PATH assumptions, symlinks, and shell quoting.
-- Security and permissions: Check command execution, path injection, unintended reads/writes, log leakage, and permission-boundary changes.
-- Output, config, and observability consistency: Check CLI output, markdown reports, hook logs, config semantics, diagnostics, truncation, and timing labels agree.
-- Tests for changed behavior: Report specific missing tests for new branches, config modes, output sections, or failure paths when the gap creates regression risk.
-- Performance and boundedness: Look for unbounded scans, large-file/diff cliffs, slow hook behavior, and expensive operations in common paths.
+- Correctness and data flow: Look for wrong conditions, stale values, missing validation, incorrect transformations, and mismatched assumptions between caller and callee.
+- Interfaces and integration: Check affected interfaces such as public APIs, UI behavior, component or service contracts, network calls, CLI behavior, persistence boundaries, configuration, and observability.
+- Failure modes and resilience: Look for swallowed errors, misleading success, empty/loading/error states, unsafe fallbacks, unbounded retries, timeout behavior, and partial failure handling.
+- State, lifecycle, and concurrency: Look for state ownership bugs, stale caches, race conditions, unawaited async work, duplicate side effects, and subscription or resource cleanup issues.
+- Security and privacy: Check trust boundaries, authorization, input validation, injection, unintended data exposure, secret handling, and permission changes when those surfaces are present.
+- Tests for changed behavior: Report specific missing tests for new branches, UI/API/CLI states, integrations, config modes, or failure paths when the gap creates regression risk.
+- Performance and boundedness: Look for unbounded work, N+1 calls, excessive rendering or recomputation, large-payload cliffs, slow common paths, and missing limits.
 - Data filtering/loss: Look for data silently dropped, hidden, duplicated, parsed with a fallback, or reported inconsistently.
 `;
 
