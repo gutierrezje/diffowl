@@ -18,7 +18,6 @@ import {
   type ReasoningEffort,
 } from "./config.js";
 import {
-  runReview,
   getAvailableModels,
   isReviewCancellation,
   type ReviewProgressEvent,
@@ -28,12 +27,13 @@ import {
 } from "./opencode/client.js";
 import { getOpenCodeFailureGuidance } from "./opencode/guidance.js";
 import { runEvalCommand } from "./eval/command.js";
+import { runBackendExperimentCommand } from "./eval/backend-experiment-command.js";
+import { resolveReviewBackend, type ReviewBackend } from "./review/backend.js";
 import { canSelectModelInteractively, selectModel } from "./opencode/model-selection.js";
 import {
   ensureServer,
   getInstalledOpencodeVersion,
   getServerHealth,
-  isServerRunning,
   stopServer,
 } from "./opencode/server.js";
 import {
@@ -136,6 +136,10 @@ program
   )
   .option("--verbose", "Include suppressed findings and extra review details")
   .option("--format <format>", "Output format: text or json", "text")
+  .option(
+    "--backend <name>",
+    "SPIKE(pi-backend): review backend, opencode (default) or pi; DIFFOWL_BACKEND also works",
+  )
   .action(async (options) => {
     const format = resolveReviewOutputFormat(options.format);
     const jsonMode = format === "json";
@@ -167,6 +171,19 @@ program
     }
 
     const config = await loadConfigOrExit();
+    // SPIKE(pi-backend): backend swap for A/B dogfooding; defaults to OpenCode.
+    let backend: ReviewBackend | undefined;
+    try {
+      backend = resolveReviewBackend(options.backend);
+    } catch (err) {
+      await failReview(format, err instanceof Error ? err.message : String(err), {
+        hook: options.hook,
+        hookCommit,
+      });
+    }
+    if (!backend) {
+      return;
+    }
     const projectRoot = getProjectRoot();
     if (options.staged && options.commit) {
       await failReview(format, "Cannot use --staged and --commit together", {
@@ -349,19 +366,20 @@ program
         spinner.start("Connecting to OpenCode...");
       }
 
-      // Ensure server and start review
+      // Ensure the backend is ready and start review
       if (spinner) {
-        spinner.text = "Connecting to OpenCode...";
+        spinner.text =
+          backend.name === "pi" ? "Preparing pi backend..." : "Connecting to OpenCode...";
       }
       const serverStart = performance.now();
-      await prepareReviewServer(config);
-      recordCliTiming(timings, "server-ensure", "OpenCode server ensure", serverStart);
+      await backend.prepare(config);
+      recordCliTiming(timings, "server-ensure", "Review backend ensure", serverStart);
       if (spinner) {
         spinner.text = "Reviewing changes...";
       }
 
       const reviewStart = performance.now();
-      const reviewResult = await runReview({
+      const reviewResult = await backend.runReview({
         target,
         directory: projectRoot,
         config,
@@ -382,6 +400,9 @@ program
       }
 
       const diagnostics = report.diagnostics ?? [];
+      if (backend.name !== "opencode") {
+        diagnostics.push(`Review backend: ${backend.name} (spike).`);
+      }
 
       const confidenceFilter = filterFindingsByConfidence(report.findings, config.min_confidence);
       report.findings = confidenceFilter.findings;
@@ -711,21 +732,6 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-async function prepareReviewServer(config: DiffOwlConfig): Promise<void> {
-  if (config.server.auto_start) {
-    await ensureServer(config.server.port);
-    return;
-  }
-
-  if (await isServerRunning(config.server.port)) {
-    return;
-  }
-
-  throw new Error(
-    `OpenCode server is not running on port ${config.server.port}. Start it with \`diffowl server start\` or set server.auto_start: true.`,
-  );
-}
-
 // Init command
 program
   .command("init")
@@ -964,6 +970,23 @@ program
   .option("--format <format>", "Output format: text or json", "text")
   .action(async (options) => {
     process.exit(await runEvalCommand(options));
+  });
+
+// SPIKE(pi-backend): backend A/B experiment. See plans/024-pi-backend-spike.md.
+program
+  .command("eval-backends", { hidden: true })
+  .description("Compare review backends (opencode vs pi) on the eval corpus")
+  .option("--corpus <dir>", "Corpus directory", "eval/corpus")
+  .option("--case <id>", "Run specific case(s) only", collectEvalCaseIds, [] as string[])
+  .option("--trials <n>", "Trials per case per backend", "1")
+  .option("--backends <list>", "Comma-separated backends to compare", "opencode,pi")
+  .option("--model <id>", "Review model override (applied to every backend)")
+  .option("--depth <depth>", "Review context depth: shallow or default")
+  .option("--reasoning <effort>", "Reasoning effort override")
+  .option("--min-confidence <level>", "Minimum finding confidence: low, medium, or high")
+  .option("--out <dir>", "Output directory for experiment results")
+  .action(async (options) => {
+    process.exit(await runBackendExperimentCommand(options));
   });
 
 // Server commands
