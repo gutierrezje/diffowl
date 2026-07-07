@@ -22,8 +22,12 @@ describe("buildReviewPrompt", () => {
   it("requires broad review passes in the system prompt", () => {
     expect(REVIEW_AGENT_PROMPT).toContain("Required review passes");
     expect(REVIEW_AGENT_PROMPT).toContain("Behavior and compatibility");
-    expect(REVIEW_AGENT_PROMPT).toContain("Paths, environment, and portability");
+    expect(REVIEW_AGENT_PROMPT).toContain("Do not force these passes onto unrelated changes");
+    expect(REVIEW_AGENT_PROMPT).toContain("Correctness and data flow");
+    expect(REVIEW_AGENT_PROMPT).toContain("CLI behavior");
+    expect(REVIEW_AGENT_PROMPT).toContain("UI/API/CLI states");
     expect(REVIEW_AGENT_PROMPT).toContain("Data filtering/loss");
+    expect(REVIEW_AGENT_PROMPT).not.toContain("cwd vs project root");
   });
 
   it("treats repository content as untrusted data", () => {
