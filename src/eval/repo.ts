@@ -6,6 +6,9 @@ import type { ReviewTarget } from "../review/target.js";
 import { applyCasePatch, copyCaseBase } from "./corpus.js";
 import type { EvalCase } from "./case-types.js";
 
+const CLEANUP_RETRIES = 5;
+const CLEANUP_RETRY_DELAY_MS = 100;
+
 export interface MaterializedEvalCase {
   workDir: string;
   target: ReviewTarget;
@@ -21,13 +24,18 @@ export async function materializeEvalCaseRepo(evalCase: EvalCase): Promise<Mater
     const target = await finalizeEvalCaseTarget(workDir, evalCase);
     return { workDir, target };
   } catch (error) {
-    await rm(workDir, { recursive: true, force: true });
+    await cleanupMaterializedRepo(workDir);
     throw error;
   }
 }
 
 export async function cleanupMaterializedRepo(workDir: string): Promise<void> {
-  await rm(workDir, { recursive: true, force: true });
+  await rm(workDir, {
+    recursive: true,
+    force: true,
+    maxRetries: CLEANUP_RETRIES,
+    retryDelay: CLEANUP_RETRY_DELAY_MS,
+  });
 }
 
 /** Materializes a case repo and always cleans it up. Does not mutate process.cwd(). */
