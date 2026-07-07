@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
 import type { ReviewFinding, ReviewReport } from "./types.js";
-import { getDiffOwlDir } from "../config.js";
+import { getSharedDiffOwlDir } from "../git/state-root.js";
 
 export const REPORT_SCHEMA_VERSION = 1 as const;
 
@@ -104,7 +104,7 @@ export async function writeMarkdownReport(
   review: string,
   metadata?: ReviewMetadata,
 ): Promise<string> {
-  const dir = join(getDiffOwlDir(), "reviews");
+  const dir = join(await getSharedDiffOwlDir(), "reviews");
   if (!existsSync(dir)) {
     await mkdir(dir, { recursive: true });
   }

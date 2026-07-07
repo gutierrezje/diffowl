@@ -8,12 +8,14 @@ import {
   resolveReviewReportPath,
   selectReviewReportPath,
 } from "./report-path.js";
+import { resetSharedDiffOwlDirForTests } from "../git/state-root.js";
 
 const originalCwd = process.cwd();
 let tempDirs: string[] = [];
 
 afterEach(async () => {
   process.chdir(originalCwd);
+  resetSharedDiffOwlDirForTests();
   await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
   tempDirs = [];
 });
@@ -23,7 +25,7 @@ describe("resolveReviewReportPath", () => {
     const root = await createProject();
     await writeFile(join(root, "latest.md"), "unrelated file", "utf-8");
 
-    expect(resolveReviewReportPath("latest.md")).toBe(
+    await expect(resolveReviewReportPath("latest.md")).resolves.toBe(
       join(root, ".diffowl", "reviews", "latest.md"),
     );
   });
@@ -31,7 +33,7 @@ describe("resolveReviewReportPath", () => {
   it("resolves relative paths from cwd", async () => {
     const root = await createProject();
 
-    expect(resolveReviewReportPath("./reports/review.md")).toBe(
+    await expect(resolveReviewReportPath("./reports/review.md")).resolves.toBe(
       resolve(root, "reports", "review.md"),
     );
   });
@@ -40,7 +42,7 @@ describe("resolveReviewReportPath", () => {
     await createProject();
     const report = join(tmpdir(), "review.md");
 
-    expect(resolveReviewReportPath(report)).toBe(report);
+    await expect(resolveReviewReportPath(report)).resolves.toBe(report);
   });
 });
 

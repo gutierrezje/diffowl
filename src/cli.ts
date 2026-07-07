@@ -9,7 +9,6 @@ import {
   saveConfig,
   configExists,
   getProjectRoot,
-  getDiffOwlDir,
   parseModel,
   parseReviewContextDepth,
   parseReasoningEffort,
@@ -50,6 +49,7 @@ import {
   writeHookStatus,
 } from "./git/hooks.js";
 import { isGitRepo, hasCommits, isDocOnlyDiff, resolveCommitRef } from "./git/diff.js";
+import { getSharedDiffOwlDir } from "./git/state-root.js";
 import {
   buildReviewContextFromDiff,
   loadReviewSnapshot,
@@ -168,6 +168,7 @@ program
 
     const config = await loadConfigOrExit();
     const projectRoot = getProjectRoot();
+    const diffOwlDir = await getSharedDiffOwlDir();
     if (options.staged && options.commit) {
       await failReview(format, "Cannot use --staged and --commit together", {
         hook: options.hook,
@@ -249,7 +250,7 @@ program
       if (target.kind === "staged" && diff.files.length === 0) {
         spinner?.stop();
         if (jsonMode) {
-          const persisted = await persistReviewRun(getDiffOwlDir(), {
+          const persisted = await persistReviewRun(diffOwlDir, {
             ...mapReviewTarget(target),
             targetCommit: null,
             diffHash: computeDiffHash(diff.raw),
@@ -264,7 +265,7 @@ program
             skippedReason: "empty-diff",
           });
           await emitReviewJsonSuccess({
-            diffOwlDir: getDiffOwlDir(),
+            diffOwlDir,
             reviewId: persisted.reviewId,
             persisted,
             suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
@@ -286,7 +287,7 @@ program
         const diffHash = computeDiffHash(diff.raw);
         const targetFields = mapReviewTarget(target);
         const targetCommit = await resolveTargetCommit(target);
-        const persisted = await persistReviewRun(getDiffOwlDir(), {
+        const persisted = await persistReviewRun(diffOwlDir, {
           ...targetFields,
           targetCommit,
           diffHash,
@@ -303,12 +304,12 @@ program
         let reportPath: string;
         try {
           reportPath = await writeMarkdownReport(skipContent);
-          await updatePersistedReview(getDiffOwlDir(), persisted.reviewId, {
+          await updatePersistedReview(diffOwlDir, persisted.reviewId, {
             reportPath,
           });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          await updatePersistedReview(getDiffOwlDir(), persisted.reviewId, {
+          await updatePersistedReview(diffOwlDir, persisted.reviewId, {
             reportPath: null,
             diagnostics: [`Report write failed: ${message}`],
           });
@@ -316,7 +317,7 @@ program
         }
         if (jsonMode) {
           await emitReviewJsonSuccess({
-            diffOwlDir: getDiffOwlDir(),
+            diffOwlDir,
             reviewId: persisted.reviewId,
             persisted,
             suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
@@ -413,7 +414,7 @@ program
       const targetFields = mapReviewTarget(target);
       const targetCommit = await resolveTargetCommit(target);
       const persistStart = performance.now();
-      const persisted = await persistReviewRun(getDiffOwlDir(), {
+      const persisted = await persistReviewRun(diffOwlDir, {
         ...targetFields,
         targetCommit,
         diffHash,
@@ -468,7 +469,7 @@ program
           session_id: reviewResult.sessionId,
           project_root: projectRoot,
         });
-        await updatePersistedReview(getDiffOwlDir(), persisted.reviewId, {
+        await updatePersistedReview(diffOwlDir, persisted.reviewId, {
           reportPath,
           diagnostics,
         });
@@ -476,7 +477,7 @@ program
         const message = err instanceof Error ? err.message : String(err);
         diagnostics.push(`Report write failed: ${message}`);
         report.diagnostics = diagnostics;
-        await updatePersistedReview(getDiffOwlDir(), persisted.reviewId, {
+        await updatePersistedReview(diffOwlDir, persisted.reviewId, {
           reportPath: null,
           diagnostics,
         });
@@ -487,7 +488,7 @@ program
 
       if (jsonMode) {
         await emitReviewJsonSuccess({
-          diffOwlDir: getDiffOwlDir(),
+          diffOwlDir,
           reviewId: persisted.reviewId,
           persisted,
           suppressed: {
@@ -543,7 +544,9 @@ program
   .description("Open the OpenCode session for a review")
   .argument("[report]", "Review report path or filename")
   .action(async (report?: string) => {
-    const reportPath = report ? resolveReviewReportPath(report) : await selectReviewInteractively();
+    const reportPath = report
+      ? await resolveReviewReportPath(report)
+      : await selectReviewInteractively();
 
     let content: string;
     try {
@@ -1032,7 +1035,7 @@ findingsCmd
   .description("List unresolved findings")
   .action(async () => {
     await loadConfigOrExit();
-    const items = await withFindingDatabase(getDiffOwlDir(), listUnresolvedFindings);
+    const items = await withFindingDatabase(await getSharedDiffOwlDir(), listUnresolvedFindings);
     if (items.length === 0) {
       console.log(chalk.green("No unresolved findings."));
       return;
@@ -1049,7 +1052,7 @@ findingsCmd
     await loadConfigOrExit();
     const format = resolveReviewOutputFormat(options.format);
     try {
-      const detail = await withFindingDatabase(getDiffOwlDir(), (db) =>
+      const detail = await withFindingDatabase(await getSharedDiffOwlDir(), (db) =>
         requireFindingDetail(db, locator),
       );
       if (format === "json") {
@@ -1158,7 +1161,7 @@ async function runFindingMutation(
   await loadConfigOrExit();
   const format = resolveReviewOutputFormat(formatValue);
   try {
-    const detail = await withFindingDatabase(getDiffOwlDir(), mutate);
+    const detail = await withFindingDatabase(await getSharedDiffOwlDir(), mutate);
     if (format === "json") {
       process.stdout.write(renderFindingDetailJson(detail));
       return;

@@ -283,7 +283,7 @@ diffowl server stop
 
 ### `diffowl findings [list] | show | dismiss | defer | fix | reopen`
 
-Inspect and manage the durable findings backlog stored in `.diffowl/state.db`.
+Inspect and manage the durable findings backlog stored in the repo's shared `.diffowl/state.db`.
 
 ```bash
 # List unresolved findings (open and regressed)
@@ -373,7 +373,7 @@ rules:
 
 ## Review Files
 
-Each completed review starts with a timestamped report and an ephemeral `latest.md` copy. The optional resolution skill moves fully handled timestamped reports into the resolved archive:
+Each completed review starts with a timestamped report and an ephemeral `latest.md` copy. Durable state and reports are anchored to the repository's primary checkout, so linked Git worktrees share one backlog. Checkout-scoped runtime files such as hook status, hook logs, and `server.pid` stay in that checkout's local `.diffowl/`. The optional resolution skill moves fully handled timestamped reports into the resolved archive:
 
 ```text
 .diffowl/state.db                                 # Authoritative review and finding state (0.3+)

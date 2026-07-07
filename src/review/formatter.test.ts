@@ -1,11 +1,27 @@
-import { describe, expect, it } from "vitest";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, dirname, join } from "node:path";
+import { execa } from "execa";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   colorizeMarkdown,
   formatExcludedCandidateSummary,
   parseReviewMetadata,
   renderMarkdown,
+  writeMarkdownReport,
 } from "./formatter.js";
 import type { ReviewReport } from "./types.js";
+import { resetSharedDiffOwlDirForTests } from "../git/state-root.js";
+
+const originalCwd = process.cwd();
+let tempDirs: string[] = [];
+
+afterEach(async () => {
+  process.chdir(originalCwd);
+  resetSharedDiffOwlDirForTests();
+  await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
+  tempDirs = [];
+});
 
 describe("colorizeMarkdown", () => {
   it("consumes full bold severity markers", () => {
@@ -398,3 +414,45 @@ diffowl:
     ).toBeUndefined();
   });
 });
+
+describe("writeMarkdownReport", () => {
+  it("writes linked-worktree reports to the primary checkout reviews directory", async () => {
+    const repo = await createGitProject();
+    const worktree = await createWorktree(repo);
+    process.chdir(worktree);
+
+    const reportPath = await writeMarkdownReport("### Summary\nShared report", {
+      schema_version: 1,
+      review_id: "rev_test",
+      session_id: "ses_test",
+      project_root: worktree,
+    });
+
+    expect(reportPath).toMatch(join(repo, ".diffowl", "reviews", "review-"));
+  });
+});
+
+async function createGitProject(): Promise<string> {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "diffowl-formatter-")));
+  tempDirs.push(root);
+  await git(["init"], root);
+  await git(["config", "user.email", "diffowl@example.test"], root);
+  await git(["config", "user.name", "DiffOwl"], root);
+  await writeFile(join(root, ".diffowl.yml"), "model: provider/model\n", "utf-8");
+  await writeFile(join(root, "README.md"), "test\n", "utf-8");
+  await git(["add", "."], root);
+  await git(["commit", "-m", "init"], root);
+  return root;
+}
+
+async function createWorktree(repo: string): Promise<string> {
+  const worktree = join(dirname(repo), `${basename(repo)}-wt`);
+  await git(["worktree", "add", "--detach", worktree, "HEAD"], repo);
+  await mkdir(join(worktree, ".diffowl"), { recursive: true });
+  tempDirs.push(worktree);
+  return worktree;
+}
+
+async function git(args: string[], cwd: string): Promise<void> {
+  await execa("git", args, { cwd });
+}
