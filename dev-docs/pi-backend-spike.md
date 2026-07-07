@@ -1,6 +1,6 @@
 # DiffOwl Spike: pi Backend Experiment
 
-**Status:** in progress (spike — most of this code is expected to be thrown away)
+**Status:** concluded — pi not adopted; cleanup should remove spike backend code
 **Date:** 2026-07-07
 **Type:** experiment — measures the pi coding agent SDK against OpenCode as
 DiffOwl's review harness. Reopens decision 1 of plan 017 through the gate that
@@ -109,11 +109,49 @@ in practice. Either way, record the numbers here and in plans/README.md.
 
 ## Results
 
-_(to be filled in from `backend-experiment.md` runs)_
+Decision-relevant run:
+
+```bash
+node dist/cli.js eval-backends \
+  --trials 3 \
+  --model opencode-go/deepseek-v4-pro \
+  --out /tmp/diffowl-pi-spike-full-t3
+```
+
+Artifact: `/tmp/diffowl-pi-spike-full-t3/backend-experiment.md`
 
 | run | model | trials | outcome |
 | --- | --- | --- | --- |
-|  |  |  |  |
+| full corpus, OpenCode vs pi | `opencode-go/deepseek-v4-pro` | 3 per case | **Reject pi as default**. Recall tied at 1.00 and reliability tied at 0% errors/timeouts/marker fallbacks, but pi precision was 0.67 vs OpenCode 0.78, a 0.11 regression that fails the allowed 0.05 precision-loss gate. |
+
+Corpus summary:
+
+| backend | version | recall | precision | F1 | latency p50 | latency p95 | mean cost | error rate | timeouts | marker fallbacks |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| opencode | 1.17.14 | 1.00 | 0.78 | 0.81 | 21.2s | 46.5s | $0.0113 | 0% | 0 | 0 |
+| pi | 0.80.3 | 1.00 | 0.67 | 0.72 | 33.1s | 38.7s | $0.0115 | 0% | 0 | 0 |
+
+Per-case deltas:
+
+| case | OpenCode precision | pi precision | note |
+| --- | --- | --- | --- |
+| `async-clean` | 0.33 | 0.00 | both backends over-reported on this clean case; pi was worse in all trials |
+| `fire-and-forget-async` | 0.67 | 0.50 | pi kept recall but emitted more extra findings |
+| `harmless-trim` | 1.00 | 1.00 | tied |
+| `missing-validation` | 0.83 | 0.67 | pi kept recall but emitted more extra findings |
+| `regression-reintroduced` | 0.83 | 0.83 | tied |
+| `repeated-clean` | 1.00 | 1.00 | tied |
+
+Interpretation:
+
+- The in-process pi SDK backend met the recall and reliability requirements.
+- It did not meet the precision requirement: mean precision regressed by 0.11,
+  more than the allowed 0.05.
+- Usage reporting is present for pi in this run, so usage-shape extraction is
+  not the blocking issue.
+- OpenCode remains the committed backend. The next cleanup change should delete
+  `src/pi/`, remove `review --backend pi`/`DIFFOWL_BACKEND=pi`, and either delete
+  or narrow the `eval-backends` harness.
 
 ## Out of scope
 
