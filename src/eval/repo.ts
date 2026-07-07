@@ -24,11 +24,7 @@ export async function materializeEvalCaseRepo(evalCase: EvalCase): Promise<Mater
     const target = await finalizeEvalCaseTarget(workDir, evalCase);
     return { workDir, target };
   } catch (error) {
-    try {
-      await cleanupMaterializedRepo(workDir);
-    } catch {
-      // Best-effort cleanup; preserve the materialization failure that caused cleanup.
-    }
+    await cleanupAfterFailure(workDir);
     throw error;
   }
 }
@@ -48,10 +44,23 @@ export async function withMaterializedEvalCase<T>(
   fn: (materialized: MaterializedEvalCase) => Promise<T>,
 ): Promise<T> {
   const materialized = await materializeEvalCaseRepo(evalCase);
+  let result: T;
   try {
-    return await fn(materialized);
-  } finally {
-    await cleanupMaterializedRepo(materialized.workDir);
+    result = await fn(materialized);
+  } catch (error) {
+    await cleanupAfterFailure(materialized.workDir);
+    throw error;
+  }
+
+  await cleanupMaterializedRepo(materialized.workDir);
+  return result;
+}
+
+async function cleanupAfterFailure(workDir: string): Promise<void> {
+  try {
+    await cleanupMaterializedRepo(workDir);
+  } catch {
+    // Best-effort cleanup; preserve the operation failure that caused cleanup.
   }
 }
 
