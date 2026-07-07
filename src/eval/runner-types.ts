@@ -1,7 +1,11 @@
+import { z } from "zod";
 import type { ReasoningEffort, ReviewConfidence, ReviewContextDepth } from "../config.js";
-import type { ReviewFinding, ReviewTiming, ReviewUsage } from "../review/types.js";
+import { ReviewFindingSchema, ReviewTimingSchema } from "../review/types.js";
+import { ReviewUsageSchema } from "../review/usage.js";
 
-export type EvalRunMode = "diffowl" | "baseline";
+export const EvalRunModeSchema = z.enum(["diffowl", "baseline"]);
+
+export type EvalRunMode = z.output<typeof EvalRunModeSchema>;
 
 export interface EvalRunnerOptions {
   mode?: EvalRunMode;
@@ -13,25 +17,28 @@ export interface EvalRunnerOptions {
   signal?: AbortSignal;
 }
 
-export interface EvalTrialResult {
-  caseId: string;
-  trial: number;
-  mode: EvalRunMode;
-  findings: ReviewFinding[];
-  timings: ReviewTiming[];
-  usage?: ReviewUsage;
-  sessionId: string;
-  summary: string;
-  diagnostics: string[];
-  durationMs: number;
-  error?: string;
-}
+export const EvalTrialResultSchema = z.object({
+  caseId: z.string(),
+  trial: z.number(),
+  mode: EvalRunModeSchema,
+  findings: z.array(ReviewFindingSchema),
+  timings: z.array(ReviewTimingSchema),
+  usage: ReviewUsageSchema.optional(),
+  sessionId: z.string(),
+  summary: z.string(),
+  diagnostics: z.array(z.string()),
+  durationMs: z.number(),
+  error: z.string().optional(),
+});
 
-export interface EvalCaseRunResult {
-  caseId: string;
-  mode: EvalRunMode;
-  trials: EvalTrialResult[];
-}
+export const EvalCaseRunResultSchema = z.object({
+  caseId: z.string(),
+  mode: EvalRunModeSchema,
+  trials: z.array(EvalTrialResultSchema),
+});
+
+export type EvalTrialResult = z.output<typeof EvalTrialResultSchema>;
+export type EvalCaseRunResult = z.output<typeof EvalCaseRunResultSchema>;
 
 export interface EvalDualCaseRunResult {
   caseId: string;

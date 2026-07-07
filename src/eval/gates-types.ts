@@ -9,10 +9,12 @@ export const EvalGateThresholdsSchema = z.object({
 
 export type EvalGateThresholds = z.output<typeof EvalGateThresholdsSchema>;
 
-export interface EvalGateResult {
-  passed: boolean;
-  failures: string[];
-}
+export const EvalGateResultSchema = z.object({
+  passed: z.boolean(),
+  failures: z.array(z.string()),
+});
+
+export type EvalGateResult = z.output<typeof EvalGateResultSchema>;
 
 export function parseEvalGateThresholds(raw: unknown): EvalGateThresholds {
   return EvalGateThresholdsSchema.parse(raw);
