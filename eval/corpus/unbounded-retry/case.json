@@ -1,0 +1,17 @@
+{
+  "id": "unbounded-retry",
+  "category": "bug",
+  "language": "typescript",
+  "description": "Removes the retry bound and attempt increment, causing persistent failures to loop forever.",
+  "target": "commit",
+  "tags": [
+    "failure-modes"
+  ],
+  "expected": [
+    {
+      "file": "src/retry.ts",
+      "line": 10,
+      "must_detect": true
+    }
+  ]
+}

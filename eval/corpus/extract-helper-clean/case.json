@@ -1,0 +1,11 @@
+{
+  "id": "extract-helper-clean",
+  "category": "clean",
+  "language": "typescript",
+  "description": "Extracts unchanged name formatting into a small helper.",
+  "target": "commit",
+  "tags": [
+    "refactor"
+  ],
+  "expected": []
+}

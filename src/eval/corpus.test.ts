@@ -130,11 +130,19 @@ describe("loadEvalCorpus", () => {
 
     expect(corpus.cases.map((item) => item.id)).toEqual([
       "async-clean",
+      "check-then-act-race",
+      "extract-helper-clean",
       "fire-and-forget-async",
       "harmless-trim",
+      "inverted-guard",
       "missing-validation",
+      "off-by-one-slice",
+      "path-join-traversal",
       "regression-reintroduced",
+      "rename-clean",
       "repeated-clean",
+      "swallowed-error",
+      "unbounded-retry",
     ]);
     expect(corpus.version).toBe(await hashCorpus(corpusDir));
   });
@@ -148,11 +156,19 @@ describe("corpus manifest", () => {
     await expect(assertCorpusMatchesManifest(corpusDir, manifest)).resolves.toBeUndefined();
     expect(manifest.cases).toEqual([
       "async-clean",
+      "check-then-act-race",
+      "extract-helper-clean",
       "fire-and-forget-async",
       "harmless-trim",
+      "inverted-guard",
       "missing-validation",
+      "off-by-one-slice",
+      "path-join-traversal",
       "regression-reintroduced",
+      "rename-clean",
       "repeated-clean",
+      "swallowed-error",
+      "unbounded-retry",
     ]);
   });
 });

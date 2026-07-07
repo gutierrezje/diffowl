@@ -1,0 +1,11 @@
+{
+  "id": "rename-clean",
+  "category": "clean",
+  "language": "typescript",
+  "description": "Renames a local invoice subtotal variable without changing behavior.",
+  "target": "staged",
+  "tags": [
+    "refactor"
+  ],
+  "expected": []
+}

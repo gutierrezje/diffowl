@@ -1,0 +1,18 @@
+{
+  "id": "check-then-act-race",
+  "category": "bug",
+  "language": "typescript",
+  "description": "Replaces the pending-promise cache with a has-check across an await, allowing duplicate fetches and last-writer wins.",
+  "target": "commit",
+  "tags": [
+    "concurrency"
+  ],
+  "expected": [
+    {
+      "file": "src/cache.ts",
+      "line": 11,
+      "min_severity": "warning",
+      "must_detect": true
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "id": "swallowed-error",
+  "category": "bug",
+  "language": "typescript",
+  "description": "Rewrites settings parsing to silently return defaults on malformed JSON instead of throwing with context.",
+  "target": "commit",
+  "tags": [
+    "error-handling"
+  ],
+  "expected": [
+    {
+      "file": "src/settings.ts",
+      "line": 42,
+      "line_tolerance": 4,
+      "category": "error-handling",
+      "must_detect": true
+    }
+  ]
+}

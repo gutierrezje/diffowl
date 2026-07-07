@@ -1,0 +1,17 @@
+{
+  "id": "inverted-guard",
+  "category": "bug",
+  "language": "typescript",
+  "description": "Extracts the edit guard into a helper and drops the negation, inverting the authorization check.",
+  "target": "commit",
+  "tags": [
+    "logic"
+  ],
+  "expected": [
+    {
+      "file": "src/access.ts",
+      "line": 32,
+      "must_detect": true
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "off-by-one-slice",
+  "category": "bug",
+  "language": "typescript",
+  "description": "Removes the page-window trim so a full page returns pageSize + 1 items and duplicates the boundary row on the next page.",
+  "target": "commit",
+  "tags": [
+    "boundary"
+  ],
+  "expected": [
+    {
+      "file": "src/pagination.ts",
+      "line": 15,
+      "line_tolerance": 3,
+      "must_detect": true
+    }
+  ]
+}

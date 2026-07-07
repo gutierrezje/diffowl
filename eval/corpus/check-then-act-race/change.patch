@@ -1,0 +1,30 @@
+diff --git a/src/cache.ts b/src/cache.ts
+index 67d68bd..11137bf 100644
+--- a/src/cache.ts
++++ b/src/cache.ts
+@@ -1,21 +1,15 @@
+ const cache = new Map<string, string>();
+-const pending = new Map<string, Promise<string>>();
+ 
+ export async function loadCached(key: string, fetchValue: () => Promise<string>): Promise<string> {
+   const cached = cache.get(key);
+   if (cached !== undefined) {
+     return cached;
+   }
+ 
+-  let promise = pending.get(key);
+-  if (promise === undefined) {
+-    promise = fetchValue().then((value) => {
+-      cache.set(key, value);
+-      pending.delete(key);
+-      return value;
+-    });
+-    pending.set(key, promise);
++  if (!cache.has(key)) {
++    const value = await fetchValue();
++    cache.set(key, value);
+   }
+ 
+-  return promise;
++  return cache.get(key)!;
+ }

@@ -1,0 +1,15 @@
+diff --git a/src/pagination.ts b/src/pagination.ts
+index 2e770df..f3dbec3 100644
+--- a/src/pagination.ts
++++ b/src/pagination.ts
+@@ -12,9 +12,8 @@ export function paginate<T>(source: readonly T[], offset: number, pageSize: numb
+   // Read one extra row so hasMore reflects the source without a second scan.
+   const window = source.slice(start, start + pageSize + 1);
+   const hasMore = window.length > pageSize;
+-  const items = hasMore ? window.slice(0, pageSize) : window;
+   return {
+-    items,
++    items: window,
+     hasMore,
+     nextOffset: hasMore ? start + pageSize : null,
+   };

@@ -1,13 +1,21 @@
 {
-  "version": "693f7acda90c77d6d802b9ccb760e4066524e38dba6c2bbc5eb4d583ecea701c",
+  "version": "4e880309c5d2eca21558a4d869bc3769f1a746a65eeb5cc52e414373728c3968",
   "cases": [
     "async-clean",
+    "check-then-act-race",
+    "extract-helper-clean",
     "fire-and-forget-async",
     "harmless-trim",
+    "inverted-guard",
     "missing-validation",
+    "off-by-one-slice",
+    "path-join-traversal",
     "regression-reintroduced",
-    "repeated-clean"
+    "rename-clean",
+    "repeated-clean",
+    "swallowed-error",
+    "unbounded-retry"
   ],
-  "frozen_at": "2026-06-29",
-  "notes": "v1 seed corpus. Manifest lives outside eval/corpus/ so hashCorpus() stays non-self-referential."
+  "frozen_at": "2026-07-07",
+  "notes": "v1 seed corpus. Manifest lives outside eval/corpus/ so hashCorpus() stays non-self-referential. v2: +8 cases covering error handling, logic, concurrency, retry bounds, path handling, and clean refactors."
 }
