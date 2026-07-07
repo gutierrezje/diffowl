@@ -1,0 +1,16 @@
+diff --git a/src/message.ts b/src/message.ts
+index 7a59278..29c4a0b 100644
+--- a/src/message.ts
++++ b/src/message.ts
+@@ -4,6 +4,10 @@ export interface User {
+ }
+ 
+ export function greeting(user: User): string {
+-  const name = `${user.firstName.trim()} ${user.lastName.trim()}`;
++  const name = formatName(user);
+   return `Hello, ${name}!`;
+ }
++
++function formatName(user: User): string {
++  return `${user.firstName.trim()} ${user.lastName.trim()}`;
++}

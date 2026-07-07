@@ -1,0 +1,13 @@
+diff --git a/src/files.ts b/src/files.ts
+index f7ce0de..30f6364 100644
+--- a/src/files.ts
++++ b/src/files.ts
+@@ -3,7 +3,7 @@ import { join } from "node:path";
+ const ROOT = "/srv/app/uploads";
+ 
+ export async function readUserUpload(name: string): Promise<string> {
+-  return readFile(join(ROOT, sanitizeName(name)), "utf8");
++  return readFile(join(ROOT, name), "utf8");
+ }
+ 
+ function sanitizeName(name: string): string {

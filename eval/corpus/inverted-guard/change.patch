@@ -1,0 +1,22 @@
+diff --git a/src/access.ts b/src/access.ts
+index 9d25aed..d12eed6 100644
+--- a/src/access.ts
++++ b/src/access.ts
+@@ -21,11 +21,15 @@ export function canEdit(doc: Doc, userId: string): boolean {
+ }
+ 
+ export function applyEdit(doc: Doc, userId: string, patch: string): string {
++  assertEditable(doc, userId);
++  return `${doc.id}:${patch}`;
++}
++
++function assertEditable(doc: Doc, userId: string): void {
+   if (doc.locked) {
+     throw new Error(`Document ${doc.id} is locked.`);
+   }
+-  if (!canEdit(doc, userId)) {
++  if (canEdit(doc, userId)) {
+     throw new Error(`User ${userId} cannot edit document ${doc.id}.`);
+   }
+-  return `${doc.id}:${patch}`;
+ }

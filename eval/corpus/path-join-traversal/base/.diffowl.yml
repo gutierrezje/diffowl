@@ -1,0 +1,19 @@
+model: opencode/big-pickle
+server:
+  port: 4096
+  auto_start: true
+context:
+  depth: default
+reasoning:
+  effort: auto
+timeout: 900
+min_confidence: low
+verbose: false
+skip_doc_only: false
+include:
+  - "src/**/*"
+exclude:
+  - "**/node_modules/**"
+rules:
+  - "Treat intentional eval bugs as reviewable correctness findings."
+  - "Report missing validation, unsafe async usage, and obvious logic errors."

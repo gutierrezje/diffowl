@@ -1,0 +1,18 @@
+{
+  "id": "path-join-traversal",
+  "category": "bug",
+  "language": "typescript",
+  "description": "Reads a user-controlled upload name with path.join without sanitizing traversal segments.",
+  "target": "commit",
+  "tags": [
+    "security"
+  ],
+  "expected": [
+    {
+      "file": "src/files.ts",
+      "line": 7,
+      "category": "path",
+      "must_detect": true
+    }
+  ]
+}

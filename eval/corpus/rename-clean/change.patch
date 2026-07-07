@@ -1,0 +1,15 @@
+diff --git a/src/invoice.ts b/src/invoice.ts
+index f4e6f0e..3dfc36c 100644
+--- a/src/invoice.ts
++++ b/src/invoice.ts
+@@ -4,7 +4,7 @@ export interface LineItem {
+ }
+ 
+ export function invoiceTotal(lines: readonly LineItem[], taxRate: number): number {
+-  const subtotal = lines.reduce((sum, line) => sum + line.price * line.quantity, 0);
+-  const tax = subtotal * taxRate;
+-  return subtotal + tax;
++  const netTotal = lines.reduce((sum, line) => sum + line.price * line.quantity, 0);
++  const tax = netTotal * taxRate;
++  return netTotal + tax;
+ }
