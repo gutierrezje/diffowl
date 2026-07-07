@@ -24,7 +24,11 @@ export async function materializeEvalCaseRepo(evalCase: EvalCase): Promise<Mater
     const target = await finalizeEvalCaseTarget(workDir, evalCase);
     return { workDir, target };
   } catch (error) {
-    await cleanupMaterializedRepo(workDir);
+    try {
+      await cleanupMaterializedRepo(workDir);
+    } catch {
+      // Best-effort cleanup; preserve the materialization failure that caused cleanup.
+    }
     throw error;
   }
 }

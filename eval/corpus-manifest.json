@@ -17,5 +17,5 @@
     "unbounded-retry"
   ],
   "frozen_at": "2026-07-07",
-  "notes": "v1 seed corpus. Manifest lives outside eval/corpus/ so hashCorpus() stays non-self-referential. v2: +8 cases covering error handling, logic, concurrency, retry bounds, path handling, and clean refactors."
+  "notes": "v2 corpus. Manifest lives outside eval/corpus/ so hashCorpus() stays non-self-referential. Includes the v1 seed cases plus 8 cases covering error handling, logic, concurrency, retry bounds, path handling, and clean refactors."
 }
