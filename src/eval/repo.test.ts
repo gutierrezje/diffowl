@@ -71,6 +71,20 @@ describe("withMaterializedEvalCase", () => {
     expect(process.cwd()).toBe(cwdBefore);
     await expect(readFile(join(observedWorkDir, ".diffowl.yml"), "utf8")).rejects.toThrow();
   });
+
+  it("preserves callback errors while cleaning up the temp repo", async () => {
+    const evalCase = await loadEvalCase(join(corpusDir, "harmless-trim"));
+    let observedWorkDir = "";
+
+    await expect(
+      withMaterializedEvalCase(evalCase, async (materialized) => {
+        observedWorkDir = materialized.workDir;
+        throw new Error("callback failed");
+      }),
+    ).rejects.toThrow("callback failed");
+
+    await expect(readFile(join(observedWorkDir, ".diffowl.yml"), "utf8")).rejects.toThrow();
+  });
 });
 
 describe("cleanupMaterializedRepo", () => {
