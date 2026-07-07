@@ -16,6 +16,7 @@ import { z } from "zod";
 import { ensureDiffOwlDir, getDiffOwlDir, loadConfig } from "../config.js";
 import { isQuotaOrRateLimitError } from "../opencode/quota.js";
 import { trimHookLog } from "../review/retention.js";
+import { getSharedDiffOwlDir } from "./state-root.js";
 
 const HOOK_MARKER = "# diffowl-managed";
 const HOOK_END_MARKER = "# end-diffowl";
@@ -265,7 +266,9 @@ export function isHookQueueStopFailure(message: string | undefined): boolean {
 export async function runHookReview(): Promise<void> {
   const dir = await ensureDiffOwlDir();
   const logFile = join(dir, "hook.log");
-  const latestReport = join(dir, "reviews", "latest.md");
+  const latestReport = join(await getSharedDiffOwlDir(), "reviews", "latest.md");
+  // Keep hook runtime coordination checkout-local. A shared lock without a
+  // shared queue can strand work in another worktree's local pending queue.
   const lockFile = join(dir, "hook-review.lock");
   const commit = await getHeadCommit();
   await enqueuePendingReview(dir, commit);

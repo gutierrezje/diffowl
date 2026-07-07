@@ -1,20 +1,20 @@
 import { readFile, readdir } from "node:fs/promises";
 import { basename, isAbsolute, join, resolve } from "node:path";
-import { getDiffOwlDir } from "../config.js";
+import { getSharedDiffOwlDir } from "../git/state-root.js";
 import { parseReviewMetadata } from "./formatter.js";
 
-export function resolveReviewReportPath(report: string): string {
+export async function resolveReviewReportPath(report: string): Promise<string> {
   if (isAbsolute(report)) return report;
 
   if (report.includes("/") || report.includes("\\")) {
     return resolve(report);
   }
 
-  return join(getDiffOwlDir(), "reviews", report);
+  return join(await getSharedDiffOwlDir(), "reviews", report);
 }
 
 export async function listReviewReportPaths(): Promise<string[]> {
-  const reviews = join(getDiffOwlDir(), "reviews");
+  const reviews = join(await getSharedDiffOwlDir(), "reviews");
   const entries = await Promise.all([
     listMarkdownFiles(reviews),
     listMarkdownFiles(join(reviews, "resolved")),
