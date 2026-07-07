@@ -27,7 +27,7 @@ export type ReviewContextDepth = z.output<typeof ReviewContextDepthSchema>;
 export type ReasoningEffort = z.output<typeof ReasoningEffortSchema>;
 
 const DEFAULT_CONFIG = {
-  model: "opencode-go/big-pickle",
+  model: "opencode/big-pickle",
   server: {
     port: 4096,
     auto_start: true,

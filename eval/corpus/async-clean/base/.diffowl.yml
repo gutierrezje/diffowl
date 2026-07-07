@@ -1,4 +1,4 @@
-model: opencode-go/big-pickle
+model: opencode/big-pickle
 server:
   port: 4096
   auto_start: true
