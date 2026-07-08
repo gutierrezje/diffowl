@@ -40,7 +40,6 @@ function addOptionalExpectedFinding(document: EvalResultsDocumentV1, caseId: str
     line: 8,
     line_tolerance: 2,
     min_severity: "warning",
-    category: "error-handling",
     must_detect: false,
   } satisfies EvalExpectedFinding);
 }

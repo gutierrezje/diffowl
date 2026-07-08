@@ -10,9 +10,7 @@
   "expected": [
     {
       "file": "src/fetch.ts",
-      "line": 3,
-      "category": "async",
-      "must_detect": true
+      "line": 3
     }
   ]
 }

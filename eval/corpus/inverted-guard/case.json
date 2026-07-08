@@ -10,8 +10,7 @@
   "expected": [
     {
       "file": "src/access.ts",
-      "line": 32,
-      "must_detect": true
+      "line": 32
     }
   ]
 }

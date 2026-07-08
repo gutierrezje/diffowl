@@ -11,8 +11,7 @@
     {
       "file": "src/pagination.ts",
       "line": 15,
-      "line_tolerance": 3,
-      "must_detect": true
+      "line_tolerance": 3
     }
   ]
 }

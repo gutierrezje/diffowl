@@ -11,9 +11,7 @@
     {
       "file": "src/settings.ts",
       "line": 42,
-      "line_tolerance": 4,
-      "category": "error-handling",
-      "must_detect": true
+      "line_tolerance": 4
     }
   ]
 }

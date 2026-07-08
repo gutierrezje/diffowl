@@ -10,9 +10,7 @@
   "expected": [
     {
       "file": "src/user.ts",
-      "line": 3,
-      "category": "error-handling",
-      "must_detect": true
+      "line": 3
     }
   ]
 }

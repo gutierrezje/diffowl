@@ -10,9 +10,7 @@
   "expected": [
     {
       "file": "src/files.ts",
-      "line": 7,
-      "category": "path",
-      "must_detect": true
+      "line": 7
     }
   ]
 }
