@@ -9,10 +9,9 @@ export const EvalExpectedFindingSchema = z.object({
   file: z.string().trim().min(1),
   line: z.number().int().positive(),
   line_tolerance: z.number().int().nonnegative().default(2),
-  category: z.string().trim().min(1).optional(),
   min_severity: EvalSeveritySchema.default("warning"),
   must_detect: z.boolean().default(true),
-});
+}).strict();
 
 export const EvalCaseJsonSchema = z.object({
   id: z.string().trim().min(1),

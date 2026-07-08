@@ -50,6 +50,18 @@ describe("parseEvalCaseJson", () => {
       }),
     ).toThrow();
   });
+
+  it("rejects expected finding categories", () => {
+    expect(() =>
+      parseEvalCaseJson({
+        id: "categorized",
+        category: "bug",
+        language: "typescript",
+        description: "category is not part of the expected-finding contract",
+        expected: [{ file: "src/a.ts", line: 1, category: "async" }],
+      }),
+    ).toThrow();
+  });
 });
 
 describe("validateEvalCaseSemantics", () => {

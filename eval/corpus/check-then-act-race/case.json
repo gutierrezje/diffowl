@@ -10,9 +10,7 @@
   "expected": [
     {
       "file": "src/cache.ts",
-      "line": 11,
-      "min_severity": "warning",
-      "must_detect": true
+      "line": 11
     }
   ]
 }

@@ -1,6 +1,6 @@
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   applyCasePatch,
@@ -170,6 +170,44 @@ describe("corpus manifest", () => {
       "swallowed-error",
       "unbounded-retry",
     ]);
+  });
+});
+
+describe("corpus expectation contract", () => {
+  it("keeps committed case expectations explicit and load-bearing", async () => {
+    const corpus = await loadEvalCorpus(corpusDir);
+
+    for (const evalCase of corpus.cases) {
+      const rawCase = JSON.parse(await readFile(join(evalCase.dir, "case.json"), "utf8"));
+      expect(rawCase.id).toBe(basename(evalCase.dir));
+      expect(rawCase.expected ?? []).toEqual(rawCase.expected);
+
+      if (rawCase.category === "clean") {
+        expect(rawCase.expected, `${rawCase.id} clean cases must declare no expected findings`).toEqual([]);
+        continue;
+      }
+
+      expect(rawCase.expected?.length, `${rawCase.id} bug/mixed cases need expected findings`).toBeGreaterThan(0);
+      const patchText = await readFile(join(evalCase.dir, "change.patch"), "utf8");
+      for (const expected of rawCase.expected) {
+        expect(expected, `${rawCase.id} expected findings must not include category`).not.toHaveProperty("category");
+        expect(expected, `${rawCase.id} must omit default line_tolerance`).not.toHaveProperty(
+          "line_tolerance",
+          2,
+        );
+        expect(expected, `${rawCase.id} must omit default min_severity`).not.toHaveProperty(
+          "min_severity",
+          "warning",
+        );
+        expect(expected, `${rawCase.id} must omit default must_detect`).not.toHaveProperty(
+          "must_detect",
+          true,
+        );
+        expect(patchText, `${rawCase.id} expected file must be touched by change.patch`).toContain(
+          `+++ b/${expected.file}`,
+        );
+      }
+    }
   });
 });
 

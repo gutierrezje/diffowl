@@ -92,28 +92,13 @@ describe("findingMatchesExpected", () => {
     ).toBe(false);
   });
 
-  it("applies category matching when enabled", () => {
-    const categorized = makeExpected({
-      file: "src/a.ts",
-      line: 10,
-      category: "async",
-    });
-
+  it("matches independent of finding prose", () => {
     expect(
       findingMatchesExpected(
-        categorized,
-        makeFinding({ file: "src/a.ts", line: 10, title: "Unhandled async flow" }),
-        { categoryMatch: true },
+        makeExpected({ file: "src/a.ts", line: 10 }),
+        makeFinding({ file: "src/a.ts", line: 10, title: "Unexpected wording" }),
       ),
     ).toBe(true);
-
-    expect(
-      findingMatchesExpected(
-        categorized,
-        makeFinding({ file: "src/a.ts", line: 10, title: "Missing validation" }),
-        { categoryMatch: true },
-      ),
-    ).toBe(false);
   });
 });
 
@@ -218,7 +203,6 @@ describe("end-to-end scoring and metrics", () => {
         makeExpected({
           file: "src/user.ts",
           line: 3,
-          category: "error-handling",
         }),
       ],
     });

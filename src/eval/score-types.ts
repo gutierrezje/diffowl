@@ -5,13 +5,11 @@ import { ReviewFindingSchema } from "../review/types.js";
 export type EvalFnMode = "must_detect" | "strict";
 
 export interface EvalScoreOptions {
-  categoryMatch?: boolean;
   fnMode?: EvalFnMode;
   repeatedFpThreshold?: number;
 }
 
 export const DEFAULT_EVAL_SCORE_OPTIONS = {
-  categoryMatch: false,
   fnMode: "must_detect",
   repeatedFpThreshold: 2,
 } as const satisfies Required<EvalScoreOptions>;

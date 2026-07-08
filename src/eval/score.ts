@@ -26,26 +26,14 @@ export function severityRank(severity: ReviewSeverity): number {
 
 function resolveScoreOptions(options?: EvalScoreOptions): Required<EvalScoreOptions> {
   return {
-    categoryMatch: options?.categoryMatch ?? DEFAULT_EVAL_SCORE_OPTIONS.categoryMatch,
     fnMode: options?.fnMode ?? DEFAULT_EVAL_SCORE_OPTIONS.fnMode,
     repeatedFpThreshold: options?.repeatedFpThreshold ?? DEFAULT_EVAL_SCORE_OPTIONS.repeatedFpThreshold,
   };
 }
 
-function categoryMatches(expected: EvalExpectedFinding, reported: ReviewFinding): boolean {
-  if (!expected.category) {
-    return true;
-  }
-
-  const needle = expected.category.toLowerCase();
-  const haystack = `${reported.title} ${reported.body}`.toLowerCase();
-  return haystack.includes(needle);
-}
-
 export function findingMatchesExpected(
   expected: EvalExpectedFinding,
   reported: ReviewFinding,
-  options?: EvalScoreOptions,
 ): boolean {
   if (reported.file !== expected.file) {
     return false;
@@ -57,11 +45,6 @@ export function findingMatchesExpected(
   }
 
   if (severityRank(reported.severity) < severityRank(expected.min_severity)) {
-    return false;
-  }
-
-  const resolved = resolveScoreOptions(options);
-  if (resolved.categoryMatch && !categoryMatches(expected, reported)) {
     return false;
   }
 
@@ -77,7 +60,6 @@ interface MatchCandidate {
 function buildMatchCandidates(
   expected: EvalExpectedFinding[],
   reported: ReviewFinding[],
-  options: Required<EvalScoreOptions>,
 ): MatchCandidate[] {
   const candidates: MatchCandidate[] = [];
 
@@ -93,7 +75,7 @@ function buildMatchCandidates(
         continue;
       }
 
-      if (!findingMatchesExpected(expectedEntry, reportedFinding, options)) {
+      if (!findingMatchesExpected(expectedEntry, reportedFinding)) {
         continue;
       }
 
@@ -162,7 +144,7 @@ export function scoreEvalTrial(
   const resolved = resolveScoreOptions(options);
   const reported = trial.findings;
   const expected = evalCase.expected;
-  const candidates = buildMatchCandidates(expected, reported, resolved);
+  const candidates = buildMatchCandidates(expected, reported);
   const truePositives = assignTruePositives(candidates, reported);
 
   const matchedExpected = new Set(truePositives.map((match) => match.expectedIndex));
@@ -182,7 +164,7 @@ export function scoreEvalTrial(
     const matchesAssignedExpected = expected.some(
       (entry, expectedIndex) =>
         matchedExpected.has(expectedIndex) &&
-        findingMatchesExpected(entry, reportedFinding, resolved),
+        findingMatchesExpected(entry, reportedFinding),
     );
     if (matchesAssignedExpected) {
       redundancies.push(reportedFinding);
@@ -194,7 +176,7 @@ export function scoreEvalTrial(
       return false;
     }
 
-    return !expected.some((entry) => findingMatchesExpected(entry, finding, resolved));
+    return !expected.some((entry) => findingMatchesExpected(entry, finding));
   });
 
   const falseNegatives = expected.filter(

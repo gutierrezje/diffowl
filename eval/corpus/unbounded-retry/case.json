@@ -10,8 +10,7 @@
   "expected": [
     {
       "file": "src/retry.ts",
-      "line": 10,
-      "must_detect": true
+      "line": 10
     }
   ]
 }

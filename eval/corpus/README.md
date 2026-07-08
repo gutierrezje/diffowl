@@ -1,4 +1,4 @@
-# Eval Corpus (v1)
+# Eval Corpus
 
 Replayable mini-repos for measuring DiffOwl review quality. Each case is a directory with `case.json`, `base/`, and `change.patch`.
 
@@ -23,21 +23,35 @@ The pinned `corpus_version` lives in [`../corpus-manifest.json`](../corpus-manif
 | `rename-clean` | clean | staged | Local variable rename with behavior-preserving usage updates |
 | `extract-helper-clean` | clean | commit | Name formatting moved into a helper without behavior changes |
 
-## Expected findings
+## Case contract
 
-Bug cases declare anchors in `case.json` → `expected[]`:
+Case-level fields:
 
-- `file` — path relative to repo root after patch
-- `line` — 1-based line number (± `line_tolerance`, default 2)
-- `category` — optional keyword matched against finding title/body
-- `must_detect` — included in recall gates when `true`
+- `id` — required; must match the case directory name
+- `category` — required; `bug`, `clean`, or `mixed`; used for metrics/report grouping
+- `language` — required; currently `typescript`
+- `description` — required; concise human-readable scenario
+- `target` — optional; defaults to `commit`
+- `tags` — optional; descriptive only unless a future gate says otherwise
+- `expected` — empty for clean cases; non-empty for bug/mixed cases
 
-Clean cases must have `expected: []`.
+Bug and mixed cases declare anchors in `case.json` → `expected[]`:
+
+- `file` — required; path relative to repo root after patch
+- `line` — required; 1-based line number in the post-patch file
+- `line_tolerance` — optional; default `2`; include only to intentionally widen
+- `min_severity` — optional; default `warning`; include only to intentionally raise to `error`
+- `must_detect` — optional; default `true`; include only when `false`, which means "credit if detected, but do not count as a false negative when missed"
+
+Clean cases must have `expected: []`. Expected findings do not carry
+`category`; matching is based on file, line tolerance, and minimum severity.
+
+Committed corpus cases omit fields equal to their defaults.
 
 ## Adding or changing a case
 
 1. Add or edit a case directory under `eval/corpus/<id>/`.
-2. Run corpus tests (`pnpm run test src/eval/corpus.test.ts`).
+2. Run corpus tests (`pnpm exec vitest run src/eval/corpus.test.ts`).
 3. Recompute `hashCorpus(eval/corpus)` and update `eval/corpus-manifest.json`.
 4. Re-run the baseline capture (see [`../README.md`](../README.md)) and commit a new `eval/baselines/v*` snapshot.
 
