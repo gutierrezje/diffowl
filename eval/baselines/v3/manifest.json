@@ -1,0 +1,37 @@
+{
+  "label": "v3",
+  "captured_at": "2026-07-08T02:32:19.805Z",
+  "source_commit": "61979cb618d433f13cf35dec3f5c3410fcfae1df",
+  "diffowl_version": "0.3.2",
+  "corpus_version": "3d336b6fd10e6aa06b72a3ff53341f08ecb1a69f370e47078f24a096164dc8a4",
+  "model": "opencode-go/deepseek-v4-pro",
+  "mode": "both",
+  "trials": 3,
+  "gate": "eval/gates/default.json",
+  "gates_passed": false,
+  "gate_failures": [
+    "empty-on-clean rate 0.7999999999999999 is below minimum 0.9"
+  ],
+  "authoritative": false,
+  "trial_errors": [
+    {
+      "case": "inverted-guard",
+      "mode": "diffowl",
+      "trial": 0,
+      "error": "OpenCode event stream ended before a complete review was received."
+    },
+    {
+      "case": "swallowed-error",
+      "mode": "baseline",
+      "trial": 1,
+      "error": "Review timed out."
+    }
+  ],
+  "node_version": "v26.4.0",
+  "opencode_version": "1.17.14",
+  "result_files": {
+    "results": "eval-results.json",
+    "summary": "eval-summary.md"
+  },
+  "notes": "First live capture after removing inert expected-finding categories and enforcing omit-default corpus expectations. Not authoritative for prompt comparisons: the default clean-case gate failed and two trials had infrastructure errors. The raw latency distribution still includes the timed-out trial's ~900s duration. Keep as a historical failed capture unless a human explicitly decides to compare against it."
+}
