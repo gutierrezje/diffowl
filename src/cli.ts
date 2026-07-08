@@ -48,7 +48,7 @@ import {
   releaseHookReviewLock,
   writeHookStatus,
 } from "./git/hooks.js";
-import { isGitRepo, hasCommits, isDocOnlyDiff, resolveCommitRef } from "./git/diff.js";
+import { isGitRepo, hasCommits, isDocOnlyDiff } from "./git/diff.js";
 import { getSharedDiffOwlDir } from "./git/state-root.js";
 import {
   buildReviewContextFromDiff,
@@ -109,6 +109,7 @@ import {
 import { InvalidFindingTransitionError } from "./state/db.js";
 import type { SqliteDatabase } from "./state/sqlite.js";
 import type { FindingActor } from "./state/types.js";
+import { buildDocOnlySkipMarkdown, resolveTargetCommit } from "./review/run.js";
 
 import { readFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
@@ -1210,33 +1211,6 @@ async function loadConfigOrExit(): Promise<DiffOwlConfig> {
     const message = err instanceof Error ? err.message : String(err);
     console.error(chalk.red(`Config error: ${message}`));
     process.exit(1);
-  }
-}
-
-function buildDocOnlySkipMarkdown(diff: {
-  files: { path: string; additions: number; deletions: number }[];
-}): string {
-  const lines: string[] = [];
-  lines.push("### Summary");
-  lines.push("Documentation-only changes detected. No code review performed.");
-  lines.push("");
-  lines.push("### Changed Files");
-  for (const file of diff.files) {
-    lines.push(`- ${file.path} (+${file.additions}/-${file.deletions})`);
-  }
-  return lines.join("\n");
-}
-
-async function resolveTargetCommit(
-  target: { kind: "staged" } | { kind: "last-commit" } | { kind: "commit"; ref: string },
-): Promise<string | null> {
-  switch (target.kind) {
-    case "staged":
-      return null;
-    case "last-commit":
-      return resolveCommitRef("HEAD");
-    case "commit":
-      return resolveCommitRef(target.ref);
   }
 }
 
