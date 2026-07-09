@@ -47,8 +47,14 @@ why a finding was raised and whether it has appeared before.
 ### Durable Finding Lifecycle
 
 Treat findings as product entities rather than transient Markdown sections.
-Each finding should have stable identity, history, disposition, and the ability
-to reopen when a regression occurs.
+The everyday payoff is subtraction: because findings have stable identity and
+remembered dispositions, a re-review surfaces only what the developer has not
+already judged — dismissed findings stay quiet, deferred ones stay tracked, and
+attention goes to the delta instead of the full wall of findings on every run.
+A stateless reviewer re-litigates the same items every time until people stop
+reading it; memory is what keeps the review worth reading. Reopening a finding
+when a regression reoccurs is the same identity-and-history machinery applied to
+a rarer case — a consequence of the lifecycle, not the primary reason it exists.
 
 ### Change-Impact Understanding
 
