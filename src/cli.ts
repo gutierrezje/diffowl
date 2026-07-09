@@ -48,13 +48,9 @@ import {
   releaseHookReviewLock,
   writeHookStatus,
 } from "./git/hooks.js";
-import { isGitRepo, hasCommits, isDocOnlyDiff } from "./git/diff.js";
+import { isGitRepo, hasCommits } from "./git/diff.js";
 import { getSharedDiffOwlDir } from "./git/state-root.js";
-import {
-  buildReviewContextFromDiff,
-  loadReviewSnapshot,
-  renderReviewContext,
-} from "./review/context.js";
+import { buildReviewContextFromDiff, renderReviewContext } from "./review/context.js";
 import { filterFindingsByChangedFiles, filterFindingsByConfidence } from "./review/filters.js";
 import {
   printHeader,
@@ -109,7 +105,7 @@ import {
 import { InvalidFindingTransitionError } from "./state/db.js";
 import type { SqliteDatabase } from "./state/sqlite.js";
 import type { FindingActor } from "./state/types.js";
-import { buildDocOnlySkipMarkdown, resolveTargetCommit } from "./review/run.js";
+import { resolveTargetCommit, runReviewSkipChecks } from "./review/run.js";
 
 import { readFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
@@ -245,94 +241,65 @@ program
     });
 
     try {
-      const snapshot = await loadReviewSnapshot(projectRoot, target);
-      const { diff } = snapshot;
+      const skipCheck = await runReviewSkipChecks({
+        target,
+        config,
+        depth,
+        verbose,
+        projectRoot,
+        diffOwlDir,
+        timings,
+        persistEmptyDiff: jsonMode,
+        signal: cancelController.signal,
+      });
 
-      if (target.kind === "staged" && diff.files.length === 0) {
+      if (skipCheck.kind === "empty-diff") {
         spinner?.stop();
-        if (jsonMode) {
-          const persisted = await persistReviewRun(diffOwlDir, {
-            ...mapReviewTarget(target),
-            targetCommit: null,
-            diffHash: computeDiffHash(diff.raw),
-            model: config.model,
-            reasoning: config.reasoning.effort,
-            depth,
-            sessionId: "",
-            summary: "No staged changes to review.",
-            diagnostics: [],
-            timings,
-            findings: [],
-            skippedReason: "empty-diff",
-          });
-          await emitReviewJsonSuccess({
-            diffOwlDir,
-            reviewId: persisted.reviewId,
-            persisted,
-            suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
-            verbose,
-            timings,
-          });
-          process.exit(0);
-        }
         console.log(chalk.yellow("No staged changes to review"));
         process.exit(0);
       }
 
-      if (config.skip_doc_only && isDocOnlyDiff(diff)) {
+      if (skipCheck.kind === "skipped" && skipCheck.reason === "empty-diff") {
+        spinner?.stop();
+        await emitReviewJsonSuccess({
+          diffOwlDir,
+          reviewId: skipCheck.persisted.reviewId,
+          persisted: skipCheck.persisted,
+          suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+          verbose,
+          timings: skipCheck.timings,
+        });
+        process.exit(0);
+      }
+
+      if (skipCheck.kind === "skipped" && skipCheck.reason === "documentation-only") {
         spinner?.stop();
         if (!jsonMode) {
           console.warn(chalk.yellow("Documentation-only changes detected. Skipping review."));
         }
-        const skipContent = buildDocOnlySkipMarkdown(diff);
-        const diffHash = computeDiffHash(diff.raw);
-        const targetFields = mapReviewTarget(target);
-        const targetCommit = await resolveTargetCommit(target);
-        const persisted = await persistReviewRun(diffOwlDir, {
-          ...targetFields,
-          targetCommit,
-          diffHash,
-          model: config.model,
-          reasoning: config.reasoning.effort,
-          depth,
-          sessionId: "",
-          summary: "Documentation-only changes detected. No code review performed.",
-          diagnostics: [],
-          timings,
-          findings: [],
-          skippedReason: "documentation-only",
-        });
-        let reportPath: string;
-        try {
-          reportPath = await writeMarkdownReport(skipContent);
-          await updatePersistedReview(diffOwlDir, persisted.reviewId, {
-            reportPath,
-          });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          await updatePersistedReview(diffOwlDir, persisted.reviewId, {
-            reportPath: null,
-            diagnostics: [`Report write failed: ${message}`],
-          });
-          throw err;
-        }
         if (jsonMode) {
           await emitReviewJsonSuccess({
             diffOwlDir,
-            reviewId: persisted.reviewId,
-            persisted,
+            reviewId: skipCheck.persisted.reviewId,
+            persisted: skipCheck.persisted,
             suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
             verbose,
-            timings,
+            timings: skipCheck.timings,
           });
         } else {
-          console.log(chalk.dim(`Report saved: ${reportPath}`));
+          console.log(chalk.dim(`Report saved: ${skipCheck.reportPath}`));
         }
         if (options.hook) {
           await writeHookStatus(0, hookCommit);
         }
         process.exit(0);
       }
+
+      if (skipCheck.kind !== "continue") {
+        process.exit(0);
+      }
+      const { snapshot } = skipCheck;
+      const { diff } = snapshot;
 
       const contextStart = performance.now();
       const reviewContext = await buildReviewContextFromDiff(snapshot, config, depth);
