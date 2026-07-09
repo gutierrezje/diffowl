@@ -1,7 +1,7 @@
 # DiffOwl
 
-**Generated:** 2026-06-07
-**Commit:** a9a51e5
+**Generated:** 2026-07-09
+**Commit:** 449f08c
 
 Local AI code review CLI. Orchestrates a headless OpenCode server and delegates repo analysis to a local agent.
 
@@ -15,6 +15,8 @@ Local AI code review CLI. Orchestrates a headless OpenCode server and delegates 
 │   ├── opencode/ (AGENTS.md)   # OpenCode SDK integration
 │   ├── git/ (AGENTS.md)        # Git diff / hooks
 │   ├── eval/                   # Measured review quality harness
+│   ├── state/                  # Durable findings state (SQLite)
+│   ├── output/                 # JSON contract & findings rendering
 │   └── review/ (AGENTS.md)     # Output formatting & context
 ├── package.json
 └── tsup.config.ts
@@ -31,9 +33,15 @@ Local AI code review CLI. Orchestrates a headless OpenCode server and delegates 
 | Change review prompt / agent behavior | `src/opencode/agent.ts`                                |
 | Tweak diff parser                     | `src/git/diff.ts`                                      |
 | Change report format                  | `src/review/formatter.ts`                              |
+| Review pipeline engine                | `src/review/run.ts`                                    |
 | Add context source (AST, refs)        | `src/review/context.ts`, `src/review/ast/`             |
 | Adjust server lifecycle               | `src/opencode/server.ts`                               |
 | Handle SSE events / settlement        | `src/opencode/client.ts`, `src/opencode/settlement.ts` |
+| Findings lifecycle (resolve/dismiss/defer/reopen) | `src/state/lifecycle.ts`, `src/state/findings-query.ts` |
+| Persist review runs / reconcile findings | `src/state/persist.ts`, `src/state/reconcile.ts`    |
+| Finding fingerprints / durable ids    | `src/state/fingerprint.ts`                             |
+| `--format json` review document       | `src/output/json.ts`                                   |
+| Findings list/detail CLI rendering    | `src/output/findings.ts`                               |
 
 ## Conventions
 
@@ -59,7 +67,7 @@ Local AI code review CLI. Orchestrates a headless OpenCode server and delegates 
 
 ## Anti-Patterns
 
-- `REVIEW_AGENT_PROMPT` exact heading structure and severity labels must be preserved — `formatter.ts` regex depends on them.
+- `REVIEW_AGENT_PROMPT` and `review-parser.ts` share a contract: `FINAL_REVIEW_JSON` marker + single JSON object. `parseStructuredReview` tolerates a missing marker; the streaming detector `looksLikeCompleteStructuredReview` (settlement) does NOT. Change prompt, parser, and detector together.
 - `parseDiff` is regex-based and brittle. Test against real `git diff` output when touching.
 - `runReview` SSE loop timeout is `config.timeout` (default 300s). The `settled` flag logic is complex; race conditions easy.
 - `spawnServer` writes PID to `.diffowl/server.pid`; `stopServer` reads it. PID reuse edge case unhandled.
