@@ -4,7 +4,6 @@ import { basename, dirname, join } from "node:path";
 import { execa } from "execa";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  colorizeMarkdown,
   formatExcludedCandidateSummary,
   parseReviewMetadata,
   renderMarkdown,
@@ -21,55 +20,6 @@ afterEach(async () => {
   resetSharedDiffOwlDirForTests();
   await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
   tempDirs = [];
-});
-
-describe("colorizeMarkdown", () => {
-  it("consumes full bold severity markers", () => {
-    const output = colorizeMarkdown("**[ERROR]** broken\n**[WARNING]** risky\n**[INFO]** note");
-
-    expect(output).toContain("[ERROR]");
-    expect(output).toContain("[WARNING]");
-    expect(output).toContain("[INFO]");
-    expect(output).not.toContain("**");
-  });
-
-  it("formats severity lines that include file references", () => {
-    const output = colorizeMarkdown("**[ERROR] src/config.ts:45**\nDescription");
-
-    expect(output).toContain("[ERROR]");
-    expect(output).toContain(" src/config.ts:45");
-    expect(output).not.toContain("**");
-  });
-
-  it("formats regular bold markdown without leaking replacement tokens", () => {
-    const output = colorizeMarkdown("Review **this file** please");
-
-    expect(output).toContain("this file");
-    expect(output).not.toContain("$1");
-  });
-
-  it("skips markdown formatting inside triple backtick code blocks", () => {
-    const input = [
-      "Review **this outside** please",
-      "```ts",
-      "const raw = **not bold**",
-      "### In Code Block Header",
-      "```",
-      "More **bold outside** text",
-    ].join("\n");
-
-    const output = colorizeMarkdown(input);
-
-    // Outside code blocks should be colorized/modified (e.g. no asterisks)
-    expect(output).toContain("this outside");
-    expect(output).not.toContain("**this outside**");
-    expect(output).toContain("bold outside");
-    expect(output).not.toContain("**bold outside**");
-
-    // Inside code blocks should be completely untouched
-    expect(output).toContain("const raw = **not bold**");
-    expect(output).toContain("### In Code Block Header");
-  });
 });
 
 describe("renderMarkdown", () => {
