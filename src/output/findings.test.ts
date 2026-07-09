@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatFindingList, shortenFindingId } from "./findings.js";
+import { formatFindingList, renderFindingListJson, shortenFindingId } from "./findings.js";
 import type { FindingListItem } from "../state/findings-query.js";
 import type { FindingObservationRecord, FindingRecord } from "../state/types.js";
 
@@ -153,5 +153,46 @@ describe("formatFindingList", () => {
     expect(output).toContain("unknown");
     expect(output).toContain("2x");
     expect(output).toContain("(no observation)");
+  });
+});
+
+describe("renderFindingListJson", () => {
+  it("renders an empty envelope with a trailing newline", () => {
+    const output = renderFindingListJson([]);
+    expect(output.endsWith("\n")).toBe(true);
+    expect(JSON.parse(output)).toEqual({
+      schema_version: 1,
+      count: 0,
+      findings: [],
+    });
+  });
+
+  it("round-trips finding records and occurrence counts", () => {
+    const items = [
+      listItem({ occurrence_count: 3 }),
+      listItem({
+        finding: { id: "fnd_bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee" },
+        observation: { file: "src/other.ts", line: 4, title: "Unhandled rejection" },
+        occurrence_count: 1,
+      }),
+    ];
+    const previousColumns = process.stdout.columns;
+    process.stdout.columns = 40;
+    try {
+      const output = renderFindingListJson(items);
+      const parsed = JSON.parse(output) as {
+        schema_version: number;
+        count: number;
+        findings: FindingListItem[];
+      };
+      expect(parsed.schema_version).toBe(1);
+      expect(parsed.count).toBe(2);
+      expect(parsed.findings[0]?.finding.id).toBe(baseFinding.id);
+      expect(parsed.findings[0]?.occurrence_count).toBe(3);
+      expect(parsed.findings[1]?.finding.id).toBe("fnd_bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee");
+      expect(parsed.findings[1]?.observation?.file).toBe("src/other.ts");
+    } finally {
+      process.stdout.columns = previousColumns;
+    }
   });
 });

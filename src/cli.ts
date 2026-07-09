@@ -74,6 +74,7 @@ import {
   formatFindingDetail,
   formatFindingList,
   renderFindingDetailJson,
+  renderFindingListJson,
 } from "./output/findings.js";
 import {
   deferFindingByLocator,
@@ -846,9 +847,15 @@ const findingsCmd = program.command("findings").description("Inspect and manage 
 findingsCmd
   .command("list", { isDefault: true })
   .description("List unresolved findings")
-  .action(async () => {
+  .option("--format <format>", "Output format: text or json", "text")
+  .action(async (options: { format?: string }) => {
     await loadConfigOrExit();
+    const format = resolveReviewOutputFormat(options.format);
     const items = await withFindingDatabase(await getSharedDiffOwlDir(), listUnresolvedFindings);
+    if (format === "json") {
+      process.stdout.write(renderFindingListJson(items));
+      return;
+    }
     if (items.length === 0) {
       console.log(chalk.green("No unresolved findings."));
       return;
