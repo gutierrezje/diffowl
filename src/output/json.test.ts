@@ -192,6 +192,90 @@ describe("buildReviewJsonDocument", () => {
     expect(document.findings).toHaveLength(0);
   });
 
+  it("marks advisory reviews when only unsuppressed info findings remain", () => {
+    const document = buildReviewJsonDocument({
+      review,
+      persisted: {
+        ...persisted,
+        reconcile: {
+          observations: [
+            {
+              ...persisted.reconcile.observations[1]!,
+              suppressed: false,
+              finding: {
+                ...persisted.reconcile.observations[1]!.finding,
+                status: "open",
+              },
+            },
+          ],
+          suppressedCounts: { dismissed: 0, deferred: 0 },
+        },
+      },
+      occurrenceCounts: new Map([["fnd_dismissed", 1]]),
+      suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+    });
+
+    expect(document.review.status).toBe("advisory");
+    expect(document.findings).toHaveLength(1);
+    expect(document.findings[0]?.severity).toBe("info");
+  });
+
+  it("keeps open status when info findings mix with errors", () => {
+    const document = buildReviewJsonDocument({
+      review,
+      persisted: {
+        ...persisted,
+        reconcile: {
+          observations: [
+            {
+              ...persisted.reconcile.observations[0]!,
+              observation: {
+                ...persisted.reconcile.observations[0]!.observation,
+                severity: "error",
+              },
+            },
+            {
+              ...persisted.reconcile.observations[1]!,
+              suppressed: false,
+              finding: {
+                ...persisted.reconcile.observations[1]!.finding,
+                status: "open",
+              },
+            },
+          ],
+          suppressedCounts: { dismissed: 0, deferred: 0 },
+        },
+      },
+      occurrenceCounts: new Map(),
+      suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+    });
+
+    expect(document.review.status).toBe("open");
+  });
+
+  it("treats suppressed-only info findings as resolved", () => {
+    const document = buildReviewJsonDocument({
+      review,
+      persisted: {
+        ...persisted,
+        reconcile: {
+          observations: [
+            {
+              ...persisted.reconcile.observations[1]!,
+              suppressed: true,
+            },
+          ],
+          suppressedCounts: { dismissed: 1, deferred: 0 },
+        },
+      },
+      occurrenceCounts: new Map(),
+      suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+    });
+
+    expect(document.review.status).toBe("resolved");
+    expect(document.findings).toHaveLength(0);
+  });
+
   it("includes usage when provided", () => {
     const document = buildReviewJsonDocument({
       review,
