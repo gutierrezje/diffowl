@@ -17,11 +17,9 @@ import {
   type ReasoningEffort,
 } from "./config.js";
 import {
-  runReview,
   getAvailableModels,
   isReviewCancellation,
   type ReviewProgressEvent,
-  type ReviewReport,
   type ReviewTiming,
   type ReviewUsage,
 } from "./opencode/client.js";
@@ -32,7 +30,6 @@ import {
   ensureServer,
   getInstalledOpencodeVersion,
   getServerHealth,
-  isServerRunning,
   stopServer,
 } from "./opencode/server.js";
 import {
@@ -50,17 +47,12 @@ import {
 } from "./git/hooks.js";
 import { isGitRepo, hasCommits } from "./git/diff.js";
 import { getSharedDiffOwlDir } from "./git/state-root.js";
-import { buildReviewContextFromDiff, renderReviewContext } from "./review/context.js";
-import { filterFindingsByChangedFiles, filterFindingsByConfidence } from "./review/filters.js";
 import {
   printHeader,
   printFooter,
-  writeMarkdownReport,
   renderMarkdown,
   colorizeMarkdown,
-  formatExcludedCandidateSummary,
   parseReviewMetadata,
-  REPORT_SCHEMA_VERSION,
 } from "./review/formatter.js";
 import {
   canSelectReviewInteractively,
@@ -69,14 +61,8 @@ import {
   selectReviewReportPath,
 } from "./review/report-path.js";
 import {
-  computeDiffHash,
-  enrichReviewFindingsWithDurableMetadata,
-  formatLifecycleSuppressedSummary,
   getPersistedReview,
   loadFindingOccurrenceCounts,
-  mapReviewTarget,
-  persistReviewRun,
-  updatePersistedReview,
   type PersistReviewRunResult,
 } from "./state/persist.js";
 import {
@@ -105,7 +91,7 @@ import {
 import { InvalidFindingTransitionError } from "./state/db.js";
 import type { SqliteDatabase } from "./state/sqlite.js";
 import type { FindingActor } from "./state/types.js";
-import { resolveTargetCommit, runReviewSkipChecks } from "./review/run.js";
+import { runReviewPipeline } from "./review/run.js";
 
 import { readFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
@@ -241,7 +227,7 @@ program
     });
 
     try {
-      const skipCheck = await runReviewSkipChecks({
+      const outcome = await runReviewPipeline({
         target,
         config,
         depth,
@@ -251,28 +237,55 @@ program
         timings,
         persistEmptyDiff: jsonMode,
         signal: cancelController.signal,
+        onProgress: (event) => {
+          if (spinner) {
+            spinner.text = formatReviewProgress(event);
+          }
+        },
+        onDiagnostics: (diagnostics) => {
+          if (!spinner) {
+            return;
+          }
+          spinner.warn("Local review context built with warnings.");
+          for (const diagnostic of diagnostics) {
+            console.log(chalk.yellow(`  - ${diagnostic}`));
+          }
+          console.log();
+          spinner.start("Connecting to OpenCode...");
+        },
+        onStatus: (message) => {
+          if (spinner) {
+            spinner.text = message;
+          }
+        },
       });
 
-      if (skipCheck.kind === "empty-diff") {
+      if (outcome.kind === "empty-diff") {
         spinner?.stop();
         console.log(chalk.yellow("No staged changes to review"));
+        if (options.hook) {
+          await writeHookStatus(0, hookCommit);
+        }
         process.exit(0);
       }
 
-      if (skipCheck.kind === "skipped" && skipCheck.reason === "empty-diff") {
+      if (outcome.kind === "skipped" && outcome.reason === "empty-diff") {
         spinner?.stop();
         await emitReviewJsonSuccess({
           diffOwlDir,
-          reviewId: skipCheck.persisted.reviewId,
-          persisted: skipCheck.persisted,
+          reviewId: outcome.persisted.reviewId,
+          persisted: outcome.persisted,
           suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
           verbose,
-          timings: skipCheck.timings,
+          timings: outcome.timings,
         });
+        if (options.hook) {
+          await writeHookStatus(0, hookCommit);
+        }
         process.exit(0);
       }
 
-      if (skipCheck.kind === "skipped" && skipCheck.reason === "documentation-only") {
+      if (outcome.kind === "skipped" && outcome.reason === "documentation-only") {
         spinner?.stop();
         if (!jsonMode) {
           console.warn(chalk.yellow("Documentation-only changes detected. Skipping review."));
@@ -280,14 +293,14 @@ program
         if (jsonMode) {
           await emitReviewJsonSuccess({
             diffOwlDir,
-            reviewId: skipCheck.persisted.reviewId,
-            persisted: skipCheck.persisted,
+            reviewId: outcome.persisted.reviewId,
+            persisted: outcome.persisted,
             suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
             verbose,
-            timings: skipCheck.timings,
+            timings: outcome.timings,
           });
         } else {
-          console.log(chalk.dim(`Report saved: ${skipCheck.reportPath}`));
+          console.log(chalk.dim(`Report saved: ${outcome.reportPath}`));
         }
         if (options.hook) {
           await writeHookStatus(0, hookCommit);
@@ -295,184 +308,36 @@ program
         process.exit(0);
       }
 
-      if (skipCheck.kind !== "continue") {
+      if (outcome.kind !== "completed") {
         process.exit(0);
       }
-      const { snapshot } = skipCheck;
-      const { diff } = snapshot;
-
-      const contextStart = performance.now();
-      const reviewContext = await buildReviewContextFromDiff(snapshot, config, depth);
-      recordCliTiming(timings, "context-build", "Local review context build", contextStart);
-
-      const contextRenderStart = performance.now();
-      const localContext = renderReviewContext(reviewContext, { depth });
-      recordCliTiming(timings, "context-render", "Local review context render", contextRenderStart);
-
-      if (reviewContext.diagnostics.length > 0 && spinner) {
-        spinner.warn("Local review context built with warnings.");
-        for (const diagnostic of reviewContext.diagnostics) {
-          console.log(chalk.yellow(`  - ${diagnostic}`));
-        }
-        console.log();
-        spinner.start("Connecting to OpenCode...");
-      }
-
-      // Ensure server and start review
-      if (spinner) {
-        spinner.text = "Connecting to OpenCode...";
-      }
-      const serverStart = performance.now();
-      await prepareReviewServer(config);
-      recordCliTiming(timings, "server-ensure", "OpenCode server ensure", serverStart);
-      if (spinner) {
-        spinner.text = "Reviewing changes...";
-      }
-
-      const reviewStart = performance.now();
-      const reviewResult = await runReview({
-        target,
-        directory: projectRoot,
-        config,
-        localContext,
-        depth,
-        signal: cancelController.signal,
-        onProgress: (event) => {
-          if (spinner) {
-            spinner.text = formatReviewProgress(event);
-          }
-        },
-      });
-      const report: ReviewReport = reviewResult.report;
-      recordCliTiming(timings, "review-run", "OpenCode review run", reviewStart);
+      const report = outcome.report;
       spinner?.succeed("Review complete.");
       if (!jsonMode) {
         console.log(); // Space after spinner
       }
-
-      const diagnostics = report.diagnostics ?? [];
-
-      const confidenceFilter = filterFindingsByConfidence(report.findings, config.min_confidence);
-      report.findings = confidenceFilter.findings;
-
-      const changedFilesSet = new Set<string>();
-      for (const file of reviewContext.changedFiles) {
-        changedFilesSet.add(file.file.path);
-      }
-      const changedFileFilter = filterFindingsByChangedFiles(report.findings, changedFilesSet);
-      report.findings = changedFileFilter.findings;
-      if (changedFileFilter.suppressed.length > 0) {
-        if (verbose) {
-          report.suppressedFindings = changedFileFilter.suppressed;
-        }
-      }
-      if (confidenceFilter.dropped > 0 || changedFileFilter.suppressed.length > 0) {
-        diagnostics.push(
-          formatExcludedCandidateSummary(
-            confidenceFilter.dropped,
-            changedFileFilter.suppressed.length,
-          ),
-        );
-      }
-      if (diagnostics.length > 0) {
-        report.diagnostics = diagnostics;
-      }
-
-      const diffHash = computeDiffHash(diff.raw);
-      const targetFields = mapReviewTarget(target);
-      const targetCommit = await resolveTargetCommit(target);
-      const persistStart = performance.now();
-      const persisted = await persistReviewRun(diffOwlDir, {
-        ...targetFields,
-        targetCommit,
-        diffHash,
-        model: config.model,
-        reasoning: config.reasoning.effort,
-        depth,
-        sessionId: reviewResult.sessionId,
-        summary: report.summary,
-        diagnostics,
-        timings: [...timings, ...(report.timings ?? [])],
-        findings: report.findings,
-      });
-      recordCliTiming(timings, "persist-state", "Persist review state", persistStart);
-
-      report.findings = persisted.actionableFindings;
-      const lifecycleSummary = formatLifecycleSuppressedSummary(
-        persisted.reconcile.suppressedCounts,
-      );
-      if (lifecycleSummary) {
-        diagnostics.push(lifecycleSummary);
-        report.diagnostics = diagnostics;
-      }
-      if (verbose && persisted.lifecycleSuppressedFindings.length > 0) {
-        report.suppressedFindings = [
-          ...(report.suppressedFindings ?? []),
-          ...persisted.lifecycleSuppressedFindings,
-        ];
-      }
-
-      report.findings = enrichReviewFindingsWithDurableMetadata(
-        report.findings,
-        persisted.reconcile,
-      );
-      if (report.suppressedFindings) {
-        report.suppressedFindings = enrichReviewFindingsWithDurableMetadata(
-          report.suppressedFindings,
-          persisted.reconcile,
-        );
-      }
-
-      const renderStart = performance.now();
-      const markdown = renderMarkdown(report);
-      recordCliTiming(timings, "render-report", "Markdown render", renderStart);
-
-      // Write markdown report
-      const writeStart = performance.now();
-      let reportPath: string;
-      try {
-        reportPath = await writeMarkdownReport(markdown, {
-          schema_version: REPORT_SCHEMA_VERSION,
-          review_id: persisted.reviewId,
-          session_id: reviewResult.sessionId,
-          project_root: projectRoot,
-        });
-        await updatePersistedReview(diffOwlDir, persisted.reviewId, {
-          reportPath,
-          diagnostics,
-        });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        diagnostics.push(`Report write failed: ${message}`);
-        report.diagnostics = diagnostics;
-        await updatePersistedReview(diffOwlDir, persisted.reviewId, {
-          reportPath: null,
-          diagnostics,
-        });
-        throw err;
-      }
-      recordCliTiming(timings, "write-report", "Report write", writeStart);
       recordCliTiming(timings, "total", "Total review command", totalStart);
+      const outputTimings = [
+        ...outcome.timings,
+        ...timings.filter((timing) => timing.phase === "total"),
+      ];
 
       if (jsonMode) {
         await emitReviewJsonSuccess({
           diffOwlDir,
-          reviewId: persisted.reviewId,
-          persisted,
-          suppressed: {
-            outsideChangedFiles: changedFileFilter.suppressed.length,
-            belowConfidence: confidenceFilter.dropped,
-          },
+          reviewId: outcome.persisted.reviewId,
+          persisted: outcome.persisted,
+          suppressed: outcome.suppressed,
           verbose,
-          timings: [...timings, ...(report.timings ?? [])],
-          usage: reviewResult.usage ?? null,
+          timings: outputTimings,
+          usage: outcome.usage,
         });
       } else {
         // Print the rendered, colorized markdown to stdout
-        console.log(colorizeMarkdown(markdown));
+        console.log(colorizeMarkdown(renderMarkdown(report)));
 
-        printFooter(report, reportPath);
-        printTimingSummary([...timings, ...(report.timings ?? [])]);
+        printFooter(report, outcome.reportPath);
+        printTimingSummary(outputTimings);
       }
       if (options.hook) {
         await writeHookStatus(0, hookCommit);
@@ -659,7 +524,7 @@ function recordCliTiming(
   label: string,
   start: number,
 ): void {
-  timings.push({ phase, label, ms: performance.now() - start });
+  timings.push({ phase, label, ms: Math.max(0, Math.round(performance.now() - start)) });
 }
 
 function printTimingSummary(timings: ReviewTiming[]): void {
@@ -680,21 +545,6 @@ function printTimingSummary(timings: ReviewTiming[]): void {
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
-}
-
-async function prepareReviewServer(config: DiffOwlConfig): Promise<void> {
-  if (config.server.auto_start) {
-    await ensureServer(config.server.port);
-    return;
-  }
-
-  if (await isServerRunning(config.server.port)) {
-    return;
-  }
-
-  throw new Error(
-    `OpenCode server is not running on port ${config.server.port}. Start it with \`diffowl server start\` or set server.auto_start: true.`,
-  );
 }
 
 // Init command

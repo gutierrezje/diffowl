@@ -1,6 +1,7 @@
 import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
 import { isDocOnlyDiff, resolveCommitRef } from "../git/diff.js";
 import { runReview, type ReviewProgressEvent } from "../opencode/client.js";
+import { ensureServer, isServerRunning } from "../opencode/server.js";
 import type { ReviewReport, ReviewTiming, ReviewUsage } from "./types.js";
 import {
   computeDiffHash,
@@ -13,7 +14,7 @@ import {
   type PersistReviewRunResult,
 } from "../state/persist.js";
 import { filterFindingsByChangedFiles, filterFindingsByConfidence } from "./filters.js";
-import { renderMarkdown, writeMarkdownReport } from "./formatter.js";
+import { formatExcludedCandidateSummary, renderMarkdown, REPORT_SCHEMA_VERSION, writeMarkdownReport } from "./formatter.js";
 import {
   buildReviewContextFromDiff,
   loadReviewSnapshot,
@@ -45,12 +46,15 @@ export interface ReviewPipelineInput {
   signal?: AbortSignal;
   onProgress?: (event: ReviewProgressEvent) => void;
   onDiagnostics?: (diagnostics: string[]) => void;
+  onStatus?: (message: string) => void;
 }
 
 export interface ReviewPipelineDeps {
   loadReviewSnapshot: typeof loadReviewSnapshot; buildReviewContextFromDiff: typeof buildReviewContextFromDiff;
   renderReviewContext: typeof renderReviewContext; runReview: typeof runReview;
+  ensureServer: typeof ensureServer; isServerRunning: typeof isServerRunning;
   filterFindingsByConfidence: typeof filterFindingsByConfidence; filterFindingsByChangedFiles: typeof filterFindingsByChangedFiles;
+  formatExcludedCandidateSummary: typeof formatExcludedCandidateSummary;
   computeDiffHash: typeof computeDiffHash; mapReviewTarget: typeof mapReviewTarget;
   persistReviewRun: typeof persistReviewRun; updatePersistedReview: typeof updatePersistedReview;
   resolveTargetCommit: typeof resolveTargetCommit;
@@ -60,8 +64,9 @@ export interface ReviewPipelineDeps {
 }
 
 export const defaultReviewPipelineDeps: ReviewPipelineDeps = {
-  buildReviewContextFromDiff, computeDiffHash, enrichReviewFindingsWithDurableMetadata, filterFindingsByChangedFiles,
-  filterFindingsByConfidence, formatLifecycleSuppressedSummary, loadFindingOccurrenceCounts, loadReviewSnapshot,
+  buildReviewContextFromDiff, computeDiffHash, enrichReviewFindingsWithDurableMetadata, ensureServer,
+  filterFindingsByChangedFiles, filterFindingsByConfidence, formatExcludedCandidateSummary,
+  formatLifecycleSuppressedSummary, isServerRunning, loadFindingOccurrenceCounts, loadReviewSnapshot,
   mapReviewTarget, persistReviewRun, renderMarkdown, renderReviewContext, resolveTargetCommit, runReview, updatePersistedReview, writeMarkdownReport,
 };
 
@@ -70,7 +75,129 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
   if (outcome.kind !== "continue") {
     return outcome;
   }
-  throw new Error("Review pipeline extraction is not implemented yet.");
+
+  const { snapshot } = outcome;
+  const { diff } = snapshot;
+  const contextStart = performance.now();
+  const reviewContext = await deps.buildReviewContextFromDiff(snapshot, input.config, input.depth);
+  recordReviewTiming(input.timings, "context-build", "Local review context build", contextStart);
+
+  const contextRenderStart = performance.now();
+  const localContext = deps.renderReviewContext(reviewContext, { depth: input.depth });
+  recordReviewTiming(input.timings, "context-render", "Local review context render", contextRenderStart);
+  if (reviewContext.diagnostics.length > 0) {
+    input.onDiagnostics?.(reviewContext.diagnostics);
+  }
+
+  const serverStart = performance.now();
+  input.onStatus?.("Connecting to OpenCode...");
+  await prepareReviewServer(input.config, deps);
+  recordReviewTiming(input.timings, "server-ensure", "OpenCode server ensure", serverStart);
+
+  const reviewStart = performance.now();
+  input.onStatus?.("Reviewing changes...");
+  const reviewResult = await deps.runReview({
+    target: input.target,
+    directory: input.projectRoot,
+    config: input.config,
+    localContext,
+    depth: input.depth,
+    ...(input.signal ? { signal: input.signal } : {}),
+    ...(input.onProgress ? { onProgress: input.onProgress } : {}),
+  });
+  const report: ReviewReport = reviewResult.report;
+  recordReviewTiming(input.timings, "review-run", "OpenCode review run", reviewStart);
+
+  const diagnostics = report.diagnostics ?? [];
+  const confidenceFilter = deps.filterFindingsByConfidence(report.findings, input.config.min_confidence);
+  report.findings = confidenceFilter.findings;
+
+  const changedFilesSet = new Set(reviewContext.changedFiles.map((file) => file.file.path));
+  const changedFileFilter = deps.filterFindingsByChangedFiles(report.findings, changedFilesSet);
+  report.findings = changedFileFilter.findings;
+  if (changedFileFilter.suppressed.length > 0 && input.verbose) {
+    report.suppressedFindings = changedFileFilter.suppressed;
+  }
+  if (confidenceFilter.dropped > 0 || changedFileFilter.suppressed.length > 0) {
+    diagnostics.push(deps.formatExcludedCandidateSummary(
+      confidenceFilter.dropped,
+      changedFileFilter.suppressed.length,
+    ));
+  }
+  if (diagnostics.length > 0) {
+    report.diagnostics = diagnostics;
+  }
+
+  const persistStart = performance.now();
+  const persisted = await deps.persistReviewRun(input.diffOwlDir, {
+    ...deps.mapReviewTarget(input.target),
+    targetCommit: await deps.resolveTargetCommit(input.target),
+    diffHash: deps.computeDiffHash(diff.raw),
+    model: input.config.model,
+    reasoning: input.config.reasoning.effort,
+    depth: input.depth,
+    sessionId: reviewResult.sessionId,
+    summary: report.summary,
+    diagnostics,
+    timings: [...input.timings, ...(report.timings ?? [])],
+    findings: report.findings,
+  });
+  recordReviewTiming(input.timings, "persist-state", "Persist review state", persistStart);
+
+  report.findings = persisted.actionableFindings;
+  const lifecycleSummary = deps.formatLifecycleSuppressedSummary(persisted.reconcile.suppressedCounts);
+  if (lifecycleSummary) {
+    diagnostics.push(lifecycleSummary);
+    report.diagnostics = diagnostics;
+  }
+  if (input.verbose && persisted.lifecycleSuppressedFindings.length > 0) {
+    report.suppressedFindings = [
+      ...(report.suppressedFindings ?? []),
+      ...persisted.lifecycleSuppressedFindings,
+    ];
+  }
+
+  report.findings = deps.enrichReviewFindingsWithDurableMetadata(report.findings, persisted.reconcile);
+  if (report.suppressedFindings) {
+    report.suppressedFindings = deps.enrichReviewFindingsWithDurableMetadata(report.suppressedFindings, persisted.reconcile);
+  }
+
+  const renderStart = performance.now();
+  const markdown = deps.renderMarkdown(report);
+  recordReviewTiming(input.timings, "render-report", "Markdown render", renderStart);
+
+  const writeStart = performance.now();
+  let reportPath: string;
+  try {
+    reportPath = await deps.writeMarkdownReport(markdown, {
+      schema_version: REPORT_SCHEMA_VERSION,
+      review_id: persisted.reviewId,
+      session_id: reviewResult.sessionId,
+      project_root: input.projectRoot,
+    });
+    await deps.updatePersistedReview(input.diffOwlDir, persisted.reviewId, { reportPath, diagnostics });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    diagnostics.push(`Report write failed: ${message}`);
+    report.diagnostics = diagnostics;
+    await deps.updatePersistedReview(input.diffOwlDir, persisted.reviewId, { reportPath: null, diagnostics });
+    throw err;
+  }
+  recordReviewTiming(input.timings, "write-report", "Report write", writeStart);
+
+  return {
+    kind: "completed",
+    report,
+    persisted,
+    reportPath,
+    sessionId: reviewResult.sessionId,
+    suppressed: {
+      outsideChangedFiles: changedFileFilter.suppressed.length,
+      belowConfidence: confidenceFilter.dropped,
+    },
+    timings: [...input.timings, ...(report.timings ?? [])],
+    usage: reviewResult.usage ?? null,
+  };
 }
 
 export async function runReviewSkipChecks(
@@ -158,4 +285,31 @@ export async function resolveTargetCommit(
     case "commit":
       return resolveCommit(target.ref);
   }
+}
+
+export async function prepareReviewServer(
+  config: DiffOwlConfig,
+  deps: Pick<ReviewPipelineDeps, "ensureServer" | "isServerRunning"> = defaultReviewPipelineDeps,
+): Promise<void> {
+  if (config.server.auto_start) {
+    await deps.ensureServer(config.server.port);
+    return;
+  }
+
+  if (await deps.isServerRunning(config.server.port)) {
+    return;
+  }
+
+  throw new Error(
+    `OpenCode server is not running on port ${config.server.port}. Start it with \`diffowl server start\` or set server.auto_start: true.`,
+  );
+}
+
+function recordReviewTiming(
+  timings: ReviewTiming[],
+  phase: string,
+  label: string,
+  start: number,
+): void {
+  timings.push({ phase, label, ms: Math.max(0, Math.round(performance.now() - start)) });
 }
