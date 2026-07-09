@@ -168,6 +168,7 @@ describe("runEvalCommand", () => {
     const stdout: string[] = [];
     const writeResults = vi.fn(async () => ({
       jsonPath: join(outDir, "eval-results.json"),
+      metricsPath: join(outDir, "eval-metrics.json"),
       summaryPath: join(outDir, "eval-summary.md"),
     }));
 
@@ -199,6 +200,7 @@ describe("runEvalCommand", () => {
 
     expect(exitCode).toBe(0);
     expect(writeResults).toHaveBeenCalledOnce();
+    expect(stdout.join("")).toContain("eval-metrics.json");
     expect(stdout.join("")).toContain("eval-results.json");
   });
 
@@ -266,6 +268,7 @@ describe("runEvalCommand", () => {
           await mkdir(targetDir, { recursive: true });
           return {
             jsonPath: join(targetDir, "eval-results.json"),
+            metricsPath: join(targetDir, "eval-metrics.json"),
             summaryPath: join(targetDir, "eval-summary.md"),
           };
         },
@@ -301,6 +304,7 @@ describe("runEvalCommand", () => {
       await mkdir(targetDir, { recursive: true });
       return {
         jsonPath: join(targetDir, "eval-results.json"),
+        metricsPath: join(targetDir, "eval-metrics.json"),
         summaryPath: join(targetDir, "eval-summary.md"),
       };
     });

@@ -141,7 +141,7 @@ describe("buildEvalReport", () => {
     expect(() => parseEvalResultsDocument(raw)).toThrow();
   });
 
-  it("writes eval-results.json and eval-summary.md", async () => {
+  it("writes eval-results.json, eval-metrics.json, and eval-summary.md", async () => {
     const corpus = await loadEvalCorpus(corpusDir);
     const evalCase = corpus.cases.find((entry) => entry.id === "harmless-trim");
     expect(evalCase).toBeDefined();
@@ -171,12 +171,17 @@ describe("buildEvalReport", () => {
     const outDir = await mkdtemp(join(tmpdir(), "diffowl-eval-report-"));
     const paths = await writeEvalResults(outDir, document);
     const json = await readFile(paths.jsonPath, "utf8");
+    const metrics = await readFile(paths.metricsPath, "utf8");
     const summary = await readFile(paths.summaryPath, "utf8");
 
     expect(paths.jsonPath).toContain("eval-results.json");
+    expect(paths.metricsPath).toContain("eval-metrics.json");
     expect(paths.summaryPath).toContain("eval-summary.md");
     expect(JSON.parse(json).schema_version).toBe(1);
+    expect(JSON.parse(metrics).cases[0].diffowl.run).toBeUndefined();
+    expect(JSON.parse(metrics).cases[0].diffowl.metrics.caseId).toBe("harmless-trim");
     expect(summary).toContain("# DiffOwl Eval Summary");
+    expect(summary).toContain("## At a Glance");
     expect(summary).toContain("harmless-trim");
   });
 
