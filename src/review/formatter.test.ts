@@ -212,6 +212,50 @@ describe("renderMarkdown", () => {
     expect(renderMarkdown(report)).toMatch(/### Status\nResolved$/);
   });
 
+  it("renders advisory status when only info findings are present", () => {
+    const report: ReviewReport = {
+      summary: "Suggestions only.",
+      findings: [
+        {
+          severity: "info",
+          file: "src/example.ts",
+          line: 3,
+          title: "Consider renaming",
+          body: "A clearer name would help.",
+          confidence: "medium",
+        },
+      ],
+    };
+
+    expect(renderMarkdown(report)).toMatch(/### Status\nAdvisory$/);
+  });
+
+  it("renders open status when info findings mix with warnings", () => {
+    const report: ReviewReport = {
+      summary: "Mixed findings.",
+      findings: [
+        {
+          severity: "info",
+          file: "src/example.ts",
+          line: 3,
+          title: "Consider renaming",
+          body: "A clearer name would help.",
+          confidence: "medium",
+        },
+        {
+          severity: "warning",
+          file: "src/example.ts",
+          line: 10,
+          title: "Potential issue",
+          body: "This needs attention.",
+          confidence: "high",
+        },
+      ],
+    };
+
+    expect(renderMarkdown(report)).toMatch(/### Status\nOpen$/);
+  });
+
   it("renders durable finding ids and classification labels when metadata is present", () => {
     const report: ReviewReport = {
       summary: "Test summary",

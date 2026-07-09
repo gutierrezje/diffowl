@@ -190,7 +190,7 @@ Runs a code review on your repository.
 - `--depth <depth>`: Overrides configured review depth. Valid values: `shallow`, `default`.
 - `--reasoning <effort>`: Overrides configured OpenCode reasoning variant. Valid values: `auto`, `none`, `minimal`, `low`, `medium`, `high`, `max`, `xhigh`.
 - `--verbose`: Includes suppressed findings and extra review details in the report.
-- `--format <format>`: Output format: `text` (default) or `json`. JSON writes a versioned document to stdout and persists SQLite state.
+- `--format <format>`: Output format: `text` (default) or `json`. JSON writes a versioned document to stdout and persists SQLite state. Review `status` is `open` when unsuppressed `error`/`warning` findings remain, `advisory` when only `info` findings remain, `resolved` when none remain, or `skipped`.
 
 Candidates below `min_confidence` or outside changed files are excluded from actionable finding counts and review status. When any are excluded, the report includes a short diagnostic summary and points to `diffowl chat` for investigation. Outside-file candidates are shown in full with `--verbose`; below-threshold candidates remain available in the OpenCode session.
 
@@ -414,7 +414,7 @@ This metadata is used by `diffowl chat`. For legacy pre-0.3 reports, agents may 
 
 - **No import step**: Existing markdown reports remain unchanged and chat-capable. They are not imported into SQLite.
 - **New reviews persist state**: After upgrading, each `diffowl review` writes both SQLite state and a markdown snapshot.
-- **Backlog semantics change**: Use `diffowl findings` for the unresolved backlog. Markdown `### Status` reflects the review snapshot only.
+- **Backlog semantics change**: Use `diffowl findings` for the unresolved backlog. Markdown `### Status` is `Open` (error/warning findings), `Advisory` (info-only), or `Resolved` (none); it reflects the review snapshot only.
 - **Resolution workflow**: Prefer `diffowl findings fix|dismiss|defer` over editing report checklists when durable findings exist. Never mark fixed without recorded verification (`--verified-by`).
 - **Not in 0.3**: Semantic deduplication beyond fingerprint matching, automatic resolution when findings disappear, legacy report migration, retention cleanup, and SARIF export.
 

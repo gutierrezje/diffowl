@@ -14,7 +14,7 @@ export const JSON_OUTPUT_SCHEMA_VERSION = 1 as const;
 
 export type ReviewOutputFormat = "text" | "json";
 
-export type ReviewJsonStatus = "open" | "resolved" | "skipped";
+export type ReviewJsonStatus = "open" | "advisory" | "resolved" | "skipped";
 
 export interface ReviewJsonErrorDocument {
   schema_version: typeof JSON_OUTPUT_SCHEMA_VERSION;
@@ -106,9 +106,11 @@ export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJson
     input.persisted.reconcile.observations,
     input.verbose,
   );
-  const actionableCount = input.persisted.reconcile.observations.filter(
-    (item) => !item.suppressed,
+  const unsuppressed = input.persisted.reconcile.observations.filter((item) => !item.suppressed);
+  const actionableCount = unsuppressed.filter(
+    (item) => item.observation.severity !== "info",
   ).length;
+  const advisoryCount = unsuppressed.filter((item) => item.observation.severity === "info").length;
 
   return {
     schema_version: JSON_OUTPUT_SCHEMA_VERSION,
@@ -125,7 +127,7 @@ export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJson
       depth: input.review.depth,
       session_id: input.review.sessionId,
       summary: input.review.summary,
-      status: resolveReviewJsonStatus(input.review, actionableCount),
+      status: resolveReviewJsonStatus(input.review, actionableCount, advisoryCount),
       report_path: input.review.reportPath,
       skipped_reason: input.review.skippedReason,
     },
@@ -171,11 +173,21 @@ function selectJsonObservations(
   return observations.filter((item) => !item.suppressed);
 }
 
-function resolveReviewJsonStatus(review: ReviewRecord, actionableCount: number): ReviewJsonStatus {
+function resolveReviewJsonStatus(
+  review: ReviewRecord,
+  actionableCount: number,
+  advisoryCount: number,
+): ReviewJsonStatus {
   if (review.skippedReason) {
     return "skipped";
   }
-  return actionableCount > 0 ? "open" : "resolved";
+  if (actionableCount > 0) {
+    return "open";
+  }
+  if (advisoryCount > 0) {
+    return "advisory";
+  }
+  return "resolved";
 }
 
 function mapJsonFinding(
