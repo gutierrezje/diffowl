@@ -223,50 +223,6 @@ export function printFooter(report: ReviewReport, reportPath?: string): void {
   console.log();
 }
 
-/**
- * Basic markdown colorization for terminal output
- */
-export function colorizeMarkdown(text: string): string {
-  const lines = text.split("\n");
-  const colorizedLines: string[] = [];
-  let inCodeBlock = false;
-
-  for (const line of lines) {
-    if (line.trim().startsWith("```")) {
-      inCodeBlock = !inCodeBlock;
-      colorizedLines.push(chalk.dim(line));
-      continue;
-    }
-
-    if (inCodeBlock) {
-      colorizedLines.push(line);
-    } else {
-      const colorized = line
-        .replace(
-          /\*\*\[(ERROR|WARNING|INFO)\]([^*]*)\*\*/g,
-          (_match, label: string, rest: string) => `${colorizeSeverity(label)}${chalk.bold(rest)}`,
-        )
-        .replace(/^### (.*)/g, (_match, title: string) => chalk.bold.underline(title))
-        .replace(/\*\*([^*]+)\*\*/g, (_match, content: string) => chalk.bold(content));
-
-      colorizedLines.push(colorized);
-    }
-  }
-
-  return colorizedLines.join("\n");
-}
-
-function colorizeSeverity(label: string): string {
-  switch (label) {
-    case "ERROR":
-      return chalk.red.bold(`[${label}]`);
-    case "WARNING":
-      return chalk.yellow.bold(`[${label}]`);
-    default:
-      return chalk.blue.bold(`[${label}]`);
-  }
-}
-
 export function formatMarkdownCodeSpan(text: string): string {
   const trimmed = text.trim();
   let maxRun = 0;
