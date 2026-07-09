@@ -289,6 +289,9 @@ Inspect and manage the durable findings backlog stored in the repo's shared `.di
 # List unresolved findings (open and regressed)
 diffowl findings
 
+# Machine-readable backlog for agents and scripts
+diffowl findings --format json
+
 # Inspect one finding by full id, id prefix, or latest:N
 diffowl findings show fnd_abc --format json
 
@@ -304,6 +307,8 @@ diffowl findings defer fnd_abc --reason "Needs upstream change."
 # Reopen a previously fixed or dismissed finding
 diffowl findings reopen fnd_abc --reason "Regression in new path."
 ```
+
+`list` and `show` default to text; the mutation commands (`fix`, `dismiss`, `defer`, `reopen`) default to JSON because they are primarily agent-invoked — pass `--format text` for human-readable output.
 
 The unresolved backlog is durable: a finding does not auto-resolve just because a later review fails to mention it. Absence from a later model review never marks a finding fixed.
 

@@ -62,7 +62,7 @@ SQLite is the source of truth. Markdown is read-only context.
 
 1. Run `diffowl findings` before resolving to capture the current unresolved backlog.
 2. Use durable `fnd_*` IDs from the backlog or report headings for lifecycle commands. Use `latest:N` only when a durable ID is not practical.
-3. Inspect details as needed with `diffowl findings show <locator> --format json`.
+3. Inspect details as needed with `diffowl findings show <locator> --format json`. For the full backlog, prefer `diffowl findings list --format json`.
 4. For a confirmed fix, run verification first, then record:
 
 ```bash
