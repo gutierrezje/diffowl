@@ -121,6 +121,14 @@ export function renderFindingDetailJson(detail: FindingDetail): string {
   return `${JSON.stringify(detail, null, 2)}\n`;
 }
 
+export function renderFindingListJson(items: FindingListItem[]): string {
+  return `${JSON.stringify(
+    { schema_version: 1, count: items.length, findings: items },
+    null,
+    2,
+  )}\n`;
+}
+
 function computeListLayout(columns: number): ListLayout {
   const fixedWidth = fixedPrefixWidth();
   const flexibleWidth = Math.max(
