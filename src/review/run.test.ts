@@ -199,10 +199,13 @@ describe("runReviewPipeline", () => {
 
     expect(outcome).toMatchObject({
       kind: "completed",
+      markdown: "markdown",
       reportPath: "/repo/.diffowl/reviews/review.md",
       sessionId: "session",
       suppressed: { outsideChangedFiles: 1, belowConfidence: 0 },
     });
+    expect(deps.renderMarkdown).toHaveBeenCalledTimes(1);
+    expect(deps.writeMarkdownReport).toHaveBeenCalledWith("markdown", expect.any(Object));
     expect(outcome.kind === "completed" ? outcome.report.findings[0]?.durable?.id : null).toBe("fnd_1");
     expect(deps.persistReviewRun).toHaveBeenCalledWith(
       "/repo/.diffowl",

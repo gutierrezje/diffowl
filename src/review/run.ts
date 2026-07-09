@@ -26,7 +26,7 @@ import type { ReviewTarget } from "./target.js";
 export type ReviewPipelineOutcome =
   | {
       kind: "completed"; report: ReviewReport; persisted: PersistReviewRunResult;
-      reportPath: string; sessionId: string;
+      markdown: string; reportPath: string; sessionId: string;
       suppressed: { outsideChangedFiles: number; belowConfidence: number };
       timings: ReviewTiming[]; usage: ReviewUsage | null;
     }
@@ -188,6 +188,7 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
   return {
     kind: "completed",
     report,
+    markdown,
     persisted,
     reportPath,
     sessionId: reviewResult.sessionId,
