@@ -1,0 +1,20 @@
+{
+  "label": "v3",
+  "captured_at": "2026-07-09T04:55:33.920Z",
+  "source_commit": "3f2707318ac51e23dab74cb2648c4dff107ce096",
+  "diffowl_version": "0.3.2",
+  "corpus_version": "3d336b6fd10e6aa06b72a3ff53341f08ecb1a69f370e47078f24a096164dc8a4",
+  "model": "opencode-go/deepseek-v4-flash",
+  "model_note": "Using Flash as the reference model because it is a reasonable cost-effective default for recurring eval captures.",
+  "mode": "both",
+  "trials": 3,
+  "gate": "eval/gates/default.json",
+  "gates_passed": false,
+  "node_version": "v22.14.0",
+  "opencode_version": "1.17.14",
+  "result_files": {
+    "results": "eval-results.json",
+    "summary": "eval-summary.md"
+  },
+  "notes": "First live baseline for the post-027 corpus expectation contract using Flash as the recurring eval reference model."
+}
