@@ -43,6 +43,7 @@ export interface BuildEvalReportInput {
 
 export interface EvalWrittenResults {
   jsonPath: string;
+  metricsPath: string;
   summaryPath: string;
 }
 
@@ -168,6 +169,26 @@ export function renderEvalSummary(document: EvalResultsDocumentV1): string {
 
   lines.push("# DiffOwl Eval Summary");
   lines.push("");
+  lines.push("## At a Glance");
+  lines.push("");
+  lines.push(`- Model: ${manifest.model}`);
+  lines.push(`- Corpus: \`${manifest.corpus_version}\``);
+  lines.push(`- Scope: ${document.cases.length} cases, ${manifest.trials} trial${manifest.trials === 1 ? "" : "s"}, ${manifest.mode} mode`);
+  if (aggregate.diffowl) {
+    lines.push(`- DiffOwl precision: ${formatStatSummary(aggregate.diffowl.precision)}`);
+    lines.push(`- DiffOwl recall: ${formatStatSummary(aggregate.diffowl.recall)}`);
+    lines.push(`- Repeated false-positive rate: ${formatNullableNumber(aggregate.diffowl.repeatedFpRate)}`);
+  }
+  if (aggregate.delta) {
+    lines.push(`- F-beta delta vs baseline: ${formatDelta(aggregate.delta.fBeta.delta)}`);
+  }
+  if (document.gates) {
+    lines.push(`- Gate check: ${document.gates.passed ? "passed" : "recorded with observations"}`);
+  }
+  lines.push("");
+
+  lines.push("## Run Details");
+  lines.push("");
   lines.push(`- Corpus version: \`${manifest.corpus_version}\``);
   lines.push(`- Mode: ${manifest.mode}`);
   lines.push(`- Model: ${manifest.model}`);
@@ -253,9 +274,9 @@ export function renderEvalSummary(document: EvalResultsDocumentV1): string {
   lines.push("");
 
   if (document.gates) {
-    lines.push("## Gates");
+    lines.push("## Gate Observations");
     lines.push("");
-    lines.push(document.gates.passed ? "Status: **passed**" : "Status: **failed**");
+    lines.push(document.gates.passed ? "Status: **passed**" : "Status: **recorded**");
     if (document.gates.failures.length > 0) {
       lines.push("");
       for (const failure of document.gates.failures) {
@@ -272,16 +293,54 @@ export function renderEvalResultsJson(document: EvalResultsDocumentV1): string {
   return `${JSON.stringify(document, null, 2)}\n`;
 }
 
+export function renderEvalMetricsJson(document: EvalResultsDocumentV1): string {
+  return `${JSON.stringify(toEvalMetricsDocument(document), null, 2)}\n`;
+}
+
 export async function writeEvalResults(
   outDir: string,
   document: EvalResultsDocumentV1,
 ): Promise<EvalWrittenResults> {
   await mkdir(outDir, { recursive: true });
   const jsonPath = join(outDir, "eval-results.json");
+  const metricsPath = join(outDir, "eval-metrics.json");
   const summaryPath = join(outDir, "eval-summary.md");
   await writeFile(jsonPath, renderEvalResultsJson(document), "utf8");
+  await writeFile(metricsPath, renderEvalMetricsJson(document), "utf8");
   await writeFile(summaryPath, renderEvalSummary(document), "utf8");
-  return { jsonPath, summaryPath };
+  return { jsonPath, metricsPath, summaryPath };
+}
+
+function toEvalMetricsDocument(document: EvalResultsDocumentV1): unknown {
+  return {
+    schema_version: document.schema_version,
+    manifest: document.manifest,
+    aggregate: document.aggregate,
+    gates: document.gates,
+    cases: document.cases.map((entry) => ({
+      id: entry.id,
+      category: entry.category,
+      case_json_hash: entry.case_json_hash,
+      patch_hash: entry.patch_hash,
+      diffowl: entry.diffowl
+        ? {
+            metrics: entry.diffowl.metrics,
+            error_count: countErrors(entry.diffowl.run.trials),
+          }
+        : undefined,
+      baseline: entry.baseline
+        ? {
+            metrics: entry.baseline.metrics,
+            error_count: countErrors(entry.baseline.run.trials),
+          }
+        : undefined,
+      delta: entry.delta,
+    })),
+  };
+}
+
+function countErrors(trials: Array<{ error?: string | undefined }>): number {
+  return trials.filter((trial) => trial.error).length;
 }
 
 function formatNullableNumber(value: number | null | undefined): string {

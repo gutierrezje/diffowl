@@ -230,7 +230,8 @@ export async function runEvalCommand(
       await writeFile(join(outDir, "eval-comparison.md"), comparisonSummary, "utf8");
     }
     spinner?.succeed(`Eval complete (${cases.length} case${cases.length === 1 ? "" : "s"})`);
-    deps.stdoutWrite(`${chalk.dim("Results:")} ${paths.jsonPath}\n`);
+    deps.stdoutWrite(`${chalk.dim("Metrics:")} ${paths.metricsPath}\n`);
+    deps.stdoutWrite(`${chalk.dim("Full report:")} ${paths.jsonPath}\n`);
     deps.stdoutWrite(`${chalk.dim("Summary:")} ${paths.summaryPath}\n`);
     if (comparison) {
       deps.stdoutWrite(`${chalk.dim("Comparison:")} ${join(outDir, "eval-comparison.md")}\n`);

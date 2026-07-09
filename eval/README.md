@@ -39,14 +39,15 @@ Committed baselines live under `eval/baselines/<label>/`:
 | File | Purpose |
 | --- | --- |
 | `manifest.json` | Run config, `corpus_version`, model, trials, tool versions |
-| `eval-results.json` | Full schema v1 results (machine-readable) |
-| `eval-summary.md` | Human-readable summary |
+| `eval-metrics.json` | Compact metrics-first results for reading, dashboards, and baseline review |
+| `eval-results.json` | Full schema v1 report with raw runs, scores, and debug details |
+| `eval-summary.md` | Human-readable summary focused on aggregate and per-case results |
 
 ### Capture Policy
 
 1. Confirm `eval/corpus-manifest.json` matches the live corpus (`pnpm run test src/eval/corpus.test.ts`).
 2. Run the full corpus with `--mode both --trials 3` and a fixed model.
-3. Copy `eval-results.json` and `eval-summary.md` into `eval/baselines/<label>/`.
+3. Copy `eval-metrics.json`, `eval-results.json`, and `eval-summary.md` into `eval/baselines/<label>/`.
 4. Add `eval/baselines/<label>/manifest.json` recording model, trials, `corpus_version`, DiffOwl version, and whether gates passed.
 5. If `eval/gates/default.json` fails on real numbers, record actual metrics anyway; adjust gates or add a baseline-specific gate file in the baseline manifest — do not fake a passing run.
 
