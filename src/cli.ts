@@ -50,8 +50,6 @@ import { getSharedDiffOwlDir } from "./git/state-root.js";
 import {
   printHeader,
   printFooter,
-  renderMarkdown,
-  colorizeMarkdown,
   parseReviewMetadata,
 } from "./review/formatter.js";
 import {
@@ -333,9 +331,6 @@ program
           usage: outcome.usage,
         });
       } else {
-        // Print the rendered, colorized markdown to stdout
-        console.log(colorizeMarkdown(renderMarkdown(report)));
-
         printFooter(report, outcome.reportPath);
         printTimingSummary(outputTimings);
       }
