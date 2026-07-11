@@ -38,7 +38,7 @@ export type ReviewPipelineOutcome =
 
 export type ReviewSkipCheckOutcome =
   | ReviewPipelineOutcome
-  | { kind: "continue"; snapshot: LoadedReviewSnapshot };
+  | { kind: "continue"; snapshot: LoadedReviewSnapshot; timings: ReviewTiming[] };
 
 export interface ReviewPipelineInput {
   target: ReviewTarget; config: DiffOwlConfig; depth: ReviewContextDepth; verbose: boolean;
@@ -76,15 +76,15 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
     return outcome;
   }
 
-  const { snapshot } = outcome;
+  const { snapshot, timings } = outcome;
   const { diff } = snapshot;
   const contextStart = performance.now();
   const reviewContext = await deps.buildReviewContextFromDiff(snapshot, input.config, input.depth);
-  recordReviewTiming(input.timings, "context-build", "Local review context build", contextStart);
+  recordReviewTiming(timings, "context-build", "Local review context build", contextStart);
 
   const contextRenderStart = performance.now();
   const localContext = deps.renderReviewContext(reviewContext, { depth: input.depth });
-  recordReviewTiming(input.timings, "context-render", "Local review context render", contextRenderStart);
+  recordReviewTiming(timings, "context-render", "Local review context render", contextRenderStart);
   if (reviewContext.diagnostics.length > 0) {
     input.onDiagnostics?.(reviewContext.diagnostics);
   }
@@ -92,7 +92,7 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
   const serverStart = performance.now();
   input.onStatus?.("Connecting to OpenCode...");
   await prepareReviewServer(input.config, deps);
-  recordReviewTiming(input.timings, "server-ensure", "OpenCode server ensure", serverStart);
+  recordReviewTiming(timings, "server-ensure", "OpenCode server ensure", serverStart);
 
   const reviewStart = performance.now();
   input.onStatus?.("Reviewing changes...");
@@ -106,7 +106,7 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
     ...(input.onProgress ? { onProgress: input.onProgress } : {}),
   });
   const report: ReviewReport = reviewResult.report;
-  recordReviewTiming(input.timings, "review-run", "OpenCode review run", reviewStart);
+  recordReviewTiming(timings, "review-run", "OpenCode review run", reviewStart);
 
   const diagnostics = report.diagnostics ?? [];
   const confidenceFilter = deps.filterFindingsByConfidence(report.findings, input.config.min_confidence);
@@ -139,10 +139,10 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
     sessionId: reviewResult.sessionId,
     summary: report.summary,
     diagnostics,
-    timings: [...input.timings, ...(report.timings ?? [])],
+    timings: [...timings, ...(report.timings ?? [])],
     findings: report.findings,
   });
-  recordReviewTiming(input.timings, "persist-state", "Persist review state", persistStart);
+  recordReviewTiming(timings, "persist-state", "Persist review state", persistStart);
 
   report.findings = persisted.actionableFindings;
   const lifecycleSummary = deps.formatLifecycleSuppressedSummary(persisted.reconcile.suppressedCounts);
@@ -164,7 +164,7 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
 
   const renderStart = performance.now();
   const markdown = deps.renderMarkdown(report);
-  recordReviewTiming(input.timings, "render-report", "Markdown render", renderStart);
+  recordReviewTiming(timings, "render-report", "Markdown render", renderStart);
 
   const writeStart = performance.now();
   let reportPath: string;
@@ -183,7 +183,7 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
     await deps.updatePersistedReview(input.diffOwlDir, persisted.reviewId, { reportPath: null, diagnostics });
     throw err;
   }
-  recordReviewTiming(input.timings, "write-report", "Report write", writeStart);
+  recordReviewTiming(timings, "write-report", "Report write", writeStart);
 
   return {
     kind: "completed",
@@ -195,7 +195,7 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
       outsideChangedFiles: changedFileFilter.suppressed.length,
       belowConfidence: confidenceFilter.dropped,
     },
-    timings: [...input.timings, ...(report.timings ?? [])],
+    timings: [...timings, ...(report.timings ?? [])],
     usage: reviewResult.usage ?? null,
   };
 }
@@ -204,6 +204,7 @@ export async function runReviewSkipChecks(
   input: ReviewPipelineInput,
   deps: ReviewPipelineDeps = defaultReviewPipelineDeps,
 ): Promise<ReviewSkipCheckOutcome> {
+  const timings = [...input.timings];
   const snapshot = await deps.loadReviewSnapshot(input.projectRoot, input.target);
   const { diff } = snapshot;
   const skippedReview = {
@@ -214,13 +215,13 @@ export async function runReviewSkipChecks(
     depth: input.depth,
     sessionId: "",
     diagnostics: [],
-    timings: input.timings,
+    timings,
     findings: [],
   };
 
   if (input.target.kind === "staged" && diff.files.length === 0) {
     if (!input.persistEmptyDiff) {
-      return { kind: "empty-diff", timings: input.timings };
+      return { kind: "empty-diff", timings };
     }
     return {
       kind: "skipped",
@@ -232,12 +233,12 @@ export async function runReviewSkipChecks(
         skippedReason: "empty-diff",
       }),
       reportPath: null,
-      timings: input.timings,
+      timings,
     };
   }
 
   if (!input.config.skip_doc_only || !isDocOnlyDiff(diff)) {
-    return { kind: "continue", snapshot };
+    return { kind: "continue", snapshot, timings };
   }
 
   const targetCommit = await deps.resolveTargetCommit(input.target);
@@ -250,7 +251,7 @@ export async function runReviewSkipChecks(
   try {
     const reportPath = await deps.writeMarkdownReport(buildDocOnlySkipMarkdown(diff));
     await deps.updatePersistedReview(input.diffOwlDir, persisted.reviewId, { reportPath });
-    return { kind: "skipped", reason: "documentation-only", persisted, reportPath, timings: input.timings };
+    return { kind: "skipped", reason: "documentation-only", persisted, reportPath, timings };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await deps.updatePersistedReview(input.diffOwlDir, persisted.reviewId, {

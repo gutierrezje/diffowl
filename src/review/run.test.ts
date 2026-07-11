@@ -106,10 +106,13 @@ describe("resolveTargetCommit", () => {
 describe("runReviewSkipChecks", () => {
   it("returns a non-persisted empty-diff outcome when persistence is not requested", async () => {
     const deps = makeDeps(makeSnapshot([]));
+    const inputTimings = [{ phase: "preflight", label: "Preflight", ms: 1 }];
 
-    const outcome = await runReviewSkipChecks(skipInput(), deps);
+    const outcome = await runReviewSkipChecks(skipInput({ timings: inputTimings }), deps);
 
-    expect(outcome).toEqual({ kind: "empty-diff", timings: [] });
+    expect(outcome).toEqual({ kind: "empty-diff", timings: inputTimings });
+    expect(outcome.kind === "empty-diff" ? outcome.timings : null).not.toBe(inputTimings);
+    expect(inputTimings).toEqual([{ phase: "preflight", label: "Preflight", ms: 1 }]);
     expect(deps.persistReviewRun).not.toHaveBeenCalled();
     expect(deps.writeMarkdownReport).not.toHaveBeenCalled();
   });
@@ -135,14 +138,17 @@ describe("runReviewSkipChecks", () => {
 
   it("writes a documentation-only skipped report and records its path", async () => {
     const deps = makeDeps(makeSnapshot([docFile()]));
+    const inputTimings = [{ phase: "preflight", label: "Preflight", ms: 1 }];
 
-    const outcome = await runReviewSkipChecks(skipInput(), deps);
+    const outcome = await runReviewSkipChecks(skipInput({ timings: inputTimings }), deps);
 
     expect(outcome).toMatchObject({
       kind: "skipped",
       reason: "documentation-only",
       reportPath: "/repo/.diffowl/reviews/review.md",
     });
+    expect(outcome.kind === "skipped" ? outcome.timings : null).not.toBe(inputTimings);
+    expect(inputTimings).toEqual([{ phase: "preflight", label: "Preflight", ms: 1 }]);
     expect(deps.updatePersistedReview).toHaveBeenCalledWith("/repo/.diffowl", "rev_1", {
       reportPath: "/repo/.diffowl/reviews/review.md",
     });
@@ -176,6 +182,7 @@ describe("runReviewSkipChecks", () => {
 describe("runReviewPipeline", () => {
   it("returns a completed outcome with filtered counts, persistence, and report path", async () => {
     const deps = makeDeps(makeSnapshot([codeFile()]));
+    const inputTimings = [{ phase: "preflight", label: "Preflight", ms: 1 }];
     const kept = makeFinding("src/app.ts");
     const outside = makeFinding("src/other.ts");
     vi.mocked(deps.runReview).mockResolvedValue({
@@ -195,7 +202,7 @@ describe("runReviewPipeline", () => {
       })),
     );
 
-    const outcome = await runReviewPipeline(skipInput(), deps);
+    const outcome = await runReviewPipeline(skipInput({ timings: inputTimings }), deps);
 
     expect(outcome).toMatchObject({
       kind: "completed",
@@ -204,6 +211,11 @@ describe("runReviewPipeline", () => {
       suppressed: { outsideChangedFiles: 1, belowConfidence: 0 },
     });
     expect(outcome.kind === "completed" ? outcome.report.findings[0]?.durable?.id : null).toBe("fnd_1");
+    expect(inputTimings).toEqual([{ phase: "preflight", label: "Preflight", ms: 1 }]);
+    expect(outcome.kind === "completed" ? outcome.timings : []).toEqual(expect.arrayContaining([
+      { phase: "preflight", label: "Preflight", ms: 1 },
+      expect.objectContaining({ phase: "context-build" }),
+    ]));
     expect(deps.persistReviewRun).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({ diffHash: "hash", findings: [kept], sessionId: "session" }),
