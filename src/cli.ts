@@ -137,7 +137,7 @@ program
     // Preflight checks
     const gitRepoStart = performance.now();
     const isRepo = await isGitRepo();
-    recordCliTiming(timings, "git-repo-check", "Git repository check", gitRepoStart);
+    timings.push(createCliTiming("git-repo-check", "Git repository check", gitRepoStart));
     if (!isRepo) {
       await failReview(format, "Not a git repository", { hook: options.hook, hookCommit });
     }
@@ -170,7 +170,7 @@ program
     if (target.kind !== "staged") {
       const hasCommitsStart = performance.now();
       const commitsExist = await hasCommits();
-      recordCliTiming(timings, "git-commit-check", "Git commit check", hasCommitsStart);
+      timings.push(createCliTiming("git-commit-check", "Git commit check", hasCommitsStart));
       if (!commitsExist) {
         await failReview(format, "No commits found in this repository", {
           hook: options.hook,
@@ -315,10 +315,9 @@ program
       if (!jsonMode) {
         console.log(); // Space after spinner
       }
-      recordCliTiming(timings, "total", "Total review command", totalStart);
       const outputTimings = [
         ...outcome.timings,
-        ...timings.filter((timing) => timing.phase === "total"),
+        createCliTiming("total", "Total review command", totalStart),
       ];
 
       if (jsonMode) {
@@ -514,13 +513,12 @@ function resolveReasoningEffort(value: unknown, config: DiffOwlConfig): Reasonin
   }
 }
 
-function recordCliTiming(
-  timings: ReviewTiming[],
+function createCliTiming(
   phase: string,
   label: string,
   start: number,
-): void {
-  timings.push({ phase, label, ms: Math.max(0, Math.round(performance.now() - start)) });
+): ReviewTiming {
+  return { phase, label, ms: Math.max(0, Math.round(performance.now() - start)) };
 }
 
 function printTimingSummary(timings: ReviewTiming[]): void {
