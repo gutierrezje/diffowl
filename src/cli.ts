@@ -110,6 +110,7 @@ program
   .description("Review the last commit or staged changes")
   .option("--staged", "Review staged changes instead of last commit")
   .option("--commit <ref>", "Review a specific commit ref instead of HEAD")
+  .option("--base [ref]", "Review committed branch changes since the merge base")
   .option("--hook", "Running from git hook (non-blocking mode)")
   .option("--depth <depth>", "Review context depth: shallow or default")
   .option(
@@ -151,8 +152,21 @@ program
     const config = await loadConfigOrExit();
     const projectRoot = getProjectRoot();
     const diffOwlDir = await getSharedDiffOwlDir();
+    const baseRequested = options.base !== undefined;
     if (options.staged && options.commit) {
       await failReview(format, "Cannot use --staged and --commit together", {
+        hook: options.hook,
+        hookCommit,
+      });
+    }
+    if (options.staged && baseRequested) {
+      await failReview(format, "Cannot use --staged and --base together", {
+        hook: options.hook,
+        hookCommit,
+      });
+    }
+    if (options.commit && baseRequested) {
+      await failReview(format, "Cannot use --commit and --base together", {
         hook: options.hook,
         hookCommit,
       });
@@ -162,6 +176,11 @@ program
       ? ({ kind: "staged" } as const)
       : options.commit
         ? ({ kind: "commit", ref: String(options.commit) } as const)
+        : baseRequested
+          ? ({
+              kind: "base",
+              ...(typeof options.base === "string" ? { ref: options.base } : {}),
+            } as const)
         : ({ kind: "last-commit" } as const);
     const depth = resolveReviewDepth(options.depth, config);
     config.reasoning.effort = resolveReasoningEffort(options.reasoning, config);
@@ -261,7 +280,7 @@ program
 
       if (outcome.kind === "empty-diff") {
         spinner?.stop();
-        console.log(chalk.yellow("No staged changes to review"));
+        console.log(chalk.yellow("No changes to review"));
         if (options.hook) {
           await writeHookStatus(0, hookCommit);
         }

@@ -144,6 +144,29 @@ describe("runReviewSkipChecks", () => {
     expect(deps.writeMarkdownReport).not.toHaveBeenCalled();
   });
 
+  it("persists empty branch diffs with their captured target identity", async () => {
+    const target = { kind: "base", ref: "main" } as const;
+    const deps = makeDeps(makeSnapshot([], target));
+    vi.mocked(deps.mapReviewTarget).mockReturnValue({ targetKind: "base", targetRef: "main" });
+
+    const outcome = await runReviewSkipChecks(
+      { ...skipInput({ persistEmptyDiff: true }), target },
+      deps,
+    );
+
+    expect(outcome).toMatchObject({ kind: "skipped", reason: "empty-diff", reportPath: null });
+    expect(deps.persistReviewRun).toHaveBeenCalledWith(
+      "/repo/.diffowl",
+      expect.objectContaining({
+        targetKind: "base",
+        targetRef: "main",
+        targetCommit: "abc123",
+        summary: "No committed branch changes to review.",
+      }),
+    );
+    expect(deps.runReview).not.toHaveBeenCalled();
+  });
+
   it("writes a documentation-only skipped report and records its path", async () => {
     const deps = makeDeps(makeSnapshot([docFile()]));
     const inputTimings = [{ phase: "preflight", label: "Preflight", ms: 1 }];

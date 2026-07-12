@@ -141,11 +141,11 @@ under the same rules (line tolerance, severity floors, category requirements
 decided once, enforced by a schema-conformance gate), so aggregate metrics
 reflect model quality rather than per-case authoring drift.
 
-### Branch Review and the Pre-PR Gate
+### Branch Review and the Pre-PR Gate (in progress)
 
 Meet agentic workflows at their natural unit: the branch, not the commit.
 
-- Add `diffowl review --base [ref]`: review `HEAD` against the merge base with
+- Support `diffowl review --base [ref]`: review `HEAD` against the merge base with
   the given ref (three-dot semantics, the same diff a PR shows), defaulting to
   the auto-detected default branch. Committed state only; the working tree and
   index stay out of branch reviews so results are reproducible.
@@ -278,10 +278,10 @@ Until the core review loop is demonstrably strong, DiffOwl will not prioritize:
 
 ## Near-Term Decision
 
-Durable structured findings and JSON output have shipped and the eval harness
-is merged. The next milestone is finishing measured review quality — a
-stabilized, contract-consistent corpus and a live baseline — followed by
-branch review. Branch review is the single largest workflow unlock for agent-driven
+Durable structured findings, JSON output, and reproducible branch review have
+shipped, and the eval harness is merged. The next milestones are finishing
+measured review quality and building the pre-PR gate on the branch-review
+primitive. Branch review is the single largest workflow unlock for agent-driven
 development: agents produce many commits per session, and the reviewable unit
 users care about before a PR is the branch delta, not each intermediate
 commit. Quality changes (prompt, contract, backends) continue to merge only

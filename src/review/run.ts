@@ -219,17 +219,24 @@ export async function runReviewSkipChecks(
     findings: [],
   };
 
-  if (snapshot.target.kind === "staged" && diff.files.length === 0) {
+  if (
+    (snapshot.target.kind === "staged" || snapshot.target.kind === "base") &&
+    diff.files.length === 0
+  ) {
     if (!input.persistEmptyDiff) {
       return { kind: "empty-diff", timings };
     }
+    const summary =
+      snapshot.target.kind === "staged"
+        ? "No staged changes to review."
+        : "No committed branch changes to review.";
     return {
       kind: "skipped",
       reason: "empty-diff",
       persisted: await deps.persistReviewRun(input.diffOwlDir, {
         ...skippedReview,
-        targetCommit: null,
-        summary: "No staged changes to review.",
+        targetCommit: snapshot.targetCommit,
+        summary,
         skippedReason: "empty-diff",
       }),
       reportPath: null,
