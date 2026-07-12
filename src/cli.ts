@@ -107,7 +107,7 @@ program
 // Default command: review last commit
 program
   .command("review", { isDefault: true })
-  .description("Review the last commit or staged changes")
+  .description("Review the last commit, staged changes, or committed branch changes")
   .option("--staged", "Review staged changes instead of last commit")
   .option("--commit <ref>", "Review a specific commit ref instead of HEAD")
   .option("--base [ref]", "Review committed branch changes since the merge base")
