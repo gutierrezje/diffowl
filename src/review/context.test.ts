@@ -762,6 +762,31 @@ describe("buildReviewContext", () => {
     });
   });
 
+  it("loads a branch target from a linked worktree", { timeout: 15_000 }, async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "diffowl-worktree-context-"));
+    tempDirs.push(workspace);
+    const primary = join(workspace, "primary");
+    const linked = join(workspace, "feature-worktree");
+    await execa("git", ["init", "--initial-branch=main", primary]);
+    await writeFile(join(primary, "example.ts"), "export const value = 'base';\n", "utf-8");
+    await commitAll(primary, "base");
+    await execa("git", ["worktree", "add", "-b", "feature", linked], { cwd: primary });
+    await writeFile(join(linked, "example.ts"), "export const value = 'head';\n", "utf-8");
+    await commitAll(linked, "feature");
+    const { stdout: linkedHead } = await execa("git", ["rev-parse", "HEAD"], { cwd: linked });
+    await writeFile(join(linked, "example.ts"), "export const value = 'dirty';\n", "utf-8");
+
+    const snapshot = await loadReviewSnapshot(linked, { kind: "base", ref: "main" });
+    const context = await buildReviewContextFromDiff(snapshot, config, "shallow");
+
+    expect(snapshot.targetCommit).toBe(linkedHead);
+    expect(snapshot.diff.files.map((file) => file.path)).toEqual(["example.ts"]);
+    expect(context.changedFiles[0]?.content).toMatchObject({
+      status: "loaded",
+      text: "export const value = 'head';\n",
+    });
+  });
+
   it("renders a smaller shallow context without related files or references", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
     tempDirs.push(root);
