@@ -13,6 +13,7 @@ import {
 } from "./db.js";
 import { MIGRATION_001_INITIAL_SCHEMA } from "./migrations/001-initial-schema.js";
 import { openSqliteDatabase } from "./sqlite.js";
+import { getReviewById, insertReview } from "./repositories/reviews.js";
 import { removeTempStateDir } from "./test-helpers.js";
 import { CURRENT_SCHEMA_VERSION } from "./types.js";
 
@@ -52,7 +53,7 @@ describe("openStateDatabase", () => {
       const migrations = state.db
         .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
         .all() as Array<{ version: number }>;
-      expect(migrations).toEqual([{ version: CURRENT_SCHEMA_VERSION }]);
+      expect(migrations).toEqual([{ version: 1 }, { version: CURRENT_SCHEMA_VERSION }]);
     } finally {
       closeStateDatabase(state);
     }
@@ -68,9 +69,82 @@ describe("openStateDatabase", () => {
       const migrations = second.db
         .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
         .all() as Array<{ version: number }>;
-      expect(migrations).toEqual([{ version: CURRENT_SCHEMA_VERSION }]);
+      expect(migrations).toEqual([{ version: 1 }, { version: CURRENT_SCHEMA_VERSION }]);
     } finally {
       closeStateDatabase(second);
+    }
+  });
+
+  it("migrates v1 review data and accepts base review targets", async () => {
+    const dir = await createTempDir();
+    const db = await openSqliteDatabase(getStateDbPath(dir));
+    applyMigrations(db, 1, { 1: MIGRATION_001_INITIAL_SCHEMA });
+    db.prepare(
+      `INSERT INTO reviews (
+        id, created_at, target_kind, target_ref, target_commit, diff_hash, model, reasoning,
+        depth, session_id, summary, diagnostics_json, timings_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      "rev_existing",
+      "2026-07-12T00:00:00.000Z",
+      "commit",
+      "HEAD~1",
+      "abc123",
+      "hash",
+      "provider/model",
+      "medium",
+      "default",
+      "session-existing",
+      "Existing review",
+      "[]",
+      "[]",
+    );
+    db.prepare(
+      `INSERT INTO findings (
+        id, fingerprint, status, first_review_id, last_review_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      "fnd_existing",
+      "fp_existing",
+      "open",
+      "rev_existing",
+      "rev_existing",
+      "2026-07-12T00:00:00.000Z",
+      "2026-07-12T00:00:00.000Z",
+    );
+    closeDatabaseConnection(db);
+
+    const state = await openStateDatabase(dir);
+    try {
+      expect(getReviewById(state.db, "rev_existing")).toMatchObject({
+        targetKind: "commit",
+        targetRef: "HEAD~1",
+        targetCommit: "abc123",
+      });
+      expect(
+        state.db
+          .prepare("SELECT first_review_id, last_review_id FROM findings WHERE id = ?")
+          .get("fnd_existing"),
+      ).toEqual({ first_review_id: "rev_existing", last_review_id: "rev_existing" });
+
+      const inserted = insertReview(state.db, {
+        targetKind: "base",
+        targetRef: "origin/main",
+        targetCommit: "def456",
+        diffHash: "branch-hash",
+        model: "provider/model",
+        reasoning: "medium",
+        depth: "default",
+        sessionId: "session-base",
+        summary: "Branch review",
+      });
+      expect(getReviewById(state.db, inserted.id)).toMatchObject({
+        targetKind: "base",
+        targetRef: "origin/main",
+        targetCommit: "def456",
+      });
+    } finally {
+      closeStateDatabase(state);
     }
   });
 
@@ -101,9 +175,9 @@ describe("openStateDatabase", () => {
     const db = await openSqliteDatabase(getStateDbPath(dir));
     try {
       expect(() =>
-        applyMigrations(db, 2, {
+        applyMigrations(db, CURRENT_SCHEMA_VERSION + 1, {
           1: MIGRATION_001_INITIAL_SCHEMA,
-          2: "CREATE TABLE migration_probe (id INTEGER PRIMARY KEY); INVALID SQL;",
+          3: "CREATE TABLE migration_probe (id INTEGER PRIMARY KEY); INVALID SQL;",
         }),
       ).toThrow();
 
@@ -115,7 +189,7 @@ describe("openStateDatabase", () => {
       const versions = db
         .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
         .all() as Array<{ version: number }>;
-      expect(versions).toEqual([{ version: CURRENT_SCHEMA_VERSION }]);
+      expect(versions).toEqual([{ version: 1 }, { version: CURRENT_SCHEMA_VERSION }]);
     } finally {
       closeDatabaseConnection(db);
     }

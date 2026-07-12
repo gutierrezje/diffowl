@@ -261,7 +261,7 @@ export async function loadFindingOccurrenceCounts(
 }
 
 export function mapReviewTarget(target: {
-  kind: "staged" | "last-commit" | "commit";
+  kind: "staged" | "last-commit" | "commit" | "base";
   ref?: string;
 }): { targetKind: ReviewTargetKind; targetRef: string | null } {
   switch (target.kind) {
@@ -271,5 +271,7 @@ export function mapReviewTarget(target: {
       return { targetKind: "last-commit", targetRef: null };
     case "commit":
       return { targetKind: "commit", targetRef: target.ref ?? null };
+    case "base":
+      return { targetKind: "base", targetRef: target.ref ?? null };
   }
 }

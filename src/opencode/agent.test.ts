@@ -80,4 +80,17 @@ describe("buildReviewPrompt", () => {
     expect(prompt).toContain("Review the selected commit.");
     expect(prompt).toContain("LOCAL CONTEXT");
   });
+
+  it("describes full branch reviews", () => {
+    const prompt = buildReviewPrompt(
+      { kind: "base", ref: "origin/main" },
+      [],
+      undefined,
+      undefined,
+      "LOCAL CONTEXT",
+    );
+
+    expect(prompt).toContain("Review the committed branch changes since the merge base.");
+    expect(prompt).not.toContain("Review the last commit.");
+  });
 });

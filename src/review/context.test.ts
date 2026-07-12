@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { execa } from "execa";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildReviewContext, buildReviewContextFromDiff, renderReviewContext } from "./context.js";
+import {
+  buildReviewContext,
+  buildReviewContextFromDiff,
+  loadReviewSnapshot,
+  renderReviewContext,
+} from "./context.js";
 import type { DiffOwlConfig } from "../config.js";
 
 const originalCwd = process.cwd();
@@ -155,49 +160,49 @@ describe("buildReviewContext", () => {
   // under Windows CI process-spawn overhead; the default 5s timeout misses by
   // milliseconds there.
   it("reads related files and reference snippets from the staged index", { timeout: 15_000 }, async () => {
-    const root = await createGitRepository();
-    await mkdir(join(root, "src"));
-    await writeFile(
-      join(root, "src/example.ts"),
-      "export function calculateTotal() {\n  return 1;\n}\n",
-      "utf-8",
-    );
-    await writeFile(
-      join(root, "src/example.test.ts"),
-      "test('staged related marker', () => calculateTotal());\n",
-      "utf-8",
-    );
-    await writeFile(
-      join(root, "src/consumer.ts"),
-      "console.log('staged reference marker', calculateTotal());\n",
-      "utf-8",
-    );
-    await commitAll(root, "initial");
+      const root = await createGitRepository();
+      await mkdir(join(root, "src"));
+      await writeFile(
+        join(root, "src/example.ts"),
+        "export function calculateTotal() {\n  return 1;\n}\n",
+        "utf-8",
+      );
+      await writeFile(
+        join(root, "src/example.test.ts"),
+        "test('staged related marker', () => calculateTotal());\n",
+        "utf-8",
+      );
+      await writeFile(
+        join(root, "src/consumer.ts"),
+        "console.log('staged reference marker', calculateTotal());\n",
+        "utf-8",
+      );
+      await commitAll(root, "initial");
 
-    await writeFile(
-      join(root, "src/example.ts"),
-      "export function calculateTotal() {\n  return 2;\n}\n",
-      "utf-8",
-    );
-    await execa("git", ["add", "src/example.ts"], { cwd: root });
-    await writeFile(
-      join(root, "src/example.test.ts"),
-      "test('unstaged related marker', () => calculateTotal());\n",
-      "utf-8",
-    );
-    await writeFile(
-      join(root, "src/consumer.ts"),
-      "console.log('unstaged reference marker', calculateTotal());\n",
-      "utf-8",
-    );
+      await writeFile(
+        join(root, "src/example.ts"),
+        "export function calculateTotal() {\n  return 2;\n}\n",
+        "utf-8",
+      );
+      await execa("git", ["add", "src/example.ts"], { cwd: root });
+      await writeFile(
+        join(root, "src/example.test.ts"),
+        "test('unstaged related marker', () => calculateTotal());\n",
+        "utf-8",
+      );
+      await writeFile(
+        join(root, "src/consumer.ts"),
+        "console.log('unstaged reference marker', calculateTotal());\n",
+        "utf-8",
+      );
 
-    process.chdir(root);
-    const rendered = renderReviewContext(await buildReviewContext({ kind: "staged" }, config));
+      process.chdir(root);
+      const rendered = renderReviewContext(await buildReviewContext({ kind: "staged" }, config));
 
-    expect(rendered).toContain("staged related marker");
-    expect(rendered).not.toContain("unstaged related marker");
-    expect(rendered).toContain("staged reference marker");
-    expect(rendered).not.toContain("unstaged reference marker");
+      expect(rendered).toContain("staged related marker");
+      expect(rendered).not.toContain("unstaged related marker");
+      expect(rendered).toContain("staged reference marker");
+      expect(rendered).not.toContain("unstaged reference marker");
   });
 
   it("collects staged diff, changed file content, related tests, and reference hints", async () => {
@@ -732,6 +737,29 @@ describe("buildReviewContext", () => {
     expect(context.target).toEqual({ kind: "last-commit" });
     expect(context.diff.files.map((file) => file.path)).toEqual(["latest.txt"]);
     expect(rendered).toContain("Mode: last-commit");
+  });
+
+  it("loads a branch target from the merge base and pins content to HEAD", async () => {
+    const root = await createGitRepository();
+    await execa("git", ["branch", "-m", "base"], { cwd: root });
+    await writeFile(join(root, "example.ts"), "export const value = 'base';\n", "utf-8");
+    await commitAll(root, "base");
+    await execa("git", ["switch", "-c", "feature"], { cwd: root });
+    await writeFile(join(root, "example.ts"), "export const value = 'head';\n", "utf-8");
+    await commitAll(root, "feature");
+    await writeFile(join(root, "example.ts"), "export const value = 'dirty';\n", "utf-8");
+
+    const snapshot = await loadReviewSnapshot(root, { kind: "base", ref: "base" });
+    const context = await buildReviewContextFromDiff(snapshot, config, "shallow");
+
+    expect(snapshot.target).toEqual({ kind: "base", ref: "base" });
+    expect(snapshot.diff.files.map((file) => file.path)).toEqual(["example.ts"]);
+    expect(context.changedFiles[0]?.content).toEqual({
+      status: "loaded",
+      text: "export const value = 'head';\n",
+      truncated: false,
+      render: "ast-symbols",
+    });
   });
 
   it("renders a smaller shallow context without related files or references", async () => {

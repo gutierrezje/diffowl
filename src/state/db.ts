@@ -1,6 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { MIGRATION_001_INITIAL_SCHEMA } from "./migrations/001-initial-schema.js";
+import { MIGRATION_002_BASE_REVIEW_TARGET } from "./migrations/002-base-review-target.js";
 import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.js";
 import { CURRENT_SCHEMA_VERSION } from "./types.js";
 
@@ -8,6 +9,7 @@ const BUSY_TIMEOUT_MS = 5000;
 
 const MIGRATIONS: Record<number, string> = {
   1: MIGRATION_001_INITIAL_SCHEMA,
+  2: MIGRATION_002_BASE_REVIEW_TARGET,
 };
 
 export class StateDatabaseError extends Error {
@@ -108,13 +110,23 @@ export function applyMigrations(
 
     const migrate = db.transaction(() => {
       db.exec(sql);
+      const violations = db.pragma("foreign_key_check") as unknown[];
+      if (violations.length > 0) {
+        throw new StateDatabaseError(`Migration ${version} introduced foreign key violations`);
+      }
       db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(
         version,
         new Date().toISOString(),
       );
     });
 
-    migrate();
+    const foreignKeysEnabled = db.pragma("foreign_keys", { simple: true }) === 1;
+    if (foreignKeysEnabled) db.pragma("foreign_keys = OFF");
+    try {
+      migrate();
+    } finally {
+      if (foreignKeysEnabled) db.pragma("foreign_keys = ON");
+    }
   }
 }
 
