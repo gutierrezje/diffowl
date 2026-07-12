@@ -20,6 +20,56 @@ afterEach(async () => {
 });
 
 describe("diffowl CLI", () => {
+  it("stores the selected model locally without changing project config", async () => {
+    const repo = await createRepo("diffowl-cli-model-");
+    const configPath = join(repo, ".diffowl.yml");
+    const originalConfig = await readFile(configPath, "utf8");
+
+    const { stdout } = await execa("node", [cliPath, "model", "provider/local"], { cwd: repo });
+
+    expect(stdout).toContain("Model set to provider/local");
+    await expect(readFile(configPath, "utf8")).resolves.toBe(originalConfig);
+    await expect(readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).resolves.toBe(
+      "model: provider/local\n",
+    );
+  });
+
+  it("resets the local model preference to the project model", async () => {
+    const repo = await createRepo("diffowl-cli-model-reset-");
+    await execa("node", [cliPath, "model", "provider/local"], { cwd: repo });
+
+    const { stdout } = await execa("node", [cliPath, "model", "--reset"], { cwd: repo });
+
+    expect(stdout).toContain("provider/model");
+    expect(stdout).toContain("(project)");
+    await expect(access(join(repo, ".diffowl/preferences.yml"))).rejects.toThrow();
+  });
+
+  it("uses a one-off review model without changing saved model settings", async () => {
+    const repo = await createRepo("diffowl-cli-review-model-", { skipDocOnly: true });
+    await writeFile(join(repo, ".gitignore"), ".diffowl/\n", "utf8");
+    await commitAll(repo, "initial");
+    await execa("node", [cliPath, "model", "provider/local"], { cwd: repo });
+    await mkdir(join(repo, "docs"));
+    await writeFile(join(repo, "docs", "model.md"), "documentation\n", "utf8");
+    await commitAll(repo, "docs");
+    const configBefore = await readFile(join(repo, ".diffowl.yml"), "utf8");
+    const preferenceBefore = await readFile(join(repo, ".diffowl/preferences.yml"), "utf8");
+
+    const { stdout } = await execa(
+      "node",
+      [cliPath, "review", "--model", "provider/command", "--format", "json"],
+      { cwd: repo },
+    );
+    const document = JSON.parse(stdout) as { review: { model: string; status: string } };
+
+    expect(document.review).toMatchObject({ model: "provider/command", status: "skipped" });
+    await expect(readFile(join(repo, ".diffowl.yml"), "utf8")).resolves.toBe(configBefore);
+    await expect(readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).resolves.toBe(
+      preferenceBefore,
+    );
+  });
+
   it("documents base review as an optional-value flag", async () => {
     const { stdout } = await execa("node", [cliPath, "review", "--help"]);
 
@@ -58,11 +108,9 @@ describe("diffowl CLI", () => {
     await execa("git", ["add", "staged.md"], { cwd: repo });
     await writeFile(join(repo, "unstaged.md"), "unstaged\n", "utf8");
 
-    const { stdout } = await execa(
-      "node",
-      [cliPath, "review", ...args, "--format", "json"],
-      { cwd: repo },
-    );
+    const { stdout } = await execa("node", [cliPath, "review", ...args, "--format", "json"], {
+      cwd: repo,
+    });
     const document = JSON.parse(stdout) as {
       review: {
         status: string;

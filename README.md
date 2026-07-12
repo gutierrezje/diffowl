@@ -235,7 +235,9 @@ or `--commit`; use those as separate review surfaces.
 
 ### `diffowl model`
 
-View or interactively change the active AI model.
+View or change the active AI model. This stores a personal preference in the repository's shared,
+gitignored `.diffowl/preferences.yml`, so every linked worktree uses the same model without changing
+the committed `.diffowl.yml`.
 
 ```bash
 # Interactively pick a model
@@ -243,7 +245,16 @@ diffowl model
 
 # Manually set a model
 diffowl model opencode/big-pickle
+
+# Return to the committed project/default model
+diffowl model --reset
+
+# Override the model for one review only
+diffowl review --model openai/gpt-5.6-luna
 ```
+
+Model precedence is `--model`, then `DIFFOWL_MODEL`, then the shared local preference, then the
+committed `.diffowl.yml` fallback. Bare `diffowl model` reports both the effective model and source.
 
 ### `diffowl chat [report]`
 
@@ -331,7 +342,8 @@ The unresolved backlog is durable: a finding does not auto-resolve just because 
 
 ## Configuration (`.diffowl.yml`)
 
-Your `.diffowl.yml` configures everything for DiffOwl in your project:
+Your committed `.diffowl.yml` configures repository policy and provides the fallback model. Use
+`diffowl model <provider/model>` for personal model switching; it does not rewrite this file.
 
 ```yaml
 # Model to use for reviews (provider/model)

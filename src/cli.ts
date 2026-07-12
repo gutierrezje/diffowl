@@ -16,6 +16,8 @@ import {
   type ReviewContextDepth,
   type ReasoningEffort,
 } from "./config.js";
+import { loadEffectiveConfig, type ModelSource } from "./effective-config.js";
+import { resetModelPreference, saveModelPreference } from "./model-preference.js";
 import {
   getAvailableModels,
   isReviewCancellation,
@@ -47,11 +49,7 @@ import {
 } from "./git/hooks.js";
 import { isGitRepo, hasCommits } from "./git/diff.js";
 import { getSharedDiffOwlDir } from "./git/state-root.js";
-import {
-  printHeader,
-  printFooter,
-  parseReviewMetadata,
-} from "./review/formatter.js";
+import { printHeader, printFooter, parseReviewMetadata } from "./review/formatter.js";
 import {
   canSelectReviewInteractively,
   listReviewReportPaths,
@@ -117,6 +115,7 @@ program
     "--reasoning <effort>",
     "Reasoning variant: auto, none, minimal, low, medium, high, max, or xhigh",
   )
+  .option("--model <id>", "Review model override")
   .option("--verbose", "Include suppressed findings and extra review details")
   .option("--format <format>", "Output format: text or json", "text")
   .action(async (options) => {
@@ -149,7 +148,7 @@ program
       await runInit();
     }
 
-    const config = await loadConfigOrExit();
+    const config = await loadConfigOrExit(options.model);
     const projectRoot = getProjectRoot();
     const diffOwlDir = await getSharedDiffOwlDir();
     const baseRequested = options.base !== undefined;
@@ -181,7 +180,7 @@ program
               kind: "base",
               ...(typeof options.base === "string" ? { ref: options.base } : {}),
             } as const)
-        : ({ kind: "last-commit" } as const);
+          : ({ kind: "last-commit" } as const);
     const depth = resolveReviewDepth(options.depth, config);
     config.reasoning.effort = resolveReasoningEffort(options.reasoning, config);
     const verbose = Boolean(config.verbose || options.verbose);
@@ -532,11 +531,7 @@ function resolveReasoningEffort(value: unknown, config: DiffOwlConfig): Reasonin
   }
 }
 
-function createCliTiming(
-  phase: string,
-  label: string,
-  start: number,
-): ReviewTiming {
+function createCliTiming(phase: string, label: string, start: number): ReviewTiming {
   return { phase, label, ms: Math.max(0, Math.round(performance.now() - start)) };
 }
 
@@ -570,8 +565,8 @@ program
 
 async function runInit() {
   console.log(chalk.bold("DiffOwl Setup\n"));
-  const config = await loadConfigOrExit();
-  await selectModelInteractively(config, { allowKeepCurrent: false });
+  const config = await loadProjectConfigOrExit();
+  await selectModelInteractively(config, { allowKeepCurrent: false, destination: "project" });
 }
 
 // Model command
@@ -579,12 +574,26 @@ program
   .command("model")
   .description("View or change the AI model")
   .argument("[model]", "Model to use (e.g., opencode/big-pickle)")
-  .action(async (model?: string) => {
-    const config = await loadConfigOrExit();
+  .option("--reset", "Remove the shared local model preference")
+  .action(async (model: string | undefined, options: { reset?: boolean }) => {
+    if (model && options.reset) {
+      console.error(chalk.red("Cannot pass a model and --reset together"));
+      process.exit(1);
+    }
+    if (options.reset) {
+      await resetModelPreference();
+      const fallback = await loadEffectiveConfigOrExit();
+      console.log(chalk.green("✓ Local model preference reset"));
+      console.log(formatEffectiveModel(fallback.config.model, fallback.modelSource));
+      return;
+    }
+
+    const effective = await loadEffectiveConfigOrExit();
+    const config = effective.config;
 
     if (!model) {
-      console.log(chalk.bold("Current model: ") + chalk.cyan(config.model));
-      await selectModelInteractively(config, { allowKeepCurrent: true });
+      console.log(formatEffectiveModel(config.model, effective.modelSource));
+      await selectModelInteractively(config, { allowKeepCurrent: true, destination: "local" });
       return;
     }
 
@@ -593,21 +602,18 @@ program
       parsedModel = parseModel(model);
     } catch {
       console.error(chalk.red(`Invalid model: ${model}`));
-      console.error(
-        chalk.dim("Expected provider/model format, for example opencode/big-pickle"),
-      );
+      console.error(chalk.dim("Expected provider/model format, for example opencode/big-pickle"));
       process.exit(1);
     }
 
-    config.model = parsedModel;
-    const configPath = await saveConfig(config);
+    const configPath = await saveModelPreference(parsedModel);
     console.log(chalk.green(`✓ Model set to ${chalk.cyan(parsedModel)}`));
-    console.log(chalk.dim(`Config: ${configPath}`));
+    console.log(chalk.dim(`Local preference: ${configPath}`));
   });
 
 async function selectModelInteractively(
   config: DiffOwlConfig,
-  options: { allowKeepCurrent: boolean },
+  options: { allowKeepCurrent: boolean; destination: "local" | "project" },
 ): Promise<void> {
   const spinner = ora("Querying available models from OpenCode...").start();
   let models: string[] = [];
@@ -690,7 +696,10 @@ async function selectModelInteractively(
   // Only update/save if a new model was selected or config is being initialized
   if (selectedModel !== config.model || !options.allowKeepCurrent) {
     config.model = selectedModel;
-    const configPath = await saveConfig(config);
+    const configPath =
+      options.destination === "local"
+        ? await saveModelPreference(selectedModel)
+        : await saveConfig(config);
     if (options.allowKeepCurrent) {
       console.log(chalk.green(`✓ Model set to ${chalk.cyan(selectedModel)}`));
     } else {
@@ -1040,7 +1049,21 @@ function collectValues(value: string, previous: string[]): string[] {
   return [...previous, value];
 }
 
-async function loadConfigOrExit(): Promise<DiffOwlConfig> {
+async function loadConfigOrExit(commandModel?: unknown): Promise<DiffOwlConfig> {
+  return (await loadEffectiveConfigOrExit(commandModel)).config;
+}
+
+async function loadEffectiveConfigOrExit(commandModel?: unknown) {
+  try {
+    return await loadEffectiveConfig(commandModel);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(chalk.red(`Config error: ${message}`));
+    process.exit(1);
+  }
+}
+
+async function loadProjectConfigOrExit(): Promise<DiffOwlConfig> {
   try {
     return await loadConfig();
   } catch (err) {
@@ -1048,6 +1071,11 @@ async function loadConfigOrExit(): Promise<DiffOwlConfig> {
     console.error(chalk.red(`Config error: ${message}`));
     process.exit(1);
   }
+}
+
+function formatEffectiveModel(model: string, source: ModelSource): string {
+  const label = source === "local" ? "local preference" : source;
+  return `${chalk.bold("Current model: ")} ${chalk.cyan(model)} ${chalk.dim(`(${label})`)}`;
 }
 
 function handleReviewInterrupt(input: {
