@@ -141,7 +141,7 @@ under the same rules (line tolerance, severity floors, category requirements
 decided once, enforced by a schema-conformance gate), so aggregate metrics
 reflect model quality rather than per-case authoring drift.
 
-### Branch Review and the Pre-PR Gate (in progress)
+### Branch Review (shipped) and the Pre-PR Gate (in progress)
 
 Meet agentic workflows at their natural unit: the branch, not the commit.
 
