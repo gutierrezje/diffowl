@@ -186,6 +186,8 @@ Runs a code review on your repository.
 - **Default**: Reviews the changes in the **last commit**.
 - `--staged`: Reviews currently **staged changes** instead of the last commit.
 - `--commit <ref>`: Reviews a specific commit ref instead of the last commit.
+- `--base [ref]`: Reviews all committed branch changes since the merge base with `ref`. With no
+  ref, DiffOwl detects `origin/HEAD`, then local `main` or `master`.
 - `--hook`: Runs in background, non-blocking mode (used by Git hook).
 - `--depth <depth>`: Overrides configured review depth. Valid values: `shallow`, `default`.
 - `--reasoning <effort>`: Overrides configured OpenCode reasoning variant. Valid values: `auto`, `none`, `minimal`, `low`, `medium`, `high`, `max`, `xhigh`.
@@ -211,12 +213,25 @@ diffowl review --staged
 # Review a specific commit
 diffowl review --commit abc1234
 
+# Review this branch against the default branch
+diffowl review --base
+
+# Review this branch against an explicit base
+diffowl review --base main
+
+# Review a stacked branch against its parent branch
+diffowl review --base feature/parent-branch
+
 # Include suppressed outside-file findings in the report
 diffowl review --staged --verbose
 
 # Request a high reasoning variant for models that support it
 diffowl review --staged --reasoning high
 ```
+
+Branch review uses merge-base-to-`HEAD` semantics, matching the committed diff shown by a pull
+request. It never includes staged or unstaged changes. `--base` cannot be combined with `--staged`
+or `--commit`; use those as separate review surfaces.
 
 ### `diffowl model`
 
