@@ -97,7 +97,7 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
   const reviewStart = performance.now();
   input.onStatus?.("Reviewing changes...");
   const reviewResult = await deps.runReview({
-    target: input.target,
+    target: snapshot.target,
     directory: input.projectRoot,
     config: input.config,
     localContext,
@@ -130,8 +130,8 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
 
   const persistStart = performance.now();
   const persisted = await deps.persistReviewRun(input.diffOwlDir, {
-    ...deps.mapReviewTarget(input.target),
-    targetCommit: await deps.resolveTargetCommit(input.target),
+    ...deps.mapReviewTarget(snapshot.target),
+    targetCommit: await deps.resolveTargetCommit(snapshot.target),
     diffHash: deps.computeDiffHash(diff.raw),
     model: input.config.model,
     reasoning: input.config.reasoning.effort,
@@ -208,7 +208,7 @@ export async function runReviewSkipChecks(
   const snapshot = await deps.loadReviewSnapshot(input.projectRoot, input.target);
   const { diff } = snapshot;
   const skippedReview = {
-    ...deps.mapReviewTarget(input.target),
+    ...deps.mapReviewTarget(snapshot.target),
     diffHash: deps.computeDiffHash(diff.raw),
     model: input.config.model,
     reasoning: input.config.reasoning.effort,
@@ -219,7 +219,7 @@ export async function runReviewSkipChecks(
     findings: [],
   };
 
-  if (input.target.kind === "staged" && diff.files.length === 0) {
+  if (snapshot.target.kind === "staged" && diff.files.length === 0) {
     if (!input.persistEmptyDiff) {
       return { kind: "empty-diff", timings };
     }
@@ -241,7 +241,7 @@ export async function runReviewSkipChecks(
     return { kind: "continue", snapshot, timings };
   }
 
-  const targetCommit = await deps.resolveTargetCommit(input.target);
+  const targetCommit = await deps.resolveTargetCommit(snapshot.target);
   const persisted = await deps.persistReviewRun(input.diffOwlDir, {
     ...skippedReview,
     targetCommit,
@@ -282,6 +282,7 @@ export async function resolveTargetCommit(
     case "staged":
       return null;
     case "last-commit":
+    case "base":
       return resolveCommit("HEAD");
     case "commit":
       return resolveCommit(target.ref);

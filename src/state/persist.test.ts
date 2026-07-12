@@ -8,6 +8,7 @@ import {
   computeDiffHash,
   enrichReviewFindingsWithDurableMetadata,
   formatLifecycleSuppressedSummary,
+  mapReviewTarget,
   persistReviewRun,
   splitFindingsByLifecycleSuppression,
   toFindingCandidate,
@@ -132,6 +133,13 @@ describe("persistReviewRun", () => {
 });
 
 describe("persist helpers", () => {
+  it("maps a resolved base target without encoding it as a commit review", () => {
+    expect(mapReviewTarget({ kind: "base", ref: "origin/main" })).toEqual({
+      targetKind: "base",
+      targetRef: "origin/main",
+    });
+  });
+
   it("maps review findings to durable candidates", () => {
     expect(toFindingCandidate(sampleFinding)).toEqual({
       file: "src/auth.ts",

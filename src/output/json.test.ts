@@ -107,6 +107,27 @@ describe("parseReviewOutputFormat", () => {
 });
 
 describe("buildReviewJsonDocument", () => {
+  it("renders a base target in schema version 1 without changing its shape", () => {
+    const document = buildReviewJsonDocument({
+      review: {
+        ...review,
+        targetKind: "base",
+        targetRef: "origin/main",
+        targetCommit: "def456",
+      },
+      persisted,
+      occurrenceCounts: new Map(),
+      suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+    });
+
+    expect(document.schema_version).toBe(1);
+    expect(document.review.target).toEqual({
+      kind: "base",
+      ref: "origin/main",
+      commit: "def456",
+    });
+  });
+
   it("renders schema version 1 with review metadata and findings", () => {
     const document = buildReviewJsonDocument({
       review,

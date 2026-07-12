@@ -34,10 +34,13 @@ const persisted: PersistReviewRunResult = {
   lifecycleSuppressedFindings: [],
 };
 
-function makeSnapshot(files: LoadedReviewSnapshot["diff"]["files"]): LoadedReviewSnapshot {
+function makeSnapshot(
+  files: LoadedReviewSnapshot["diff"]["files"],
+  target: LoadedReviewSnapshot["target"] = { kind: "staged" },
+): LoadedReviewSnapshot {
   return {
     root: "/repo",
-    target: { kind: "staged" },
+    target,
     diff: { files, raw: "diff --git a/README.md b/README.md", summary: "" },
   } as LoadedReviewSnapshot;
 }
@@ -100,6 +103,10 @@ describe("resolveTargetCommit", () => {
     await expect(resolveTargetCommit({ kind: "commit", ref: "feature-base" }, resolveCommit))
       .resolves.toBe("def456");
     expect(resolveCommit).toHaveBeenCalledWith("feature-base");
+    await expect(resolveTargetCommit({ kind: "base", ref: "main" }, resolveCommit)).resolves.toBe(
+      "def456",
+    );
+    expect(resolveCommit).toHaveBeenCalledWith("HEAD");
   });
 });
 
@@ -155,12 +162,13 @@ describe("runReviewSkipChecks", () => {
   });
 
   it("resolves doc-only target commits through injected deps", async () => {
-    const deps = makeDeps(makeSnapshot([docFile()]));
+    const target = { kind: "commit", ref: "HEAD~1" } as const;
+    const deps = makeDeps(makeSnapshot([docFile()], target));
     vi.mocked(deps.resolveTargetCommit).mockResolvedValue("abc123");
 
-    await runReviewSkipChecks({ ...skipInput(), target: { kind: "commit", ref: "HEAD~1" } }, deps);
+    await runReviewSkipChecks({ ...skipInput(), target }, deps);
 
-    expect(deps.resolveTargetCommit).toHaveBeenCalledWith({ kind: "commit", ref: "HEAD~1" });
+    expect(deps.resolveTargetCommit).toHaveBeenCalledWith(target);
     expect(deps.persistReviewRun).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({ targetCommit: "abc123" }),
@@ -180,6 +188,32 @@ describe("runReviewSkipChecks", () => {
 });
 
 describe("runReviewPipeline", () => {
+  it("persists the resolved base ref and reviewed HEAD from the loaded snapshot", async () => {
+    const snapshot = makeSnapshot([codeFile()], { kind: "base", ref: "origin/main" });
+    const deps = makeDeps(snapshot);
+    vi.mocked(deps.mapReviewTarget).mockReturnValue({
+      targetKind: "base",
+      targetRef: "origin/main",
+    });
+    vi.mocked(deps.resolveTargetCommit).mockResolvedValue("head123");
+
+    await runReviewPipeline(
+      { ...skipInput(), target: { kind: "base" }, config: { ...config, skip_doc_only: false } },
+      deps,
+    );
+
+    expect(deps.mapReviewTarget).toHaveBeenCalledWith({ kind: "base", ref: "origin/main" });
+    expect(deps.resolveTargetCommit).toHaveBeenCalledWith({ kind: "base", ref: "origin/main" });
+    expect(deps.persistReviewRun).toHaveBeenCalledWith(
+      "/repo/.diffowl",
+      expect.objectContaining({
+        targetKind: "base",
+        targetRef: "origin/main",
+        targetCommit: "head123",
+      }),
+    );
+  });
+
   it("returns a completed outcome with filtered counts, persistence, and report path", async () => {
     const deps = makeDeps(makeSnapshot([codeFile()]));
     const inputTimings = [{ phase: "preflight", label: "Preflight", ms: 1 }];

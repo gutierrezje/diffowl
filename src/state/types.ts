@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
-export type ReviewTargetKind = "staged" | "commit" | "last-commit";
+export type ReviewTargetKind = "staged" | "commit" | "last-commit" | "base";
 export type FindingStatus = "open" | "deferred" | "dismissed" | "fixed" | "regressed";
 export type ObservationClassification = "new" | "existing" | "regressed";
 export type FindingEventType =

@@ -93,7 +93,9 @@ export function buildReviewPrompt(
       ? "Review the currently staged changes."
       : target.kind === "commit"
         ? "Review the selected commit."
-        : "Review the last commit.";
+        : target.kind === "base"
+          ? "Review the committed branch changes since the merge base."
+          : "Review the last commit.";
 
   let prompt = `${modeInstruction}
 

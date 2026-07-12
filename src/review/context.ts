@@ -2,6 +2,7 @@ import { basename, dirname, extname, join } from "node:path";
 import picomatch from "picomatch";
 import { getProjectRoot, type DiffOwlConfig, type ReviewContextDepth } from "../config.js";
 import {
+  getBranchDiff,
   getResolvedCommitDiff,
   getStagedDiff,
   parseCombinedDiffLine,
@@ -98,6 +99,15 @@ export async function loadReviewSnapshot(
         target,
         diff: await getResolvedCommitDiff(sha, root),
         source: createGitContextSource(root, { kind: "commit", sha }),
+      };
+    }
+    case "base": {
+      const branch = await getBranchDiff(target.ref, root);
+      return {
+        root,
+        target: { kind: "base", ref: branch.baseRef },
+        diff: branch.diff,
+        source: createGitContextSource(root, { kind: "commit", sha: branch.headCommit }),
       };
     }
   }
