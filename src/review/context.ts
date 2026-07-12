@@ -55,6 +55,7 @@ type TextFileResult =
 export interface LoadedReviewSnapshot {
   root: string;
   target: ReviewTarget;
+  targetCommit: string | null;
   diff: DiffResult;
   source: ReviewContextSource;
 }
@@ -80,6 +81,7 @@ export async function loadReviewSnapshot(
       return {
         root,
         target,
+        targetCommit: null,
         diff: await getStagedDiff(root),
         source: createGitContextSource(root, { kind: "staged" }),
       };
@@ -88,6 +90,7 @@ export async function loadReviewSnapshot(
       return {
         root,
         target,
+        targetCommit: sha,
         diff: await getResolvedCommitDiff(sha, root),
         source: createGitContextSource(root, { kind: "commit", sha }),
       };
@@ -97,6 +100,7 @@ export async function loadReviewSnapshot(
       return {
         root,
         target,
+        targetCommit: sha,
         diff: await getResolvedCommitDiff(sha, root),
         source: createGitContextSource(root, { kind: "commit", sha }),
       };
@@ -106,6 +110,7 @@ export async function loadReviewSnapshot(
       return {
         root,
         target: { kind: "base", ref: branch.baseRef },
+        targetCommit: branch.headCommit,
         diff: branch.diff,
         source: createGitContextSource(root, { kind: "commit", sha: branch.headCommit }),
       };

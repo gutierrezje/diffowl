@@ -41,6 +41,7 @@ function makeSnapshot(
   return {
     root: "/repo",
     target,
+    targetCommit: target.kind === "staged" ? null : "abc123",
     diff: { files, raw: "diff --git a/README.md b/README.md", summary: "" },
   } as LoadedReviewSnapshot;
 }
@@ -161,14 +162,13 @@ describe("runReviewSkipChecks", () => {
     });
   });
 
-  it("resolves doc-only target commits through injected deps", async () => {
+  it("persists the commit captured by a doc-only snapshot", async () => {
     const target = { kind: "commit", ref: "HEAD~1" } as const;
     const deps = makeDeps(makeSnapshot([docFile()], target));
-    vi.mocked(deps.resolveTargetCommit).mockResolvedValue("abc123");
 
     await runReviewSkipChecks({ ...skipInput(), target }, deps);
 
-    expect(deps.resolveTargetCommit).toHaveBeenCalledWith(target);
+    expect(deps.resolveTargetCommit).not.toHaveBeenCalled();
     expect(deps.persistReviewRun).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({ targetCommit: "abc123" }),
@@ -189,13 +189,16 @@ describe("runReviewSkipChecks", () => {
 
 describe("runReviewPipeline", () => {
   it("persists the resolved base ref and reviewed HEAD from the loaded snapshot", async () => {
-    const snapshot = makeSnapshot([codeFile()], { kind: "base", ref: "origin/main" });
+    const snapshot = Object.assign(
+      makeSnapshot([codeFile()], { kind: "base", ref: "origin/main" }),
+      { targetCommit: "captured-head" },
+    );
     const deps = makeDeps(snapshot);
     vi.mocked(deps.mapReviewTarget).mockReturnValue({
       targetKind: "base",
       targetRef: "origin/main",
     });
-    vi.mocked(deps.resolveTargetCommit).mockResolvedValue("head123");
+    vi.mocked(deps.resolveTargetCommit).mockResolvedValue("moved-head");
 
     await runReviewPipeline(
       { ...skipInput(), target: { kind: "base" }, config: { ...config, skip_doc_only: false } },
@@ -203,13 +206,13 @@ describe("runReviewPipeline", () => {
     );
 
     expect(deps.mapReviewTarget).toHaveBeenCalledWith({ kind: "base", ref: "origin/main" });
-    expect(deps.resolveTargetCommit).toHaveBeenCalledWith({ kind: "base", ref: "origin/main" });
+    expect(deps.resolveTargetCommit).not.toHaveBeenCalled();
     expect(deps.persistReviewRun).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({
         targetKind: "base",
         targetRef: "origin/main",
-        targetCommit: "head123",
+        targetCommit: "captured-head",
       }),
     );
   });

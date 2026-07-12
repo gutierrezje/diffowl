@@ -131,7 +131,7 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
   const persistStart = performance.now();
   const persisted = await deps.persistReviewRun(input.diffOwlDir, {
     ...deps.mapReviewTarget(snapshot.target),
-    targetCommit: await deps.resolveTargetCommit(snapshot.target),
+    targetCommit: snapshot.targetCommit,
     diffHash: deps.computeDiffHash(diff.raw),
     model: input.config.model,
     reasoning: input.config.reasoning.effort,
@@ -241,10 +241,9 @@ export async function runReviewSkipChecks(
     return { kind: "continue", snapshot, timings };
   }
 
-  const targetCommit = await deps.resolveTargetCommit(snapshot.target);
   const persisted = await deps.persistReviewRun(input.diffOwlDir, {
     ...skippedReview,
-    targetCommit,
+    targetCommit: snapshot.targetCommit,
     summary: "Documentation-only changes detected. No code review performed.",
     skippedReason: "documentation-only",
   });

@@ -16,6 +16,7 @@ function makeSnapshot(diff: Partial<DiffResult> = {}): LoadedReviewSnapshot {
   return {
     root: "/repo",
     target: { kind: "commit", ref: "HEAD" },
+    targetCommit: "abc123",
     source: snapshotSource,
     diff: {
       files: [{ path: "src/user.ts", status: "modified", additions: 1, deletions: 1 }],
