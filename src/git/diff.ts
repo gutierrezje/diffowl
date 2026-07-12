@@ -8,6 +8,14 @@ export interface DiffResult {
   diagnostics?: string[];
 }
 
+export interface BranchDiffResult {
+  baseRef: string;
+  baseCommit: string;
+  mergeBaseCommit: string;
+  headCommit: string;
+  diff: DiffResult;
+}
+
 interface DiffFileBase {
   path: string;
   additions: number;
@@ -32,6 +40,61 @@ export async function getLastCommitDiff(): Promise<DiffResult> {
 export async function getCommitDiff(ref: string, cwd?: string): Promise<DiffResult> {
   const commit = await resolveCommitRef(ref, cwd);
   return getResolvedCommitDiff(commit, cwd);
+}
+
+export async function getBranchDiff(baseRef?: string, cwd?: string): Promise<BranchDiffResult> {
+  const selectedBaseRef = baseRef ?? (await resolveDefaultBranchRef(cwd));
+  const baseCommit = await resolveCommitRef(selectedBaseRef, cwd);
+  const headCommit = await resolveCommitRef("HEAD", cwd);
+  const { stdout } = await execa("git", ["merge-base", baseCommit, headCommit], cwd ? { cwd } : {});
+  const mergeBaseCommit = stdout.trim();
+  const raw = await collectGitDiff(
+    [
+      "-c",
+      "diff.noprefix=false",
+      "-c",
+      "diff.mnemonicprefix=false",
+      "diff",
+      "--stat",
+      "--patch",
+      `${mergeBaseCommit}..${headCommit}`,
+    ],
+    cwd,
+  );
+
+  return {
+    baseRef: selectedBaseRef,
+    baseCommit,
+    mergeBaseCommit,
+    headCommit,
+    diff: parseDiff(raw.stdout, raw.diagnostics),
+  };
+}
+
+export async function resolveDefaultBranchRef(cwd?: string): Promise<string> {
+  try {
+    const { stdout } = await execa(
+      "git",
+      ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
+      cwd ? { cwd } : {},
+    );
+    if (stdout.trim() !== "") return stdout.trim();
+  } catch {
+    // Fall through to conventional local branch names.
+  }
+
+  for (const ref of ["main", "master"]) {
+    try {
+      await resolveCommitRef(ref, cwd);
+      return ref;
+    } catch {
+      // Try the next conventional branch name.
+    }
+  }
+
+  throw new Error(
+    "Could not detect a default branch. Set origin/HEAD or pass an explicit base ref.",
+  );
 }
 
 export async function getResolvedCommitDiff(commit: string, cwd?: string): Promise<DiffResult> {

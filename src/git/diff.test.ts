@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
 import {
+  getBranchDiff,
   getCommitDiff,
   getStagedDiff,
   parseDiff,
@@ -30,6 +31,90 @@ async function readFixture(name: string): Promise<string> {
 }
 
 describe("parseDiff", () => {
+  it("reviews committed branch changes from the merge base to HEAD", async () => {
+    const root = await createGitRepo("diffowl-branch-diff-");
+    await commitFile(root, "shared.txt", "initial\n", "initial");
+    const { stdout: initial } = await execa("git", ["rev-parse", "HEAD"], { cwd: root });
+    await execa("git", ["switch", "-c", "feature"], { cwd: root });
+    await commitFile(root, "feature.txt", "one\n", "feature one");
+    await commitFile(root, "feature.txt", "one\ntwo\n", "feature two");
+    const { stdout: head } = await execa("git", ["rev-parse", "HEAD"], { cwd: root });
+    await execa("git", ["switch", "main"], { cwd: root });
+    await commitFile(root, "base-only.txt", "base\n", "base only");
+    await execa("git", ["switch", "feature"], { cwd: root });
+
+    const result = await getBranchDiff("main", root);
+
+    expect(result.baseRef).toBe("main");
+    expect(result.headCommit).toBe(head);
+    expect(result.mergeBaseCommit).toBe(initial);
+    expect(result.baseCommit).not.toBe(result.mergeBaseCommit);
+    expect(result.diff.files.map((file) => file.path)).toEqual(["feature.txt"]);
+    expect(result.diff.raw).toContain("+one");
+    expect(result.diff.raw).toContain("+two");
+    expect(result.diff.raw).not.toContain("base-only.txt");
+  });
+
+  it("prefers origin/HEAD when auto-detecting the branch base", async () => {
+    const root = await createGitRepo("diffowl-default-base-");
+    await commitFile(root, "shared.txt", "initial\n", "initial");
+    const { stdout: initial } = await execa("git", ["rev-parse", "HEAD"], { cwd: root });
+    await execa("git", ["branch", "master"], { cwd: root });
+    await execa("git", ["branch", "trunk"], { cwd: root });
+    await execa("git", ["update-ref", "refs/remotes/origin/trunk", initial], { cwd: root });
+    await execa("git", ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk"], {
+      cwd: root,
+    });
+    await execa("git", ["switch", "-c", "feature"], { cwd: root });
+    await commitFile(root, "feature.txt", "feature\n", "feature");
+
+    const result = await getBranchDiff(undefined, root);
+
+    expect(result.baseRef).toBe("origin/trunk");
+    expect(result.diff.files.map((file) => file.path)).toEqual(["feature.txt"]);
+  });
+
+  it.each(["main", "master"])("falls back to the local %s branch", async (baseName) => {
+    const root = await createGitRepo("diffowl-local-base-");
+    await commitFile(root, "shared.txt", "initial\n", "initial");
+    if (baseName === "master") {
+      await execa("git", ["branch", "-m", "master"], { cwd: root });
+    }
+    await execa("git", ["switch", "-c", "feature"], { cwd: root });
+    await commitFile(root, "feature.txt", "feature\n", "feature");
+
+    await expect(getBranchDiff(undefined, root)).resolves.toMatchObject({ baseRef: baseName });
+  });
+
+  it("excludes staged and unstaged changes from the committed branch diff", async () => {
+    const root = await createGitRepo("diffowl-clean-branch-diff-");
+    await commitFile(root, "shared.txt", "initial\n", "initial");
+    await execa("git", ["switch", "-c", "feature"], { cwd: root });
+    await commitFile(root, "committed.txt", "committed\n", "committed");
+    await writeFile(join(root, "staged.txt"), "staged\n", "utf-8");
+    await execa("git", ["add", "staged.txt"], { cwd: root });
+    await writeFile(join(root, "unstaged.txt"), "unstaged\n", "utf-8");
+
+    const result = await getBranchDiff("main", root);
+
+    expect(result.diff.files.map((file) => file.path)).toEqual(["committed.txt"]);
+    expect(result.diff.raw).not.toContain("staged.txt");
+    expect(result.diff.raw).not.toContain("unstaged.txt");
+  });
+
+  it("reports invalid explicit and undetectable default base refs", async () => {
+    const root = await createGitRepo("diffowl-missing-base-");
+    await commitFile(root, "shared.txt", "initial\n", "initial");
+    await execa("git", ["branch", "-m", "feature"], { cwd: root });
+
+    await expect(getBranchDiff("missing-ref", root)).rejects.toThrow(
+      "Invalid commit ref: missing-ref",
+    );
+    await expect(getBranchDiff(undefined, root)).rejects.toThrow(
+      "Could not detect a default branch",
+    );
+  });
+
   it("parses a realistic multi-file git show fixture", async () => {
     const result = parseDiff(await readFixture("standard-multi-file.diff"));
 
@@ -442,6 +527,26 @@ describe("parseDiff", () => {
     }
   });
 });
+
+async function createGitRepo(prefix: string): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), prefix));
+  tempDirs.push(root);
+  await execa("git", ["init", "--initial-branch=main"], { cwd: root });
+  await execa("git", ["config", "user.name", "DiffOwl Test"], { cwd: root });
+  await execa("git", ["config", "user.email", "diffowl@example.test"], { cwd: root });
+  return root;
+}
+
+async function commitFile(
+  root: string,
+  path: string,
+  content: string,
+  message: string,
+): Promise<void> {
+  await writeFile(join(root, path), content, "utf-8");
+  await execa("git", ["add", path], { cwd: root });
+  await execa("git", ["commit", "-m", message], { cwd: root });
+}
 
 describe("isDocFile", () => {
   it("does not classify source files by documentation name prefixes", () => {
