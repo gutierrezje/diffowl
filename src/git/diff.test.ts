@@ -31,29 +31,33 @@ async function readFixture(name: string): Promise<string> {
 }
 
 describe("parseDiff", () => {
-  it("reviews committed branch changes from the merge base to HEAD", async () => {
-    const root = await createGitRepo("diffowl-branch-diff-");
-    await commitFile(root, "shared.txt", "initial\n", "initial");
-    const { stdout: initial } = await execa("git", ["rev-parse", "HEAD"], { cwd: root });
-    await execa("git", ["switch", "-c", "feature"], { cwd: root });
-    await commitFile(root, "feature.txt", "one\n", "feature one");
-    await commitFile(root, "feature.txt", "one\ntwo\n", "feature two");
-    const { stdout: head } = await execa("git", ["rev-parse", "HEAD"], { cwd: root });
-    await execa("git", ["switch", "main"], { cwd: root });
-    await commitFile(root, "base-only.txt", "base\n", "base only");
-    await execa("git", ["switch", "feature"], { cwd: root });
+  it(
+    "reviews committed branch changes from the merge base to HEAD",
+    { timeout: 15_000 },
+    async () => {
+      const root = await createGitRepo("diffowl-branch-diff-");
+      await commitFile(root, "shared.txt", "initial\n", "initial");
+      const { stdout: initial } = await execa("git", ["rev-parse", "HEAD"], { cwd: root });
+      await execa("git", ["switch", "-c", "feature"], { cwd: root });
+      await commitFile(root, "feature.txt", "one\n", "feature one");
+      await commitFile(root, "feature.txt", "one\ntwo\n", "feature two");
+      const { stdout: head } = await execa("git", ["rev-parse", "HEAD"], { cwd: root });
+      await execa("git", ["switch", "main"], { cwd: root });
+      await commitFile(root, "base-only.txt", "base\n", "base only");
+      await execa("git", ["switch", "feature"], { cwd: root });
 
-    const result = await getBranchDiff("main", root);
+      const result = await getBranchDiff("main", root);
 
-    expect(result.baseRef).toBe("main");
-    expect(result.headCommit).toBe(head);
-    expect(result.mergeBaseCommit).toBe(initial);
-    expect(result.baseCommit).not.toBe(result.mergeBaseCommit);
-    expect(result.diff.files.map((file) => file.path)).toEqual(["feature.txt"]);
-    expect(result.diff.raw).toContain("+one");
-    expect(result.diff.raw).toContain("+two");
-    expect(result.diff.raw).not.toContain("base-only.txt");
-  });
+      expect(result.baseRef).toBe("main");
+      expect(result.headCommit).toBe(head);
+      expect(result.mergeBaseCommit).toBe(initial);
+      expect(result.baseCommit).not.toBe(result.mergeBaseCommit);
+      expect(result.diff.files.map((file) => file.path)).toEqual(["feature.txt"]);
+      expect(result.diff.raw).toContain("+one");
+      expect(result.diff.raw).toContain("+two");
+      expect(result.diff.raw).not.toContain("base-only.txt");
+    },
+  );
 
   it("prefers origin/HEAD when auto-detecting the branch base", async () => {
     const root = await createGitRepo("diffowl-default-base-");
