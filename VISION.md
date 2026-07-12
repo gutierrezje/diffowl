@@ -18,8 +18,12 @@ repeated noise, and verifying that confirmed problems were actually resolved.
 
 DiffOwl is:
 
-- Local-first: source code and review state stay on infrastructure controlled
-  by the user unless they explicitly publish or synchronize them.
+- Local-first: the review loop and its state live in the repository checkout.
+  Findings land on disk where developers and agents read them directly — no
+  DiffOwl service, account, or API in the middle. This is a workflow claim,
+  not a privacy claim: diffs and context are sent to whatever model provider
+  the user configures. Direct on-disk access is today's differentiator; team
+  surfaces will deliberately carry findings beyond the checkout.
 - Provider-neutral: review workflows are not tied to one model vendor.
 - Forge-agnostic: DiffOwl is built on git, not on a hosting platform. It works
   identically whether the remote is GitHub, GitLab, or bare — including forges
@@ -95,17 +99,18 @@ must review and accept it.
 
 ## Roadmap
 
-Roadmap versions describe cohesive product milestones, not fixed delivery
-dates.
+Milestones are ordered by dependency, not pinned to version numbers. Releases
+ship in small increments; a milestone spans however many releases it takes,
+and version numbers are assigned when work actually ships.
 
-### 0.2.x - Reliable Review Runner
+### Reliable Review Runner (shipped)
 
 - Stabilize Git snapshot selection, hooks, context collection, model execution,
   and report generation.
 - Maintain a green cross-platform test, lint, typecheck, and build baseline.
 - Release correctness and portability fixes without expanding product scope.
 
-### 0.3 - Structured, Durable Findings
+### Structured, Durable Findings (shipped)
 
 - Add machine-readable JSON output as a supported public contract.
 - Give findings stable fingerprints independent of report numbering.
@@ -115,10 +120,10 @@ dates.
 - Add CLI commands to list, inspect, dismiss, defer, and resolve findings.
 - Keep Markdown as an export generated from structured state.
 
-### 0.3.x - Measured Review Quality (in progress)
+### Measured Review Quality (in progress)
 
-Ship incrementally on `0.3.x` patch releases, developed on a feature branch
-until the harness is usable end-to-end:
+Ship incrementally in small releases, developed on a feature branch until the
+harness is usable end-to-end:
 
 - Add a replayable evaluation harness using known bug-introducing and clean
   changes.
@@ -127,8 +132,8 @@ until the harness is usable end-to-end:
 - Record the exact review input and configuration needed to reproduce results.
 - Use evaluation results to guide context and prompt changes.
 
-The eval harness is internal tooling until `diffowl eval` lands; target
-**0.3.2+**, not a `0.4.0` minor bump. Quality claims should not be made until
+The eval harness is internal tooling until `diffowl eval` lands as an
+incremental release. Quality claims should not be made until
 the harness produces repeatable results on a stabilized corpus.
 
 Corpus stabilization includes a single expectation contract: every case scores
@@ -136,7 +141,7 @@ under the same rules (line tolerance, severity floors, category requirements
 decided once, enforced by a schema-conformance gate), so aggregate metrics
 reflect model quality rather than per-case authoring drift.
 
-### 0.4 - Branch Review and the Pre-PR Gate
+### Branch Review and the Pre-PR Gate
 
 Meet agentic workflows at their natural unit: the branch, not the commit.
 
@@ -160,7 +165,7 @@ Meet agentic workflows at their natural unit: the branch, not the commit.
   if it clears the same eval gates the pi spike failed; subscription economics
   alone are not sufficient evidence.
 
-### 0.5 - Incremental Impact Graph
+### Incremental Impact Graph
 
 - Index supported-language symbols, imports, calls, and likely tests.
 - Update the index incrementally from changed files.
@@ -170,7 +175,7 @@ Meet agentic workflows at their natural unit: the branch, not the commit.
 - Start with TypeScript and add languages only when evaluation demonstrates
   value.
 
-### 0.6 - Agent and CI Verification Loop
+### Agent and CI Verification Loop
 
 - Expose a stable agent-facing interface through CLI JSON and, where useful,
   MCP.
@@ -189,12 +194,12 @@ comments, and measured quality. Treat the Action as the distribution wedge —
 how people discover DiffOwl — while the local loop is why they stay. The
 Action exposes findings as structured, composable step output.
 
-### Later - Team Intelligence
+### Team Intelligence
 
 Team state is three different needs, served in order and mostly through git:
 
-1. **Visibility** — teammates see findings on a change. Served by 0.6 team
-   surfaces (PR comments, SARIF, CI artifacts) under a
+1. **Visibility** — teammates see findings on a change. Served by the
+   verification-loop team surfaces (PR comments, SARIF, CI artifacts) under a
    canonical-reviewer-per-change model: one review run (CI or the author's
    machine) is the reviewer of record for a branch, and its output travels
    with the PR. Other checkouts' local state stays a personal cache; there is
@@ -273,10 +278,10 @@ Until the core review loop is demonstrably strong, DiffOwl will not prioritize:
 
 ## Near-Term Decision
 
-0.3 (durable structured findings, JSON output) has shipped and the eval
-harness is merged. The next milestone is finishing 0.3.x — a stabilized,
-contract-consistent corpus and a live baseline — followed by 0.4 branch
-review. Branch review is the single largest workflow unlock for agent-driven
+Durable structured findings and JSON output have shipped and the eval harness
+is merged. The next milestone is finishing measured review quality — a
+stabilized, contract-consistent corpus and a live baseline — followed by
+branch review. Branch review is the single largest workflow unlock for agent-driven
 development: agents produce many commits per session, and the reviewable unit
 users care about before a PR is the branch delta, not each intermediate
 commit. Quality changes (prompt, contract, backends) continue to merge only
