@@ -10,7 +10,15 @@ export async function getSharedDiffOwlDir(): Promise<string> {
   if (!sharedDiffOwlDirPromise) {
     sharedDiffOwlDirPromise = resolveSharedDiffOwlDir();
   }
-  return sharedDiffOwlDirPromise;
+  const resolution = sharedDiffOwlDirPromise;
+  try {
+    return await resolution;
+  } catch (error) {
+    if (sharedDiffOwlDirPromise === resolution) {
+      sharedDiffOwlDirPromise = undefined;
+    }
+    throw error;
+  }
 }
 
 async function resolveSharedDiffOwlDir(): Promise<string> {

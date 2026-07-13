@@ -10,7 +10,11 @@ import {
 } from "../state/findings-query.js";
 import { persistReviewRun } from "../state/persist.js";
 import type { ReviewFinding } from "../review/types.js";
-import { getSharedDiffOwlDir, isRecoverableGitLookupError, resetSharedDiffOwlDirForTests } from "./state-root.js";
+import {
+  getSharedDiffOwlDir,
+  isRecoverableGitLookupError,
+  resetSharedDiffOwlDirForTests,
+} from "./state-root.js";
 
 const originalCwd = process.cwd();
 let tempDirs: string[] = [];
@@ -120,15 +124,36 @@ describe("getSharedDiffOwlDir", () => {
   });
 
   it("only treats missing-git and git-fatal errors as recoverable lookups", () => {
-    expect(isRecoverableGitLookupError(Object.assign(new Error("missing"), { code: "ENOENT" }))).toBe(
-      true,
-    );
+    expect(
+      isRecoverableGitLookupError(Object.assign(new Error("missing"), { code: "ENOENT" })),
+    ).toBe(true);
     expect(isRecoverableGitLookupError(Object.assign(new Error("fatal"), { exitCode: 128 }))).toBe(
       true,
     );
-    expect(isRecoverableGitLookupError(Object.assign(new Error("permission denied"), { exitCode: 1 }))).toBe(
-      false,
-    );
+    expect(
+      isRecoverableGitLookupError(Object.assign(new Error("permission denied"), { exitCode: 1 })),
+    ).toBe(false);
+  });
+
+  it("retries shared-root resolution after a rejected lookup", async () => {
+    const repo = await createGitProject();
+    process.chdir(repo);
+    const execaMock = vi
+      .fn()
+      .mockRejectedValueOnce(Object.assign(new Error("permission denied"), { exitCode: 1 }))
+      .mockResolvedValueOnce({ stdout: "false" });
+    vi.resetModules();
+    vi.doMock("execa", () => ({ execa: execaMock }));
+
+    try {
+      const stateRoot = await import("./state-root.js");
+      await expect(stateRoot.getSharedDiffOwlDir()).rejects.toThrow("permission denied");
+      await expect(stateRoot.getSharedDiffOwlDir()).resolves.toBe(join(repo, ".diffowl"));
+      expect(execaMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.doUnmock("execa");
+      vi.resetModules();
+    }
   });
 
   it("shares persisted findings and lifecycle mutations across linked worktrees", async () => {
