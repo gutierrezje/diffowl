@@ -20,6 +20,24 @@ afterEach(async () => {
 });
 
 describe("diffowl CLI", () => {
+  it("does not load model overrides for unrelated commands", async () => {
+    const repo = await createRepo("diffowl-cli-server-model-");
+    await writeFile(
+      join(repo, ".diffowl", "preferences.yml"),
+      "model: provider/local\nunknown: true\n",
+      "utf8",
+    );
+
+    const result = await execa("node", [cliPath, "server", "status"], {
+      cwd: repo,
+      env: { DIFFOWL_MODEL: "invalid" },
+      reject: false,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).not.toContain("Config error");
+  });
+
   it("stores the selected model locally without changing project config", async () => {
     const repo = await createRepo("diffowl-cli-model-");
     const configPath = join(repo, ".diffowl.yml");

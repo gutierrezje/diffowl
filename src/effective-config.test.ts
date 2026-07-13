@@ -28,6 +28,10 @@ describe("effective config", () => {
       modelSource: "project",
     });
     await saveModelPreference("provider/local");
+    expect(await loadEffectiveConfig(undefined, {}, { ignoreLocal: true })).toMatchObject({
+      config: { model: "provider/project" },
+      modelSource: "project",
+    });
     expect(await loadEffectiveConfig(undefined, {})).toMatchObject({
       config: { model: "provider/local" },
       modelSource: "local",
