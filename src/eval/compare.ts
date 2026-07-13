@@ -199,7 +199,7 @@ export function renderEvalComparisonSummary(comparison: EvalResultsComparison): 
   for (const entry of comparison.aggregate.cases) {
     lines.push(`- **${entry.caseId}** (${entry.category})`);
     if (entry.recall.delta !== null) {
-      lines.push(`  - Recall delta: ${formatSigned(entry.recall.delta)}`);
+      lines.push(`  - Overall recall delta: ${formatSigned(entry.recall.delta)}`);
     }
     if (entry.regressions.length > 0) {
       for (const regression of entry.regressions) {
