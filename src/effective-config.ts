@@ -1,7 +1,13 @@
 import { loadConfig, parseModel, type DiffOwlConfig } from "./config.js";
 import { loadModelPreference } from "./model-preference.js";
 
-export type ModelSource = "command" | "environment" | "local" | "project";
+export type ModelSource = "command" | "environment" | "local";
+
+export class MissingModelError extends Error {
+  constructor() {
+    super("No model selected. Run `diffowl model <provider/model>`.");
+  }
+}
 
 export type EffectiveConfig = {
   config: DiffOwlConfig;
@@ -11,7 +17,6 @@ export type EffectiveConfig = {
 export async function loadEffectiveConfig(
   commandModel?: unknown,
   env: Record<string, string | undefined> = process.env,
-  options: { ignoreLocal?: boolean } = {},
 ): Promise<EffectiveConfig> {
   const config = await loadConfig();
   const environmentModel = env["DIFFOWL_MODEL"]?.trim() || undefined;
@@ -24,13 +29,10 @@ export async function loadEffectiveConfig(
     config.model = parseModel(environmentModel);
     return { config, modelSource: "environment" };
   }
-  if (options.ignoreLocal) {
-    return { config, modelSource: "project" };
-  }
   const localModel = await loadModelPreference();
   if (localModel !== undefined) {
     config.model = localModel;
     return { config, modelSource: "local" };
   }
-  return { config, modelSource: "project" };
+  throw new MissingModelError();
 }

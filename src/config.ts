@@ -165,7 +165,8 @@ export async function loadConfigFromRoot(root: string): Promise<DiffOwlConfig> {
 
 export async function saveConfig(config: DiffOwlConfig): Promise<string> {
   const configPath = findConfigPath();
-  const content = stringify(DiffOwlConfigSchema.parse(config), { lineWidth: 0 });
+  const { model: _legacyModel, ...projectConfig } = DiffOwlConfigSchema.parse(config);
+  const content = stringify(projectConfig, { lineWidth: 0 });
   await writeFile(configPath, content, "utf-8");
   return configPath;
 }

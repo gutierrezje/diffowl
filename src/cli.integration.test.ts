@@ -52,15 +52,26 @@ describe("diffowl CLI", () => {
     );
   });
 
-  it("resets the local model preference to the project model", async () => {
+  it("resets the local model preference without using the legacy project model", async () => {
     const repo = await createRepo("diffowl-cli-model-reset-");
     await execa("node", [cliPath, "model", "provider/local"], { cwd: repo });
 
     const { stdout } = await execa("node", [cliPath, "model", "--reset"], { cwd: repo });
 
-    expect(stdout).toContain("provider/model");
-    expect(stdout).toContain("(project)");
+    expect(stdout).toContain("Local model preference reset");
     await expect(access(join(repo, ".diffowl/preferences.yml"))).rejects.toThrow();
+  });
+
+  it("requires a personal model even when legacy project config has one", async () => {
+    const repo = await createRepo("diffowl-cli-model-required-", { localModel: false });
+
+    const result = await execa("node", [cliPath, "review", "--staged"], {
+      cwd: repo,
+      reject: false,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("No model selected");
   });
 
   it("uses a one-off review model without changing saved model settings", async () => {
@@ -238,7 +249,7 @@ describe("diffowl CLI", () => {
 
 async function createRepo(
   prefix: string,
-  options: { skipDocOnly?: boolean } = {},
+  options: { skipDocOnly?: boolean; localModel?: boolean } = {},
 ): Promise<string> {
   const repo = await mkdtemp(join(tmpdir(), prefix));
   tempDirs.push(repo);
@@ -269,6 +280,9 @@ async function createRepo(
     ].join("\n"),
     "utf8",
   );
+  if (options.localModel !== false) {
+    await writeFile(join(repo, ".diffowl", "preferences.yml"), "model: provider/model\n", "utf8");
+  }
   return repo;
 }
 

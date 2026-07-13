@@ -17,21 +17,14 @@ afterEach(async () => {
 });
 
 describe("effective config", () => {
-  it("applies command, environment, local, and project model precedence", async () => {
+  it("applies command, environment, and local model precedence", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-effective-config-"));
     tempDirs.push(root);
     await writeFile(join(root, ".diffowl.yml"), "model: provider/project\n", "utf8");
     process.chdir(root);
 
-    expect(await loadEffectiveConfig(undefined, {})).toMatchObject({
-      config: { model: "provider/project" },
-      modelSource: "project",
-    });
+    await expect(loadEffectiveConfig(undefined, {})).rejects.toThrow("No model selected");
     await saveModelPreference("provider/local");
-    expect(await loadEffectiveConfig(undefined, {}, { ignoreLocal: true })).toMatchObject({
-      config: { model: "provider/project" },
-      modelSource: "project",
-    });
     expect(await loadEffectiveConfig(undefined, {})).toMatchObject({
       config: { model: "provider/local" },
       modelSource: "local",

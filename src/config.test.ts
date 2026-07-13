@@ -59,7 +59,7 @@ describe("config", () => {
     const savedPath = await saveConfig(config);
 
     expect(await realpath(savedPath)).toBe(await realpath(parentConfig));
-    expect(await readFile(parentConfig, "utf-8")).toContain("provider/updated");
+    expect(await readFile(parentConfig, "utf-8")).not.toContain("model:");
   });
 
   it("defaults missing optional fields", async () => {
