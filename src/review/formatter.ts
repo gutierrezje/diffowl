@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import { writeFile, mkdir } from "node:fs/promises";
+import { rename, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
@@ -131,13 +131,20 @@ _${new Date().toLocaleString()}_
 ${review}
 `;
 
-  await writeFile(filepath, content, "utf-8");
+  await writeFileAtomic(filepath, content);
 
-  // Also write as latest
+  // Also write as latest. Atomic rename avoids torn reads when concurrent
+  // worktree hooks update the shared reviews directory.
   const latestPath = join(dir, "latest.md");
-  await writeFile(latestPath, content, "utf-8");
+  await writeFileAtomic(latestPath, content);
 
   return filepath;
+}
+
+async function writeFileAtomic(filepath: string, content: string): Promise<void> {
+  const tempPath = `${filepath}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(tempPath, content, "utf-8");
+  await rename(tempPath, filepath);
 }
 
 export function parseReviewMetadata(content: string): ReviewMetadata | undefined {

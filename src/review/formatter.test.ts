@@ -424,6 +424,29 @@ describe("writeMarkdownReport", () => {
 
     expect(reportPath).toMatch(join(repo, ".diffowl", "reviews", "review-"));
   });
+
+  it("updates latest.md atomically without leaving a partial file", async () => {
+    const repo = await createGitProject();
+    process.chdir(repo);
+
+    await writeMarkdownReport("### Summary\nFirst", {
+      schema_version: 1,
+      review_id: "rev_1",
+      session_id: "ses_1",
+      project_root: repo,
+    });
+    await writeMarkdownReport("### Summary\nSecond complete report", {
+      schema_version: 1,
+      review_id: "rev_2",
+      session_id: "ses_2",
+      project_root: repo,
+    });
+
+    const { readFile } = await import("node:fs/promises");
+    const latest = await readFile(join(repo, ".diffowl", "reviews", "latest.md"), "utf-8");
+    expect(latest).toContain("Second complete report");
+    expect(latest).not.toContain("First");
+  });
 });
 
 async function createGitProject(): Promise<string> {
