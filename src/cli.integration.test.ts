@@ -39,7 +39,7 @@ describe("diffowl CLI", () => {
   });
 
   it("stores the selected model locally without changing project config", async () => {
-    const repo = await createRepo("diffowl-cli-model-");
+    const repo = await createRepo("diffowl-cli-model-", { localModel: false });
     const configPath = join(repo, ".diffowl.yml");
     const originalConfig = await readFile(configPath, "utf8");
 
