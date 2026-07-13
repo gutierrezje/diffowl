@@ -16,7 +16,7 @@ import {
   type ReviewContextDepth,
   type ReasoningEffort,
 } from "./config.js";
-import { loadEffectiveConfig, type ModelSource } from "./effective-config.js";
+import { loadEffectiveConfig, MissingModelError, type ModelSource } from "./effective-config.js";
 import { resetModelPreference, saveModelPreference } from "./model-preference.js";
 import {
   getAvailableModels,
@@ -143,14 +143,12 @@ program
     }
 
     // First run: prompt for setup
-    const initialized = !configExists();
-    if (initialized) {
+    if (!configExists()) {
       console.log(chalk.yellow("No .diffowl.yml found. Running first-time setup...\n"));
       await runInit();
     }
 
-    const config = (await loadEffectiveConfigOrExit(options.model, { ignoreLocal: initialized }))
-      .config;
+    const config = (await loadEffectiveConfigOrExit(options.model)).config;
     const projectRoot = getProjectRoot();
     const diffOwlDir = await getSharedDiffOwlDir();
     const baseRequested = options.base !== undefined;
@@ -568,7 +566,8 @@ program
 async function runInit() {
   console.log(chalk.bold("DiffOwl Setup\n"));
   const config = await loadProjectConfigOrExit();
-  await selectModelInteractively(config, { allowKeepCurrent: false, destination: "project" });
+  await selectModelInteractively(config, { allowKeepCurrent: false });
+  console.log(chalk.green(`✓ Config saved to ${await saveConfig(config)}`));
 }
 
 // Model command
@@ -584,18 +583,31 @@ program
     }
     if (options.reset) {
       await resetModelPreference();
-      const fallback = await loadEffectiveConfigOrExit();
       console.log(chalk.green("✓ Local model preference reset"));
-      console.log(formatEffectiveModel(fallback.config.model, fallback.modelSource));
+      console.log(chalk.dim("Run `diffowl model <provider/model>` to choose another."));
       return;
     }
 
-    const effective = await loadEffectiveConfigOrExit();
+    let effective;
+    try {
+      effective = await loadEffectiveConfig();
+    } catch (err) {
+      if (!(err instanceof MissingModelError)) {
+        console.error(
+          chalk.red(`Config error: ${err instanceof Error ? err.message : String(err)}`),
+        );
+        process.exit(1);
+      }
+      const config = await loadProjectConfigOrExit();
+      console.log(chalk.yellow("No model selected."));
+      await selectModelInteractively(config, { allowKeepCurrent: false });
+      return;
+    }
     const config = effective.config;
 
     if (!model) {
       console.log(formatEffectiveModel(config.model, effective.modelSource));
-      await selectModelInteractively(config, { allowKeepCurrent: true, destination: "local" });
+      await selectModelInteractively(config, { allowKeepCurrent: true });
       return;
     }
 
@@ -615,7 +627,7 @@ program
 
 async function selectModelInteractively(
   config: DiffOwlConfig,
-  options: { allowKeepCurrent: boolean; destination: "local" | "project" },
+  options: { allowKeepCurrent: boolean },
 ): Promise<void> {
   const spinner = ora("Querying available models from OpenCode...").start();
   let models: string[] = [];
@@ -685,29 +697,16 @@ async function selectModelInteractively(
       rl.close();
     }
   } else {
-    console.log(chalk.yellow("\nNo active/connected providers found in OpenCode."));
-    console.log(
-      chalk.dim("Make sure you run ") +
-        chalk.cyan("opencode") +
-        chalk.dim(" to authenticate and set up your providers/keys first."),
-    );
-    console.log(chalk.dim("Using fallback default model: ") + chalk.cyan(config.model));
-    console.log();
+    console.error(chalk.red("\nNo active/connected providers found in OpenCode."));
+    console.error(chalk.dim("Run opencode to configure a provider, then retry."));
+    process.exit(1);
   }
 
   // Only update/save if a new model was selected or config is being initialized
   if (selectedModel !== config.model || !options.allowKeepCurrent) {
     config.model = selectedModel;
-    const configPath =
-      options.destination === "local"
-        ? await saveModelPreference(selectedModel)
-        : await saveConfig(config);
-    if (options.allowKeepCurrent) {
-      console.log(chalk.green(`✓ Model set to ${chalk.cyan(selectedModel)}`));
-    } else {
-      console.log(chalk.green(`✓ Config saved to ${configPath}`));
-      console.log(chalk.dim(`Model set to: `) + chalk.cyan(selectedModel));
-    }
+    await saveModelPreference(selectedModel);
+    console.log(chalk.green(`✓ Model set to ${chalk.cyan(selectedModel)}`));
     console.log();
   }
 }
@@ -1055,12 +1054,9 @@ async function loadConfigOrExit(): Promise<DiffOwlConfig> {
   return await loadProjectConfigOrExit();
 }
 
-async function loadEffectiveConfigOrExit(
-  commandModel?: unknown,
-  options: { ignoreLocal?: boolean } = {},
-) {
+async function loadEffectiveConfigOrExit(commandModel?: unknown) {
   try {
-    return await loadEffectiveConfig(commandModel, process.env, options);
+    return await loadEffectiveConfig(commandModel);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(chalk.red(`Config error: ${message}`));

@@ -246,15 +246,15 @@ diffowl model
 # Manually set a model
 diffowl model opencode/big-pickle
 
-# Return to the committed project/default model
+# Remove the personal selection
 diffowl model --reset
 
 # Override the model for one review only
 diffowl review --model openai/gpt-5.6-luna
 ```
 
-Model precedence is `--model`, then `DIFFOWL_MODEL`, then the shared local preference, then the
-committed `.diffowl.yml` fallback. Bare `diffowl model` reports both the effective model and source.
+Model precedence is `--model`, then `DIFFOWL_MODEL`, then the shared local preference. Without one,
+review commands ask you to configure a model rather than assuming provider access.
 
 ### `diffowl chat [report]`
 
@@ -342,13 +342,11 @@ The unresolved backlog is durable: a finding does not auto-resolve just because 
 
 ## Configuration (`.diffowl.yml`)
 
-Your committed `.diffowl.yml` configures repository policy and provides the fallback model. Use
-`diffowl model <provider/model>` for personal model switching; it does not rewrite this file.
+Your committed `.diffowl.yml` configures repository review policy. Model selection is deliberately
+absent because provider access belongs to each developer. Legacy `model` keys remain readable for
+compatibility but are ignored and removed the next time DiffOwl saves project config.
 
 ```yaml
-# Model to use for reviews (provider/model)
-model: opencode/big-pickle
-
 # OpenCode server settings
 server:
   port: 4096
