@@ -920,7 +920,7 @@
               <div class="n">02</div>
               <h3>Nothing to sign up for</h3>
               <p>
-                No account, no dashboard, no rate limits, no third party in the loop. The CLI runs
+                No account, no dashboard, no third party in the loop. The CLI runs
                 on your machine and talks straight to the model provider you already use — DiffOwl
                 adds nothing in between.
               </p>
@@ -951,9 +951,9 @@
         <div class="wrap reveal">
           <div class="eyebrow">The closed loop</div>
           <div class="h2">
-            Most tools leave a comment. DiffOwl <strong>verifies the fix.</strong>
+            Most tools leave a comment. DiffOwl <strong>remembers the outcome.</strong>
           </div>
-          <p class="lede">Reviewer and implementer stay separate — all the way to confirmation.</p>
+          <p class="lede">Reviewer and implementer stay separate — and every finding has a lifecycle.</p>
           <div class="loop">
             <div class="step">
               <div class="si">01</div>
@@ -975,8 +975,11 @@
             </div>
             <div class="step v">
               <div class="si">04</div>
-              <h4>DiffOwl verifies</h4>
-              <p>Re-checks. Regressions reopen the original finding automatically.</p>
+              <h4>DiffOwl remembers</h4>
+              <p>
+                Dismissed findings stay quiet on re-review; regressions reopen the original
+                finding automatically.
+              </p>
             </div>
           </div>
         </div>
@@ -1079,7 +1082,7 @@
                 </tr>
                 <tr>
                   <td>Rate limits</td>
-                  <td class="us" data-label="DiffOwl"><span class="y"></span>None</td>
+                  <td class="us" data-label="DiffOwl">Your provider's</td>
                   <td data-label="Hosted bots"><span class="n"></span>Free tier capped</td>
                   <td data-label="Agent self-review">Your provider's</td>
                 </tr>
@@ -1106,34 +1109,34 @@
           <div class="h2">What's <strong>next?</strong></div>
           <div class="road">
             <div class="ri done">
-              <div class="v">0.2</div>
+              <div class="v">01</div>
               <div class="tg">Shipped</div>
               <h4>Reliable runner</h4>
               <p>Stable hooks, context, execution.</p>
             </div>
             <div class="ri done">
-              <div class="v">0.3</div>
+              <div class="v">02</div>
               <div class="tg">Shipped</div>
               <h4>Durable findings</h4>
               <p>Stable IDs, SQLite, JSON, lifecycle.</p>
             </div>
-            <div class="ri">
-              <div class="v">0.4</div>
-              <div class="tg">Next</div>
+            <div class="ri done">
+              <div class="v">03</div>
+              <div class="tg">Shipped</div>
               <h4>Measured quality</h4>
               <p>Replayable eval — precision, recall, cost.</p>
             </div>
             <div class="ri">
-              <div class="v">0.5</div>
-              <div class="tg">Planned</div>
-              <h4>Impact graph</h4>
-              <p>Incremental symbol & call index.</p>
+              <div class="v">04</div>
+              <div class="tg">In progress</div>
+              <h4>Branch review</h4>
+              <p>Review the branch, not the commit — plus a pre-PR gate.</p>
             </div>
             <div class="ri">
-              <div class="v">0.6</div>
+              <div class="v">05</div>
               <div class="tg">Planned</div>
-              <h4>CI verify loop</h4>
-              <p>MCP, SARIF, GitHub Action.</p>
+              <h4>Agent & CI loop</h4>
+              <p>Impact graph, MCP, SARIF, GitHub Action.</p>
             </div>
           </div>
         </div>
@@ -1153,7 +1156,7 @@
           </div>
           <div class="cta-row" style="justify-content: center">
             <a class="btn btn-p" href="https://github.com/gutierrezje/diffowl">Star on GitHub</a>
-            <a class="btn btn-g" href="#start">Read the docs</a>
+            <a class="btn btn-g" href="#start">Quickstart</a>
           </div>
         </div>
       </div>
@@ -1169,7 +1172,7 @@
           >
           <div class="d">
             The local, provider-neutral verification layer for agent-generated code. MIT licensed.
-            Powered by OpenCode. Zero SaaS overhead, no account required.
+            Runs on your OpenCode providers. No service in the loop, no account required.
           </div>
           <div style="font-family: var(--mono); font-size: 12.5px; color: var(--mut)">
             © 2026 ·
