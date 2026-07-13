@@ -143,12 +143,14 @@ program
     }
 
     // First run: prompt for setup
-    if (!configExists()) {
+    const initialized = !configExists();
+    if (initialized) {
       console.log(chalk.yellow("No .diffowl.yml found. Running first-time setup...\n"));
       await runInit();
     }
 
-    const config = await loadConfigOrExit(options.model);
+    const config = (await loadEffectiveConfigOrExit(options.model, { ignoreLocal: initialized }))
+      .config;
     const projectRoot = getProjectRoot();
     const diffOwlDir = await getSharedDiffOwlDir();
     const baseRequested = options.base !== undefined;
@@ -1049,13 +1051,16 @@ function collectValues(value: string, previous: string[]): string[] {
   return [...previous, value];
 }
 
-async function loadConfigOrExit(commandModel?: unknown): Promise<DiffOwlConfig> {
-  return (await loadEffectiveConfigOrExit(commandModel)).config;
+async function loadConfigOrExit(): Promise<DiffOwlConfig> {
+  return await loadProjectConfigOrExit();
 }
 
-async function loadEffectiveConfigOrExit(commandModel?: unknown) {
+async function loadEffectiveConfigOrExit(
+  commandModel?: unknown,
+  options: { ignoreLocal?: boolean } = {},
+) {
   try {
-    return await loadEffectiveConfig(commandModel);
+    return await loadEffectiveConfig(commandModel, process.env, options);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(chalk.red(`Config error: ${message}`));

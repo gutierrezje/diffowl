@@ -11,6 +11,7 @@ export type EffectiveConfig = {
 export async function loadEffectiveConfig(
   commandModel?: unknown,
   env: Record<string, string | undefined> = process.env,
+  options: { ignoreLocal?: boolean } = {},
 ): Promise<EffectiveConfig> {
   const config = await loadConfig();
   const environmentModel = env["DIFFOWL_MODEL"]?.trim() || undefined;
@@ -22,6 +23,9 @@ export async function loadEffectiveConfig(
   if (environmentModel !== undefined) {
     config.model = parseModel(environmentModel);
     return { config, modelSource: "environment" };
+  }
+  if (options.ignoreLocal) {
+    return { config, modelSource: "project" };
   }
   const localModel = await loadModelPreference();
   if (localModel !== undefined) {
