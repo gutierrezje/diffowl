@@ -588,6 +588,22 @@ program
       return;
     }
 
+    if (model) {
+      let parsedModel: string;
+      try {
+        parsedModel = parseModel(model);
+      } catch {
+        console.error(chalk.red(`Invalid model: ${model}`));
+        console.error(chalk.dim("Expected provider/model format, for example opencode/big-pickle"));
+        process.exit(1);
+      }
+
+      const configPath = await saveModelPreference(parsedModel);
+      console.log(chalk.green(`✓ Model set to ${chalk.cyan(parsedModel)}`));
+      console.log(chalk.dim(`Local preference: ${configPath}`));
+      return;
+    }
+
     let effective;
     try {
       effective = await loadEffectiveConfig();
@@ -605,24 +621,8 @@ program
     }
     const config = effective.config;
 
-    if (!model) {
-      console.log(formatEffectiveModel(config.model, effective.modelSource));
-      await selectModelInteractively(config, { allowKeepCurrent: true });
-      return;
-    }
-
-    let parsedModel: string;
-    try {
-      parsedModel = parseModel(model);
-    } catch {
-      console.error(chalk.red(`Invalid model: ${model}`));
-      console.error(chalk.dim("Expected provider/model format, for example opencode/big-pickle"));
-      process.exit(1);
-    }
-
-    const configPath = await saveModelPreference(parsedModel);
-    console.log(chalk.green(`✓ Model set to ${chalk.cyan(parsedModel)}`));
-    console.log(chalk.dim(`Local preference: ${configPath}`));
+    console.log(formatEffectiveModel(config.model, effective.modelSource));
+    await selectModelInteractively(config, { allowKeepCurrent: true });
   });
 
 async function selectModelInteractively(
