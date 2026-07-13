@@ -1,5 +1,6 @@
 import chalk from "chalk";
 import { rename, unlink, writeFile, mkdir } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
@@ -142,7 +143,7 @@ ${review}
 }
 
 async function writeFileAtomic(filepath: string, content: string): Promise<void> {
-  const tempPath = `${filepath}.${process.pid}.${Date.now()}.tmp`;
+  const tempPath = `${filepath}.${process.pid}.${randomUUID()}.tmp`;
   await writeFile(tempPath, content, "utf-8");
   try {
     await rename(tempPath, filepath);

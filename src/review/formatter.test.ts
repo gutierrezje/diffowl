@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { execa } from "execa";
@@ -425,27 +425,26 @@ describe("writeMarkdownReport", () => {
     expect(reportPath).toMatch(join(repo, ".diffowl", "reviews", "review-"));
   });
 
-  it("updates latest.md atomically without leaving a partial file", async () => {
+  it("keeps concurrent latest.md updates complete and removes temporary files", async () => {
     const repo = await createGitProject();
     process.chdir(repo);
+    const reports = ["A".repeat(100_000), "B".repeat(100_000), "C".repeat(100_000)];
 
-    await writeMarkdownReport("### Summary\nFirst", {
-      schema_version: 1,
-      review_id: "rev_1",
-      session_id: "ses_1",
-      project_root: repo,
-    });
-    await writeMarkdownReport("### Summary\nSecond complete report", {
-      schema_version: 1,
-      review_id: "rev_2",
-      session_id: "ses_2",
-      project_root: repo,
-    });
+    await Promise.all(
+      reports.map((body, index) =>
+        writeMarkdownReport(`### Summary\n${body}`, {
+          schema_version: 1,
+          review_id: `rev_${index}`,
+          session_id: `ses_${index}`,
+          project_root: repo,
+        }),
+      ),
+    );
 
-    const { readFile } = await import("node:fs/promises");
-    const latest = await readFile(join(repo, ".diffowl", "reviews", "latest.md"), "utf-8");
-    expect(latest).toContain("Second complete report");
-    expect(latest).not.toContain("First");
+    const reviewsDir = join(repo, ".diffowl", "reviews");
+    const latest = await readFile(join(reviewsDir, "latest.md"), "utf-8");
+    expect(reports.filter((body) => latest.includes(body))).toHaveLength(1);
+    expect((await readdir(reviewsDir)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
   });
 });
 
