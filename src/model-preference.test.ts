@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { execa } from "execa";
@@ -18,7 +18,7 @@ afterEach(async () => {
 
 describe("model preference", () => {
   it("shares a preference between linked worktrees", async () => {
-    const repo = await mkdtemp(join(tmpdir(), "diffowl-model-preference-"));
+    const repo = await realpath(await mkdtemp(join(tmpdir(), "diffowl-model-preference-")));
     tempDirs.push(repo);
     await execa("git", ["init", "--initial-branch=main"], { cwd: repo });
     await writeFile(join(repo, ".diffowl.yml"), "model: provider/project\n", "utf8");
@@ -52,7 +52,7 @@ describe("model preference", () => {
   });
 
   it("rejects unknown preference keys", async () => {
-    const repo = await mkdtemp(join(tmpdir(), "diffowl-model-preference-strict-"));
+    const repo = await realpath(await mkdtemp(join(tmpdir(), "diffowl-model-preference-strict-")));
     tempDirs.push(repo);
     await writeFile(join(repo, ".diffowl.yml"), "model: provider/project\n", "utf8");
     process.chdir(repo);
