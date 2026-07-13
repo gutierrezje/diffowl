@@ -52,6 +52,15 @@ describe("diffowl CLI", () => {
     );
   });
 
+  it("rejects an explicitly empty model", async () => {
+    const repo = await createRepo("diffowl-cli-model-empty-", { localModel: false });
+
+    const result = await execa("node", [cliPath, "model", ""], { cwd: repo, reject: false });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Invalid model");
+  });
+
   it("resets the local model preference without using the legacy project model", async () => {
     const repo = await createRepo("diffowl-cli-model-reset-");
     await execa("node", [cliPath, "model", "provider/local"], { cwd: repo });

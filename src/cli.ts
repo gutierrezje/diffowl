@@ -588,7 +588,7 @@ program
       return;
     }
 
-    if (model) {
+    if (model !== undefined) {
       let parsedModel: string;
       try {
         parsedModel = parseModel(model);
