@@ -10,7 +10,7 @@ import {
 } from "../state/findings-query.js";
 import { persistReviewRun } from "../state/persist.js";
 import type { ReviewFinding } from "../review/types.js";
-import { getSharedDiffOwlDir, resetSharedDiffOwlDirForTests } from "./state-root.js";
+import { getSharedDiffOwlDir, isRecoverableGitLookupError, resetSharedDiffOwlDirForTests } from "./state-root.js";
 
 const originalCwd = process.cwd();
 let tempDirs: string[] = [];
@@ -115,6 +115,20 @@ describe("getSharedDiffOwlDir", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]?.[0]).toContain(join(repo, ".diffowl", "state.db"));
     expect(warn.mock.calls[0]?.[0]).toContain(join(worktree, ".diffowl", "state.db"));
+    expect(warn.mock.calls[0]?.[0]).not.toMatch(/plan\s+025/i);
+    expect(warn.mock.calls[0]?.[0]).toContain("Delete the checkout-local database");
+  });
+
+  it("only treats missing-git and git-fatal errors as recoverable lookups", () => {
+    expect(isRecoverableGitLookupError(Object.assign(new Error("missing"), { code: "ENOENT" }))).toBe(
+      true,
+    );
+    expect(isRecoverableGitLookupError(Object.assign(new Error("fatal"), { exitCode: 128 }))).toBe(
+      true,
+    );
+    expect(isRecoverableGitLookupError(Object.assign(new Error("permission denied"), { exitCode: 1 }))).toBe(
+      false,
+    );
   });
 
   it("shares persisted findings and lifecycle mutations across linked worktrees", async () => {
