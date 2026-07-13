@@ -162,7 +162,7 @@ Meet agentic workflows at their natural unit: the branch, not the commit.
   it is the one backend that can unlock a subscription users already pay for
   (Anthropic's terms keep Claude subscriptions out of reach for any third-party
   path, so for Claude a direct backend buys nothing over OpenCode). Adopt only
-  if it clears the same eval gates the pi spike failed; subscription economics
+  if it clears the same eval gates the rejected pi-backend spike failed; subscription economics
   alone are not sufficient evidence.
 
 ### Incremental Impact Graph

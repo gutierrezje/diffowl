@@ -217,7 +217,7 @@ export function renderEvalSummary(document: EvalResultsDocumentV1): string {
     `| Empty-on-clean rate | ${formatNullableNumber(aggregate.diffowl?.emptyOnCleanRate)} | ${formatNullableNumber(aggregate.baseline?.emptyOnCleanRate)} | n/a |`,
   );
   lines.push(
-    `| Latency p50 (ms) | ${formatNullableNumber(aggregate.diffowl?.latencyMs.p50)} | ${formatNullableNumber(aggregate.baseline?.latencyMs.p50)} | ${formatDelta(aggregate.delta?.latencyP50.delta)} |`,
+    `| Latency p50 (ms) | ${formatNullableNumber(aggregate.delta?.latencyP50.diffowl ?? aggregate.diffowl?.latencyMs.p50)} | ${formatNullableNumber(aggregate.delta?.latencyP50.baseline ?? aggregate.baseline?.latencyMs.p50)} | ${formatDelta(aggregate.delta?.latencyP50.delta)} |`,
   );
   lines.push(
     `| Usage mean cost | ${formatNullableNumber(aggregate.diffowl?.usage.meanCost)} | ${formatNullableNumber(aggregate.baseline?.usage.meanCost)} | ${formatDelta(aggregate.delta?.usageMeanCost.delta)} |`,
