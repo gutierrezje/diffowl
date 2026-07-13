@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import { rename, writeFile, mkdir } from "node:fs/promises";
+import { rename, unlink, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
@@ -144,7 +144,12 @@ ${review}
 async function writeFileAtomic(filepath: string, content: string): Promise<void> {
   const tempPath = `${filepath}.${process.pid}.${Date.now()}.tmp`;
   await writeFile(tempPath, content, "utf-8");
-  await rename(tempPath, filepath);
+  try {
+    await rename(tempPath, filepath);
+  } catch (error) {
+    await unlink(tempPath).catch(() => {});
+    throw error;
+  }
 }
 
 export function parseReviewMetadata(content: string): ReviewMetadata | undefined {
