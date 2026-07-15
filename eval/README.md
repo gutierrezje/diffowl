@@ -24,9 +24,12 @@ export DIFFOWL_EVAL_MODEL="provider/model"
 pnpm run eval -- \
   --mode both \
   --trials 3 \
-  --gate eval/gates/default.json \
   --out /tmp/diffowl-eval-run
 ```
+
+Do not pass `--gate` for exploratory runs or baseline captures — a baseline
+*defines* the level, so "failing" a threshold is not a meaningful outcome
+there. See Gates below.
 
 Use `--case <id>` to run a subset. `--format json` prints the full results document to stdout.
 
@@ -47,9 +50,12 @@ Committed baselines live under `eval/baselines/<label>/`:
 
 1. Confirm `eval/corpus-manifest.json` matches the live corpus (`pnpm run test src/eval/corpus.test.ts`).
 2. Run the full corpus with `--mode both --trials 3` and a fixed model.
+   Omit `--gate`: baseline captures record where we are; they cannot pass or
+   fail.
 3. Copy `eval-metrics.json`, `eval-results.json`, and `eval-summary.md` into `eval/baselines/<label>/`.
-4. Add `eval/baselines/<label>/manifest.json` recording model, trials, `corpus_version`, DiffOwl version, and whether gates passed.
-5. If `eval/gates/default.json` fails on real numbers, record actual metrics anyway; adjust gates or add a baseline-specific gate file in the baseline manifest — do not fake a passing run.
+4. Add `eval/baselines/<label>/manifest.json` recording model, trials,
+   `corpus_version`, and DiffOwl version. Record the actual metrics as
+   measured — never adjust a run to look better.
 
 Do not commit fixture-built or synthetic baselines under `eval/baselines/`. If no live snapshot exists for a label, leave that directory absent until capture is complete.
 
@@ -71,4 +77,14 @@ Comparison requires matching `corpus_version`, case ids, and per-case hashes fro
 
 ## Gates
 
-Default thresholds: `eval/gates/default.json`. Pass/fail is reported in results and sets CLI exit code when `--gate` is used.
+Default thresholds: `eval/gates/default.json`. Pass/fail is reported in
+results and sets the CLI exit code when `--gate` is used.
+
+**Gates are opt-in tooling for CI/strict comparison runs, not a verdict on
+the reviewer.** Per current policy (decision log, 2026-07-15): the corpus is
+too small and noisy to hard-gate features, so gate output on any run is
+advisory. The thresholds in `default.json` are aspirational values from plan
+016, not calibrated standards — a run printing "Gates failed" means "below
+those aspirational numbers," nothing more. Agents summarizing eval runs
+should report the metrics, not a pass/fail verdict, unless the run was an
+explicit `--fail-on-regression` comparison against a committed baseline.
