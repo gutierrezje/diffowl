@@ -6,8 +6,51 @@ All notable changes to DiffOwl are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-07-15
+
+The **Branch Review** release. DiffOwl can now review everything a branch
+adds — the same diff a pull request shows — instead of one commit at a time.
+
+### Added
+
+- **Branch review: `diffowl review --base [ref]`.** Reviews the committed
+  changes since the merge base with the given ref (three-dot semantics).
+  Omit the ref to auto-detect the default branch. Reviews committed `HEAD`
+  only, so results are reproducible; `--staged` remains the pre-commit
+  surface. This is the natural pre-PR review for agent-driven workflows,
+  where a session produces many commits and the unit that matters is the
+  branch delta.
+- **`diffowl findings list --format json`** for scripts and agents.
+
+### Changed
+
+- **`info` findings are now advisory.** A review whose only findings are
+  `info`-severity reports status `Advisory` (JSON: `"advisory"`) instead of
+  `Open`. Only `error` and `warning` findings open a review. Info findings
+  still receive durable ids and appear in `diffowl findings`.
+- **Model selection is developer-local.** The active model now lives in
+  local state rather than the shared `.diffowl.yml`, so teammates (and
+  worktrees) can use different models without dirtying the committed config.
+  Explicit config values are validated (empty models rejected).
+
+### Fixed
+
+- `latest.md` is written atomically, eliminating corruption when reviews
+  from linked worktrees finish concurrently; temp files are cleaned up if
+  the rename fails.
+- Shared state-root lookups are hardened and retried, fixing crashes on
+  partial git failures.
+- Review snapshots persist their commit identity correctly.
+
 ### Internal
 
+- Review pipeline extracted from the CLI into `src/review/run.ts`
+  (plan 018): skip paths, happy path, rendering, and timing ownership now
+  live behind one callable pipeline — groundwork for MCP and CI surfaces.
+- Eval: corpus expectation contract enforced by a conformance test
+  (plan 027); first post-contract live baseline captured
+  (`eval/baselines/v3`, deepseek-v4-flash); gates documented as opt-in
+  comparison tooling, not run verdicts.
 - Retired the legacy `dogfood:0.3` manual release-gate script and checklist now
   that durable-finding coverage lives in deterministic tests and the eval
   corpus.
@@ -58,5 +101,6 @@ reviewer prompt; the measurement machinery itself is internal tooling.
 
 See the Git history and release notes for versions at and before `v0.3.1`.
 
+[0.3.3]: https://github.com/gutierrezje/diffowl/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/gutierrezje/diffowl/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/gutierrezje/diffowl/releases/tag/v0.3.1
