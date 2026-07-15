@@ -221,15 +221,17 @@ describe("buildEvalReport", () => {
     expect(document.aggregate.delta).toBeDefined();
     expect(summary).toContain("| Metric | DiffOwl | Baseline | Delta |");
     expect(summary).toContain("missing-validation");
-    const latencyLine = summary
-      .split("\n")
-      .find((line) => line.includes("Latency p50 (ms)"));
+    const latencyLine = summary.split("\n").find((line) => line.includes("Latency p50 (ms)"));
     expect(latencyLine).toBeDefined();
     // DiffOwl/Baseline columns must use the same per-case-mean aggregation as Delta.
     const delta = document.aggregate.delta!;
-    expect(latencyLine).toContain(delta.latencyP50.diffowl!.toFixed(3));
-    expect(latencyLine).toContain(delta.latencyP50.baseline!.toFixed(3));
+    const [, metric, diffowl, baseline, renderedDelta] = latencyLine!
+      .split("|")
+      .map((cell) => cell.trim());
+    expect(metric).toBe("Latency p50 (ms)");
+    expect(diffowl).toBe(delta.latencyP50.diffowl!.toFixed(3));
+    expect(baseline).toBe(delta.latencyP50.baseline!.toFixed(3));
     const prefix = delta.latencyP50.delta! > 0 ? "+" : "";
-    expect(latencyLine).toContain(`${prefix}${delta.latencyP50.delta!.toFixed(3)}`);
+    expect(renderedDelta).toBe(`${prefix}${delta.latencyP50.delta!.toFixed(3)}`);
   });
 });
