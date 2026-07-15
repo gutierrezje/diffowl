@@ -11,4 +11,8 @@ plans/
 eval/results/
 eval/output/
 eval/baselines/local/
+
+# Editor/agent-local tooling
+.cursor/
+
 .DS_Store

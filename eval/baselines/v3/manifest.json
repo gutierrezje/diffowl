@@ -1,0 +1,26 @@
+{
+  "label": "v3",
+  "captured_at": "2026-07-15T23:05:09.766Z",
+  "source_commit": "567a10406de929f4337c3e6f6e48315a06b36004",
+  "diffowl_version": "0.3.2",
+  "corpus_version": "3d336b6fd10e6aa06b72a3ff53341f08ecb1a69f370e47078f24a096164dc8a4",
+  "model": "opencode-go/deepseek-v4-flash",
+  "mode": "both",
+  "trials": 3,
+  "depth": "default",
+  "reasoning": "auto",
+  "min_confidence": "medium",
+  "gate": "eval/gates/default.json",
+  "gates_passed": false,
+  "gate_failures": [
+    "empty-on-clean rate 0.6666666666666667 is below minimum 0.9"
+  ],
+  "node_version": "v26.4.0",
+  "opencode_version": "1.18.2",
+  "result_files": {
+    "metrics": "eval-metrics.json",
+    "results": "eval-results.json",
+    "summary": "eval-summary.md"
+  },
+  "notes": "Post-027 A/A live baseline on deepseek-v4-flash (mode both, trials 3). Default gates failed on empty-on-clean (0.667 < 0.9); numbers recorded honestly."
+}
