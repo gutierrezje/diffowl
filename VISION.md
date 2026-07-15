@@ -161,9 +161,11 @@ Meet agentic workflows at their natural unit: the branch, not the commit.
 - Spike a Codex-subprocess backend behind the existing backend seam. Rationale:
   it is the one backend that can unlock a subscription users already pay for
   (Anthropic's terms keep Claude subscriptions out of reach for any third-party
-  path, so for Claude a direct backend buys nothing over OpenCode). Adopt only
-  when a mature eval suite can compare review quality, reliability, latency,
-  and operating cost; subscription economics alone are not sufficient evidence.
+  path, so for Claude a direct backend buys nothing over OpenCode). Adoption
+  should weigh review quality, reliability, latency, and operating cost —
+  with eval comparisons as supporting input once the suite is mature enough
+  to be trusted, not as an automatic pass/fail. Subscription economics alone
+  are not a sufficient reason.
 
 ### Incremental Impact Graph
 
@@ -172,8 +174,9 @@ Meet agentic workflows at their natural unit: the branch, not the commit.
 - Query the smallest relevant subgraph for each changed symbol.
 - Include configuration and schema consumers where relationships can be
   determined reliably.
-- Start with TypeScript and add languages only when evaluation demonstrates
-  value.
+- Start with TypeScript; expand to other languages when there is good reason
+  to believe the approach carries over, using evaluation as one input rather
+  than a prerequisite.
 
 ### Agent and CI Verification Loop
 
@@ -284,5 +287,8 @@ measured review quality and building the pre-PR gate on the branch-review
 primitive. Branch review is the single largest workflow unlock for agent-driven
 development: agents produce many commits per session, and the reviewable unit
 users care about before a PR is the branch delta, not each intermediate
-commit. Quality changes (prompt, contract, backends) continue to merge only
-on eval evidence.
+commit. Quality changes (prompt, contract, backends) should be checked against
+the eval harness where it can meaningfully measure them, but the current
+corpus is too small and too noisy to serve as a hard merge gate — treat eval
+results as evidence to weigh, and judgment as the final call, until the corpus
+earns more authority.
