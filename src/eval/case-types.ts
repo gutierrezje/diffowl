@@ -87,3 +87,17 @@ export function validateEvalCaseSemantics(caseJson: EvalCaseJson): void {
     throw new Error(`Case "${caseJson.id}" with category "${caseJson.category}" requires expected findings.`);
   }
 }
+
+/**
+ * Findings used for scoring / final-state anchor checks.
+ * Prefer top-level `expected` when present so dual-declared cases do not double-count.
+ * Otherwise flatten `steps[].expected` (multi-step cases that omit top-level expected).
+ */
+export function collectEvalCaseExpected(
+  evalCase: Pick<EvalCase, "expected" | "steps">,
+): EvalExpectedFinding[] {
+  if (evalCase.expected.length > 0) {
+    return evalCase.expected;
+  }
+  return evalCase.steps.flatMap((step) => step.expected);
+}

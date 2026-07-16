@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   EvalCaseJsonSchema,
+  collectEvalCaseExpected,
   parseEvalCaseJson,
   validateEvalCaseSemantics,
 } from "./case-types.js";
@@ -133,5 +134,52 @@ describe("validateEvalCaseSemantics", () => {
     });
 
     expect(() => validateEvalCaseSemantics(caseJson)).toThrow(/must not declare expected findings/);
+  });
+});
+
+describe("collectEvalCaseExpected", () => {
+  it("prefers top-level expected over step expected", () => {
+    expect(
+      collectEvalCaseExpected({
+        expected: [
+          { file: "src/a.ts", line: 1, line_tolerance: 2, min_severity: "warning", must_detect: true },
+        ],
+        steps: [
+          {
+            patchPath: "a.patch",
+            expected: [
+              { file: "src/b.ts", line: 2, line_tolerance: 2, min_severity: "warning", must_detect: true },
+            ],
+          },
+        ],
+      }),
+    ).toEqual([
+      { file: "src/a.ts", line: 1, line_tolerance: 2, min_severity: "warning", must_detect: true },
+    ]);
+  });
+
+  it("flattens step expected when top-level is empty", () => {
+    expect(
+      collectEvalCaseExpected({
+        expected: [],
+        steps: [
+          {
+            patchPath: "a.patch",
+            expected: [
+              { file: "src/a.ts", line: 1, line_tolerance: 2, min_severity: "warning", must_detect: true },
+            ],
+          },
+          {
+            patchPath: "b.patch",
+            expected: [
+              { file: "src/b.ts", line: 2, line_tolerance: 2, min_severity: "warning", must_detect: true },
+            ],
+          },
+        ],
+      }),
+    ).toEqual([
+      { file: "src/a.ts", line: 1, line_tolerance: 2, min_severity: "warning", must_detect: true },
+      { file: "src/b.ts", line: 2, line_tolerance: 2, min_severity: "warning", must_detect: true },
+    ]);
   });
 });

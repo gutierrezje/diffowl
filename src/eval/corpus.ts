@@ -5,6 +5,7 @@ import { execa } from "execa";
 import {
   parseEvalCaseJson,
   validateEvalCaseSemantics,
+  collectEvalCaseExpected,
   type EvalCase,
   type EvalCaseHashes,
   type EvalCaseJson,
@@ -114,7 +115,7 @@ export async function materializeCaseWorkspace(
 }
 
 export async function verifyEvalCaseAnchors(evalCase: EvalCase, workDir: string): Promise<void> {
-  for (const expected of evalCase.expected) {
+  for (const expected of collectEvalCaseExpected(evalCase)) {
     const filePath = join(workDir, expected.file);
     try {
       await readFile(filePath, "utf8");
@@ -134,11 +135,36 @@ export async function verifyEvalCaseAnchors(evalCase: EvalCase, workDir: string)
 }
 
 export async function hashCase(caseDir: string): Promise<EvalCaseHashes> {
-  const caseJson = await readFile(join(caseDir, "case.json"));
-  const patch = await readFile(join(caseDir, "change.patch"));
+  const caseJsonBytes = await readFile(join(caseDir, "case.json"));
+  let raw: unknown;
+  try {
+    raw = JSON.parse(caseJsonBytes.toString("utf8"));
+  } catch (error) {
+    throw new Error(`Failed to read case.json for hash in "${caseDir}": ${describeError(error)}`);
+  }
+
+  const caseJson = parseEvalCaseJson(raw);
+  const steps = resolveEvalCaseSteps(caseDir, caseJson);
+  const caseJsonHash = hashBuffer(caseJsonBytes);
+
+  // Keep the historical single-file digest so existing manifests stay stable.
+  if (steps.length === 1) {
+    return {
+      caseJsonHash,
+      patchHash: hashBuffer(await readFile(steps[0]!.patchPath)),
+    };
+  }
+
+  const patchLines: string[] = [];
+  for (const step of steps) {
+    const patchBytes = await readFile(step.patchPath);
+    const rel = relative(caseDir, step.patchPath).split(sep).join("/");
+    patchLines.push(`${rel}:${hashBuffer(patchBytes)}`);
+  }
+
   return {
-    caseJsonHash: hashBuffer(caseJson),
-    patchHash: hashBuffer(patch),
+    caseJsonHash,
+    patchHash: hashText(patchLines.join("\n")),
   };
 }
 

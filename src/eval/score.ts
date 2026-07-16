@@ -2,7 +2,7 @@ import { computeFindingFingerprint } from "../state/fingerprint.js";
 import type { ReviewFinding, ReviewSeverity } from "../review/types.js";
 import type { EvalExpectedFinding } from "./case-types.js";
 import type { EvalCaseRunResult } from "./runner-types.js";
-import type { EvalCase } from "./case-types.js";
+import { collectEvalCaseExpected, type EvalCase } from "./case-types.js";
 import {
   DEFAULT_EVAL_SCORE_OPTIONS,
   type EvalCaseScore,
@@ -137,13 +137,13 @@ function expectedCountsAsFalseNegative(
 }
 
 export function scoreEvalTrial(
-  evalCase: Pick<EvalCase, "id" | "expected">,
+  evalCase: Pick<EvalCase, "id" | "expected" | "steps">,
   trial: EvalTrialResult,
   options?: EvalScoreOptions,
 ): EvalTrialScore {
   const resolved = resolveScoreOptions(options);
   const reported = trial.findings;
-  const expected = evalCase.expected;
+  const expected = collectEvalCaseExpected(evalCase);
   const candidates = buildMatchCandidates(expected, reported);
   const truePositives = assignTruePositives(candidates, reported);
 
@@ -250,7 +250,7 @@ function detectRepeatedFalsePositives(
 }
 
 export function scoreEvalCase(
-  evalCase: Pick<EvalCase, "id" | "category" | "tags" | "expected">,
+  evalCase: Pick<EvalCase, "id" | "category" | "tags" | "expected" | "steps">,
   run: EvalCaseRunResult,
   options?: EvalScoreOptions,
 ): EvalCaseScore {

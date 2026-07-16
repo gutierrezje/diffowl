@@ -115,14 +115,36 @@ describe("materializeCaseWorkspace", () => {
     expect(content).not.toContain('throw new Error("id is required")');
   });
 
-  it("verifies expected anchors after patch application", async () => {
+  it("verifies expected anchors after all patches are applied", async () => {
     const corpus = await loadEvalCorpus(corpusDir);
 
     for (const evalCase of corpus.cases) {
       const workDir = await createTempDir(`eval-${evalCase.id}-`);
-      await materializeCaseWorkspace(evalCase, workDir);
+      await copyCaseBase(evalCase, workDir);
+      for (let stepIndex = 0; stepIndex < evalCase.steps.length; stepIndex++) {
+        await applyCaseStep(evalCase, workDir, stepIndex);
+      }
       await expect(verifyEvalCaseAnchors(evalCase, workDir)).resolves.toBeUndefined();
     }
+  });
+
+  it("verifies step-only expected anchors after applying every step", async () => {
+    const caseDir = await createMultiStepCase({
+      expected: [],
+      steps: [
+        { patchPath: "step-1.patch" },
+        {
+          patchPath: "step-2.patch",
+          expected: [{ file: "src/example.ts", line: 1 }],
+        },
+      ],
+    });
+    const evalCase = await loadEvalCase(caseDir);
+    const workDir = await createTempDir("eval-step-expected-");
+    await copyCaseBase(evalCase, workDir);
+    await applyCaseStep(evalCase, workDir, 0);
+    await applyCaseStep(evalCase, workDir, 1);
+    await expect(verifyEvalCaseAnchors(evalCase, workDir)).resolves.toBeUndefined();
   });
 });
 
@@ -244,6 +266,13 @@ describe("hashCase", () => {
     expect(hashes.caseJsonHash).toMatch(/^[a-f0-9]{64}$/);
     expect(hashes.patchHash).toMatch(/^[a-f0-9]{64}$/);
   });
+
+  it("hashes multi-step cases without change.patch", async () => {
+    const caseDir = await createMultiStepCase();
+    const hashes = await hashCase(caseDir);
+    expect(hashes.caseJsonHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(hashes.patchHash).toMatch(/^[a-f0-9]{64}$/);
+  });
 });
 
 describe("applyCasePatch", () => {
@@ -289,7 +318,10 @@ async function createTempDir(prefix: string): Promise<string> {
   return dir;
 }
 
-async function createMultiStepCase(): Promise<string> {
+async function createMultiStepCase(overrides?: {
+  expected?: Array<Record<string, unknown>>;
+  steps?: Array<Record<string, unknown>>;
+}): Promise<string> {
   const root = await createTempDir("eval-multi-");
   const caseDir = join(root, "multi-step");
   const baseDir = join(caseDir, "base");
@@ -303,8 +335,8 @@ async function createMultiStepCase(): Promise<string> {
         category: "bug",
         language: "typescript",
         description: "two sequential patches",
-        expected: [{ file: "src/example.ts", line: 1 }],
-        steps: [
+        expected: overrides?.expected ?? [{ file: "src/example.ts", line: 1 }],
+        steps: overrides?.steps ?? [
           { patchPath: "step-1.patch" },
           { patchPath: "step-2.patch", expected: [{ file: "src/example.ts", line: 1 }] },
         ],

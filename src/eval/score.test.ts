@@ -173,6 +173,26 @@ describe("scoreEvalTrial", () => {
     expect(score.counts).toEqual({ tp: 1, fp: 1, fn: 0, redundancy: 0 });
     expect(score.falsePositives[0]?.file).toBe("src/other.ts");
   });
+
+  it("scores expected findings declared only on steps", () => {
+    const patchPath = "/tmp/case/step-1.patch";
+    const evalCase = makeEvalCase({
+      expected: [],
+      patchPath,
+      steps: [
+        {
+          patchPath,
+          expected: [makeExpected({ file: "src/user.ts", line: 3 })],
+        },
+      ],
+    });
+    const trial = makeTrial([
+      makeFinding({ file: "src/user.ts", line: 3, title: "Matched from step" }),
+    ]);
+
+    expect(scoreEvalTrial(evalCase, trial).counts).toEqual({ tp: 1, fp: 0, fn: 0, redundancy: 0 });
+    expect(scoreEvalTrial(evalCase, makeTrial([])).counts.fn).toBe(1);
+  });
 });
 
 describe("scoreEvalCase", () => {
