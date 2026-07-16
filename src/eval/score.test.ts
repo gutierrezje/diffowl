@@ -30,17 +30,20 @@ function makeExpected(overrides: Partial<EvalExpectedFinding> & Pick<EvalExpecte
 }
 
 function makeEvalCase(overrides: Partial<EvalCase>): EvalCase {
+  const patchPath = overrides.patchPath ?? "/tmp/case/change.patch";
+  const expected = overrides.expected ?? [];
   return {
     id: "test-case",
     category: "bug",
     language: "typescript",
     description: "test",
     target: "commit",
-    expected: [],
+    expected,
     tags: [],
     dir: "/tmp/case",
     baseDir: "/tmp/case/base",
-    patchPath: "/tmp/case/change.patch",
+    patchPath,
+    steps: overrides.steps ?? [{ patchPath, expected }],
     ...overrides,
   };
 }

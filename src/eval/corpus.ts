@@ -7,13 +7,14 @@ import {
   validateEvalCaseSemantics,
   type EvalCase,
   type EvalCaseHashes,
+  type EvalCaseJson,
+  type EvalCaseStep,
   type EvalCorpus,
 } from "./case-types.js";
 
 export async function loadEvalCase(caseDir: string): Promise<EvalCase> {
   const caseJsonPath = join(caseDir, "case.json");
   const baseDir = join(caseDir, "base");
-  const patchPath = join(caseDir, "change.patch");
   const id = basename(caseDir);
 
   let raw: unknown;
@@ -30,13 +31,24 @@ export async function loadEvalCase(caseDir: string): Promise<EvalCase> {
 
   validateEvalCaseSemantics(caseJson);
   await assertDirectory(baseDir, `Case "${id}" is missing a non-empty base/ directory.`);
-  await assertFile(patchPath, `Case "${id}" is missing change.patch.`);
+
+  const steps = resolveEvalCaseSteps(caseDir, caseJson);
+  for (const [index, step] of steps.entries()) {
+    await assertFile(step.patchPath, `Case "${id}" is missing step ${index} patch (${step.patchPath}).`);
+  }
 
   return {
-    ...caseJson,
+    id: caseJson.id,
+    category: caseJson.category,
+    language: caseJson.language,
+    description: caseJson.description,
+    target: caseJson.target,
+    expected: caseJson.expected,
+    tags: caseJson.tags,
     dir: caseDir,
     baseDir,
-    patchPath,
+    patchPath: steps[0]!.patchPath,
+    steps,
   };
 }
 
@@ -62,8 +74,23 @@ export async function copyCaseBase(evalCase: EvalCase, workDir: string): Promise
 }
 
 export async function applyCasePatch(evalCase: EvalCase, workDir: string): Promise<void> {
+  await applyCaseStep(evalCase, workDir, 0);
+}
+
+export async function applyCaseStep(
+  evalCase: EvalCase,
+  workDir: string,
+  stepIndex: number,
+): Promise<void> {
+  const step = evalCase.steps[stepIndex];
+  if (!step) {
+    throw new Error(
+      `Case "${evalCase.id}" has no step ${stepIndex} (${evalCase.steps.length} steps).`,
+    );
+  }
+
   try {
-    await execa("git", ["apply", "--whitespace=nowarn", evalCase.patchPath], {
+    await execa("git", ["apply", "--whitespace=nowarn", step.patchPath], {
       cwd: workDir,
       reject: false,
     }).then((result) => {
@@ -72,7 +99,9 @@ export async function applyCasePatch(evalCase: EvalCase, workDir: string): Promi
       }
     });
   } catch (error) {
-    throw new Error(`Failed to apply patch for case "${evalCase.id}": ${describeError(error)}`);
+    throw new Error(
+      `Failed to apply step ${stepIndex} patch for case "${evalCase.id}": ${describeError(error)}`,
+    );
   }
 }
 
@@ -202,6 +231,22 @@ function hashBuffer(content: string | Buffer): string {
 
 function hashText(content: string): string {
   return createHash("sha256").update(content, "utf8").digest("hex");
+}
+
+function resolveEvalCaseSteps(caseDir: string, caseJson: EvalCaseJson): EvalCaseStep[] {
+  if (!caseJson.steps) {
+    return [
+      {
+        patchPath: join(caseDir, "change.patch"),
+        expected: caseJson.expected,
+      },
+    ];
+  }
+
+  return caseJson.steps.map((step) => ({
+    patchPath: join(caseDir, step.patchPath),
+    expected: step.expected ?? [],
+  }));
 }
 
 function describeError(error: unknown): string {

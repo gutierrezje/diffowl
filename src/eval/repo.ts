@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
 import type { ReviewTarget } from "../review/target.js";
-import { applyCasePatch, copyCaseBase } from "./corpus.js";
+import { applyCasePatch, applyCaseStep, copyCaseBase } from "./corpus.js";
 import type { EvalCase } from "./case-types.js";
 
 const CLEANUP_RETRIES = 5;
@@ -36,6 +36,14 @@ export async function cleanupMaterializedRepo(workDir: string): Promise<void> {
     maxRetries: CLEANUP_RETRIES,
     retryDelay: CLEANUP_RETRY_DELAY_MS,
   });
+}
+
+export async function applyMaterializedEvalCaseStep(
+  evalCase: EvalCase,
+  workDir: string,
+  stepIndex: number,
+): Promise<void> {
+  await applyCaseStep(evalCase, workDir, stepIndex);
 }
 
 /** Materializes a case repo and always cleans it up. Does not mutate process.cwd(). */

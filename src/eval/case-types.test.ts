@@ -40,6 +40,39 @@ describe("parseEvalCaseJson", () => {
     });
   });
 
+  it("parses optional multi-step declarations", () => {
+    const parsed = parseEvalCaseJson({
+      id: "multi",
+      category: "bug",
+      language: "typescript",
+      description: "two steps",
+      expected: [],
+      steps: [
+        { patchPath: "step-1.patch" },
+        {
+          patchPath: "step-2.patch",
+          expected: [{ file: "src/a.ts", line: 2 }],
+        },
+      ],
+    });
+
+    expect(parsed.steps).toEqual([
+      { patchPath: "step-1.patch" },
+      {
+        patchPath: "step-2.patch",
+        expected: [
+          {
+            file: "src/a.ts",
+            line: 2,
+            line_tolerance: 2,
+            min_severity: "warning",
+            must_detect: true,
+          },
+        ],
+      },
+    ]);
+  });
+
   it("rejects malformed case metadata", () => {
     expect(() =>
       parseEvalCaseJson({
@@ -65,6 +98,19 @@ describe("parseEvalCaseJson", () => {
 });
 
 describe("validateEvalCaseSemantics", () => {
+  it("accepts bug cases with expected findings only on steps", () => {
+    const caseJson = EvalCaseJsonSchema.parse({
+      id: "step-expected",
+      category: "bug",
+      language: "typescript",
+      description: "bug",
+      expected: [],
+      steps: [{ patchPath: "a.patch", expected: [{ file: "src/a.ts", line: 1 }] }],
+    });
+
+    expect(() => validateEvalCaseSemantics(caseJson)).not.toThrow();
+  });
+
   it("requires expected findings for bug cases", () => {
     const caseJson = EvalCaseJsonSchema.parse({
       id: "buggy",
