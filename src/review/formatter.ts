@@ -122,8 +122,9 @@ export async function writeMarkdownReport(
     await mkdir(dir, { recursive: true });
   }
 
+  // UUID suffix avoids same-ms collisions when concurrent reviews share a checkout.
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const filename = `review-${timestamp}.md`;
+  const filename = `review-${timestamp}-${randomUUID().slice(0, 8)}.md`;
   const filepath = join(dir, filename);
 
   const content = `${metadata ? renderReviewFrontmatter(metadata) : ""}# DiffOwl Review
@@ -133,12 +134,6 @@ ${review}
 `;
 
   await writeFileAtomic(filepath, content);
-
-  // Also write as latest. Atomic rename avoids torn reads when concurrent
-  // worktree hooks update the shared reviews directory.
-  const latestPath = join(dir, "latest.md");
-  await writeFileAtomic(latestPath, content);
-
   return filepath;
 }
 

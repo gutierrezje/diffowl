@@ -732,7 +732,7 @@ hookCmd
     console.log(chalk.dim(`Hook Entrypoint: ${command.cli}`));
     console.log(chalk.dim("Reviews will run automatically after each commit (non-blocking)"));
     console.log(
-      chalk.dim("Hook output: .diffowl/hook.log; latest report: .diffowl/reviews/latest.md"),
+      chalk.dim("Hook output: .diffowl/hook.log; reports: .diffowl/reviews/"),
     );
   });
 

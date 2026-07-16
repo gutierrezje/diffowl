@@ -10,6 +10,12 @@ export async function resolveReviewReportPath(report: string): Promise<string> {
     return resolve(report);
   }
 
+  // latest.md is no longer written; keep the locator as an alias for newest.
+  if (report === "latest.md" || report === "latest") {
+    const newest = (await listReviewReportPaths())[0];
+    if (newest) return newest;
+  }
+
   return join(await getSharedDiffOwlDir(), "reviews", report);
 }
 
