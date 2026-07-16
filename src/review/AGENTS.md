@@ -22,7 +22,7 @@ Builds the review context from diffs, AST, and cross-references, then renders an
 - Context respects `include`/`exclude` globs and skips lockfiles.
 - Changed file context truncated at 12K chars; related files at 6K; diff at 40K.
 - Reference search uses `git grep` with 5s timeout and 200 match cap.
-- Reports written to `.diffowl/reviews/review-{ISO}.md` and `latest.md`.
+- Reports written to `.diffowl/reviews/review-{ISO}-{uuid8}.md` (no `latest.md` copy).
 - Report timestamps: `ISOString().replace(/[:.]/g, "-")`.
 
 ## Anti-Patterns

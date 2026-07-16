@@ -425,7 +425,7 @@ describe("writeMarkdownReport", () => {
     expect(reportPath).toMatch(join(repo, ".diffowl", "reviews", "review-"));
   });
 
-  it("keeps concurrent latest.md updates complete and removes temporary files", async () => {
+  it("writes concurrent reports completely without leftover temporary files", async () => {
     const repo = await createGitProject();
     process.chdir(repo);
     const reports = ["A".repeat(100_000), "B".repeat(100_000), "C".repeat(100_000)];
@@ -442,9 +442,19 @@ describe("writeMarkdownReport", () => {
     );
 
     const reviewsDir = join(repo, ".diffowl", "reviews");
-    const latest = await readFile(join(reviewsDir, "latest.md"), "utf-8");
-    expect(reports.filter((body) => latest.includes(body))).toHaveLength(1);
-    expect((await readdir(reviewsDir)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+    const names = await readdir(reviewsDir);
+    expect(names.filter((name) => name === "latest.md")).toEqual([]);
+    expect(names.filter((name) => name.endsWith(".tmp"))).toEqual([]);
+
+    const written = await Promise.all(
+      names
+        .filter((name) => name.startsWith("review-") && name.endsWith(".md"))
+        .map((name) => readFile(join(reviewsDir, name), "utf-8")),
+    );
+    expect(written).toHaveLength(3);
+    for (const body of reports) {
+      expect(written.some((content) => content.includes(body))).toBe(true);
+    }
   });
 });
 

@@ -21,12 +21,42 @@ afterEach(async () => {
 });
 
 describe("resolveReviewReportPath", () => {
+  it("resolves latest.md to the newest timestamped report", async () => {
+    const root = await createProject();
+    const reviews = join(root, ".diffowl", "reviews");
+    await writeFile(
+      join(reviews, "review-2026-06-06T10-00-00-000Z.md"),
+      reviewContent("older"),
+      "utf-8",
+    );
+    await writeFile(
+      join(reviews, "review-2026-06-08T10-00-00-000Z.md"),
+      reviewContent("newer"),
+      "utf-8",
+    );
+
+    await expect(resolveReviewReportPath("latest.md")).resolves.toBe(
+      join(reviews, "review-2026-06-08T10-00-00-000Z.md"),
+    );
+    await expect(resolveReviewReportPath("latest")).resolves.toBe(
+      join(reviews, "review-2026-06-08T10-00-00-000Z.md"),
+    );
+  });
+
+  it("falls back to the reviews path when no reports exist yet", async () => {
+    const root = await createProject();
+
+    await expect(resolveReviewReportPath("latest.md")).resolves.toBe(
+      join(root, ".diffowl", "reviews", "latest.md"),
+    );
+  });
+
   it("resolves bare filenames in the project reviews directory", async () => {
     const root = await createProject();
     await writeFile(join(root, "latest.md"), "unrelated file", "utf-8");
 
-    await expect(resolveReviewReportPath("latest.md")).resolves.toBe(
-      join(root, ".diffowl", "reviews", "latest.md"),
+    await expect(resolveReviewReportPath("review-custom.md")).resolves.toBe(
+      join(root, ".diffowl", "reviews", "review-custom.md"),
     );
   });
 

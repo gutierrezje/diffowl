@@ -266,7 +266,7 @@ export function isHookQueueStopFailure(message: string | undefined): boolean {
 export async function runHookReview(): Promise<void> {
   const dir = await ensureDiffOwlDir();
   const logFile = join(dir, "hook.log");
-  const latestReport = join(await getSharedDiffOwlDir(), "reviews", "latest.md");
+  const reviewsDir = join(await getSharedDiffOwlDir(), "reviews");
   // Keep hook runtime coordination checkout-local. A shared lock without a
   // shared queue can strand work in another worktree's local pending queue.
   const lockFile = join(dir, "hook-review.lock");
@@ -285,7 +285,7 @@ export async function runHookReview(): Promise<void> {
   try {
     writeSync(
       outFd,
-      `diffowl: review worker started at ${new Date().toString()}; latest report: ${latestReport}\n`,
+      `diffowl: review worker started at ${new Date().toString()}; reviews: ${reviewsDir}\n`,
     );
 
     const command = await resolveHookCommand();
@@ -311,7 +311,7 @@ export async function runHookReview(): Promise<void> {
     subprocess.unref();
 
     console.log(
-      `diffowl: review queued for ${commit}; worker started in background; log: ${logFile}; latest report: ${latestReport}`,
+      `diffowl: review queued for ${commit}; worker started in background; log: ${logFile}; reviews: ${reviewsDir}`,
     );
   } catch (err) {
     releaseHookReviewLock(lockFile);
