@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { DiffOwlConfig } from "../config.js";
-import type { EvalCase, EvalCorpus } from "./case-types.js";
+import { collectEvalCaseExpected, type EvalCase, type EvalCorpus } from "./case-types.js";
 import { hashCase } from "./corpus.js";
 import { computeCaseModeDelta, computeCorpusModeDelta } from "./delta.js";
 import { evaluateEvalGates } from "./gates.js";
@@ -69,7 +69,9 @@ export async function buildEvalCaseResult(
     id: bundle.evalCase.id,
     category: bundle.evalCase.category,
     tags: bundle.evalCase.tags,
-    expected: bundle.evalCase.expected,
+    // Must match what scoreEvalTrial scored against, so persisted
+    // expectedIndex values stay aligned for gates/compare.
+    expected: collectEvalCaseExpected(bundle.evalCase),
     case_json_hash: hashes.caseJsonHash,
     patch_hash: hashes.patchHash,
   };
