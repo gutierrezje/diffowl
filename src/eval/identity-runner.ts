@@ -63,6 +63,12 @@ export async function runEvalIdentityTrial(
   const persist = dependencies.persistReviewRun ?? persistReviewRun;
 
   try {
+    if (evalCase.steps.length > 1 && evalCase.target === "staged") {
+      throw new Error(
+        `Identity runner: multi-step case "${evalCase.id}" requires target "commit" (staged diffs accumulate across steps).`,
+      );
+    }
+
     workDir = await mkdtemp(join(tmpdir(), `diffowl-eval-identity-${evalCase.id}-`));
     await copyCaseBase(evalCase, workDir);
     await initEvalGitRepo(workDir);

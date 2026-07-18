@@ -74,9 +74,19 @@ describe("runEvalIdentityTrial", () => {
     expect(result.identitySteps![1]?.classifications).toEqual(["new"]);
     expect(result.identitySteps![0]?.durableIds[0]).not.toBe(result.identitySteps![1]?.durableIds[0]);
   });
+
+  it("rejects multi-step cases with staged target", async () => {
+    const evalCase = await createTwoStepCase({ target: "staged" });
+    const result = await runEvalIdentityTrial(evalCase, {}, {
+      getFindingsForStep: async () => [repeatedFinding],
+    });
+
+    expect(result.error).toMatch(/target "commit"/);
+    expect(result.identitySteps).toBeUndefined();
+  });
 });
 
-async function createTwoStepCase(): Promise<EvalCase> {
+async function createTwoStepCase(overrides?: { target?: "staged" | "commit" }): Promise<EvalCase> {
   const root = await mkdtemp(join(tmpdir(), "eval-identity-fixture-"));
   tempDirs.push(root);
   const caseDir = join(root, "identity-two-step");
@@ -117,7 +127,7 @@ async function createTwoStepCase(): Promise<EvalCase> {
       category: "bug",
       language: "typescript",
       description: "Two-step identity eval fixture.",
-      target: "commit",
+      target: overrides?.target ?? "commit",
       expected: [],
       steps: [
         {
