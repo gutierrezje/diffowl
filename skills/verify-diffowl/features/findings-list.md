@@ -12,7 +12,9 @@ Scratch repo with seeded config (no prior reviews → empty list).
 
 ```bash
 export DIFFOWL_BIN=/path/to/diffowl/dist/cli.js
-SCRATCH=$(./skills/verify-diffowl/helpers/scratch-repo.sh)
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+EVIDENCE=/path/to/diffowl/skills/verify-diffowl/evidence/$RUN_ID
+SCRATCH=$(./skills/verify-diffowl/helpers/scratch-repo.sh "$RUN_ID")
 cd "$SCRATCH"
 
 node "$DIFFOWL_BIN" findings list --format json >"$EVIDENCE/findings.json" 2>"$EVIDENCE/stderr.txt"

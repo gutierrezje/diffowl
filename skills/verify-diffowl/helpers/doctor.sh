@@ -51,10 +51,12 @@ else
   PORT=4096
 fi
 
-if node "$BIN" server status >/tmp/diffowl-doctor-server.txt 2>&1; then
-  info "server status: $(tr '\n' ' ' </tmp/diffowl-doctor-server.txt)"
+SERVER_STATUS_FILE="$(mktemp "${TMPDIR:-/tmp}/diffowl-doctor-server.XXXXXX")"
+trap 'rm -f "$SERVER_STATUS_FILE"' EXIT
+if node "$BIN" server status >"$SERVER_STATUS_FILE" 2>&1; then
+  info "server status: $(tr '\n' ' ' <"$SERVER_STATUS_FILE")"
 else
-  info "server status non-zero (ok for offline features): $(tr '\n' ' ' </tmp/diffowl-doctor-server.txt)"
+  info "server status non-zero (ok for offline features): $(tr '\n' ' ' <"$SERVER_STATUS_FILE")"
 fi
 info "configured/default port hint: $PORT (do not stop a server you did not start)"
 

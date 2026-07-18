@@ -12,7 +12,9 @@ Scratch repo + tiny staged change. Requires OpenCode + a working model. **Expens
 
 ```bash
 export DIFFOWL_BIN=/path/to/diffowl/dist/cli.js
-SCRATCH=$(./skills/verify-diffowl/helpers/scratch-repo.sh)
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+EVIDENCE=/path/to/diffowl/skills/verify-diffowl/evidence/$RUN_ID
+SCRATCH=$(./skills/verify-diffowl/helpers/scratch-repo.sh "$RUN_ID")
 cd "$SCRATCH"
 
 # Reuse developer server (port 4096) without auto-starting a second one:

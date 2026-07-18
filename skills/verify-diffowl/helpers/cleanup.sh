@@ -19,6 +19,13 @@ fi
 
 SCRATCH="$(cat "$PATH_FILE")"
 
+# scratch-repo.sh always creates dirs matching this shape; refuse anything else
+# so a corrupted scratch.path can never point rm -rf somewhere unexpected.
+if [[ "$SCRATCH" != *"/diffowl-verify-"* ]]; then
+  echo "refusing to clean suspicious scratch path: $SCRATCH" >&2
+  exit 1
+fi
+
 # If this scratch started its own server, stop via recorded PID only.
 PID_FILE="$SCRATCH/.diffowl/server.pid"
 if [[ -f "$PID_FILE" ]]; then

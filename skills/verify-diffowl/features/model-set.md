@@ -12,7 +12,9 @@ Sets the local model preference via `diffowl model <provider/model>`.
 
 ```bash
 export DIFFOWL_BIN=/path/to/diffowl/dist/cli.js
-SCRATCH=$(./skills/verify-diffowl/helpers/scratch-repo.sh)
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+EVIDENCE=/path/to/diffowl/skills/verify-diffowl/evidence/$RUN_ID
+SCRATCH=$(./skills/verify-diffowl/helpers/scratch-repo.sh "$RUN_ID")
 cd "$SCRATCH"
 
 node "$DIFFOWL_BIN" model opencode-go/deepseek-v4-flash \
