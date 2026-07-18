@@ -4,6 +4,7 @@ import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   applyCasePatch,
+  applyCaseStep,
   copyCaseBase,
   hashCase,
   hashCorpus,
@@ -12,6 +13,7 @@ import {
   materializeCaseWorkspace,
   verifyEvalCaseAnchors,
 } from "./corpus.js";
+import { applyMaterializedEvalCaseStep, materializeEvalCaseRepo } from "./repo.js";
 import { assertCorpusMatchesManifest, loadCorpusManifest } from "./corpus-manifest.js";
 
 const corpusDir = join(import.meta.dirname, "../../eval/corpus");
@@ -29,6 +31,31 @@ describe("loadEvalCase", () => {
     expect(evalCase.id).toBe("missing-validation");
     expect(evalCase.category).toBe("bug");
     expect(evalCase.expected[0]?.file).toBe("src/user.ts");
+  });
+
+  it("normalizes existing corpus cases to a single implicit step", async () => {
+    const corpus = await loadEvalCorpus(corpusDir);
+
+    for (const evalCase of corpus.cases) {
+      expect(evalCase.steps, evalCase.id).toHaveLength(1);
+      expect(evalCase.steps[0]?.patchPath).toBe(evalCase.patchPath);
+      expect(evalCase.patchPath).toBe(join(evalCase.dir, "change.patch"));
+      expect(evalCase.steps[0]?.expected).toEqual(evalCase.expected);
+    }
+  });
+
+  it("loads an explicit multi-step case and applies steps sequentially", async () => {
+    const caseDir = await createMultiStepCase();
+    const evalCase = await loadEvalCase(caseDir);
+    expect(evalCase.steps).toHaveLength(2);
+
+    const workDir = await createTempDir("eval-multi-step-");
+    await copyCaseBase(evalCase, workDir);
+    await applyCaseStep(evalCase, workDir, 0);
+    expect(await readFile(join(workDir, "src/example.ts"), "utf8")).toContain("step-one");
+
+    await applyCaseStep(evalCase, workDir, 1);
+    expect(await readFile(join(workDir, "src/example.ts"), "utf8")).toContain("step-two");
   });
 
   it("rejects id and directory mismatches", async () => {
@@ -88,14 +115,36 @@ describe("materializeCaseWorkspace", () => {
     expect(content).not.toContain('throw new Error("id is required")');
   });
 
-  it("verifies expected anchors after patch application", async () => {
+  it("verifies expected anchors after all patches are applied", async () => {
     const corpus = await loadEvalCorpus(corpusDir);
 
     for (const evalCase of corpus.cases) {
       const workDir = await createTempDir(`eval-${evalCase.id}-`);
-      await materializeCaseWorkspace(evalCase, workDir);
+      await copyCaseBase(evalCase, workDir);
+      for (let stepIndex = 0; stepIndex < evalCase.steps.length; stepIndex++) {
+        await applyCaseStep(evalCase, workDir, stepIndex);
+      }
       await expect(verifyEvalCaseAnchors(evalCase, workDir)).resolves.toBeUndefined();
     }
+  });
+
+  it("verifies step-only expected anchors after applying every step", async () => {
+    const caseDir = await createMultiStepCase({
+      expected: [],
+      steps: [
+        { patchPath: "step-1.patch" },
+        {
+          patchPath: "step-2.patch",
+          expected: [{ file: "src/example.ts", line: 1 }],
+        },
+      ],
+    });
+    const evalCase = await loadEvalCase(caseDir);
+    const workDir = await createTempDir("eval-step-expected-");
+    await copyCaseBase(evalCase, workDir);
+    await applyCaseStep(evalCase, workDir, 0);
+    await applyCaseStep(evalCase, workDir, 1);
+    await expect(verifyEvalCaseAnchors(evalCase, workDir)).resolves.toBeUndefined();
   });
 });
 
@@ -217,6 +266,13 @@ describe("hashCase", () => {
     expect(hashes.caseJsonHash).toMatch(/^[a-f0-9]{64}$/);
     expect(hashes.patchHash).toMatch(/^[a-f0-9]{64}$/);
   });
+
+  it("hashes multi-step cases without change.patch", async () => {
+    const caseDir = await createMultiStepCase();
+    const hashes = await hashCase(caseDir);
+    expect(hashes.caseJsonHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(hashes.patchHash).toMatch(/^[a-f0-9]{64}$/);
+  });
 });
 
 describe("applyCasePatch", () => {
@@ -238,7 +294,21 @@ describe("applyCasePatch", () => {
     const workDir = await createTempDir("eval-bad-patch-");
     await copyCaseBase(evalCase, workDir);
 
-    await expect(applyCasePatch(evalCase, workDir)).rejects.toThrow(/Failed to apply patch/);
+    await expect(applyCasePatch(evalCase, workDir)).rejects.toThrow(/Failed to apply/);
+  });
+});
+
+describe("applyMaterializedEvalCaseStep", () => {
+  it("applies a later step on an already-materialized workDir", async () => {
+    const caseDir = await createMultiStepCase();
+    const evalCase = await loadEvalCase(caseDir);
+    const singleStep = { ...evalCase, steps: [evalCase.steps[0]!], patchPath: evalCase.steps[0]!.patchPath };
+    const materialized = await materializeEvalCaseRepo(singleStep);
+    tempDirs.push(materialized.workDir);
+
+    expect(await readFile(join(materialized.workDir, "src/example.ts"), "utf8")).toContain("step-one");
+    await applyMaterializedEvalCaseStep(evalCase, materialized.workDir, 1);
+    expect(await readFile(join(materialized.workDir, "src/example.ts"), "utf8")).toContain("step-two");
   });
 });
 
@@ -246,6 +316,63 @@ async function createTempDir(prefix: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), prefix));
   tempDirs.push(dir);
   return dir;
+}
+
+async function createMultiStepCase(overrides?: {
+  expected?: Array<Record<string, unknown>>;
+  steps?: Array<Record<string, unknown>>;
+}): Promise<string> {
+  const root = await createTempDir("eval-multi-");
+  const caseDir = join(root, "multi-step");
+  const baseDir = join(caseDir, "base");
+  await mkdir(join(baseDir, "src"), { recursive: true });
+  await writeFile(join(baseDir, "src/example.ts"), "export const value = 0;\n", "utf8");
+  await writeFile(
+    join(caseDir, "case.json"),
+    `${JSON.stringify(
+      {
+        id: "multi-step",
+        category: "bug",
+        language: "typescript",
+        description: "two sequential patches",
+        expected: overrides?.expected ?? [{ file: "src/example.ts", line: 1 }],
+        steps: overrides?.steps ?? [
+          { patchPath: "step-1.patch" },
+          { patchPath: "step-2.patch", expected: [{ file: "src/example.ts", line: 1 }] },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  await writeFile(
+    join(caseDir, "step-1.patch"),
+    [
+      "diff --git a/src/example.ts b/src/example.ts",
+      "--- a/src/example.ts",
+      "+++ b/src/example.ts",
+      "@@ -1 +1 @@",
+      "-export const value = 0;",
+      "+export const value = 'step-one';",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await writeFile(
+    join(caseDir, "step-2.patch"),
+    [
+      "diff --git a/src/example.ts b/src/example.ts",
+      "--- a/src/example.ts",
+      "+++ b/src/example.ts",
+      "@@ -1 +1 @@",
+      "-export const value = 'step-one';",
+      "+export const value = 'step-two';",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  return caseDir;
 }
 
 async function createMalformedCase(input: {

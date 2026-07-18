@@ -30,17 +30,20 @@ function makeExpected(overrides: Partial<EvalExpectedFinding> & Pick<EvalExpecte
 }
 
 function makeEvalCase(overrides: Partial<EvalCase>): EvalCase {
+  const patchPath = overrides.patchPath ?? "/tmp/case/change.patch";
+  const expected = overrides.expected ?? [];
   return {
     id: "test-case",
     category: "bug",
     language: "typescript",
     description: "test",
     target: "commit",
-    expected: [],
+    expected,
     tags: [],
     dir: "/tmp/case",
     baseDir: "/tmp/case/base",
-    patchPath: "/tmp/case/change.patch",
+    patchPath,
+    steps: overrides.steps ?? [{ patchPath, expected }],
     ...overrides,
   };
 }
@@ -169,6 +172,26 @@ describe("scoreEvalTrial", () => {
     const score = scoreEvalTrial(evalCase, trial);
     expect(score.counts).toEqual({ tp: 1, fp: 1, fn: 0, redundancy: 0 });
     expect(score.falsePositives[0]?.file).toBe("src/other.ts");
+  });
+
+  it("scores expected findings declared only on steps", () => {
+    const patchPath = "/tmp/case/step-1.patch";
+    const evalCase = makeEvalCase({
+      expected: [],
+      patchPath,
+      steps: [
+        {
+          patchPath,
+          expected: [makeExpected({ file: "src/user.ts", line: 3 })],
+        },
+      ],
+    });
+    const trial = makeTrial([
+      makeFinding({ file: "src/user.ts", line: 3, title: "Matched from step" }),
+    ]);
+
+    expect(scoreEvalTrial(evalCase, trial).counts).toEqual({ tp: 1, fp: 0, fn: 0, redundancy: 0 });
+    expect(scoreEvalTrial(evalCase, makeTrial([])).counts.fn).toBe(1);
   });
 });
 

@@ -52,7 +52,7 @@ describe("materializeEvalCaseRepo", () => {
     const caseDir = await createBrokenCaseDir();
     const brokenCase = await loadEvalCase(caseDir);
 
-    await expect(materializeEvalCaseRepo(brokenCase)).rejects.toThrow(/Failed to apply patch/);
+    await expect(materializeEvalCaseRepo(brokenCase)).rejects.toThrow(/Failed to apply/);
   });
 });
 

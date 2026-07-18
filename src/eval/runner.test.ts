@@ -182,6 +182,18 @@ describe("runEvalCaseTrial", () => {
     );
   });
 
+  it("rejects multi-step cases until sequential execution is wired", async () => {
+    const evalCase = await loadEvalCase(join(corpusDir, "harmless-trim"));
+    const multiStep = {
+      ...evalCase,
+      steps: [...evalCase.steps, { patchPath: evalCase.patchPath, expected: [] }],
+    };
+
+    await expect(
+      runEvalCaseTrial(multiStep, {}, { runReview: vi.fn(), prepareReviewServer: vi.fn() }),
+    ).rejects.toThrow(/only supports single-step cases/);
+  });
+
   it("returns an error result when materialization fails", async () => {
     const evalCase = await loadEvalCase(join(corpusDir, "harmless-trim"));
     vi.spyOn(repo, "materializeEvalCaseRepo").mockRejectedValueOnce(new Error("git init failed"));

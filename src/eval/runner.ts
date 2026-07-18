@@ -75,6 +75,15 @@ export async function runEvalCaseTrial(
   const startedAt = performance.now();
   let workDir: string | undefined;
 
+  // Phase 2 (plan 029) wires sequential step execution; until then a multi-step
+  // case would review only step 0 while being scored against every step's
+  // expected findings, so fail loudly instead of silently under-scoring.
+  if (evalCase.steps.length > 1) {
+    throw new Error(
+      `Case "${evalCase.id}" declares ${evalCase.steps.length} steps, but the eval runner only supports single-step cases.`,
+    );
+  }
+
   try {
     const materialized = await materializeEvalCaseRepo(evalCase);
     workDir = materialized.workDir;
