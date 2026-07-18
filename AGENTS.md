@@ -42,6 +42,7 @@ Local AI code review CLI. Orchestrates a headless OpenCode server and delegates 
 | Finding fingerprints / durable ids    | `src/state/fingerprint.ts`                             |
 | `--format json` review document       | `src/output/json.ts`                                   |
 | Findings list/detail CLI rendering    | `src/output/findings.ts`                               |
+| Verify CLI end-to-end (agent skill)   | `skills/verify-diffowl/`                               |
 
 ## Conventions
 

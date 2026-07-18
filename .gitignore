@@ -15,4 +15,7 @@ eval/baselines/local/
 # Editor/agent-local tooling
 .cursor/
 
+# verify-diffowl skill run proofs (keep skill; never commit evidence)
+skills/verify-diffowl/evidence/
+
 .DS_Store
