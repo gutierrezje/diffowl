@@ -6,7 +6,7 @@ SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 REPO_ROOT="$(cd "$SKILL_DIR/../.." && pwd)"
 RUN_ID="${1:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
 EVIDENCE_DIR="$SKILL_DIR/evidence/$RUN_ID"
-SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/diffowl-verify-${RUN_ID}-XXXX")"
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/diffowl-verify-${RUN_ID}-XXXXXX")"
 
 mkdir -p "$EVIDENCE_DIR"
 printf '%s\n' "$SCRATCH" >"$EVIDENCE_DIR/scratch.path"

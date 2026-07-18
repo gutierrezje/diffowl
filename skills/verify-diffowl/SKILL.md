@@ -41,7 +41,7 @@ Run before driving when anything looks off:
 ./skills/verify-diffowl/helpers/doctor.sh /path/to/diffowl
 ```
 
-Doctor is **read-only**. It checks Node ≥ 22.14, `dist/cli.js` exists and reports a version, `opencode` is on PATH, and (informational) whether something answers on the configured server port. Non-zero exit means do not drive until fixed.
+Doctor is **read-only**. It checks Node ≥ 22.14, `dist/cli.js` exists and reports a version, and (informational) whether `opencode` is on PATH and whether something answers on the configured server port. Non-zero exit means do not drive until fixed; a missing `opencode` is only a warning (offline features still work, review features won't).
 
 ## Drive
 

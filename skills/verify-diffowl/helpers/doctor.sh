@@ -39,7 +39,8 @@ fi
 if command -v opencode >/dev/null 2>&1; then
   ok "opencode on PATH ($(opencode --version 2>/dev/null || echo unknown))"
 else
-  bad "opencode not on PATH (required for review / init model query)"
+  # Warning, not failure: offline features (hook, findings, version) don't need it.
+  info "opencode not on PATH — review / init model query unavailable; offline features ok"
 fi
 
 if [[ -f "$ROOT/.diffowl.yml" ]]; then
