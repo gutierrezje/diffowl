@@ -53,7 +53,8 @@ fi
 
 SERVER_STATUS_FILE="$(mktemp "${TMPDIR:-/tmp}/diffowl-doctor-server.XXXXXX")"
 trap 'rm -f "$SERVER_STATUS_FILE"' EXIT
-if node "$BIN" server status >"$SERVER_STATUS_FILE" 2>&1; then
+# Run from $ROOT so the CLI resolves the same .diffowl.yml as the port hint.
+if (cd "$ROOT" && node "$BIN" server status) >"$SERVER_STATUS_FILE" 2>&1; then
   info "server status: $(tr '\n' ' ' <"$SERVER_STATUS_FILE")"
 else
   info "server status non-zero (ok for offline features): $(tr '\n' ' ' <"$SERVER_STATUS_FILE")"

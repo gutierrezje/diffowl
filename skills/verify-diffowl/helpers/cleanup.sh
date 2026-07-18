@@ -19,9 +19,15 @@ fi
 
 SCRATCH="$(cat "$PATH_FILE")"
 
-# scratch-repo.sh always creates dirs matching this shape; refuse anything else
-# so a corrupted scratch.path can never point rm -rf somewhere unexpected.
-if [[ "$SCRATCH" != *"/diffowl-verify-"* ]]; then
+# Canonicalize (resolves .. and symlink segments), then require the final
+# directory name to match what scratch-repo.sh creates, so a corrupted
+# scratch.path can never point rm -rf somewhere unexpected.
+SCRATCH="$(cd "$SCRATCH" 2>/dev/null && pwd -P || true)"
+if [[ -z "$SCRATCH" ]]; then
+  echo "scratch already gone or unreachable — nothing to clean"
+  exit 0
+fi
+if [[ "$(basename "$SCRATCH")" != diffowl-verify-* ]]; then
   echo "refusing to clean suspicious scratch path: $SCRATCH" >&2
   exit 1
 fi
