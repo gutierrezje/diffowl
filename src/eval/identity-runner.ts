@@ -11,6 +11,7 @@ import {
   persistReviewRun,
   type PersistReviewRunResult,
 } from "../state/persist.js";
+import { computeFindingFingerprint } from "../state/fingerprint.js";
 import { copyCaseBase, applyCaseStep } from "./corpus.js";
 import type { EvalCase } from "./case-types.js";
 import {
@@ -144,13 +145,30 @@ function toIdentityStepResult(
   findings: ReviewFinding[],
   persisted: PersistReviewRunResult,
 ): EvalIdentityStepResult {
-  const observations = persisted.reconcile.observations;
+  // Align observation arrays to findings order. Reconcile observations are
+  // fingerprint-deduped, so indexing them by finding position is wrong.
+  const enriched = enrichReviewFindingsWithDurableMetadata(findings, persisted.reconcile);
 
   return {
     step,
-    fingerprints: observations.map((item) => item.fingerprint),
-    durableIds: observations.map((item) => item.finding.id),
-    classifications: observations.map((item) => item.observation.classification),
-    findings: enrichReviewFindingsWithDurableMetadata(findings, persisted.reconcile),
+    fingerprints: enriched.map((finding) => fingerprintForFinding(finding)),
+    durableIds: enriched.map((finding) => finding.durable?.id ?? ""),
+    classifications: enriched.map(
+      (finding) => finding.durable?.classification ?? "new",
+    ),
+    findings: enriched,
   };
+}
+
+function fingerprintForFinding(finding: ReviewFinding): string {
+  return computeFindingFingerprint(
+    finding.evidence === undefined
+      ? { file: finding.file, title: finding.title, body: finding.body }
+      : {
+          file: finding.file,
+          title: finding.title,
+          body: finding.body,
+          evidence: finding.evidence,
+        },
+  );
 }

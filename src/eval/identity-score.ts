@@ -116,11 +116,24 @@ function scoreRecognizeSame(
     usedSeedIndices.add(seedMatch);
     usedLaterIndices.add(laterMatch);
 
-    const seedFingerprint = seed.fingerprints[seedMatch];
-    const seedDurableId = seed.durableIds[seedMatch];
-    const laterFingerprint = later.fingerprints[laterMatch];
-    const laterDurableId = later.durableIds[laterMatch];
-    const classification = later.classifications[laterMatch];
+    const seedObservation = observationAt(seed, seedMatch);
+    const laterObservation = observationAt(later, laterMatch);
+    if (!seedObservation || !laterObservation) {
+      anchors.push({
+        expectedIndex,
+        step: later.step,
+        status: "na",
+        reason: "detection miss",
+      });
+      continue;
+    }
+
+    const { fingerprint: seedFingerprint, durableId: seedDurableId } = seedObservation;
+    const {
+      fingerprint: laterFingerprint,
+      durableId: laterDurableId,
+      classification,
+    } = laterObservation;
 
     const continuityPass =
       classification === "existing" ||
@@ -179,11 +192,8 @@ function scoreKeepDistinct(
       continue;
     }
 
-    const fingerprint = last.fingerprints[matchIndex];
-    const durableId = last.durableIds[matchIndex];
-    const classification = last.classifications[matchIndex];
-
-    if (fingerprint === undefined || durableId === undefined) {
+    const observation = observationAt(last, matchIndex);
+    if (!observation) {
       anchors.push({
         expectedIndex,
         step: last.step,
@@ -192,6 +202,8 @@ function scoreKeepDistinct(
       });
       continue;
     }
+
+    const { fingerprint, durableId, classification } = observation;
 
     usedIndices.add(matchIndex);
     hits.push({ fingerprint, durableId });
@@ -242,6 +254,48 @@ function resolveStepExpected(
 ): EvalExpectedFinding[] {
   const stepExpected = evalCase.steps[stepIndex]?.expected ?? [];
   return stepExpected.length > 0 ? stepExpected : evalCase.expected;
+}
+
+function observationAt(
+  step: EvalIdentityStepResult,
+  findingIndex: number,
+):
+  | {
+      fingerprint: string;
+      durableId: string;
+      classification: "new" | "existing" | "regressed";
+    }
+  | undefined {
+  const finding = step.findings[findingIndex];
+  if (!finding) {
+    return undefined;
+  }
+
+  // Prefer durable metadata on the finding. Parallel arrays can diverge when
+  // built from fingerprint-deduped reconcile observations.
+  if (finding.durable) {
+    let fingerprint = step.fingerprints[findingIndex];
+    if (!fingerprint || step.durableIds[findingIndex] !== finding.durable.id) {
+      const byDurableId = step.durableIds.indexOf(finding.durable.id);
+      fingerprint = byDurableId >= 0 ? step.fingerprints[byDurableId] : undefined;
+    }
+    if (!fingerprint) {
+      return undefined;
+    }
+    return {
+      fingerprint,
+      durableId: finding.durable.id,
+      classification: finding.durable.classification,
+    };
+  }
+
+  const fingerprint = step.fingerprints[findingIndex];
+  const durableId = step.durableIds[findingIndex];
+  const classification = step.classifications[findingIndex];
+  if (!fingerprint || !durableId || !classification) {
+    return undefined;
+  }
+  return { fingerprint, durableId, classification };
 }
 
 function firstMatch(

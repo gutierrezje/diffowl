@@ -75,6 +75,26 @@ describe("runEvalIdentityTrial", () => {
     expect(result.identitySteps![0]?.durableIds[0]).not.toBe(result.identitySteps![1]?.durableIds[0]);
   });
 
+  it("keeps observation arrays aligned to findings when fingerprints collide", async () => {
+    const evalCase = await createTwoStepCase();
+    const duplicateA = { ...repeatedFinding, line: 4 };
+    const duplicateB = { ...repeatedFinding, line: 5 };
+    const result = await runEvalIdentityTrial(evalCase, {}, {
+      getFindingsForStep: async () => [duplicateA, duplicateB],
+    });
+
+    expect(result.error).toBeUndefined();
+    const first = result.identitySteps![0]!;
+    expect(first.findings).toHaveLength(2);
+    expect(first.fingerprints).toHaveLength(2);
+    expect(first.durableIds).toHaveLength(2);
+    expect(first.classifications).toHaveLength(2);
+    expect(first.fingerprints[0]).toBe(first.fingerprints[1]);
+    expect(first.durableIds[0]).toBe(first.durableIds[1]);
+    expect(first.findings[0]?.durable?.id).toBe(first.durableIds[0]);
+    expect(first.findings[1]?.durable?.id).toBe(first.durableIds[1]);
+  });
+
   it("rejects multi-step cases with staged target", async () => {
     const evalCase = await createTwoStepCase({ target: "staged" });
     const result = await runEvalIdentityTrial(evalCase, {}, {
