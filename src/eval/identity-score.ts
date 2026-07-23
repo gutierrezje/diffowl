@@ -128,23 +128,16 @@ function scoreRecognizeSame(
       continue;
     }
 
-    const { fingerprint: seedFingerprint, durableId: seedDurableId } = seedObservation;
+    const { durableId: seedDurableId } = seedObservation;
     const {
       fingerprint: laterFingerprint,
       durableId: laterDurableId,
       classification,
     } = laterObservation;
 
-    const continuityPass =
-      classification === "existing" ||
-      classification === "regressed" ||
-      (laterDurableId === seedDurableId && laterFingerprint === seedFingerprint);
-
-    const identityBreak =
-      classification === "new" &&
-      laterDurableId !== undefined &&
-      seedDurableId !== undefined &&
-      laterDurableId !== seedDurableId;
+    // Classification alone is not continuity: `existing` means "seen before in
+    // the DB", not "same as this seed anchor". Durable id is the identity key.
+    const continuityPass = laterDurableId === seedDurableId;
 
     anchors.push({
       expectedIndex,
@@ -152,9 +145,7 @@ function scoreRecognizeSame(
       status: continuityPass ? "pass" : "fail",
       reason: continuityPass
         ? undefined
-        : identityBreak
-          ? "later finding classified as new with different durable id"
-          : "identity continuity broken",
+        : "later finding has different durable id from seed",
       fingerprint: laterFingerprint,
       durableId: laterDurableId,
       classification,

@@ -86,6 +86,16 @@ describe("scoreEvalIdentity recognize-same", () => {
       want: { passed: false, naReason: undefined, anchorStatus: "fail" as const },
     },
     {
+      name: "later existing with different durable id",
+      trial: {
+        identitySteps: [
+          step(0, ["fp-a"], ["fnd_1"], ["new"], [baseFinding]),
+          step(1, ["fp-b"], ["fnd_2"], ["existing"], [{ ...baseFinding, line: 18 }]),
+        ],
+      },
+      want: { passed: false, naReason: undefined, anchorStatus: "fail" as const },
+    },
+    {
       name: "detection miss on later step",
       trial: {
         identitySteps: [
