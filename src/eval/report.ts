@@ -18,6 +18,7 @@ import type {
 import { EVAL_RESULTS_SCHEMA_VERSION, formatStatSummary } from "./report-types.js";
 import type { EvalCaseRunResult, EvalDualCaseRunResult, EvalRunnerOptions } from "./runner-types.js";
 import { scoreEvalCase } from "./score.js";
+import { tryScoreEvalIdentity } from "./identity-score.js";
 import type { EvalScoreOptions } from "./score-types.js";
 
 export interface EvalCaseRunBundle {
@@ -78,19 +79,23 @@ export async function buildEvalCaseResult(
 
   if (bundle.diffowl && (mode === "diffowl" || mode === "both")) {
     const score = scoreEvalCase(bundle.evalCase, bundle.diffowl, scoreOptions);
+    const identity = tryScoreEvalIdentity(bundle.evalCase, bundle.diffowl);
     entry.diffowl = {
       run: bundle.diffowl,
       score,
       metrics: computeCaseMetrics(score, bundle.diffowl.trials, metricsOptions),
+      ...(identity ? { identity } : {}),
     };
   }
 
   if (bundle.baseline && (mode === "baseline" || mode === "both")) {
     const score = scoreEvalCase(bundle.evalCase, bundle.baseline, scoreOptions);
+    const identity = tryScoreEvalIdentity(bundle.evalCase, bundle.baseline);
     entry.baseline = {
       run: bundle.baseline,
       score,
       metrics: computeCaseMetrics(score, bundle.baseline.trials, metricsOptions),
+      ...(identity ? { identity } : {}),
     };
   }
 

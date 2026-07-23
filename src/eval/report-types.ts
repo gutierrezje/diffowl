@@ -5,7 +5,7 @@ import { EvalGateResultSchema } from "./gates-types.js";
 import { EvalCaseMetricsSchema, EvalCorpusMetricsSchema } from "./metrics-types.js";
 import { EvalRunManifestSchema } from "./manifest-types.js";
 import { EvalCaseRunResultSchema } from "./runner-types.js";
-import { EvalCaseScoreSchema } from "./score-types.js";
+import { EvalCaseScoreSchema, EvalIdentityScoreSchema } from "./score-types.js";
 
 export const EVAL_RESULTS_SCHEMA_VERSION = 1 as const;
 
@@ -13,6 +13,7 @@ export const EvalCaseModeResultV1Schema = z.object({
   run: EvalCaseRunResultSchema,
   score: EvalCaseScoreSchema,
   metrics: EvalCaseMetricsSchema,
+  identity: EvalIdentityScoreSchema.optional(),
 });
 
 export const EvalCaseResultV1Schema = z.object({

@@ -49,6 +49,34 @@ export const EvalCaseScoreSchema = z.object({
   repeatedFalsePositives: z.array(RepeatedFalsePositiveSchema),
 });
 
+export const EvalIdentityKindSchema = z.enum(["recognize-same", "keep-distinct"]);
+export type EvalIdentityKind = z.output<typeof EvalIdentityKindSchema>;
+
+export const EvalIdentityAnchorStatusSchema = z.enum(["pass", "fail", "na"]);
+
+export const EvalIdentityAnchorResultSchema = z.object({
+  expectedIndex: z.number().int().nonnegative(),
+  step: z.number().int().nonnegative(),
+  status: EvalIdentityAnchorStatusSchema,
+  reason: z.string().optional(),
+  fingerprint: z.string().optional(),
+  durableId: z.string().optional(),
+  classification: z.enum(["new", "existing", "regressed"]).optional(),
+});
+
+export const EvalIdentityScoreSchema = z.object({
+  kind: EvalIdentityKindSchema,
+  passed: z.boolean(),
+  detail: z.object({
+    summary: z.string(),
+    anchors: z.array(EvalIdentityAnchorResultSchema),
+  }),
+  naReason: z.string().optional(),
+});
+
+export type EvalIdentityAnchorResult = z.output<typeof EvalIdentityAnchorResultSchema>;
+export type EvalIdentityScore = z.output<typeof EvalIdentityScoreSchema>;
+
 export type EvalMatch = z.output<typeof EvalMatchSchema>;
 export type EvalTrialScore = z.output<typeof EvalTrialScoreSchema>;
 export type RepeatedFalsePositive = z.output<typeof RepeatedFalsePositiveSchema>;

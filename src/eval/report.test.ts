@@ -234,4 +234,86 @@ describe("buildEvalReport", () => {
     const prefix = delta.latencyP50.delta! > 0 ? "+" : "";
     expect(renderedDelta).toBe(`${prefix}${delta.latencyP50.delta!.toFixed(3)}`);
   });
+
+  it("includes identity score in JSON when case tags declare an identity kind", async () => {
+    const corpus = await loadEvalCorpus(corpusDir);
+    const evalCase = corpus.cases.find((entry) => entry.id === "harmless-trim");
+    expect(evalCase).toBeDefined();
+
+    const identityEvalCase = {
+      ...evalCase!,
+      tags: [...evalCase!.tags, "identity:recognize-same"],
+      steps: [
+        {
+          patchPath: evalCase!.steps[0]!.patchPath,
+          expected: [
+            {
+              file: "src/util.ts",
+              line: 1,
+              line_tolerance: 2,
+              min_severity: "warning" as const,
+              must_detect: true,
+            },
+          ],
+        },
+        {
+          patchPath: evalCase!.steps[0]!.patchPath,
+          expected: [
+            {
+              file: "src/util.ts",
+              line: 1,
+              line_tolerance: 2,
+              min_severity: "warning" as const,
+              must_detect: true,
+            },
+          ],
+        },
+      ],
+    };
+
+    const run: EvalCaseRunResult = {
+      caseId: identityEvalCase.id,
+      mode: "diffowl",
+      trials: [
+        makeTrial(identityEvalCase.id, [makeFinding("src/util.ts", 1, "Matched")], 0, {
+          identitySteps: [
+            {
+              step: 0,
+              fingerprints: ["fp-a"],
+              durableIds: ["fnd_1"],
+              classifications: ["new"],
+              findings: [makeFinding("src/util.ts", 1, "Matched")],
+            },
+            {
+              step: 1,
+              fingerprints: ["fp-a"],
+              durableIds: ["fnd_1"],
+              classifications: ["existing"],
+              findings: [makeFinding("src/util.ts", 1, "Matched")],
+            },
+          ],
+        }),
+      ],
+    };
+
+    const document = await buildEvalReport({
+      corpus,
+      config: baseConfig,
+      options: {},
+      mode: "diffowl",
+      trials: 1,
+      startedAt: "2026-06-29T00:00:00.000Z",
+      finishedAt: "2026-06-29T00:01:00.000Z",
+      versions: {
+        diffowlVersion: "0.3.1",
+        nodeVersion: "v22.14.0",
+        opencodeVersion: null,
+      },
+      caseRuns: [{ evalCase: identityEvalCase, diffowl: run }],
+    });
+
+    const parsed = parseEvalResultsDocument(document);
+    expect(parsed.cases[0]?.diffowl?.identity?.kind).toBe("recognize-same");
+    expect(parsed.cases[0]?.diffowl?.identity?.passed).toBe(true);
+  });
 });
