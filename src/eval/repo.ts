@@ -72,18 +72,18 @@ async function cleanupAfterFailure(workDir: string): Promise<void> {
   }
 }
 
-async function initEvalGitRepo(workDir: string): Promise<void> {
+export async function initEvalGitRepo(workDir: string): Promise<void> {
   await execa("git", ["init"], { cwd: workDir });
   await execa("git", ["config", "user.email", "eval@diffowl.local"], { cwd: workDir });
   await execa("git", ["config", "user.name", "DiffOwl Eval"], { cwd: workDir });
 }
 
-async function commitEvalBaseline(workDir: string, message: string): Promise<void> {
+export async function commitEvalBaseline(workDir: string, message: string): Promise<void> {
   await execa("git", ["add", "-A"], { cwd: workDir });
   await execa("git", ["commit", "-m", message], { cwd: workDir });
 }
 
-async function finalizeEvalCaseTarget(workDir: string, evalCase: EvalCase): Promise<ReviewTarget> {
+export async function finalizeEvalCaseTarget(workDir: string, evalCase: EvalCase): Promise<ReviewTarget> {
   await execa("git", ["add", "-A"], { cwd: workDir });
   if (evalCase.target === "staged") {
     return { kind: "staged" };

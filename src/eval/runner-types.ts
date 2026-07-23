@@ -17,6 +17,14 @@ export interface EvalRunnerOptions {
   signal?: AbortSignal;
 }
 
+export const EvalIdentityStepResultSchema = z.object({
+  step: z.number(),
+  fingerprints: z.array(z.string()),
+  durableIds: z.array(z.string()),
+  classifications: z.array(z.enum(["new", "existing", "regressed"])),
+  findings: z.array(ReviewFindingSchema),
+});
+
 export const EvalTrialResultSchema = z.object({
   caseId: z.string(),
   trial: z.number(),
@@ -29,6 +37,7 @@ export const EvalTrialResultSchema = z.object({
   diagnostics: z.array(z.string()),
   durationMs: z.number(),
   error: z.string().optional(),
+  identitySteps: z.array(EvalIdentityStepResultSchema).optional(),
 });
 
 export const EvalCaseRunResultSchema = z.object({
@@ -37,6 +46,7 @@ export const EvalCaseRunResultSchema = z.object({
   trials: z.array(EvalTrialResultSchema),
 });
 
+export type EvalIdentityStepResult = z.output<typeof EvalIdentityStepResultSchema>;
 export type EvalTrialResult = z.output<typeof EvalTrialResultSchema>;
 export type EvalCaseRunResult = z.output<typeof EvalCaseRunResultSchema>;
 
