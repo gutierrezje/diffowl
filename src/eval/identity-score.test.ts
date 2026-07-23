@@ -153,6 +153,50 @@ describe("scoreEvalIdentity recognize-same", () => {
     expect(score.detail.anchors[0]?.status).toBe("pass");
   });
 
+  it("falls back to seed expected when later step has no expected of its own", () => {
+    const score = scoreEvalIdentity({
+      kind: "recognize-same",
+      evalCase: {
+        id: "later-empty-expected",
+        expected: [
+          {
+            file: "src/other.ts",
+            line: 99,
+            line_tolerance: 0,
+            min_severity: "warning",
+            must_detect: true,
+          },
+        ],
+        steps: [
+          {
+            patchPath: "a.patch",
+            expected: [
+              {
+                file: "src/a.ts",
+                line: 4,
+                line_tolerance: 2,
+                min_severity: "warning",
+                must_detect: true,
+              },
+            ],
+          },
+          { patchPath: "b.patch", expected: [] },
+        ],
+        tags: [],
+      },
+      trial: {
+        identitySteps: [
+          step(0, ["fp-same"], ["fnd_1"], ["new"], [baseFinding]),
+          step(1, ["fp-same"], ["fnd_1"], ["existing"], [baseFinding]),
+        ],
+      },
+    });
+
+    expect(score.passed).toBe(true);
+    expect(score.naReason).toBeUndefined();
+    expect(score.detail.anchors[0]?.status).toBe("pass");
+  });
+
   it("does not reuse one seed finding across overlapping recognize-same anchors", () => {
     const score = scoreEvalIdentity({
       kind: "recognize-same",

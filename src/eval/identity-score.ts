@@ -78,11 +78,12 @@ function scoreRecognizeSame(
 
   const seed = steps[0]!;
   const later = steps[steps.length - 1]!;
-  const seedExpected = resolveStepExpected(evalCase, 0);
-  const laterExpected = (() => {
-    const atLater = resolveStepExpected(evalCase, later.step);
-    return atLater.length > 0 ? atLater : seedExpected;
-  })();
+  const seedExpected = resolveStepExpected(evalCase, seed.step);
+  // Later prefers its own step expected, then seed's resolved expected.
+  // Do not jump to top-level expected while seed has step-specific anchors.
+  const laterStepExpected = evalCase.steps[later.step]?.expected ?? [];
+  const laterExpected =
+    laterStepExpected.length > 0 ? laterStepExpected : seedExpected;
   const anchorCount = Math.min(seedExpected.length, laterExpected.length);
 
   if (anchorCount === 0) {
@@ -224,16 +225,13 @@ function scoreKeepDistinct(
   const duplicateDurableId = hasDuplicate(hits.map((hit) => hit.durableId));
 
   if (duplicateFingerprint || duplicateDurableId) {
-    for (const anchor of anchors) {
-      if (anchor.status !== "pass") {
-        continue;
-      }
-      anchor.status = "fail";
-      anchor.reason = duplicateFingerprint
-        ? "duplicate fingerprint among detected anchors"
-        : "duplicate durable id among detected anchors";
-    }
-    return aggregateIdentityAnchors("keep-distinct", anchors);
+    const reason = duplicateFingerprint
+      ? "duplicate fingerprint among detected anchors"
+      : "duplicate durable id among detected anchors";
+    const failedAnchors = anchors.map((anchor) =>
+      anchor.status === "pass" ? { ...anchor, status: "fail" as const, reason } : anchor,
+    );
+    return aggregateIdentityAnchors("keep-distinct", failedAnchors);
   }
 
   return aggregateIdentityAnchors("keep-distinct", anchors);
