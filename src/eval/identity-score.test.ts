@@ -109,6 +109,39 @@ describe("scoreEvalIdentity recognize-same", () => {
     expect(score.naReason).toBe(want.naReason);
     expect(score.detail.anchors[0]?.status).toBe(want.anchorStatus);
   });
+
+  it("falls back to top-level expected when step expected is empty", () => {
+    const score = scoreEvalIdentity({
+      kind: "recognize-same",
+      evalCase: {
+        id: "top-level-expected",
+        expected: [
+          {
+            file: "src/a.ts",
+            line: 4,
+            line_tolerance: 2,
+            min_severity: "warning",
+            must_detect: true,
+          },
+        ],
+        steps: [
+          { patchPath: "a.patch", expected: [] },
+          { patchPath: "b.patch", expected: [] },
+        ],
+        tags: [],
+      },
+      trial: {
+        identitySteps: [
+          step(0, ["fp-same"], ["fnd_1"], ["new"], [baseFinding]),
+          step(1, ["fp-same"], ["fnd_1"], ["existing"], [baseFinding]),
+        ],
+      },
+    });
+
+    expect(score.passed).toBe(true);
+    expect(score.naReason).toBeUndefined();
+    expect(score.detail.anchors[0]?.status).toBe("pass");
+  });
 });
 
 describe("scoreEvalIdentity keep-distinct", () => {
@@ -172,6 +205,40 @@ describe("scoreEvalIdentity keep-distinct", () => {
     expect(score.kind).toBe("keep-distinct");
     expect(score.passed).toBe(want.passed);
     expect(score.naReason).toBe(want.naReason);
+  });
+
+  it("does not claim one finding for two overlapping expected anchors", () => {
+    const score = scoreEvalIdentity({
+      kind: "keep-distinct",
+      evalCase: {
+        id: "overlapping-expected",
+        expected: [
+          {
+            file: "src/a.ts",
+            line: 4,
+            line_tolerance: 5,
+            min_severity: "warning",
+            must_detect: true,
+          },
+          {
+            file: "src/a.ts",
+            line: 5,
+            line_tolerance: 5,
+            min_severity: "warning",
+            must_detect: true,
+          },
+        ],
+        steps: [{ patchPath: "a.patch", expected: [] }],
+        tags: [],
+      },
+      trial: {
+        identitySteps: [step(0, ["fp-a"], ["fnd_1"], ["new"], [baseFinding])],
+      },
+    });
+
+    expect(score.passed).toBe(true);
+    expect(score.naReason).toBe("insufficient detected anchors");
+    expect(score.detail.anchors.map((anchor) => anchor.status)).toEqual(["pass", "na"]);
   });
 });
 

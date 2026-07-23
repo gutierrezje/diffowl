@@ -33,7 +33,7 @@ export function scoreEvalIdentity(input: ScoreEvalIdentityInput): EvalIdentitySc
 
   const minDistinct =
     input.minDistinct ??
-    Math.max(2, resolveKeepDistinctExpected(evalCase, steps[steps.length - 1]!).length);
+    Math.max(2, resolveStepExpected(evalCase, steps[steps.length - 1]!.step).length);
   return scoreKeepDistinct(evalCase, steps, minDistinct);
 }
 
@@ -78,9 +78,11 @@ function scoreRecognizeSame(
 
   const seed = steps[0]!;
   const later = steps[steps.length - 1]!;
-  const seedExpected = evalCase.steps[0]?.expected ?? [];
-  const laterStepExpected = evalCase.steps[later.step]?.expected ?? [];
-  const laterExpected = laterStepExpected.length > 0 ? laterStepExpected : seedExpected;
+  const seedExpected = resolveStepExpected(evalCase, 0);
+  const laterExpected = (() => {
+    const atLater = resolveStepExpected(evalCase, later.step);
+    return atLater.length > 0 ? atLater : seedExpected;
+  })();
   const anchorCount = Math.min(seedExpected.length, laterExpected.length);
 
   if (anchorCount === 0) {
@@ -150,9 +152,10 @@ function scoreKeepDistinct(
   minDistinct: number,
 ): EvalIdentityScore {
   const last = steps[steps.length - 1]!;
-  const expected = resolveKeepDistinctExpected(evalCase, last);
+  const expected = resolveStepExpected(evalCase, last.step);
   const anchors: EvalIdentityAnchorResult[] = [];
   const hits: Array<{ fingerprint: string; durableId: string }> = [];
+  const usedIndices = new Set<number>();
 
   for (let expectedIndex = 0; expectedIndex < expected.length; expectedIndex++) {
     const expectedEntry = expected[expectedIndex];
@@ -160,7 +163,7 @@ function scoreKeepDistinct(
       continue;
     }
 
-    const matchIndex = firstMatch(expectedEntry, last.findings);
+    const matchIndex = firstMatch(expectedEntry, last.findings, usedIndices);
     if (matchIndex === undefined) {
       anchors.push({
         expectedIndex,
@@ -185,6 +188,7 @@ function scoreKeepDistinct(
       continue;
     }
 
+    usedIndices.add(matchIndex);
     hits.push({ fingerprint, durableId });
     anchors.push({
       expectedIndex,
@@ -227,19 +231,23 @@ function scoreKeepDistinct(
   return aggregateIdentityAnchors("keep-distinct", anchors);
 }
 
-function resolveKeepDistinctExpected(
+function resolveStepExpected(
   evalCase: ScoreEvalIdentityInput["evalCase"],
-  step: EvalIdentityStepResult,
+  stepIndex: number,
 ): EvalExpectedFinding[] {
-  const stepExpected = evalCase.steps[step.step]?.expected ?? [];
+  const stepExpected = evalCase.steps[stepIndex]?.expected ?? [];
   return stepExpected.length > 0 ? stepExpected : evalCase.expected;
 }
 
 function firstMatch(
   expected: EvalExpectedFinding,
   findings: ReviewFinding[],
+  usedIndices?: Set<number>,
 ): number | undefined {
   for (let index = 0; index < findings.length; index++) {
+    if (usedIndices?.has(index)) {
+      continue;
+    }
     const finding = findings[index];
     if (finding && findingMatchesExpected(expected, finding)) {
       return index;
@@ -252,6 +260,7 @@ function hasDuplicate(values: string[]): boolean {
   return new Set(values).size !== values.length;
 }
 
+/** Detection misses are n/a (`passed: true` + `naReason`), never identity failures. */
 function aggregateIdentityAnchors(
   kind: EvalIdentityKind,
   anchors: EvalIdentityAnchorResult[],
