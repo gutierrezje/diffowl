@@ -10,7 +10,7 @@ import type {
 
 export interface ScoreEvalIdentityInput {
   kind: EvalIdentityKind;
-  evalCase: Pick<EvalCase, "id" | "expected" | "steps" | "tags">;
+  evalCase: Pick<EvalCase, "id" | "expected" | "steps" | "tags" | "identity">;
   trial: Pick<EvalTrialResult, "identitySteps" | "error">;
   minDistinct?: number;
 }
@@ -38,7 +38,7 @@ export function scoreEvalIdentity(input: ScoreEvalIdentityInput): EvalIdentitySc
 }
 
 export function tryScoreEvalIdentity(
-  evalCase: Pick<EvalCase, "id" | "expected" | "steps" | "tags">,
+  evalCase: Pick<EvalCase, "id" | "expected" | "steps" | "tags" | "identity">,
   run: { trials: Array<Pick<EvalTrialResult, "identitySteps" | "error" | "trial">> },
 ): EvalIdentityScore | undefined {
   const kind = resolveEvalIdentityKind(evalCase);
@@ -51,12 +51,23 @@ export function tryScoreEvalIdentity(
     return undefined;
   }
 
-  return scoreEvalIdentity({ kind, evalCase, trial });
+  return scoreEvalIdentity({
+    kind,
+    evalCase,
+    trial,
+    ...(evalCase.identity?.min_distinct !== undefined
+      ? { minDistinct: evalCase.identity.min_distinct }
+      : {}),
+  });
 }
 
 export function resolveEvalIdentityKind(
-  evalCase: Pick<EvalCase, "tags" | "id">,
+  evalCase: Pick<EvalCase, "tags" | "id" | "identity">,
 ): EvalIdentityKind | undefined {
+  if (evalCase.identity) {
+    return evalCase.identity.kind;
+  }
+
   for (const tag of evalCase.tags) {
     if (tag === "identity:recognize-same" || tag === "recognize-same") {
       return "recognize-same";

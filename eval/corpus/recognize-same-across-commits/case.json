@@ -1,0 +1,37 @@
+{
+  "id": "recognize-same-across-commits",
+  "category": "bug",
+  "language": "typescript",
+  "description": "Same fire-and-forget defect across commits; later step only drifts lines above the bug.",
+  "target": "commit",
+  "tags": ["identity:recognize-same", "async"],
+  "identity": {
+    "kind": "recognize-same"
+  },
+  "expected": [
+    {
+      "file": "src/fetch.ts",
+      "line": 6
+    }
+  ],
+  "steps": [
+    {
+      "patchPath": "step-0.patch",
+      "expected": [
+        {
+          "file": "src/fetch.ts",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "patchPath": "step-1.patch",
+      "expected": [
+        {
+          "file": "src/fetch.ts",
+          "line": 6
+        }
+      ]
+    }
+  ]
+}

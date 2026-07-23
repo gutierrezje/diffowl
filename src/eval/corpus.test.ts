@@ -12,11 +12,29 @@ import {
   loadEvalCorpus,
   materializeCaseWorkspace,
   verifyEvalCaseAnchors,
+  verifyEvalCaseStepAnchors,
 } from "./corpus.js";
 import { applyMaterializedEvalCaseStep, materializeEvalCaseRepo } from "./repo.js";
 import { assertCorpusMatchesManifest, loadCorpusManifest } from "./corpus-manifest.js";
 
 const corpusDir = join(import.meta.dirname, "../../eval/corpus");
+const committedCaseIds = [
+  "async-clean",
+  "check-then-act-race",
+  "extract-helper-clean",
+  "fire-and-forget-async",
+  "harmless-trim",
+  "inverted-guard",
+  "missing-validation",
+  "off-by-one-slice",
+  "path-join-traversal",
+  "recognize-same-across-commits",
+  "regression-reintroduced",
+  "rename-clean",
+  "repeated-clean",
+  "swallowed-error",
+  "unbounded-retry",
+] as const;
 let tempDirs: string[] = [];
 
 afterEach(async () => {
@@ -33,15 +51,46 @@ describe("loadEvalCase", () => {
     expect(evalCase.expected[0]?.file).toBe("src/user.ts");
   });
 
-  it("normalizes existing corpus cases to a single implicit step", async () => {
+  it("normalizes single-step corpus cases to a single implicit step", async () => {
     const corpus = await loadEvalCorpus(corpusDir);
 
     for (const evalCase of corpus.cases) {
+      if (evalCase.identity || evalCase.steps.length > 1) {
+        continue;
+      }
       expect(evalCase.steps, evalCase.id).toHaveLength(1);
       expect(evalCase.steps[0]?.patchPath).toBe(evalCase.patchPath);
       expect(evalCase.patchPath).toBe(join(evalCase.dir, "change.patch"));
       expect(evalCase.steps[0]?.expected).toEqual(evalCase.expected);
     }
+  });
+
+  it("loads recognize-same-across-commits with identity and step anchors", async () => {
+    const evalCase = await loadEvalCase(join(corpusDir, "recognize-same-across-commits"));
+
+    expect(evalCase.id).toBe("recognize-same-across-commits");
+    expect(evalCase.target).toBe("commit");
+    expect(evalCase.steps).toHaveLength(2);
+    expect(evalCase.identity).toEqual({ kind: "recognize-same" });
+    expect(evalCase.expected[0]?.line).toBe(6);
+    expect(evalCase.steps[0]?.expected[0]?.line).toBe(3);
+    expect(evalCase.steps[1]?.expected[0]?.line).toBe(6);
+
+    const workDir = await createTempDir("eval-recognize-same-");
+    await copyCaseBase(evalCase, workDir);
+    await applyCaseStep(evalCase, workDir, 0);
+
+    const afterStep0 = await readFile(join(workDir, "src/fetch.ts"), "utf8");
+    expect(afterStep0).toContain("void fetch(url)");
+    await expect(verifyEvalCaseStepAnchors(evalCase, workDir, 0)).resolves.toBeUndefined();
+
+    await applyCaseStep(evalCase, workDir, 1);
+
+    const afterStep1 = await readFile(join(workDir, "src/fetch.ts"), "utf8");
+    expect(afterStep1).toContain("void fetch(url)");
+    expect(afterStep1).toContain("unrelated formatting drift");
+    await expect(verifyEvalCaseStepAnchors(evalCase, workDir, 1)).resolves.toBeUndefined();
+    await expect(verifyEvalCaseAnchors(evalCase, workDir)).resolves.toBeUndefined();
   });
 
   it("loads an explicit multi-step case and applies steps sequentially", async () => {
@@ -177,22 +226,7 @@ describe("loadEvalCorpus", () => {
   it("loads cases sorted by id with a corpus version", async () => {
     const corpus = await loadEvalCorpus(corpusDir);
 
-    expect(corpus.cases.map((item) => item.id)).toEqual([
-      "async-clean",
-      "check-then-act-race",
-      "extract-helper-clean",
-      "fire-and-forget-async",
-      "harmless-trim",
-      "inverted-guard",
-      "missing-validation",
-      "off-by-one-slice",
-      "path-join-traversal",
-      "regression-reintroduced",
-      "rename-clean",
-      "repeated-clean",
-      "swallowed-error",
-      "unbounded-retry",
-    ]);
+    expect(corpus.cases.map((item) => item.id)).toEqual([...committedCaseIds]);
     expect(corpus.version).toBe(await hashCorpus(corpusDir));
   });
 });
@@ -203,22 +237,7 @@ describe("corpus manifest", () => {
     const manifest = await loadCorpusManifest(manifestPath);
 
     await expect(assertCorpusMatchesManifest(corpusDir, manifest)).resolves.toBeUndefined();
-    expect(manifest.cases).toEqual([
-      "async-clean",
-      "check-then-act-race",
-      "extract-helper-clean",
-      "fire-and-forget-async",
-      "harmless-trim",
-      "inverted-guard",
-      "missing-validation",
-      "off-by-one-slice",
-      "path-join-traversal",
-      "regression-reintroduced",
-      "rename-clean",
-      "repeated-clean",
-      "swallowed-error",
-      "unbounded-retry",
-    ]);
+    expect(manifest.cases).toEqual([...committedCaseIds]);
   });
 });
 
@@ -237,7 +256,11 @@ describe("corpus expectation contract", () => {
       }
 
       expect(rawCase.expected?.length, `${rawCase.id} bug/mixed cases need expected findings`).toBeGreaterThan(0);
-      const patchText = await readFile(join(evalCase.dir, "change.patch"), "utf8");
+
+      const patchPath = rawCase.steps
+        ? join(evalCase.dir, rawCase.steps[rawCase.steps.length - 1]!.patchPath)
+        : join(evalCase.dir, "change.patch");
+      const patchText = await readFile(patchPath, "utf8");
       for (const expected of rawCase.expected) {
         expect(expected, `${rawCase.id} expected findings must not include category`).not.toHaveProperty("category");
         expect(expected, `${rawCase.id} must omit default line_tolerance`).not.toHaveProperty(

@@ -46,6 +46,7 @@ export async function loadEvalCase(caseDir: string): Promise<EvalCase> {
     target: caseJson.target,
     expected: caseJson.expected,
     tags: caseJson.tags,
+    identity: caseJson.identity,
     dir: caseDir,
     baseDir,
     patchPath: steps[0]!.patchPath,
@@ -116,21 +117,46 @@ export async function materializeCaseWorkspace(
 
 export async function verifyEvalCaseAnchors(evalCase: EvalCase, workDir: string): Promise<void> {
   for (const expected of collectEvalCaseExpected(evalCase)) {
-    const filePath = join(workDir, expected.file);
-    try {
-      await readFile(filePath, "utf8");
-    } catch {
-      throw new Error(
-        `Case "${evalCase.id}" expected file "${expected.file}" is missing after applying the patch.`,
-      );
-    }
+    await assertExpectedAnchor(evalCase.id, workDir, expected);
+  }
+}
 
-    const lineCount = (await readFile(filePath, "utf8")).split("\n").length;
-    if (expected.line > lineCount) {
-      throw new Error(
-        `Case "${evalCase.id}" expected line ${expected.line} in "${expected.file}", but the file has ${lineCount} lines.`,
-      );
-    }
+export async function verifyEvalCaseStepAnchors(
+  evalCase: EvalCase,
+  workDir: string,
+  stepIndex: number,
+): Promise<void> {
+  const step = evalCase.steps[stepIndex];
+  if (!step) {
+    throw new Error(
+      `Case "${evalCase.id}" has no step ${stepIndex} (${evalCase.steps.length} steps).`,
+    );
+  }
+
+  for (const expected of step.expected) {
+    await assertExpectedAnchor(evalCase.id, workDir, expected);
+  }
+}
+
+async function assertExpectedAnchor(
+  caseId: string,
+  workDir: string,
+  expected: { file: string; line: number },
+): Promise<void> {
+  const filePath = join(workDir, expected.file);
+  try {
+    await readFile(filePath, "utf8");
+  } catch {
+    throw new Error(
+      `Case "${caseId}" expected file "${expected.file}" is missing after applying the patch.`,
+    );
+  }
+
+  const lineCount = (await readFile(filePath, "utf8")).split("\n").length;
+  if (expected.line > lineCount) {
+    throw new Error(
+      `Case "${caseId}" expected line ${expected.line} in "${expected.file}", but the file has ${lineCount} lines.`,
+    );
   }
 }
 

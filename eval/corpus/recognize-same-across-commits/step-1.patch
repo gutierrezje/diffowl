@@ -1,0 +1,12 @@
+diff --git a/src/fetch.ts b/src/fetch.ts
+index 2954a24..3769248 100644
+--- a/src/fetch.ts
++++ b/src/fetch.ts
+@@ -1,4 +1,7 @@
+ export async function fetchData(url: string) {
++
++  // unrelated formatting drift
++
+   // dogfood: fire-and-forget async call
+   void fetch(url);
+   return true;
