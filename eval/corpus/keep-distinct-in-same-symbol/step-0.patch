@@ -1,0 +1,24 @@
+diff --git a/src/profile.ts b/src/profile.ts
+index 713e720..29fbb6c 100644
+--- a/src/profile.ts
++++ b/src/profile.ts
+@@ -1,14 +1,13 @@
+ export async function syncProfile(userId: string, remoteUrl: string) {
+-  if (!userId) {
+-    throw new Error("userId is required");
++  // dogfood: missing validation on empty userId
++  if (userId === undefined) {
++    return { id: "anonymous", remoteOk: false };
+   }
+ 
+   const local = await loadLocal(userId);
+-  const response = await fetch(remoteUrl);
+-  if (!response.ok) {
+-    throw new Error(`remote sync failed: ${response.status}`);
+-  }
+ 
++  // dogfood: fire-and-forget async call
++  void fetch(remoteUrl);
+   return { id: local.id, remoteOk: true };
+ }
+ 

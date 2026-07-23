@@ -25,6 +25,7 @@ const committedCaseIds = [
   "fire-and-forget-async",
   "harmless-trim",
   "inverted-guard",
+  "keep-distinct-in-same-symbol",
   "missing-validation",
   "off-by-one-slice",
   "path-join-traversal",
@@ -63,6 +64,39 @@ describe("loadEvalCase", () => {
       expect(evalCase.patchPath).toBe(join(evalCase.dir, "change.patch"));
       expect(evalCase.steps[0]?.expected).toEqual(evalCase.expected);
     }
+  });
+
+  it("loads keep-distinct-in-same-symbol with identity and step anchors", async () => {
+    const evalCase = await loadEvalCase(join(corpusDir, "keep-distinct-in-same-symbol"));
+
+    expect(evalCase.id).toBe("keep-distinct-in-same-symbol");
+    expect(evalCase.target).toBe("commit");
+    expect(evalCase.steps).toHaveLength(2);
+    expect(evalCase.identity).toEqual({ kind: "keep-distinct", min_distinct: 2 });
+    expect(evalCase.expected[0]?.line).toBe(3);
+    expect(evalCase.expected[1]?.line).toBe(13);
+    expect(evalCase.steps[0]?.expected[0]?.line).toBe(3);
+    expect(evalCase.steps[0]?.expected[1]?.line).toBe(10);
+    expect(evalCase.steps[1]?.expected[0]?.line).toBe(3);
+    expect(evalCase.steps[1]?.expected[1]?.line).toBe(13);
+
+    const workDir = await createTempDir("eval-keep-distinct-");
+    await copyCaseBase(evalCase, workDir);
+    await applyCaseStep(evalCase, workDir, 0);
+
+    const afterStep0 = await readFile(join(workDir, "src/profile.ts"), "utf8");
+    expect(afterStep0).toContain("userId === undefined");
+    expect(afterStep0).toContain("void fetch(remoteUrl)");
+    await expect(verifyEvalCaseStepAnchors(evalCase, workDir, 0)).resolves.toBeUndefined();
+
+    await applyCaseStep(evalCase, workDir, 1);
+
+    const afterStep1 = await readFile(join(workDir, "src/profile.ts"), "utf8");
+    expect(afterStep1).toContain("userId === undefined");
+    expect(afterStep1).toContain("void fetch(remoteUrl)");
+    expect(afterStep1).toContain("unrelated formatting drift");
+    await expect(verifyEvalCaseStepAnchors(evalCase, workDir, 1)).resolves.toBeUndefined();
+    await expect(verifyEvalCaseAnchors(evalCase, workDir)).resolves.toBeUndefined();
   });
 
   it("loads recognize-same-across-commits with identity and step anchors", async () => {

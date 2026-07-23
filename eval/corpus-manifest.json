@@ -1,5 +1,5 @@
 {
-  "version": "a7dfa10a88aa2f7f541593a0b03e1497f511b145637a9968f7c1fdc711d25b7e",
+  "version": "5228dbfaabb9fc1cab62c784421c332141b3bf84e5787b864dfad30056b4385d",
   "cases": [
     "async-clean",
     "check-then-act-race",
@@ -7,6 +7,7 @@
     "fire-and-forget-async",
     "harmless-trim",
     "inverted-guard",
+    "keep-distinct-in-same-symbol",
     "missing-validation",
     "off-by-one-slice",
     "path-join-traversal",
@@ -17,6 +18,6 @@
     "swallowed-error",
     "unbounded-retry"
   ],
-  "frozen_at": "2026-07-07",
-  "notes": "v2 corpus. Manifest lives outside eval/corpus/ so hashCorpus() stays non-self-referential. Includes recognize-same-across-commits multi-step identity fixture plus v1 seed cases covering error handling, logic, concurrency, retry bounds, path handling, and clean refactors."
+  "frozen_at": "2026-07-23",
+  "notes": "v2 corpus. Manifest lives outside eval/corpus/ so hashCorpus() stays non-self-referential. Includes keep-distinct-in-same-symbol and recognize-same-across-commits multi-step identity fixtures plus v1 seed cases covering error handling, logic, concurrency, retry bounds, path handling, and clean refactors."
 }
