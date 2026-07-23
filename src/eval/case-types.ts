@@ -97,40 +97,34 @@ export function normalizeEvalIdentityKindInput(
   return kind;
 }
 
-function resolveIdentityKindFromTags(tags: string[]): EvalIdentityKind | undefined {
-  for (const tag of tags) {
-    if (tag === "identity:recognize-same" || tag === "recognize-same") {
-      return "recognize-same";
-    }
-    if (tag === "identity:keep-distinct" || tag === "keep-distinct") {
-      return "keep-distinct";
-    }
+function identityKindFromTag(tag: string): EvalIdentityKind | undefined {
+  if (tag === "identity:recognize-same" || tag === "recognize-same") {
+    return "recognize-same";
+  }
+  if (tag === "identity:keep-distinct" || tag === "keep-distinct") {
+    return "keep-distinct";
   }
   return undefined;
 }
 
-export function validateEvalCaseSemantics(caseJson: EvalCaseJson): void {
-  if (caseJson.category === "clean") {
-    if (caseJson.expected.length > 0) {
-      throw new Error(`Clean case "${caseJson.id}" must not declare expected findings.`);
+function collectIdentityKindsFromTags(tags: string[]): EvalIdentityKind[] {
+  const kinds: EvalIdentityKind[] = [];
+  for (const tag of tags) {
+    const kind = identityKindFromTag(tag);
+    if (kind !== undefined) {
+      kinds.push(kind);
     }
-    for (const [index, step] of (caseJson.steps ?? []).entries()) {
-      if ((step.expected?.length ?? 0) > 0) {
-        throw new Error(
-          `Clean case "${caseJson.id}" step ${index} must not declare expected findings.`,
-        );
-      }
-    }
-    return;
   }
+  return kinds;
+}
 
-  const stepHasExpected = (caseJson.steps ?? []).some((step) => (step.expected?.length ?? 0) > 0);
-  if (caseJson.expected.length === 0 && !stepHasExpected) {
-    throw new Error(`Case "${caseJson.id}" with category "${caseJson.category}" requires expected findings.`);
-  }
-
+function validateEvalCaseIdentity(caseJson: EvalCaseJson): void {
   if (!caseJson.identity) {
     return;
+  }
+
+  if (caseJson.category === "clean") {
+    throw new Error(`Clean case "${caseJson.id}" must not declare identity expectation.`);
   }
 
   if (caseJson.target !== "commit") {
@@ -146,7 +140,13 @@ export function validateEvalCaseSemantics(caseJson: EvalCaseJson): void {
     );
   }
 
-  const tagKind = resolveIdentityKindFromTags(caseJson.tags);
+  const tagKinds = [...new Set(collectIdentityKindsFromTags(caseJson.tags))];
+  if (tagKinds.length > 1) {
+    throw new Error(
+      `Case "${caseJson.id}" has conflicting identity tags: ${tagKinds.join(", ")}.`,
+    );
+  }
+  const tagKind = tagKinds[0];
   if (tagKind && tagKind !== caseJson.identity.kind) {
     throw new Error(
       `Case "${caseJson.id}" identity.kind "${caseJson.identity.kind}" conflicts with identity tag "${tagKind}".`,
@@ -177,6 +177,30 @@ export function validateEvalCaseSemantics(caseJson: EvalCaseJson): void {
       );
     }
   }
+}
+
+export function validateEvalCaseSemantics(caseJson: EvalCaseJson): void {
+  if (caseJson.category === "clean") {
+    if (caseJson.expected.length > 0) {
+      throw new Error(`Clean case "${caseJson.id}" must not declare expected findings.`);
+    }
+    for (const [index, step] of (caseJson.steps ?? []).entries()) {
+      if ((step.expected?.length ?? 0) > 0) {
+        throw new Error(
+          `Clean case "${caseJson.id}" step ${index} must not declare expected findings.`,
+        );
+      }
+    }
+    validateEvalCaseIdentity(caseJson);
+    return;
+  }
+
+  const stepHasExpected = (caseJson.steps ?? []).some((step) => (step.expected?.length ?? 0) > 0);
+  if (caseJson.expected.length === 0 && !stepHasExpected) {
+    throw new Error(`Case "${caseJson.id}" with category "${caseJson.category}" requires expected findings.`);
+  }
+
+  validateEvalCaseIdentity(caseJson);
 }
 
 /**

@@ -34,7 +34,7 @@ Case-level fields:
 - `description` — required; concise human-readable scenario
 - `target` — optional; defaults to `commit`
 - `tags` — optional; descriptive only unless a future gate says otherwise
-- `identity` — optional; declares durable-finding scoring kind (`recognize-same` or `keep-distinct`; plan alias `same-across-steps` normalizes to `recognize-same`). Future `min_distinct` applies to keep-distinct only. Requires `target: "commit"` and at least two `steps`.
+- `identity` — optional; declares durable-finding scoring kind (`recognize-same` or `keep-distinct`; plan alias `same-across-steps` normalizes to `recognize-same`). Requires `target: "commit"`, at least two `steps`, and is not allowed on `clean` cases. `recognize-same` requires expected findings on every step with equal counts. Optional `min_distinct` applies to `keep-distinct` only and must be at least 2 when present.
 - `expected` — empty for clean cases; non-empty for bug/mixed cases
 
 Bug and mixed cases declare anchors in `case.json` → `expected[]`:

@@ -204,6 +204,38 @@ describe("validateEvalCaseSemantics", () => {
 
     expect(() => validateEvalCaseSemantics(caseJson)).toThrow(/conflicts with identity tag/);
   });
+
+  it("rejects identity on clean cases", () => {
+    const caseJson = EvalCaseJsonSchema.parse({
+      id: "clean-identity",
+      category: "clean",
+      language: "typescript",
+      description: "clean identity",
+      expected: [],
+      identity: { kind: "keep-distinct" },
+      steps: [{ patchPath: "step-0.patch" }, { patchPath: "step-1.patch" }],
+    });
+
+    expect(() => validateEvalCaseSemantics(caseJson)).toThrow(/must not declare identity expectation/);
+  });
+
+  it("rejects conflicting identity tags even when the first matches", () => {
+    const caseJson = EvalCaseJsonSchema.parse({
+      id: "tag-conflict",
+      category: "bug",
+      language: "typescript",
+      description: "tag conflict",
+      expected: [{ file: "src/a.ts", line: 2 }],
+      identity: { kind: "recognize-same" },
+      tags: ["identity:recognize-same", "identity:keep-distinct"],
+      steps: [
+        { patchPath: "step-0.patch", expected: [{ file: "src/a.ts", line: 1 }] },
+        { patchPath: "step-1.patch", expected: [{ file: "src/a.ts", line: 2 }] },
+      ],
+    });
+
+    expect(() => validateEvalCaseSemantics(caseJson)).toThrow(/conflicting identity tags/);
+  });
 });
 
 describe("normalizeEvalIdentityKindInput", () => {
