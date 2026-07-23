@@ -21,17 +21,19 @@ import { BASELINE_AGENT_PROMPT, buildBaselinePrompt, renderBaselineDiff } from "
 import type { EvalCase } from "./case-types.js";
 import { applyCaseStep, copyCaseBase } from "./corpus.js";
 import {
-  runEvalIdentityTrial,
-  type EvalIdentityStepContext,
-} from "./identity-runner.js";
-import {
   cleanupMaterializedRepo,
   commitEvalBaseline,
   finalizeEvalCaseTarget,
   initEvalGitRepo,
   materializeEvalCaseRepo,
+  resolveEvalHeadSha,
   type MaterializedEvalCase,
 } from "./repo.js";
+import {
+  runEvalIdentityTrial,
+  type EvalIdentityStepContext,
+  type EvalIdentityStepReview,
+} from "./identity-runner.js";
 import type {
   EvalCaseRunResult,
   EvalDualCaseRunResult,
@@ -193,12 +195,19 @@ async function materializeMultiStepEvalCaseAtFinalState(
     await copyCaseBase(evalCase, workDir);
     await initEvalGitRepo(workDir);
     await commitEvalBaseline(workDir, `eval(${evalCase.id}): baseline`);
+    const baselineSha = await resolveEvalHeadSha(workDir);
 
-    let target: ReviewTarget = { kind: "staged" };
     for (let stepIndex = 0; stepIndex < evalCase.steps.length; stepIndex++) {
       await applyCaseStep(evalCase, workDir, stepIndex);
-      target = await finalizeEvalCaseTarget(workDir, evalCase);
+      await finalizeEvalCaseTarget(workDir, evalCase);
     }
+
+    // Cumulative diff from pre-step baseline through HEAD so baseline mode
+    // sees every step's defects, not only the last commit's patch.
+    const target: ReviewTarget =
+      evalCase.target === "staged"
+        ? { kind: "staged" }
+        : { kind: "base", ref: baselineSha };
 
     return { workDir, target };
   } catch (error) {
@@ -210,7 +219,7 @@ async function materializeMultiStepEvalCaseAtFinalState(
 function buildDiffowlGetFindingsForStep(
   options: EvalRunnerOptions,
   dependencies: EvalRunnerDependencies,
-): (ctx: EvalIdentityStepContext) => Promise<ReviewFinding[]> {
+): (ctx: EvalIdentityStepContext) => Promise<EvalIdentityStepReview> {
   return async (ctx) => {
     const config = resolveEvalRunnerConfig(
       await loadConfigFromRoot(ctx.workDir),
@@ -237,7 +246,10 @@ function buildDiffowlGetFindingsForStep(
       changedFiles,
       config.min_confidence,
     );
-    return filtered.findings;
+    return {
+      findings: filtered.findings,
+      ...(reviewResult.usage ? { usage: reviewResult.usage } : {}),
+    };
   };
 }
 

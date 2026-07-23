@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import type { ReviewFinding } from "../review/types.js";
 import type { ReviewTarget } from "../review/target.js";
+import { aggregateReviewUsage, type ReviewUsage } from "../review/usage.js";
 import {
   computeDiffHash,
   enrichReviewFindingsWithDurableMetadata,
@@ -34,13 +35,18 @@ export interface EvalIdentityStepContext {
   target: ReviewTarget;
 }
 
+export interface EvalIdentityStepReview {
+  findings: ReviewFinding[];
+  usage?: ReviewUsage;
+}
+
 export interface EvalIdentityRunnerDependencies {
-  getFindingsForStep: (ctx: EvalIdentityStepContext) => Promise<ReviewFinding[]>;
+  getFindingsForStep: (ctx: EvalIdentityStepContext) => Promise<EvalIdentityStepReview>;
   persistReviewRun?: typeof persistReviewRun;
 }
 
 const defaultDependencies: EvalIdentityRunnerDependencies = {
-  getFindingsForStep: async () => [],
+  getFindingsForStep: async () => ({ findings: [] }),
   persistReviewRun,
 };
 
@@ -83,6 +89,7 @@ export async function runEvalIdentityTrial(
 
     const diffOwlDir = join(workDir, ".diffowl");
     const identitySteps: EvalIdentityStepResult[] = [];
+    const usageEntries: ReviewUsage[] = [];
     let lastFindings: ReviewFinding[] = [];
     let lastSessionId = "";
 
@@ -90,7 +97,11 @@ export async function runEvalIdentityTrial(
       await applyCaseStep(evalCase, workDir, stepIndex);
       const target = await finalizeEvalCaseTarget(workDir, evalCase);
       const ctx: EvalIdentityStepContext = { evalCase, workDir, stepIndex, target };
-      const findings = await dependencies.getFindingsForStep(ctx);
+      const stepReview = await dependencies.getFindingsForStep(ctx);
+      const findings = stepReview.findings;
+      if (stepReview.usage) {
+        usageEntries.push(stepReview.usage);
+      }
       const { targetKind, targetRef } = mapReviewTarget(target);
 
       await mkdir(diffOwlDir, { recursive: true });
@@ -114,12 +125,14 @@ export async function runEvalIdentityTrial(
       lastSessionId = `eval-identity-${evalCase.id}-step-${stepIndex}`;
     }
 
+    const usage = aggregateReviewUsage(usageEntries);
     return {
       caseId: evalCase.id,
       trial,
       mode: "diffowl",
       findings: lastFindings,
       timings: [],
+      ...(usage ? { usage } : {}),
       sessionId: lastSessionId,
       summary: `Identity eval completed ${evalCase.steps.length} step(s).`,
       diagnostics: [],
