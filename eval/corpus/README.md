@@ -10,6 +10,7 @@ The pinned `corpus_version` lives in [`../corpus-manifest.json`](../corpus-manif
 | --- | --- | --- | --- |
 | `missing-validation` | bug | commit | Removes empty-string id validation; only guards `undefined` |
 | `fire-and-forget-async` | bug | commit | Discards a `fetch` response and always returns `true` |
+| `recognize-same-across-commits` | bug | commit | Same fire-and-forget defect after line-only drift; identity continuity (`recognize-same`) |
 | `regression-reintroduced` | bug | commit | Reintroduces the fire-and-forget async defect after a fix |
 | `swallowed-error` | bug | commit | Settings parse errors silently replaced with defaults; sits next to a legitimate ENOENT fallback |
 | `off-by-one-slice` | bug | commit | Page-window trim removed; full pages return one extra row — the +1 read itself is intentional |
@@ -33,6 +34,7 @@ Case-level fields:
 - `description` — required; concise human-readable scenario
 - `target` — optional; defaults to `commit`
 - `tags` — optional; descriptive only unless a future gate says otherwise
+- `identity` — optional; declares durable-finding scoring kind (`recognize-same` or `keep-distinct`; plan alias `same-across-steps` normalizes to `recognize-same`). Requires `target: "commit"`, at least two `steps`, and is not allowed on `clean` cases. `recognize-same` requires expected findings on every step with equal counts. Optional `min_distinct` applies to `keep-distinct` only and must be at least 2 when present.
 - `expected` — empty for clean cases; non-empty for bug/mixed cases
 
 Bug and mixed cases declare anchors in `case.json` → `expected[]`:

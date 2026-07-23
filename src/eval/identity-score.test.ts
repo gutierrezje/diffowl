@@ -53,6 +53,8 @@ const twoStepEvalCase = {
   tags: [] as string[],
 };
 
+const corpusDir = join(import.meta.dirname, "../../eval/corpus");
+
 describe("resolveEvalIdentityKind", () => {
   it("reads prefixed and bare identity tags", () => {
     expect(resolveEvalIdentityKind({ id: "x", tags: ["identity:recognize-same"] })).toBe(
@@ -60,6 +62,26 @@ describe("resolveEvalIdentityKind", () => {
     );
     expect(resolveEvalIdentityKind({ id: "x", tags: ["keep-distinct"] })).toBe("keep-distinct");
     expect(resolveEvalIdentityKind({ id: "x", tags: ["bug"] })).toBeUndefined();
+  });
+
+  it("prefers identity object over tags", () => {
+    expect(
+      resolveEvalIdentityKind({
+        id: "x",
+        tags: ["identity:keep-distinct"],
+        identity: { kind: "recognize-same" },
+      }),
+    ).toBe("recognize-same");
+  });
+
+  it("resolves normalized alias from identity object", () => {
+    expect(
+      resolveEvalIdentityKind({
+        id: "x",
+        tags: [],
+        identity: { kind: "recognize-same" },
+      }),
+    ).toBe("recognize-same");
   });
 });
 
@@ -379,6 +401,35 @@ describe("scoreEvalIdentity integration", () => {
     expect(score.naReason).toBeUndefined();
     expect(score.detail.anchors.some((anchor) => anchor.status === "pass")).toBe(true);
   });
+
+  it("scores recognize-same-across-commits with matching durable ids", async () => {
+    const evalCase = await loadEvalCase(join(corpusDir, "recognize-same-across-commits"));
+    const kind = resolveEvalIdentityKind(evalCase)!;
+
+    const trial = await runEvalIdentityTrial(evalCase, {}, {
+      getFindingsForStep: async ({ stepIndex }) => [
+        {
+          severity: "warning",
+          file: "src/fetch.ts",
+          line: stepIndex === 0 ? 3 : 6,
+          confidence: "high",
+          title: "Fire-and-forget async call",
+          body: "The fetch response is discarded without awaiting.",
+          durable: {
+            id: "fnd_recognize_same",
+            classification: stepIndex === 0 ? "new" : "existing",
+            status: "open",
+          },
+        },
+      ],
+    });
+
+    const score = scoreEvalIdentity({ kind, evalCase, trial });
+
+    expect(score.kind).toBe("recognize-same");
+    expect(score.passed).toBe(true);
+    expect(score.naReason).toBeUndefined();
+  });
 });
 
 describe("tryScoreEvalIdentity", () => {
@@ -398,6 +449,32 @@ describe("tryScoreEvalIdentity", () => {
         expected: [],
         steps: twoStepEvalCase.steps,
         tags: ["identity:recognize-same"],
+      },
+      {
+        trials: [
+          {
+            trial: 0,
+            identitySteps: [
+              step(0, ["fp-same"], ["fnd_1"], ["new"], [baseFinding]),
+              step(1, ["fp-same"], ["fnd_1"], ["existing"], [{ ...baseFinding, line: 18 }]),
+            ],
+          },
+        ],
+      },
+    );
+
+    expect(score?.kind).toBe("recognize-same");
+    expect(score?.passed).toBe(true);
+  });
+
+  it("scores when identity object and identity steps are present", () => {
+    const score = tryScoreEvalIdentity(
+      {
+        id: "x",
+        expected: [],
+        steps: twoStepEvalCase.steps,
+        tags: [],
+        identity: { kind: "recognize-same" },
       },
       {
         trials: [

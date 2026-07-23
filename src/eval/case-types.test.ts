@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   EvalCaseJsonSchema,
   collectEvalCaseExpected,
+  normalizeEvalIdentityKindInput,
   parseEvalCaseJson,
   validateEvalCaseSemantics,
 } from "./case-types.js";
@@ -74,6 +75,24 @@ describe("parseEvalCaseJson", () => {
     ]);
   });
 
+  it("parses optional identity declarations", () => {
+    const parsed = parseEvalCaseJson({
+      id: "identity-case",
+      category: "bug",
+      language: "typescript",
+      description: "identity",
+      target: "commit",
+      expected: [{ file: "src/a.ts", line: 2 }],
+      identity: { kind: "same-across-steps" },
+      steps: [
+        { patchPath: "step-0.patch", expected: [{ file: "src/a.ts", line: 1 }] },
+        { patchPath: "step-1.patch", expected: [{ file: "src/a.ts", line: 2 }] },
+      ],
+    });
+
+    expect(parsed.identity).toEqual({ kind: "recognize-same" });
+  });
+
   it("rejects malformed case metadata", () => {
     expect(() =>
       parseEvalCaseJson({
@@ -134,6 +153,96 @@ describe("validateEvalCaseSemantics", () => {
     });
 
     expect(() => validateEvalCaseSemantics(caseJson)).toThrow(/must not declare expected findings/);
+  });
+
+  it("rejects identity on staged target", () => {
+    const caseJson = EvalCaseJsonSchema.parse({
+      id: "staged-identity",
+      category: "bug",
+      language: "typescript",
+      description: "staged",
+      target: "staged",
+      expected: [{ file: "src/a.ts", line: 2 }],
+      identity: { kind: "recognize-same" },
+      steps: [
+        { patchPath: "step-0.patch", expected: [{ file: "src/a.ts", line: 1 }] },
+        { patchPath: "step-1.patch", expected: [{ file: "src/a.ts", line: 2 }] },
+      ],
+    });
+
+    expect(() => validateEvalCaseSemantics(caseJson)).toThrow(/requires target "commit"/);
+  });
+
+  it("rejects identity on single-step cases", () => {
+    const caseJson = EvalCaseJsonSchema.parse({
+      id: "one-step-identity",
+      category: "bug",
+      language: "typescript",
+      description: "one step",
+      expected: [{ file: "src/a.ts", line: 1 }],
+      identity: { kind: "recognize-same" },
+      steps: [{ patchPath: "step-0.patch", expected: [{ file: "src/a.ts", line: 1 }] }],
+    });
+
+    expect(() => validateEvalCaseSemantics(caseJson)).toThrow(/at least two steps/);
+  });
+
+  it("rejects conflicting identity object and tags", () => {
+    const caseJson = EvalCaseJsonSchema.parse({
+      id: "conflict",
+      category: "bug",
+      language: "typescript",
+      description: "conflict",
+      expected: [{ file: "src/a.ts", line: 2 }],
+      identity: { kind: "recognize-same" },
+      tags: ["identity:keep-distinct"],
+      steps: [
+        { patchPath: "step-0.patch", expected: [{ file: "src/a.ts", line: 1 }] },
+        { patchPath: "step-1.patch", expected: [{ file: "src/a.ts", line: 2 }] },
+      ],
+    });
+
+    expect(() => validateEvalCaseSemantics(caseJson)).toThrow(/conflicts with identity tag/);
+  });
+
+  it("rejects identity on clean cases", () => {
+    const caseJson = EvalCaseJsonSchema.parse({
+      id: "clean-identity",
+      category: "clean",
+      language: "typescript",
+      description: "clean identity",
+      expected: [],
+      identity: { kind: "keep-distinct" },
+      steps: [{ patchPath: "step-0.patch" }, { patchPath: "step-1.patch" }],
+    });
+
+    expect(() => validateEvalCaseSemantics(caseJson)).toThrow(/must not declare identity expectation/);
+  });
+
+  it("rejects conflicting identity tags even when the first matches", () => {
+    const caseJson = EvalCaseJsonSchema.parse({
+      id: "tag-conflict",
+      category: "bug",
+      language: "typescript",
+      description: "tag conflict",
+      expected: [{ file: "src/a.ts", line: 2 }],
+      identity: { kind: "recognize-same" },
+      tags: ["identity:recognize-same", "identity:keep-distinct"],
+      steps: [
+        { patchPath: "step-0.patch", expected: [{ file: "src/a.ts", line: 1 }] },
+        { patchPath: "step-1.patch", expected: [{ file: "src/a.ts", line: 2 }] },
+      ],
+    });
+
+    expect(() => validateEvalCaseSemantics(caseJson)).toThrow(/conflicting identity tags/);
+  });
+});
+
+describe("normalizeEvalIdentityKindInput", () => {
+  it("normalizes plan alias to scorer kind", () => {
+    expect(normalizeEvalIdentityKindInput("same-across-steps")).toBe("recognize-same");
+    expect(normalizeEvalIdentityKindInput("recognize-same")).toBe("recognize-same");
+    expect(normalizeEvalIdentityKindInput("keep-distinct")).toBe("keep-distinct");
   });
 });
 
