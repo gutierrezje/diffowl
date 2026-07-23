@@ -182,16 +182,52 @@ describe("runEvalCaseTrial", () => {
     );
   });
 
-  it("rejects multi-step cases until sequential execution is wired", async () => {
-    const evalCase = await loadEvalCase(join(corpusDir, "harmless-trim"));
-    const multiStep = {
-      ...evalCase,
-      steps: [...evalCase.steps, { patchPath: evalCase.patchPath, expected: [] }],
-    };
+  it("routes multi-step diffowl cases through the identity runner", async () => {
+    const evalCase = await loadEvalCase(join(corpusDir, "recognize-same-across-commits"));
+    const runReview = vi.fn(async (): Promise<ReviewResult> => ({
+      sessionId: "session-identity",
+      report: { summary: "Step review.", findings: [] },
+    }));
 
-    await expect(
-      runEvalCaseTrial(multiStep, {}, { runReview: vi.fn(), prepareReviewServer: vi.fn() }),
-    ).rejects.toThrow(/only supports single-step cases/);
+    const result = await runEvalCase(
+      evalCase,
+      { mode: "diffowl" },
+      { runReview, prepareReviewServer: vi.fn(async () => undefined) },
+    );
+
+    expect(result.trials).toHaveLength(1);
+    expect(result.trials[0]?.error).toBeUndefined();
+    expect(result.trials[0]?.identitySteps).toHaveLength(2);
+    expect(runReview).toHaveBeenCalledTimes(2);
+    expect(runReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        localContext: expect.stringContaining("Local Review Context"),
+      }),
+    );
+  });
+
+  it("runs one baseline review on the final tree for multi-step cases", async () => {
+    const evalCase = await loadEvalCase(join(corpusDir, "recognize-same-across-commits"));
+    const runReview = vi.fn(async (): Promise<ReviewResult> => ({
+      sessionId: "baseline-session",
+      report: { summary: "Baseline.", findings: [] },
+    }));
+
+    const result = await runEvalCase(
+      evalCase,
+      { mode: "baseline" },
+      { runReview, prepareReviewServer: vi.fn(async () => undefined) },
+    );
+
+    expect(result.trials[0]?.error).toBeUndefined();
+    expect(result.trials[0]?.identitySteps).toBeUndefined();
+    expect(runReview).toHaveBeenCalledTimes(1);
+    expect(runReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemPrompt: BASELINE_AGENT_PROMPT,
+        userPrompt: expect.stringContaining("diff --git"),
+      }),
+    );
   });
 
   it("returns an error result when materialization fails", async () => {
@@ -271,5 +307,26 @@ describe("runEvalCaseBoth", () => {
     expect(result.diffowl.trials).toHaveLength(2);
     expect(result.baseline.trials).toHaveLength(2);
     expect(runReview).toHaveBeenCalledTimes(4);
+  });
+
+  it("runs multi-step cases in both modes", async () => {
+    const evalCase = await loadEvalCase(join(corpusDir, "recognize-same-across-commits"));
+    const runReview = vi.fn(async (): Promise<ReviewResult> => ({
+      sessionId: "session-eval",
+      report: { summary: "Clean.", findings: [] },
+    }));
+
+    const result = await runEvalCaseBoth(
+      evalCase,
+      {},
+      {
+        runReview,
+        prepareReviewServer: vi.fn(async () => undefined),
+      },
+    );
+
+    expect(result.diffowl.trials[0]?.identitySteps).toHaveLength(2);
+    expect(result.baseline.trials[0]?.identitySteps).toBeUndefined();
+    expect(runReview).toHaveBeenCalledTimes(3);
   });
 });

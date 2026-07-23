@@ -11,8 +11,8 @@ Internal tooling for measured review quality. Hidden CLI: `diffowl eval` (or `pn
 Cases may declare optional `steps: { patchPath, expected? }[]` in `case.json`.
 When `steps` is omitted, the loader treats `change.patch` as the sole step
 (existing fixtures keep working unchanged). See `src/eval/case-types.ts`.
-Note: the runner currently rejects cases with more than one step — sequential
-execution lands in plan 029 phase 2. Do not add multi-step fixtures before then.
+Multi-step cases run through the identity runner in `diffowl` mode (per-step
+review + persist) or apply all steps then one baseline review on the final tree.
 
 Changing any fixture or corpus README updates `hashCorpus()`. After corpus edits:
 

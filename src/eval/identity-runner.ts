@@ -49,8 +49,14 @@ export async function runEvalIdentityCase(
   options: EvalRunnerOptions = {},
   dependencies: EvalIdentityRunnerDependencies = defaultDependencies,
 ): Promise<EvalCaseRunResult> {
-  const trial = await runEvalIdentityTrial(evalCase, options, dependencies, 0);
-  return { caseId: evalCase.id, mode: "diffowl", trials: [trial] };
+  const trials = options.trials ?? 1;
+  const results: EvalTrialResult[] = [];
+
+  for (let trial = 0; trial < trials; trial++) {
+    results.push(await runEvalIdentityTrial(evalCase, options, dependencies, trial));
+  }
+
+  return { caseId: evalCase.id, mode: "diffowl", trials: results };
 }
 
 export async function runEvalIdentityTrial(
