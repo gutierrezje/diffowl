@@ -142,6 +142,66 @@ describe("scoreEvalIdentity recognize-same", () => {
     expect(score.naReason).toBeUndefined();
     expect(score.detail.anchors[0]?.status).toBe("pass");
   });
+
+  it("does not reuse one seed finding across overlapping recognize-same anchors", () => {
+    const score = scoreEvalIdentity({
+      kind: "recognize-same",
+      evalCase: {
+        id: "overlapping-recognize",
+        expected: [],
+        steps: [
+          {
+            patchPath: "a.patch",
+            expected: [
+              {
+                file: "src/a.ts",
+                line: 4,
+                line_tolerance: 5,
+                min_severity: "warning",
+                must_detect: true,
+              },
+              {
+                file: "src/a.ts",
+                line: 5,
+                line_tolerance: 5,
+                min_severity: "warning",
+                must_detect: true,
+              },
+            ],
+          },
+          {
+            patchPath: "b.patch",
+            expected: [
+              {
+                file: "src/a.ts",
+                line: 4,
+                line_tolerance: 5,
+                min_severity: "warning",
+                must_detect: true,
+              },
+              {
+                file: "src/a.ts",
+                line: 5,
+                line_tolerance: 5,
+                min_severity: "warning",
+                must_detect: true,
+              },
+            ],
+          },
+        ],
+        tags: [],
+      },
+      trial: {
+        identitySteps: [
+          step(0, ["fp-a"], ["fnd_1"], ["new"], [baseFinding]),
+          step(1, ["fp-a"], ["fnd_1"], ["existing"], [baseFinding]),
+        ],
+      },
+    });
+
+    expect(score.detail.anchors.map((anchor) => anchor.status)).toEqual(["pass", "na"]);
+    expect(score.passed).toBe(true);
+  });
 });
 
 describe("scoreEvalIdentity keep-distinct", () => {

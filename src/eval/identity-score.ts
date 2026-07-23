@@ -90,6 +90,8 @@ function scoreRecognizeSame(
   }
 
   const anchors: EvalIdentityAnchorResult[] = [];
+  const usedSeedIndices = new Set<number>();
+  const usedLaterIndices = new Set<number>();
 
   for (let expectedIndex = 0; expectedIndex < anchorCount; expectedIndex++) {
     const seedEntry = seedExpected[expectedIndex];
@@ -98,8 +100,8 @@ function scoreRecognizeSame(
       continue;
     }
 
-    const seedMatch = firstMatch(seedEntry, seed.findings);
-    const laterMatch = firstMatch(laterEntry, later.findings);
+    const seedMatch = firstMatch(seedEntry, seed.findings, usedSeedIndices);
+    const laterMatch = firstMatch(laterEntry, later.findings, usedLaterIndices);
 
     if (seedMatch === undefined || laterMatch === undefined) {
       anchors.push({
@@ -110,6 +112,9 @@ function scoreRecognizeSame(
       });
       continue;
     }
+
+    usedSeedIndices.add(seedMatch);
+    usedLaterIndices.add(laterMatch);
 
     const seedFingerprint = seed.fingerprints[seedMatch];
     const seedDurableId = seed.durableIds[seedMatch];
