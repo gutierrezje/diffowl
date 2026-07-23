@@ -129,7 +129,7 @@ function scoreRecognizeSame(
     anchors.push({
       expectedIndex,
       step: later.step,
-      status: continuityPass ? "pass" : identityBreak ? "fail" : "fail",
+      status: continuityPass ? "pass" : "fail",
       reason: continuityPass
         ? undefined
         : identityBreak
