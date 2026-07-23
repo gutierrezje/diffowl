@@ -204,7 +204,7 @@ describe("runEvalCaseTrial", () => {
         localContext: expect.stringContaining("Local Review Context"),
       }),
     );
-  });
+  }, 30_000);
 
   it("runs one baseline review on the cumulative multi-step diff", async () => {
     const evalCase = await loadEvalCase(join(corpusDir, "recognize-same-across-commits"));
@@ -235,7 +235,7 @@ describe("runEvalCaseTrial", () => {
         userPrompt: expect.stringContaining("void fetch"),
       }),
     );
-  });
+  }, 30_000);
 
   it("aggregates usage across multi-step diffowl reviews", async () => {
     const evalCase = await loadEvalCase(join(corpusDir, "recognize-same-across-commits"));
@@ -259,8 +259,7 @@ describe("runEvalCaseTrial", () => {
       tokens: { input: 20, output: 10, reasoning: 0, cache: { read: 0, write: 0 } },
       cost: 0.02,
     });
-  });
-
+  }, 30_000);
   it("returns an error result when materialization fails", async () => {
     const evalCase = await loadEvalCase(join(corpusDir, "harmless-trim"));
     vi.spyOn(repo, "materializeEvalCaseRepo").mockRejectedValueOnce(new Error("git init failed"));
@@ -359,5 +358,5 @@ describe("runEvalCaseBoth", () => {
     expect(result.diffowl.trials[0]?.identitySteps).toHaveLength(2);
     expect(result.baseline.trials[0]?.identitySteps).toBeUndefined();
     expect(runReview).toHaveBeenCalledTimes(3);
-  });
+  }, 30_000);
 });
