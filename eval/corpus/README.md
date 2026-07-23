@@ -10,6 +10,7 @@ The pinned `corpus_version` lives in [`../corpus-manifest.json`](../corpus-manif
 | --- | --- | --- | --- |
 | `missing-validation` | bug | commit | Removes empty-string id validation; only guards `undefined` |
 | `fire-and-forget-async` | bug | commit | Discards a `fetch` response and always returns `true` |
+| `keep-distinct-in-same-symbol` | bug | commit | Two independent defects in one function must stay two durable findings (`keep-distinct`) |
 | `recognize-same-across-commits` | bug | commit | Same fire-and-forget defect after line-only drift; identity continuity (`recognize-same`) |
 | `regression-reintroduced` | bug | commit | Reintroduces the fire-and-forget async defect after a fix |
 | `swallowed-error` | bug | commit | Settings parse errors silently replaced with defaults; sits next to a legitimate ENOENT fallback |

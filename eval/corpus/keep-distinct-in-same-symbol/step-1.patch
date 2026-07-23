@@ -1,0 +1,14 @@
+diff --git a/src/profile.ts b/src/profile.ts
+index 29fbb6c..a294969 100644
+--- a/src/profile.ts
++++ b/src/profile.ts
+@@ -6,6 +6,9 @@ export async function syncProfile(userId: string, remoteUrl: string) {
+ 
+   const local = await loadLocal(userId);
+ 
++  // unrelated formatting drift
++
++
+   // dogfood: fire-and-forget async call
+   void fetch(remoteUrl);
+   return { id: local.id, remoteOk: true };

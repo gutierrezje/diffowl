@@ -1,0 +1,32 @@
+{
+  "id": "keep-distinct-in-same-symbol",
+  "category": "bug",
+  "language": "typescript",
+  "description": "Two independent defects in syncProfile (empty-id validation and fire-and-forget fetch) must stay two durable findings.",
+  "target": "commit",
+  "tags": ["identity:keep-distinct", "async", "error-handling"],
+  "identity": {
+    "kind": "keep-distinct",
+    "min_distinct": 2
+  },
+  "expected": [
+    { "file": "src/profile.ts", "line": 3 },
+    { "file": "src/profile.ts", "line": 13 }
+  ],
+  "steps": [
+    {
+      "patchPath": "step-0.patch",
+      "expected": [
+        { "file": "src/profile.ts", "line": 3 },
+        { "file": "src/profile.ts", "line": 10 }
+      ]
+    },
+    {
+      "patchPath": "step-1.patch",
+      "expected": [
+        { "file": "src/profile.ts", "line": 3 },
+        { "file": "src/profile.ts", "line": 13 }
+      ]
+    }
+  ]
+}
