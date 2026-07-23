@@ -492,6 +492,33 @@ describe("tryScoreEvalIdentity", () => {
     expect(score?.kind).toBe("recognize-same");
     expect(score?.passed).toBe(true);
   });
+
+  it("skips leading trials without identity steps", () => {
+    const score = tryScoreEvalIdentity(
+      {
+        id: "x",
+        expected: [],
+        steps: twoStepEvalCase.steps,
+        tags: [],
+        identity: { kind: "recognize-same" },
+      },
+      {
+        trials: [
+          { trial: 0, error: "stream ended", identitySteps: [] },
+          {
+            trial: 1,
+            identitySteps: [
+              step(0, ["fp-same"], ["fnd_1"], ["new"], [baseFinding]),
+              step(1, ["fp-same"], ["fnd_1"], ["existing"], [{ ...baseFinding, line: 18 }]),
+            ],
+          },
+        ],
+      },
+    );
+
+    expect(score?.kind).toBe("recognize-same");
+    expect(score?.passed).toBe(true);
+  });
 });
 
 function step(

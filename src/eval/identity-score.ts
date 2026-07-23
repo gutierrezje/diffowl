@@ -46,8 +46,10 @@ export function tryScoreEvalIdentity(
     return undefined;
   }
 
-  const trial = run.trials[0];
-  if (!trial?.identitySteps?.length) {
+  // Prefer the first trial that actually produced identity steps. Trial 0 may
+  // be a transport error while later trials completed the multi-step path.
+  const trial = run.trials.find((candidate) => (candidate.identitySteps?.length ?? 0) > 0);
+  if (!trial) {
     return undefined;
   }
 

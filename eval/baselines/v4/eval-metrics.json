@@ -1,0 +1,4544 @@
+{
+  "schema_version": 1,
+  "manifest": {
+    "corpus_version": "5228dbfaabb9fc1cab62c784421c332141b3bf84e5787b864dfad30056b4385d",
+    "cases": [
+      {
+        "id": "async-clean",
+        "case_json_hash": "a7750573d680216e53cff8fcb4001312a6768bce5f4a9177bd65ff8bdc9f2933",
+        "patch_hash": "ca44cf32f3da961abae367ab4c17a3de9322edcb8b9f421b9a6ebcf3d0971e44"
+      },
+      {
+        "id": "check-then-act-race",
+        "case_json_hash": "a39f47248af6f6df679372f60b71fccfb9383c268bdb545e0b00f7687ff9596d",
+        "patch_hash": "ec250dc188c4b2c6ef8397fa5d8d1c568e27f4c8cc19a30403fa49dc12ef8249"
+      },
+      {
+        "id": "extract-helper-clean",
+        "case_json_hash": "586c324ebcd71c5d4cf56540937e3256a18eba3abad0d09dcfbf14bae8d4fd39",
+        "patch_hash": "e11658bdc331327b7ae7cb4ea2b845ccfb633c5dd64ad7f5f9645926313b1f4d"
+      },
+      {
+        "id": "fire-and-forget-async",
+        "case_json_hash": "41889dd97e1d77fcf4aa02ce44231c5ff11e51c1f094c1730c3f43e5d4cee421",
+        "patch_hash": "7210e762ba09789bdbc4560413dd53bcf616b2807ccbaef440e9f1d62dd4334c"
+      },
+      {
+        "id": "harmless-trim",
+        "case_json_hash": "9c253b4321c4d7d67d1166a64216c337c18f43ee625d4415b844a3bc0535c6fe",
+        "patch_hash": "2a52225c739b4384efc33fc33e530734555f84c8abe4124b50d41fa7b3c640ad"
+      },
+      {
+        "id": "inverted-guard",
+        "case_json_hash": "28acf6104b38f0a3189a4b160708bc82021bc07d9f33a0f69ae8c5aec6b4e205",
+        "patch_hash": "0acea34fa7d9eae5079fcc3e6d89f78f717277c8e590049b4ce11c59b24fc964"
+      },
+      {
+        "id": "keep-distinct-in-same-symbol",
+        "case_json_hash": "4e1347a46428305649c4cdfdb254e55285933ce10f76d4509026c33a3308a7b6",
+        "patch_hash": "8263e44ec337178cf9ba721fe242fc616032aa31c78b49abf8d7a3d47a35391c"
+      },
+      {
+        "id": "missing-validation",
+        "case_json_hash": "d0935cb7493a775017d62ee05d36188ac501529201f1c399dfbe7a4a1f731bed",
+        "patch_hash": "c11e0a74ab8f130954aa525ebeac289655da49a70d459a8ea03ce510256f5bb2"
+      },
+      {
+        "id": "off-by-one-slice",
+        "case_json_hash": "c51430f1447c00160be1f2f7fcbebce757b27be60b57a563981617e23ddc00d2",
+        "patch_hash": "7d904a5c30e636b124213a763e361aadeec34e4e7283bb7b059ea8307ae297ad"
+      },
+      {
+        "id": "path-join-traversal",
+        "case_json_hash": "386063a49b456aaf02f275d4f2b382f168607f6d96883fd59ca9c9acee1ff83e",
+        "patch_hash": "9ceaca75e42b8a183e92babce21af455371e46f2fcff350bf470fa37ee419c6c"
+      },
+      {
+        "id": "recognize-same-across-commits",
+        "case_json_hash": "c36bb34415feb2b56a546f2da1d55f65341239ff8c7ff638697e77c73a2afa33",
+        "patch_hash": "d4ac1fb8baf9cbbbd2ec54ee2c609714f0467e8a7e4d77f01a2e3f976c7b0bd6"
+      },
+      {
+        "id": "regression-reintroduced",
+        "case_json_hash": "89bacbd2b996ed4daf483c7011f4a457dce5923337eb7e68f37a83a391631305",
+        "patch_hash": "7210e762ba09789bdbc4560413dd53bcf616b2807ccbaef440e9f1d62dd4334c"
+      },
+      {
+        "id": "rename-clean",
+        "case_json_hash": "077681b607cdd6ba38ecb5368e3ba173119447c15f6ed3b3768ec9206132fe32",
+        "patch_hash": "ff62c43afa8a55fb4f722f497fa79325c8f506e4569130892d6012ae8e273600"
+      },
+      {
+        "id": "repeated-clean",
+        "case_json_hash": "e15a2578e72882ee0879ca15c78472851b37f182a83c654bbde26df422ed58f3",
+        "patch_hash": "aadbe1c45a6b62d1d037b28b7ae1a0fff9a228b8ed2fed68d9a6caa70e1ebcd5"
+      },
+      {
+        "id": "swallowed-error",
+        "case_json_hash": "c6bca85817c741b44824ff9112c388367711ee72067875271a109dcb5cef2e03",
+        "patch_hash": "4aae2d6ee7552c3842af728567cec7e5ec4aaeedaa7ee9129f33201d19a2dd75"
+      },
+      {
+        "id": "unbounded-retry",
+        "case_json_hash": "90be4bc57fb0ab2c30e3274cd844a9bdeeb65ffafc06cb850c1bc3d538f6d1ce",
+        "patch_hash": "e98e0d86c76631628e97d14283b5a4e04fad7ed2f44d860d0758cd7f0790e03f"
+      }
+    ],
+    "model": "opencode-go/deepseek-v4-flash",
+    "reasoning": "auto",
+    "depth": "default",
+    "min_confidence": "medium",
+    "trials": 3,
+    "mode": "both",
+    "diffowl_version": "0.3.3",
+    "node_version": "v26.4.0",
+    "opencode_version": "1.18.4",
+    "started_at": "2026-07-23T23:05:12.565Z",
+    "finished_at": "2026-07-23T23:23:15.936Z"
+  },
+  "aggregate": {
+    "diffowl": {
+      "caseCount": 16,
+      "trialCount": 48,
+      "precision": {
+        "mean": 0.8229166666666665,
+        "stddev": 0.20807275370248104,
+        "values": [
+          0.6666666666666666,
+          0.6666666666666666,
+          1,
+          0.8333333333333334,
+          1,
+          1,
+          0.3333333333333333,
+          0.8333333333333334,
+          1,
+          1,
+          0.6666666666666666,
+          1,
+          1,
+          1,
+          0.6666666666666666,
+          0.5
+        ]
+      },
+      "recall": {
+        "mean": 0.8541666666666666,
+        "stddev": 0.3326816546389857,
+        "values": [
+          1,
+          0.6666666666666666,
+          1,
+          1,
+          1,
+          1,
+          0,
+          1,
+          1,
+          1,
+          0,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "fBeta": {
+        "mean": 0.7847222222222222,
+        "stddev": 0.3226738932080262,
+        "values": [
+          0.6666666666666666,
+          0.6666666666666666,
+          1,
+          0.8888888888888888,
+          1,
+          1,
+          0,
+          0.8888888888888888,
+          1,
+          1,
+          0,
+          1,
+          1,
+          1,
+          0.7777777777777777,
+          0.6666666666666666
+        ]
+      },
+      "repeatedFpRate": 0,
+      "emptyOnCleanRate": 0.9333333333333332,
+      "latencyMs": {
+        "p50": 10383,
+        "p95": 32022,
+        "values": [
+          14718,
+          8182,
+          6954,
+          29367,
+          14661,
+          17616,
+          22833,
+          8102,
+          4926,
+          14772,
+          8237,
+          9781,
+          3983,
+          8966,
+          5507,
+          4724,
+          6765,
+          6470,
+          24262,
+          32935,
+          30870,
+          13039,
+          10072,
+          17030,
+          10383,
+          7754,
+          11397,
+          7043,
+          8797,
+          7882,
+          19102,
+          17612,
+          32022,
+          12888,
+          20869,
+          9924,
+          10034,
+          8430,
+          8649,
+          13884,
+          11619,
+          10504,
+          24442,
+          22632,
+          32588,
+          7340,
+          7381,
+          13894
+        ]
+      },
+      "usage": {
+        "meanCost": 0.0008384875999999999,
+        "totalCost": 0.0352164792,
+        "meanTokens": 8528.47619047619,
+        "coverage": 0.875
+      },
+      "byCategory": [
+        {
+          "category": "bug",
+          "caseCount": 11,
+          "precision": {
+            "mean": 0.7727272727272727,
+            "stddev": 0.21640692207705609,
+            "values": [
+              0.6666666666666666,
+              0.8333333333333334,
+              1,
+              0.3333333333333333,
+              0.8333333333333334,
+              1,
+              1,
+              0.6666666666666666,
+              1,
+              0.6666666666666666,
+              0.5
+            ]
+          },
+          "recall": {
+            "mean": 0.7878787878787878,
+            "stddev": 0.3833063830507127,
+            "values": [
+              0.6666666666666666,
+              1,
+              1,
+              0,
+              1,
+              1,
+              1,
+              0,
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 0.7171717171717172,
+            "stddev": 0.358834740774376,
+            "values": [
+              0.6666666666666666,
+              0.8888888888888888,
+              1,
+              0,
+              0.8888888888888888,
+              1,
+              1,
+              0,
+              1,
+              0.7777777777777777,
+              0.6666666666666666
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null
+        },
+        {
+          "category": "clean",
+          "caseCount": 5,
+          "precision": {
+            "mean": 0.9333333333333332,
+            "stddev": 0.13333333333333336,
+            "values": [
+              0.6666666666666666,
+              1,
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 0.9333333333333332,
+            "stddev": 0.13333333333333336,
+            "values": [
+              0.6666666666666666,
+              1,
+              1,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": 0.9333333333333332
+        }
+      ]
+    },
+    "baseline": {
+      "caseCount": 16,
+      "trialCount": 48,
+      "precision": {
+        "mean": 0.75,
+        "stddev": 0.33333333333333337,
+        "values": [
+          0.3333333333333333,
+          1,
+          1,
+          0.8333333333333334,
+          0.6666666666666666,
+          1,
+          0,
+          0.8333333333333334,
+          1,
+          1,
+          0,
+          1,
+          1,
+          0.6666666666666666,
+          0.8333333333333334,
+          0.8333333333333334
+        ]
+      },
+      "recall": {
+        "mean": 0.875,
+        "stddev": 0.33071891388307384,
+        "values": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          0,
+          1,
+          1,
+          1,
+          0,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "fBeta": {
+        "mean": 0.7638888888888888,
+        "stddev": 0.33764571614286715,
+        "values": [
+          0.3333333333333333,
+          1,
+          1,
+          0.8888888888888888,
+          0.6666666666666666,
+          1,
+          0,
+          0.8888888888888888,
+          1,
+          1,
+          0,
+          1,
+          1,
+          0.6666666666666666,
+          0.8888888888888888,
+          0.8888888888888888
+        ]
+      },
+      "repeatedFpRate": 0,
+      "emptyOnCleanRate": 0.7333333333333333,
+      "latencyMs": {
+        "p50": 7775,
+        "p95": 15272,
+        "values": [
+          6429,
+          6513,
+          12599,
+          12942,
+          11557,
+          15622,
+          7397,
+          11191,
+          6387,
+          9748,
+          7568,
+          8350,
+          7469,
+          14472,
+          5576,
+          8083,
+          8691,
+          6498,
+          11774,
+          10805,
+          8920,
+          11995,
+          11455,
+          7737,
+          11121,
+          6300,
+          9256,
+          4175,
+          4983,
+          6874,
+          7775,
+          8247,
+          7417,
+          6724,
+          8647,
+          6502,
+          7091,
+          6881,
+          5323,
+          13205,
+          3620,
+          9189,
+          6482,
+          15272,
+          15762,
+          10842,
+          5244,
+          4391
+        ]
+      },
+      "usage": {
+        "meanCost": 0.0006051577,
+        "totalCost": 0.029047569599999996,
+        "meanTokens": 4586.354166666667,
+        "coverage": 1
+      },
+      "byCategory": [
+        {
+          "category": "bug",
+          "caseCount": 11,
+          "precision": {
+            "mean": 0.7575757575757577,
+            "stddev": 0.36489680541794833,
+            "values": [
+              1,
+              0.8333333333333334,
+              1,
+              0,
+              0.8333333333333334,
+              1,
+              1,
+              0,
+              1,
+              0.8333333333333334,
+              0.8333333333333334
+            ]
+          },
+          "recall": {
+            "mean": 0.8181818181818182,
+            "stddev": 0.385694607919935,
+            "values": [
+              1,
+              1,
+              1,
+              0,
+              1,
+              1,
+              1,
+              0,
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 0.7777777777777778,
+            "stddev": 0.3700335168487718,
+            "values": [
+              1,
+              0.8888888888888888,
+              1,
+              0,
+              0.8888888888888888,
+              1,
+              1,
+              0,
+              1,
+              0.8888888888888888,
+              0.8888888888888888
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null
+        },
+        {
+          "category": "clean",
+          "caseCount": 5,
+          "precision": {
+            "mean": 0.7333333333333333,
+            "stddev": 0.24944382578492943,
+            "values": [
+              0.3333333333333333,
+              1,
+              0.6666666666666666,
+              1,
+              0.6666666666666666
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 0.7333333333333333,
+            "stddev": 0.24944382578492943,
+            "values": [
+              0.3333333333333333,
+              1,
+              0.6666666666666666,
+              1,
+              0.6666666666666666
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": 0.7333333333333333
+        }
+      ]
+    },
+    "delta": {
+      "caseCount": 16,
+      "precision": {
+        "diffowl": 0.8229166666666665,
+        "baseline": 0.75,
+        "delta": 0.07291666666666652
+      },
+      "recall": {
+        "diffowl": 0.8541666666666666,
+        "baseline": 0.875,
+        "delta": -0.02083333333333337
+      },
+      "fBeta": {
+        "diffowl": 0.7847222222222222,
+        "baseline": 0.7638888888888888,
+        "delta": 0.02083333333333337
+      },
+      "repeatedFpRate": {
+        "diffowl": 0,
+        "baseline": 0,
+        "delta": 0
+      },
+      "latencyP50": {
+        "diffowl": 12619.5625,
+        "baseline": 8646.125,
+        "delta": 3973.4375
+      },
+      "usageMeanCost": {
+        "diffowl": 0.0008384875999999999,
+        "baseline": 0.0005673354666666667,
+        "delta": 0.0002711521333333333
+      },
+      "cases": [
+        {
+          "caseId": "async-clean",
+          "precision": {
+            "diffowl": 0.6666666666666666,
+            "baseline": 0.3333333333333333,
+            "delta": 0.3333333333333333
+          },
+          "recall": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "fBeta": {
+            "diffowl": 0.6666666666666666,
+            "baseline": 0.3333333333333333,
+            "delta": 0.3333333333333333
+          },
+          "repeatedFpRate": {
+            "diffowl": 0,
+            "baseline": 0,
+            "delta": 0
+          },
+          "latencyP50": {
+            "diffowl": 8182,
+            "baseline": 6513,
+            "delta": 1669
+          },
+          "usageMeanCost": {
+            "diffowl": 0.0008097133333333333,
+            "baseline": 0,
+            "delta": 0.0008097133333333333
+          }
+        },
+        {
+          "caseId": "check-then-act-race",
+          "precision": {
+            "diffowl": 0.6666666666666666,
+            "baseline": 1,
+            "delta": -0.33333333333333337
+          },
+          "recall": {
+            "diffowl": 0.6666666666666666,
+            "baseline": 1,
+            "delta": -0.33333333333333337
+          },
+          "fBeta": {
+            "diffowl": 0.6666666666666666,
+            "baseline": 1,
+            "delta": -0.33333333333333337
+          },
+          "repeatedFpRate": {
+            "diffowl": 0,
+            "baseline": 0,
+            "delta": 0
+          },
+          "latencyP50": {
+            "diffowl": 17616,
+            "baseline": 12942,
+            "delta": 4674
+          },
+          "usageMeanCost": {
+            "diffowl": 0.001506484,
+            "baseline": 0.0003980666666666667,
+            "delta": 0.0011084173333333334
+          }
+        },
+        {
+          "caseId": "extract-helper-clean",
+          "precision": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "recall": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "fBeta": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "repeatedFpRate": {
+            "diffowl": 0,
+            "baseline": 0,
+            "delta": 0
+          },
+          "latencyP50": {
+            "diffowl": 8102,
+            "baseline": 7397,
+            "delta": 705
+          },
+          "usageMeanCost": {
+            "diffowl": 0.0009692200000000001,
+            "baseline": 0.0010732866666666667,
+            "delta": -0.00010406666666666652
+          }
+        },
+        {
+          "caseId": "fire-and-forget-async",
+          "precision": {
+            "diffowl": 0.8333333333333334,
+            "baseline": 0.8333333333333334,
+            "delta": 0
+          },
+          "recall": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "fBeta": {
+            "diffowl": 0.8888888888888888,
+            "baseline": 0.8888888888888888,
+            "delta": 0
+          },
+          "repeatedFpRate": {
+            "diffowl": 0,
+            "baseline": 0,
+            "delta": 0
+          },
+          "latencyP50": {
+            "diffowl": 9781,
+            "baseline": 8350,
+            "delta": 1431
+          },
+          "usageMeanCost": {
+            "diffowl": 0.0012232192,
+            "baseline": 0.0003579333333333333,
+            "delta": 0.0008652858666666667
+          }
+        },
+        {
+          "caseId": "harmless-trim",
+          "precision": {
+            "diffowl": 1,
+            "baseline": 0.6666666666666666,
+            "delta": 0.33333333333333337
+          },
+          "recall": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "fBeta": {
+            "diffowl": 1,
+            "baseline": 0.6666666666666666,
+            "delta": 0.33333333333333337
+          },
+          "repeatedFpRate": {
+            "diffowl": 0,
+            "baseline": 0,
+            "delta": 0
+          },
+          "latencyP50": {
+            "diffowl": 5507,
+            "baseline": 7469,
+            "delta": -1962
+          },
+          "usageMeanCost": {
+            "diffowl": 0.0003952666666666667,
+            "baseline": 0.0010834936,
+            "delta": -0.0006882269333333333
+          }
+        },
+        {
+          "caseId": "inverted-guard",
+          "precision": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "recall": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "fBeta": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "repeatedFpRate": {
+            "diffowl": 0,
+            "baseline": 0,
+            "delta": 0
+          },
+          "latencyP50": {
+            "diffowl": 6470,
+            "baseline": 8083,
+            "delta": -1613
+          },
+          "usageMeanCost": {
+            "diffowl": 0,
+            "baseline": 0.0007190866666666667,
+            "delta": -0.0007190866666666667
+          }
+        },
+        {
+          "caseId": "keep-distinct-in-same-symbol",
+          "precision": {
+            "diffowl": 0.3333333333333333,
+            "baseline": 0,
+            "delta": 0.3333333333333333
+          },
+          "recall": {
+            "diffowl": 0,
+            "baseline": 0,
+            "delta": 0
+          },
+          "fBeta": {
+            "diffowl": 0,
+            "baseline": 0,
+            "delta": 0
+          },
+          "repeatedFpRate": {
+            "diffowl": 0,
+            "baseline": 0,
+            "delta": 0
+          },
+          "latencyP50": {
+            "diffowl": 30870,
+            "baseline": 10805,
+            "delta": 20065
+          },
+          "usageMeanCost": {
+            "diffowl": null,
+            "baseline": 0.0010420666666666667,
+            "delta": null
+          }
+        },
+        {
+          "caseId": "missing-validation",
+          "precision": {
+            "diffowl": 0.8333333333333334,
+            "baseline": 0.8333333333333334,
+            "delta": 0
+          },
+          "recall": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "fBeta": {
+            "diffowl": 0.8888888888888888,
+            "baseline": 0.8888888888888888,
+            "delta": 0
+          },
+          "repeatedFpRate": {
+            "diffowl": 0,
+            "baseline": 0,
+            "delta": 0
+          },
+          "latencyP50": {
+            "diffowl": 13039,
+            "baseline": 11455,
+            "delta": 1584
+          },
+          "usageMeanCost": {
+            "diffowl": 0.0008763533333333333,
+            "baseline": 0.0007294,
+            "delta": 0.0001469533333333334
+          }
+        },
+        {
+          "caseId": "off-by-one-slice",
+          "precision": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "recall": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "fBeta": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "repeatedFpRate": {
+            "diffowl": 0,
+            "baseline": 0,
+            "delta": 0
+          },
+          "latencyP50": {
+            "diffowl": 10383,
+            "baseline": 9256,
+            "delta": 1127
+          },
+          "usageMeanCost": {
+            "diffowl": 0.0009219093333333334,
+            "baseline": 0.00036596,
+            "delta": 0.0005559493333333334
+          }
+        },
+        {
+          "caseId": "path-join-traversal",
+          "precision": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "recall": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "fBeta": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "repeatedFpRate": {
+            "diffowl": 0,
+            "baseline": 0,
+            "delta": 0
+          },
+          "latencyP50": {
+            "diffowl": 7882,
+            "baseline": 4983,
+            "delta": 2899
+          },
+          "usageMeanCost": {
+            "diffowl": 0.0011862666666666666,
+            "baseline": 0.00034337333333333333,
+            "delta": 0.0008428933333333333
+          }
+        },
+        {
+          "caseId": "recognize-same-across-commits",
+          "precision": {
+            "diffowl": 0.6666666666666666,
+            "baseline": 0,
+            "delta": 0.6666666666666666
+          },
+          "recall": {
+            "diffowl": 0,
+            "baseline": 0,
+            "delta": 0
+          },
+          "fBeta": {
+            "diffowl": 0,
+            "baseline": 0,
+            "delta": 0
+          },
+          "repeatedFpRate": {
+            "diffowl": 0,
+            "baseline": 0,
+            "delta": 0
+          },
+          "latencyP50": {
+            "diffowl": 19102,
+            "baseline": 7775,
+            "delta": 11327
+          },
+          "usageMeanCost": {
+            "diffowl": null,
+            "baseline": 0.00069776,
+            "delta": null
+          }
+        },
+        {
+          "caseId": "regression-reintroduced",
+          "precision": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "recall": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "fBeta": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "repeatedFpRate": {
+            "diffowl": 0,
+            "baseline": 0,
+            "delta": 0
+          },
+          "latencyP50": {
+            "diffowl": 12888,
+            "baseline": 6724,
+            "delta": 6164
+          },
+          "usageMeanCost": {
+            "diffowl": 0.0013186226666666667,
+            "baseline": 0,
+            "delta": 0.0013186226666666667
+          }
+        },
+        {
+          "caseId": "rename-clean",
+          "precision": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "recall": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "fBeta": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "repeatedFpRate": {
+            "diffowl": 0,
+            "baseline": 0,
+            "delta": 0
+          },
+          "latencyP50": {
+            "diffowl": 8649,
+            "baseline": 6881,
+            "delta": 1768
+          },
+          "usageMeanCost": {
+            "diffowl": 0.0004039933333333334,
+            "baseline": 0.0010364666666666667,
+            "delta": -0.0006324733333333333
+          }
+        },
+        {
+          "caseId": "repeated-clean",
+          "precision": {
+            "diffowl": 1,
+            "baseline": 0.6666666666666666,
+            "delta": 0.33333333333333337
+          },
+          "recall": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "fBeta": {
+            "diffowl": 1,
+            "baseline": 0.6666666666666666,
+            "delta": 0.33333333333333337
+          },
+          "repeatedFpRate": {
+            "diffowl": 0,
+            "baseline": 0,
+            "delta": 0
+          },
+          "latencyP50": {
+            "diffowl": 11619,
+            "baseline": 9189,
+            "delta": 2430
+          },
+          "usageMeanCost": {
+            "diffowl": 0,
+            "baseline": 0.0007040133333333333,
+            "delta": -0.0007040133333333333
+          }
+        },
+        {
+          "caseId": "swallowed-error",
+          "precision": {
+            "diffowl": 0.6666666666666666,
+            "baseline": 0.8333333333333334,
+            "delta": -0.16666666666666674
+          },
+          "recall": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "fBeta": {
+            "diffowl": 0.7777777777777777,
+            "baseline": 0.8888888888888888,
+            "delta": -0.11111111111111116
+          },
+          "repeatedFpRate": {
+            "diffowl": 0,
+            "baseline": 0,
+            "delta": 0
+          },
+          "latencyP50": {
+            "diffowl": 24442,
+            "baseline": 15272,
+            "delta": 9170
+          },
+          "usageMeanCost": {
+            "diffowl": 0.0016849130666666667,
+            "baseline": 0.0007732629333333333,
+            "delta": 0.0009116501333333334
+          }
+        },
+        {
+          "caseId": "unbounded-retry",
+          "precision": {
+            "diffowl": 0.5,
+            "baseline": 0.8333333333333334,
+            "delta": -0.33333333333333337
+          },
+          "recall": {
+            "diffowl": 1,
+            "baseline": 1,
+            "delta": 0
+          },
+          "fBeta": {
+            "diffowl": 0.6666666666666666,
+            "baseline": 0.8888888888888888,
+            "delta": -0.2222222222222222
+          },
+          "repeatedFpRate": {
+            "diffowl": 0,
+            "baseline": 0,
+            "delta": 0
+          },
+          "latencyP50": {
+            "diffowl": 7381,
+            "baseline": 5244,
+            "delta": 2137
+          },
+          "usageMeanCost": {
+            "diffowl": 0.00044286479999999995,
+            "baseline": 0.0003583533333333334,
+            "delta": 0.00008451146666666658
+          }
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "id": "async-clean",
+      "category": "clean",
+      "case_json_hash": "a7750573d680216e53cff8fcb4001312a6768bce5f4a9177bd65ff8bdc9f2933",
+      "patch_hash": "ca44cf32f3da961abae367ab4c17a3de9322edcb8b9f421b9a6ebcf3d0971e44",
+      "diffowl": {
+        "metrics": {
+          "caseId": "async-clean",
+          "category": "clean",
+          "tags": [
+            "false-positive-stress",
+            "async"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 0.6666666666666666,
+            "stddev": 0.4714045207910317,
+            "values": [
+              0,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 0.6666666666666666,
+            "stddev": 0.4714045207910317,
+            "values": [
+              0,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": 0.6666666666666666,
+          "latencyMs": {
+            "p50": 8182,
+            "p95": 14718,
+            "values": [
+              14718,
+              8182,
+              6954
+            ]
+          },
+          "usage": {
+            "meanCost": 0.0008097133333333333,
+            "totalCost": 0.0024291399999999998,
+            "meanTokens": 5524,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 0,
+              "recall": 1,
+              "fBeta": 0,
+              "durationMs": 14718,
+              "usageCost": 0.00123046,
+              "totalTokens": 8344,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 8182,
+              "usageCost": 0.00119868,
+              "totalTokens": 8228,
+              "emptyOnClean": true
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 6954,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": true
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "baseline": {
+        "metrics": {
+          "caseId": "async-clean",
+          "category": "clean",
+          "tags": [
+            "false-positive-stress",
+            "async"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 0.3333333333333333,
+            "stddev": 0.4714045207910317,
+            "values": [
+              0,
+              1,
+              0
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 0.3333333333333333,
+            "stddev": 0.4714045207910317,
+            "values": [
+              0,
+              1,
+              0
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": 0.3333333333333333,
+          "latencyMs": {
+            "p50": 6513,
+            "p95": 12599,
+            "values": [
+              6429,
+              6513,
+              12599
+            ]
+          },
+          "usage": {
+            "meanCost": 0,
+            "totalCost": 0,
+            "meanTokens": 0,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 0,
+              "recall": 1,
+              "fBeta": 0,
+              "durationMs": 6429,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 6513,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": true
+            },
+            {
+              "trial": 2,
+              "precision": 0,
+              "recall": 1,
+              "fBeta": 0,
+              "durationMs": 12599,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "delta": {
+        "caseId": "async-clean",
+        "precision": {
+          "diffowl": 0.6666666666666666,
+          "baseline": 0.3333333333333333,
+          "delta": 0.3333333333333333
+        },
+        "recall": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "fBeta": {
+          "diffowl": 0.6666666666666666,
+          "baseline": 0.3333333333333333,
+          "delta": 0.3333333333333333
+        },
+        "repeatedFpRate": {
+          "diffowl": 0,
+          "baseline": 0,
+          "delta": 0
+        },
+        "latencyP50": {
+          "diffowl": 8182,
+          "baseline": 6513,
+          "delta": 1669
+        },
+        "usageMeanCost": {
+          "diffowl": 0.0008097133333333333,
+          "baseline": 0,
+          "delta": 0.0008097133333333333
+        }
+      }
+    },
+    {
+      "id": "check-then-act-race",
+      "category": "bug",
+      "case_json_hash": "a39f47248af6f6df679372f60b71fccfb9383c268bdb545e0b00f7687ff9596d",
+      "patch_hash": "ec250dc188c4b2c6ef8397fa5d8d1c568e27f4c8cc19a30403fa49dc12ef8249",
+      "diffowl": {
+        "metrics": {
+          "caseId": "check-then-act-race",
+          "category": "bug",
+          "tags": [
+            "concurrency"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 0.6666666666666666,
+            "stddev": 0.4714045207910317,
+            "values": [
+              0,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 0.6666666666666666,
+            "stddev": 0.4714045207910317,
+            "values": [
+              0,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 0.6666666666666666,
+            "stddev": 0.4714045207910317,
+            "values": [
+              0,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 17616,
+            "p95": 29367,
+            "values": [
+              29367,
+              14661,
+              17616
+            ]
+          },
+          "usage": {
+            "meanCost": 0.001506484,
+            "totalCost": 0.004519452,
+            "meanTokens": 21413.666666666668,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 0,
+              "recall": 0,
+              "fBeta": 0,
+              "durationMs": 29367,
+              "usageCost": 0.0017700592000000001,
+              "totalTokens": 37709,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 14661,
+              "usageCost": 0.0014126728,
+              "totalTokens": 17699,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 17616,
+              "usageCost": 0.00133672,
+              "totalTokens": 8833,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "baseline": {
+        "metrics": {
+          "caseId": "check-then-act-race",
+          "category": "bug",
+          "tags": [
+            "concurrency"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 12942,
+            "p95": 15622,
+            "values": [
+              12942,
+              11557,
+              15622
+            ]
+          },
+          "usage": {
+            "meanCost": 0.0003980666666666667,
+            "totalCost": 0.0011942,
+            "meanTokens": 2611,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 12942,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 11557,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 15622,
+              "usageCost": 0.0011942,
+              "totalTokens": 7833,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "delta": {
+        "caseId": "check-then-act-race",
+        "precision": {
+          "diffowl": 0.6666666666666666,
+          "baseline": 1,
+          "delta": -0.33333333333333337
+        },
+        "recall": {
+          "diffowl": 0.6666666666666666,
+          "baseline": 1,
+          "delta": -0.33333333333333337
+        },
+        "fBeta": {
+          "diffowl": 0.6666666666666666,
+          "baseline": 1,
+          "delta": -0.33333333333333337
+        },
+        "repeatedFpRate": {
+          "diffowl": 0,
+          "baseline": 0,
+          "delta": 0
+        },
+        "latencyP50": {
+          "diffowl": 17616,
+          "baseline": 12942,
+          "delta": 4674
+        },
+        "usageMeanCost": {
+          "diffowl": 0.001506484,
+          "baseline": 0.0003980666666666667,
+          "delta": 0.0011084173333333334
+        }
+      }
+    },
+    {
+      "id": "extract-helper-clean",
+      "category": "clean",
+      "case_json_hash": "586c324ebcd71c5d4cf56540937e3256a18eba3abad0d09dcfbf14bae8d4fd39",
+      "patch_hash": "e11658bdc331327b7ae7cb4ea2b845ccfb633c5dd64ad7f5f9645926313b1f4d",
+      "diffowl": {
+        "metrics": {
+          "caseId": "extract-helper-clean",
+          "category": "clean",
+          "tags": [
+            "refactor"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": 1,
+          "latencyMs": {
+            "p50": 8102,
+            "p95": 22833,
+            "values": [
+              22833,
+              8102,
+              4926
+            ]
+          },
+          "usage": {
+            "meanCost": 0.0009692200000000001,
+            "totalCost": 0.0029076600000000003,
+            "meanTokens": 6126,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 22833,
+              "usageCost": 0.00165032,
+              "totalTokens": 9890,
+              "emptyOnClean": true
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 8102,
+              "usageCost": 0.00125734,
+              "totalTokens": 8488,
+              "emptyOnClean": true
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 4926,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": true
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "baseline": {
+        "metrics": {
+          "caseId": "extract-helper-clean",
+          "category": "clean",
+          "tags": [
+            "refactor"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": 1,
+          "latencyMs": {
+            "p50": 7397,
+            "p95": 11191,
+            "values": [
+              7397,
+              11191,
+              6387
+            ]
+          },
+          "usage": {
+            "meanCost": 0.0010732866666666667,
+            "totalCost": 0.00321986,
+            "meanTokens": 7341.666666666667,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 7397,
+              "usageCost": 0.00104258,
+              "totalTokens": 7233,
+              "emptyOnClean": true
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 11191,
+              "usageCost": 0.00112462,
+              "totalTokens": 7524,
+              "emptyOnClean": true
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 6387,
+              "usageCost": 0.00105266,
+              "totalTokens": 7268,
+              "emptyOnClean": true
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "delta": {
+        "caseId": "extract-helper-clean",
+        "precision": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "recall": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "fBeta": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "repeatedFpRate": {
+          "diffowl": 0,
+          "baseline": 0,
+          "delta": 0
+        },
+        "latencyP50": {
+          "diffowl": 8102,
+          "baseline": 7397,
+          "delta": 705
+        },
+        "usageMeanCost": {
+          "diffowl": 0.0009692200000000001,
+          "baseline": 0.0010732866666666667,
+          "delta": -0.00010406666666666652
+        }
+      }
+    },
+    {
+      "id": "fire-and-forget-async",
+      "category": "bug",
+      "case_json_hash": "41889dd97e1d77fcf4aa02ce44231c5ff11e51c1f094c1730c3f43e5d4cee421",
+      "patch_hash": "7210e762ba09789bdbc4560413dd53bcf616b2807ccbaef440e9f1d62dd4334c",
+      "diffowl": {
+        "metrics": {
+          "caseId": "fire-and-forget-async",
+          "category": "bug",
+          "tags": [
+            "async"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 0.8333333333333334,
+            "stddev": 0.23570226039551584,
+            "values": [
+              0.5,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 0.8888888888888888,
+            "stddev": 0.15713484026367724,
+            "values": [
+              0.6666666666666666,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 9781,
+            "p95": 14772,
+            "values": [
+              14772,
+              8237,
+              9781
+            ]
+          },
+          "usage": {
+            "meanCost": 0.0012232192,
+            "totalCost": 0.0036696576,
+            "meanTokens": 11060.666666666666,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 0.5,
+              "recall": 1,
+              "fBeta": 0.6666666666666666,
+              "durationMs": 14772,
+              "usageCost": 0.0012921776,
+              "totalTokens": 16771,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 8237,
+              "usageCost": 0.00118048,
+              "totalTokens": 8177,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 9781,
+              "usageCost": 0.001197,
+              "totalTokens": 8234,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "baseline": {
+        "metrics": {
+          "caseId": "fire-and-forget-async",
+          "category": "bug",
+          "tags": [
+            "async"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 0.8333333333333334,
+            "stddev": 0.23570226039551584,
+            "values": [
+              0.5,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 0.8888888888888888,
+            "stddev": 0.15713484026367724,
+            "values": [
+              0.6666666666666666,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 8350,
+            "p95": 9748,
+            "values": [
+              9748,
+              7568,
+              8350
+            ]
+          },
+          "usage": {
+            "meanCost": 0.0003579333333333333,
+            "totalCost": 0.0010738,
+            "meanTokens": 2443.3333333333335,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 0.5,
+              "recall": 1,
+              "fBeta": 0.6666666666666666,
+              "durationMs": 9748,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 7568,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 8350,
+              "usageCost": 0.0010738,
+              "totalTokens": 7330,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "delta": {
+        "caseId": "fire-and-forget-async",
+        "precision": {
+          "diffowl": 0.8333333333333334,
+          "baseline": 0.8333333333333334,
+          "delta": 0
+        },
+        "recall": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "fBeta": {
+          "diffowl": 0.8888888888888888,
+          "baseline": 0.8888888888888888,
+          "delta": 0
+        },
+        "repeatedFpRate": {
+          "diffowl": 0,
+          "baseline": 0,
+          "delta": 0
+        },
+        "latencyP50": {
+          "diffowl": 9781,
+          "baseline": 8350,
+          "delta": 1431
+        },
+        "usageMeanCost": {
+          "diffowl": 0.0012232192,
+          "baseline": 0.0003579333333333333,
+          "delta": 0.0008652858666666667
+        }
+      }
+    },
+    {
+      "id": "harmless-trim",
+      "category": "clean",
+      "case_json_hash": "9c253b4321c4d7d67d1166a64216c337c18f43ee625d4415b844a3bc0535c6fe",
+      "patch_hash": "2a52225c739b4384efc33fc33e530734555f84c8abe4124b50d41fa7b3c640ad",
+      "diffowl": {
+        "metrics": {
+          "caseId": "harmless-trim",
+          "category": "clean",
+          "tags": [
+            "false-positive-stress"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": 1,
+          "latencyMs": {
+            "p50": 5507,
+            "p95": 8966,
+            "values": [
+              3983,
+              8966,
+              5507
+            ]
+          },
+          "usage": {
+            "meanCost": 0.0003952666666666667,
+            "totalCost": 0.0011858,
+            "meanTokens": 2723.6666666666665,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 3983,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": true
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 8966,
+              "usageCost": 0.0011858,
+              "totalTokens": 8171,
+              "emptyOnClean": true
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 5507,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": true
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "baseline": {
+        "metrics": {
+          "caseId": "harmless-trim",
+          "category": "clean",
+          "tags": [
+            "false-positive-stress"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 0.6666666666666666,
+            "stddev": 0.4714045207910317,
+            "values": [
+              1,
+              0,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 0.6666666666666666,
+            "stddev": 0.4714045207910317,
+            "values": [
+              1,
+              0,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": 0.6666666666666666,
+          "latencyMs": {
+            "p50": 7469,
+            "p95": 14472,
+            "values": [
+              7469,
+              14472,
+              5576
+            ]
+          },
+          "usage": {
+            "meanCost": 0.0010834936,
+            "totalCost": 0.0032504808,
+            "meanTokens": 12121.333333333334,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 7469,
+              "usageCost": 0.00101332,
+              "totalTokens": 7092,
+              "emptyOnClean": true
+            },
+            {
+              "trial": 1,
+              "precision": 0,
+              "recall": 1,
+              "fBeta": 0,
+              "durationMs": 14472,
+              "usageCost": 0.0012252408000000001,
+              "totalTokens": 22184,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 5576,
+              "usageCost": 0.00101192,
+              "totalTokens": 7088,
+              "emptyOnClean": true
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "delta": {
+        "caseId": "harmless-trim",
+        "precision": {
+          "diffowl": 1,
+          "baseline": 0.6666666666666666,
+          "delta": 0.33333333333333337
+        },
+        "recall": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "fBeta": {
+          "diffowl": 1,
+          "baseline": 0.6666666666666666,
+          "delta": 0.33333333333333337
+        },
+        "repeatedFpRate": {
+          "diffowl": 0,
+          "baseline": 0,
+          "delta": 0
+        },
+        "latencyP50": {
+          "diffowl": 5507,
+          "baseline": 7469,
+          "delta": -1962
+        },
+        "usageMeanCost": {
+          "diffowl": 0.0003952666666666667,
+          "baseline": 0.0010834936,
+          "delta": -0.0006882269333333333
+        }
+      }
+    },
+    {
+      "id": "inverted-guard",
+      "category": "bug",
+      "case_json_hash": "28acf6104b38f0a3189a4b160708bc82021bc07d9f33a0f69ae8c5aec6b4e205",
+      "patch_hash": "0acea34fa7d9eae5079fcc3e6d89f78f717277c8e590049b4ce11c59b24fc964",
+      "diffowl": {
+        "metrics": {
+          "caseId": "inverted-guard",
+          "category": "bug",
+          "tags": [
+            "logic"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 6470,
+            "p95": 6765,
+            "values": [
+              4724,
+              6765,
+              6470
+            ]
+          },
+          "usage": {
+            "meanCost": 0,
+            "totalCost": 0,
+            "meanTokens": 0,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 4724,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 6765,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 6470,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "baseline": {
+        "metrics": {
+          "caseId": "inverted-guard",
+          "category": "bug",
+          "tags": [
+            "logic"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 8083,
+            "p95": 8691,
+            "values": [
+              8083,
+              8691,
+              6498
+            ]
+          },
+          "usage": {
+            "meanCost": 0.0007190866666666667,
+            "totalCost": 0.0021572600000000003,
+            "meanTokens": 4931,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 8083,
+              "usageCost": 0.00107058,
+              "totalTokens": 7368,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 8691,
+              "usageCost": 0.00108668,
+              "totalTokens": 7425,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 6498,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "delta": {
+        "caseId": "inverted-guard",
+        "precision": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "recall": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "fBeta": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "repeatedFpRate": {
+          "diffowl": 0,
+          "baseline": 0,
+          "delta": 0
+        },
+        "latencyP50": {
+          "diffowl": 6470,
+          "baseline": 8083,
+          "delta": -1613
+        },
+        "usageMeanCost": {
+          "diffowl": 0,
+          "baseline": 0.0007190866666666667,
+          "delta": -0.0007190866666666667
+        }
+      }
+    },
+    {
+      "id": "keep-distinct-in-same-symbol",
+      "category": "bug",
+      "case_json_hash": "4e1347a46428305649c4cdfdb254e55285933ce10f76d4509026c33a3308a7b6",
+      "patch_hash": "8263e44ec337178cf9ba721fe242fc616032aa31c78b49abf8d7a3d47a35391c",
+      "diffowl": {
+        "metrics": {
+          "caseId": "keep-distinct-in-same-symbol",
+          "category": "bug",
+          "tags": [
+            "identity:keep-distinct",
+            "async",
+            "error-handling"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 0.3333333333333333,
+            "stddev": 0.4714045207910317,
+            "values": [
+              1,
+              0,
+              0
+            ]
+          },
+          "recall": {
+            "mean": 0,
+            "stddev": 0,
+            "values": [
+              0,
+              0,
+              0
+            ]
+          },
+          "fBeta": {
+            "mean": 0,
+            "stddev": 0,
+            "values": [
+              0,
+              0,
+              0
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 30870,
+            "p95": 32935,
+            "values": [
+              24262,
+              32935,
+              30870
+            ]
+          },
+          "usage": {
+            "meanCost": null,
+            "totalCost": null,
+            "meanTokens": null,
+            "coverage": 0
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 0,
+              "fBeta": 0,
+              "durationMs": 24262,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 0,
+              "recall": 0,
+              "fBeta": 0,
+              "durationMs": 32935,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 0,
+              "recall": 0,
+              "fBeta": 0,
+              "durationMs": 30870,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 1
+      },
+      "baseline": {
+        "metrics": {
+          "caseId": "keep-distinct-in-same-symbol",
+          "category": "bug",
+          "tags": [
+            "identity:keep-distinct",
+            "async",
+            "error-handling"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 0,
+            "stddev": 0,
+            "values": [
+              0,
+              0,
+              0
+            ]
+          },
+          "recall": {
+            "mean": 0,
+            "stddev": 0,
+            "values": [
+              0,
+              0,
+              0
+            ]
+          },
+          "fBeta": {
+            "mean": 0,
+            "stddev": 0,
+            "values": [
+              0,
+              0,
+              0
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 10805,
+            "p95": 11774,
+            "values": [
+              11774,
+              10805,
+              8920
+            ]
+          },
+          "usage": {
+            "meanCost": 0.0010420666666666667,
+            "totalCost": 0.0031262,
+            "meanTokens": 7221,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 0,
+              "recall": 0,
+              "fBeta": 0,
+              "durationMs": 11774,
+              "usageCost": 0.00106624,
+              "totalTokens": 7306,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 0,
+              "recall": 0,
+              "fBeta": 0,
+              "durationMs": 10805,
+              "usageCost": 0.00102368,
+              "totalTokens": 7156,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 0,
+              "recall": 0,
+              "fBeta": 0,
+              "durationMs": 8920,
+              "usageCost": 0.00103628,
+              "totalTokens": 7201,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "delta": {
+        "caseId": "keep-distinct-in-same-symbol",
+        "precision": {
+          "diffowl": 0.3333333333333333,
+          "baseline": 0,
+          "delta": 0.3333333333333333
+        },
+        "recall": {
+          "diffowl": 0,
+          "baseline": 0,
+          "delta": 0
+        },
+        "fBeta": {
+          "diffowl": 0,
+          "baseline": 0,
+          "delta": 0
+        },
+        "repeatedFpRate": {
+          "diffowl": 0,
+          "baseline": 0,
+          "delta": 0
+        },
+        "latencyP50": {
+          "diffowl": 30870,
+          "baseline": 10805,
+          "delta": 20065
+        },
+        "usageMeanCost": {
+          "diffowl": null,
+          "baseline": 0.0010420666666666667,
+          "delta": null
+        }
+      }
+    },
+    {
+      "id": "missing-validation",
+      "category": "bug",
+      "case_json_hash": "d0935cb7493a775017d62ee05d36188ac501529201f1c399dfbe7a4a1f731bed",
+      "patch_hash": "c11e0a74ab8f130954aa525ebeac289655da49a70d459a8ea03ce510256f5bb2",
+      "diffowl": {
+        "metrics": {
+          "caseId": "missing-validation",
+          "category": "bug",
+          "tags": [
+            "error-handling"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 0.8333333333333334,
+            "stddev": 0.23570226039551584,
+            "values": [
+              1,
+              1,
+              0.5
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 0.8888888888888888,
+            "stddev": 0.15713484026367724,
+            "values": [
+              1,
+              1,
+              0.6666666666666666
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 13039,
+            "p95": 17030,
+            "values": [
+              13039,
+              10072,
+              17030
+            ]
+          },
+          "usage": {
+            "meanCost": 0.0008763533333333333,
+            "totalCost": 0.00262906,
+            "meanTokens": 5770.333333333333,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 13039,
+              "usageCost": 0.0012754,
+              "totalTokens": 8515,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 10072,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 0.5,
+              "recall": 1,
+              "fBeta": 0.6666666666666666,
+              "durationMs": 17030,
+              "usageCost": 0.00135366,
+              "totalTokens": 8796,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "baseline": {
+        "metrics": {
+          "caseId": "missing-validation",
+          "category": "bug",
+          "tags": [
+            "error-handling"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 0.8333333333333334,
+            "stddev": 0.23570226039551584,
+            "values": [
+              1,
+              0.5,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 0.8888888888888888,
+            "stddev": 0.15713484026367724,
+            "values": [
+              1,
+              0.6666666666666666,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 11455,
+            "p95": 11995,
+            "values": [
+              11995,
+              11455,
+              7737
+            ]
+          },
+          "usage": {
+            "meanCost": 0.0007294,
+            "totalCost": 0.0021882,
+            "meanTokens": 4932.666666666667,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 11995,
+              "usageCost": 0.0011018,
+              "totalTokens": 7426,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 0.5,
+              "recall": 1,
+              "fBeta": 0.6666666666666666,
+              "durationMs": 11455,
+              "usageCost": 0.0010864,
+              "totalTokens": 7372,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 7737,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "delta": {
+        "caseId": "missing-validation",
+        "precision": {
+          "diffowl": 0.8333333333333334,
+          "baseline": 0.8333333333333334,
+          "delta": 0
+        },
+        "recall": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "fBeta": {
+          "diffowl": 0.8888888888888888,
+          "baseline": 0.8888888888888888,
+          "delta": 0
+        },
+        "repeatedFpRate": {
+          "diffowl": 0,
+          "baseline": 0,
+          "delta": 0
+        },
+        "latencyP50": {
+          "diffowl": 13039,
+          "baseline": 11455,
+          "delta": 1584
+        },
+        "usageMeanCost": {
+          "diffowl": 0.0008763533333333333,
+          "baseline": 0.0007294,
+          "delta": 0.0001469533333333334
+        }
+      }
+    },
+    {
+      "id": "off-by-one-slice",
+      "category": "bug",
+      "case_json_hash": "c51430f1447c00160be1f2f7fcbebce757b27be60b57a563981617e23ddc00d2",
+      "patch_hash": "7d904a5c30e636b124213a763e361aadeec34e4e7283bb7b059ea8307ae297ad",
+      "diffowl": {
+        "metrics": {
+          "caseId": "off-by-one-slice",
+          "category": "bug",
+          "tags": [
+            "boundary"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 10383,
+            "p95": 11397,
+            "values": [
+              10383,
+              7754,
+              11397
+            ]
+          },
+          "usage": {
+            "meanCost": 0.0009219093333333334,
+            "totalCost": 0.0027657280000000003,
+            "meanTokens": 9119.666666666666,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 10383,
+              "usageCost": 0.00135828,
+              "totalTokens": 9102,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 7754,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 11397,
+              "usageCost": 0.0014074480000000002,
+              "totalTokens": 18257,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "baseline": {
+        "metrics": {
+          "caseId": "off-by-one-slice",
+          "category": "bug",
+          "tags": [
+            "boundary"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 9256,
+            "p95": 11121,
+            "values": [
+              11121,
+              6300,
+              9256
+            ]
+          },
+          "usage": {
+            "meanCost": 0.00036596,
+            "totalCost": 0.00109788,
+            "meanTokens": 2480.6666666666665,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 11121,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 6300,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 9256,
+              "usageCost": 0.00109788,
+              "totalTokens": 7442,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "delta": {
+        "caseId": "off-by-one-slice",
+        "precision": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "recall": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "fBeta": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "repeatedFpRate": {
+          "diffowl": 0,
+          "baseline": 0,
+          "delta": 0
+        },
+        "latencyP50": {
+          "diffowl": 10383,
+          "baseline": 9256,
+          "delta": 1127
+        },
+        "usageMeanCost": {
+          "diffowl": 0.0009219093333333334,
+          "baseline": 0.00036596,
+          "delta": 0.0005559493333333334
+        }
+      }
+    },
+    {
+      "id": "path-join-traversal",
+      "category": "bug",
+      "case_json_hash": "386063a49b456aaf02f275d4f2b382f168607f6d96883fd59ca9c9acee1ff83e",
+      "patch_hash": "9ceaca75e42b8a183e92babce21af455371e46f2fcff350bf470fa37ee419c6c",
+      "diffowl": {
+        "metrics": {
+          "caseId": "path-join-traversal",
+          "category": "bug",
+          "tags": [
+            "security"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 7882,
+            "p95": 8797,
+            "values": [
+              7043,
+              8797,
+              7882
+            ]
+          },
+          "usage": {
+            "meanCost": 0.0011862666666666666,
+            "totalCost": 0.0035588,
+            "meanTokens": 8227,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 7043,
+              "usageCost": 0.0011627,
+              "totalTokens": 8144,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 8797,
+              "usageCost": 0.00120638,
+              "totalTokens": 8298,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 7882,
+              "usageCost": 0.00118972,
+              "totalTokens": 8239,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "baseline": {
+        "metrics": {
+          "caseId": "path-join-traversal",
+          "category": "bug",
+          "tags": [
+            "security"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 4983,
+            "p95": 6874,
+            "values": [
+              4175,
+              4983,
+              6874
+            ]
+          },
+          "usage": {
+            "meanCost": 0.00034337333333333333,
+            "totalCost": 0.00103012,
+            "meanTokens": 2394.3333333333335,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 4175,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 4983,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 6874,
+              "usageCost": 0.00103012,
+              "totalTokens": 7183,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "delta": {
+        "caseId": "path-join-traversal",
+        "precision": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "recall": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "fBeta": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "repeatedFpRate": {
+          "diffowl": 0,
+          "baseline": 0,
+          "delta": 0
+        },
+        "latencyP50": {
+          "diffowl": 7882,
+          "baseline": 4983,
+          "delta": 2899
+        },
+        "usageMeanCost": {
+          "diffowl": 0.0011862666666666666,
+          "baseline": 0.00034337333333333333,
+          "delta": 0.0008428933333333333
+        }
+      }
+    },
+    {
+      "id": "recognize-same-across-commits",
+      "category": "bug",
+      "case_json_hash": "c36bb34415feb2b56a546f2da1d55f65341239ff8c7ff638697e77c73a2afa33",
+      "patch_hash": "d4ac1fb8baf9cbbbd2ec54ee2c609714f0467e8a7e4d77f01a2e3f976c7b0bd6",
+      "diffowl": {
+        "metrics": {
+          "caseId": "recognize-same-across-commits",
+          "category": "bug",
+          "tags": [
+            "identity:recognize-same",
+            "async"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 0.6666666666666666,
+            "stddev": 0.4714045207910317,
+            "values": [
+              1,
+              1,
+              0
+            ]
+          },
+          "recall": {
+            "mean": 0,
+            "stddev": 0,
+            "values": [
+              0,
+              0,
+              0
+            ]
+          },
+          "fBeta": {
+            "mean": 0,
+            "stddev": 0,
+            "values": [
+              0,
+              0,
+              0
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 19102,
+            "p95": 32022,
+            "values": [
+              19102,
+              17612,
+              32022
+            ]
+          },
+          "usage": {
+            "meanCost": null,
+            "totalCost": null,
+            "meanTokens": null,
+            "coverage": 0
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 0,
+              "fBeta": 0,
+              "durationMs": 19102,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 0,
+              "fBeta": 0,
+              "durationMs": 17612,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 0,
+              "recall": 0,
+              "fBeta": 0,
+              "durationMs": 32022,
+              "usageCost": null,
+              "totalTokens": null,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 1
+      },
+      "baseline": {
+        "metrics": {
+          "caseId": "recognize-same-across-commits",
+          "category": "bug",
+          "tags": [
+            "identity:recognize-same",
+            "async"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 0,
+            "stddev": 0,
+            "values": [
+              0,
+              0,
+              0
+            ]
+          },
+          "recall": {
+            "mean": 0,
+            "stddev": 0,
+            "values": [
+              0,
+              0,
+              0
+            ]
+          },
+          "fBeta": {
+            "mean": 0,
+            "stddev": 0,
+            "values": [
+              0,
+              0,
+              0
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 7775,
+            "p95": 8247,
+            "values": [
+              7775,
+              8247,
+              7417
+            ]
+          },
+          "usage": {
+            "meanCost": 0.00069776,
+            "totalCost": 0.00209328,
+            "meanTokens": 4817.333333333333,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 0,
+              "recall": 0,
+              "fBeta": 0,
+              "durationMs": 7775,
+              "usageCost": 0.00104762,
+              "totalTokens": 7231,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 0,
+              "recall": 0,
+              "fBeta": 0,
+              "durationMs": 8247,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 0,
+              "recall": 0,
+              "fBeta": 0,
+              "durationMs": 7417,
+              "usageCost": 0.00104566,
+              "totalTokens": 7221,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "delta": {
+        "caseId": "recognize-same-across-commits",
+        "precision": {
+          "diffowl": 0.6666666666666666,
+          "baseline": 0,
+          "delta": 0.6666666666666666
+        },
+        "recall": {
+          "diffowl": 0,
+          "baseline": 0,
+          "delta": 0
+        },
+        "fBeta": {
+          "diffowl": 0,
+          "baseline": 0,
+          "delta": 0
+        },
+        "repeatedFpRate": {
+          "diffowl": 0,
+          "baseline": 0,
+          "delta": 0
+        },
+        "latencyP50": {
+          "diffowl": 19102,
+          "baseline": 7775,
+          "delta": 11327
+        },
+        "usageMeanCost": {
+          "diffowl": null,
+          "baseline": 0.00069776,
+          "delta": null
+        }
+      }
+    },
+    {
+      "id": "regression-reintroduced",
+      "category": "bug",
+      "case_json_hash": "89bacbd2b996ed4daf483c7011f4a457dce5923337eb7e68f37a83a391631305",
+      "patch_hash": "7210e762ba09789bdbc4560413dd53bcf616b2807ccbaef440e9f1d62dd4334c",
+      "diffowl": {
+        "metrics": {
+          "caseId": "regression-reintroduced",
+          "category": "bug",
+          "tags": [
+            "regression",
+            "async"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 12888,
+            "p95": 20869,
+            "values": [
+              12888,
+              20869,
+              9924
+            ]
+          },
+          "usage": {
+            "meanCost": 0.0013186226666666667,
+            "totalCost": 0.003955868,
+            "meanTokens": 16991.333333333332,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 12888,
+              "usageCost": 0.0013056792,
+              "totalTokens": 16718,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 20869,
+              "usageCost": 0.0014530488,
+              "totalTokens": 26021,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 9924,
+              "usageCost": 0.00119714,
+              "totalTokens": 8235,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "baseline": {
+        "metrics": {
+          "caseId": "regression-reintroduced",
+          "category": "bug",
+          "tags": [
+            "regression",
+            "async"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 6724,
+            "p95": 8647,
+            "values": [
+              6724,
+              8647,
+              6502
+            ]
+          },
+          "usage": {
+            "meanCost": 0,
+            "totalCost": 0,
+            "meanTokens": 0,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 6724,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 8647,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 6502,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "delta": {
+        "caseId": "regression-reintroduced",
+        "precision": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "recall": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "fBeta": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "repeatedFpRate": {
+          "diffowl": 0,
+          "baseline": 0,
+          "delta": 0
+        },
+        "latencyP50": {
+          "diffowl": 12888,
+          "baseline": 6724,
+          "delta": 6164
+        },
+        "usageMeanCost": {
+          "diffowl": 0.0013186226666666667,
+          "baseline": 0,
+          "delta": 0.0013186226666666667
+        }
+      }
+    },
+    {
+      "id": "rename-clean",
+      "category": "clean",
+      "case_json_hash": "077681b607cdd6ba38ecb5368e3ba173119447c15f6ed3b3768ec9206132fe32",
+      "patch_hash": "ff62c43afa8a55fb4f722f497fa79325c8f506e4569130892d6012ae8e273600",
+      "diffowl": {
+        "metrics": {
+          "caseId": "rename-clean",
+          "category": "clean",
+          "tags": [
+            "refactor"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": 1,
+          "latencyMs": {
+            "p50": 8649,
+            "p95": 10034,
+            "values": [
+              10034,
+              8430,
+              8649
+            ]
+          },
+          "usage": {
+            "meanCost": 0.0004039933333333334,
+            "totalCost": 0.00121198,
+            "meanTokens": 2779,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 10034,
+              "usageCost": 0.00121198,
+              "totalTokens": 8337,
+              "emptyOnClean": true
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 8430,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": true
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 8649,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": true
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "baseline": {
+        "metrics": {
+          "caseId": "rename-clean",
+          "category": "clean",
+          "tags": [
+            "refactor"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": 1,
+          "latencyMs": {
+            "p50": 6881,
+            "p95": 7091,
+            "values": [
+              7091,
+              6881,
+              5323
+            ]
+          },
+          "usage": {
+            "meanCost": 0.0010364666666666667,
+            "totalCost": 0.0031094,
+            "meanTokens": 7227.333333333333,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 7091,
+              "usageCost": 0.00103348,
+              "totalTokens": 7218,
+              "emptyOnClean": true
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 6881,
+              "usageCost": 0.0010465,
+              "totalTokens": 7261,
+              "emptyOnClean": true
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 5323,
+              "usageCost": 0.00102942,
+              "totalTokens": 7203,
+              "emptyOnClean": true
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "delta": {
+        "caseId": "rename-clean",
+        "precision": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "recall": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "fBeta": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "repeatedFpRate": {
+          "diffowl": 0,
+          "baseline": 0,
+          "delta": 0
+        },
+        "latencyP50": {
+          "diffowl": 8649,
+          "baseline": 6881,
+          "delta": 1768
+        },
+        "usageMeanCost": {
+          "diffowl": 0.0004039933333333334,
+          "baseline": 0.0010364666666666667,
+          "delta": -0.0006324733333333333
+        }
+      }
+    },
+    {
+      "id": "repeated-clean",
+      "category": "clean",
+      "case_json_hash": "e15a2578e72882ee0879ca15c78472851b37f182a83c654bbde26df422ed58f3",
+      "patch_hash": "aadbe1c45a6b62d1d037b28b7ae1a0fff9a228b8ed2fed68d9a6caa70e1ebcd5",
+      "diffowl": {
+        "metrics": {
+          "caseId": "repeated-clean",
+          "category": "clean",
+          "tags": [
+            "false-positive-stress"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": 1,
+          "latencyMs": {
+            "p50": 11619,
+            "p95": 13884,
+            "values": [
+              13884,
+              11619,
+              10504
+            ]
+          },
+          "usage": {
+            "meanCost": 0,
+            "totalCost": 0,
+            "meanTokens": 0,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 13884,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": true
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 11619,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": true
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 10504,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": true
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "baseline": {
+        "metrics": {
+          "caseId": "repeated-clean",
+          "category": "clean",
+          "tags": [
+            "false-positive-stress"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 0.6666666666666666,
+            "stddev": 0.4714045207910317,
+            "values": [
+              0,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 0.6666666666666666,
+            "stddev": 0.4714045207910317,
+            "values": [
+              0,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": 0.6666666666666666,
+          "latencyMs": {
+            "p50": 9189,
+            "p95": 13205,
+            "values": [
+              13205,
+              3620,
+              9189
+            ]
+          },
+          "usage": {
+            "meanCost": 0.0007040133333333333,
+            "totalCost": 0.00211204,
+            "meanTokens": 4832,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 0,
+              "recall": 1,
+              "fBeta": 0,
+              "durationMs": 13205,
+              "usageCost": 0.00105252,
+              "totalTokens": 7237,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 3620,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": true
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 9189,
+              "usageCost": 0.00105952,
+              "totalTokens": 7259,
+              "emptyOnClean": true
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "delta": {
+        "caseId": "repeated-clean",
+        "precision": {
+          "diffowl": 1,
+          "baseline": 0.6666666666666666,
+          "delta": 0.33333333333333337
+        },
+        "recall": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "fBeta": {
+          "diffowl": 1,
+          "baseline": 0.6666666666666666,
+          "delta": 0.33333333333333337
+        },
+        "repeatedFpRate": {
+          "diffowl": 0,
+          "baseline": 0,
+          "delta": 0
+        },
+        "latencyP50": {
+          "diffowl": 11619,
+          "baseline": 9189,
+          "delta": 2430
+        },
+        "usageMeanCost": {
+          "diffowl": 0,
+          "baseline": 0.0007040133333333333,
+          "delta": -0.0007040133333333333
+        }
+      }
+    },
+    {
+      "id": "swallowed-error",
+      "category": "bug",
+      "case_json_hash": "c6bca85817c741b44824ff9112c388367711ee72067875271a109dcb5cef2e03",
+      "patch_hash": "4aae2d6ee7552c3842af728567cec7e5ec4aaeedaa7ee9129f33201d19a2dd75",
+      "diffowl": {
+        "metrics": {
+          "caseId": "swallowed-error",
+          "category": "bug",
+          "tags": [
+            "error-handling"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 0.6666666666666666,
+            "stddev": 0.23570226039551584,
+            "values": [
+              0.5,
+              1,
+              0.5
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 0.7777777777777777,
+            "stddev": 0.15713484026367724,
+            "values": [
+              0.6666666666666666,
+              1,
+              0.6666666666666666
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 24442,
+            "p95": 32588,
+            "values": [
+              24442,
+              22632,
+              32588
+            ]
+          },
+          "usage": {
+            "meanCost": 0.0016849130666666667,
+            "totalCost": 0.0050547392,
+            "meanTokens": 23936.666666666668,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 0.5,
+              "recall": 1,
+              "fBeta": 0.6666666666666666,
+              "durationMs": 24442,
+              "usageCost": 0.0018498088,
+              "totalTokens": 31329,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 22632,
+              "usageCost": 0.00140994,
+              "totalTokens": 9458,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 0.5,
+              "recall": 1,
+              "fBeta": 0.6666666666666666,
+              "durationMs": 32588,
+              "usageCost": 0.0017949904,
+              "totalTokens": 31023,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "baseline": {
+        "metrics": {
+          "caseId": "swallowed-error",
+          "category": "bug",
+          "tags": [
+            "error-handling"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 0.8333333333333334,
+            "stddev": 0.23570226039551584,
+            "values": [
+              0.5,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 0.8888888888888888,
+            "stddev": 0.15713484026367724,
+            "values": [
+              0.6666666666666666,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 15272,
+            "p95": 15762,
+            "values": [
+              6482,
+              15272,
+              15762
+            ]
+          },
+          "usage": {
+            "meanCost": 0.0007732629333333333,
+            "totalCost": 0.0023197888,
+            "meanTokens": 7577.333333333333,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 0.5,
+              "recall": 1,
+              "fBeta": 0.6666666666666666,
+              "durationMs": 6482,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 15272,
+              "usageCost": 0.0011608688,
+              "totalTokens": 15033,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 15762,
+              "usageCost": 0.00115892,
+              "totalTokens": 7699,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "delta": {
+        "caseId": "swallowed-error",
+        "precision": {
+          "diffowl": 0.6666666666666666,
+          "baseline": 0.8333333333333334,
+          "delta": -0.16666666666666674
+        },
+        "recall": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "fBeta": {
+          "diffowl": 0.7777777777777777,
+          "baseline": 0.8888888888888888,
+          "delta": -0.11111111111111116
+        },
+        "repeatedFpRate": {
+          "diffowl": 0,
+          "baseline": 0,
+          "delta": 0
+        },
+        "latencyP50": {
+          "diffowl": 24442,
+          "baseline": 15272,
+          "delta": 9170
+        },
+        "usageMeanCost": {
+          "diffowl": 0.0016849130666666667,
+          "baseline": 0.0007732629333333333,
+          "delta": 0.0009116501333333334
+        }
+      }
+    },
+    {
+      "id": "unbounded-retry",
+      "category": "bug",
+      "case_json_hash": "90be4bc57fb0ab2c30e3274cd844a9bdeeb65ffafc06cb850c1bc3d538f6d1ce",
+      "patch_hash": "e98e0d86c76631628e97d14283b5a4e04fad7ed2f44d860d0758cd7f0790e03f",
+      "diffowl": {
+        "metrics": {
+          "caseId": "unbounded-retry",
+          "category": "bug",
+          "tags": [
+            "failure-modes"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 0.5,
+            "stddev": 0,
+            "values": [
+              0.5,
+              0.5,
+              0.5
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 0.6666666666666666,
+            "stddev": 0,
+            "values": [
+              0.6666666666666666,
+              0.6666666666666666,
+              0.6666666666666666
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 7381,
+            "p95": 13894,
+            "values": [
+              7340,
+              7381,
+              13894
+            ]
+          },
+          "usage": {
+            "meanCost": 0.00044286479999999995,
+            "totalCost": 0.0013285944,
+            "meanTokens": 5726.666666666667,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 0.5,
+              "recall": 1,
+              "fBeta": 0.6666666666666666,
+              "durationMs": 7340,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 0.5,
+              "recall": 1,
+              "fBeta": 0.6666666666666666,
+              "durationMs": 7381,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 0.5,
+              "recall": 1,
+              "fBeta": 0.6666666666666666,
+              "durationMs": 13894,
+              "usageCost": 0.0013285944,
+              "totalTokens": 17180,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "baseline": {
+        "metrics": {
+          "caseId": "unbounded-retry",
+          "category": "bug",
+          "tags": [
+            "failure-modes"
+          ],
+          "trialCount": 3,
+          "precision": {
+            "mean": 0.8333333333333334,
+            "stddev": 0.23570226039551584,
+            "values": [
+              0.5,
+              1,
+              1
+            ]
+          },
+          "recall": {
+            "mean": 1,
+            "stddev": 0,
+            "values": [
+              1,
+              1,
+              1
+            ]
+          },
+          "fBeta": {
+            "mean": 0.8888888888888888,
+            "stddev": 0.15713484026367724,
+            "values": [
+              0.6666666666666666,
+              1,
+              1
+            ]
+          },
+          "repeatedFpRate": 0,
+          "emptyOnCleanRate": null,
+          "latencyMs": {
+            "p50": 5244,
+            "p95": 10842,
+            "values": [
+              10842,
+              5244,
+              4391
+            ]
+          },
+          "usage": {
+            "meanCost": 0.0003583533333333334,
+            "totalCost": 0.00107506,
+            "meanTokens": 2450.6666666666665,
+            "coverage": 1
+          },
+          "trials": [
+            {
+              "trial": 0,
+              "precision": 0.5,
+              "recall": 1,
+              "fBeta": 0.6666666666666666,
+              "durationMs": 10842,
+              "usageCost": 0.00107506,
+              "totalTokens": 7352,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 1,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 5244,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            },
+            {
+              "trial": 2,
+              "precision": 1,
+              "recall": 1,
+              "fBeta": 1,
+              "durationMs": 4391,
+              "usageCost": 0,
+              "totalTokens": 0,
+              "emptyOnClean": false
+            }
+          ]
+        },
+        "error_count": 0
+      },
+      "delta": {
+        "caseId": "unbounded-retry",
+        "precision": {
+          "diffowl": 0.5,
+          "baseline": 0.8333333333333334,
+          "delta": -0.33333333333333337
+        },
+        "recall": {
+          "diffowl": 1,
+          "baseline": 1,
+          "delta": 0
+        },
+        "fBeta": {
+          "diffowl": 0.6666666666666666,
+          "baseline": 0.8888888888888888,
+          "delta": -0.2222222222222222
+        },
+        "repeatedFpRate": {
+          "diffowl": 0,
+          "baseline": 0,
+          "delta": 0
+        },
+        "latencyP50": {
+          "diffowl": 7381,
+          "baseline": 5244,
+          "delta": 2137
+        },
+        "usageMeanCost": {
+          "diffowl": 0.00044286479999999995,
+          "baseline": 0.0003583533333333334,
+          "delta": 0.00008451146666666658
+        }
+      }
+    }
+  ]
+}
