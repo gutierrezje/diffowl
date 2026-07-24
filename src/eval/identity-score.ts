@@ -227,10 +227,26 @@ function scoreKeepDistinct(
   }
 
   if (hits.length < minDistinct) {
+    // A shortfall is normally a detection miss, which is n/a — but if one of the
+    // findings that DID match is a fingerprint the persist path merged, the
+    // missing anchor was reported and then collapsed. That is the identity
+    // failure this gate exists to catch, not a miss.
+    const collapsed = new Set(last.collapsedFingerprints ?? []);
+    const collapsedAnchor = hits.some((hit) => collapsed.has(hit.fingerprint));
+    if (!collapsedAnchor) {
+      return aggregateIdentityAnchors(
+        "keep-distinct",
+        anchors,
+        "insufficient detected anchors",
+      );
+    }
+
+    const reason = "deduplication collapsed distinct anchors into one finding";
     return aggregateIdentityAnchors(
       "keep-distinct",
-      anchors,
-      "insufficient detected anchors",
+      anchors.map((anchor) =>
+        anchor.status === "na" ? { ...anchor, status: "fail" as const, reason } : anchor,
+      ),
     );
   }
 

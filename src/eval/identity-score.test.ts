@@ -2,10 +2,12 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { ReviewResult } from "../opencode/client.js";
 import type { ReviewFinding } from "../review/types.js";
 import type { EvalCase } from "./case-types.js";
 import { loadEvalCase } from "./corpus.js";
 import { runEvalIdentityTrial } from "./identity-runner.js";
+import { buildDiffowlGetFindingsForStep } from "./runner.js";
 import {
   resolveEvalIdentityKind,
   scoreEvalIdentity,
@@ -343,6 +345,53 @@ describe("scoreEvalIdentity keep-distinct", () => {
     expect(score.naReason).toBe(want.naReason);
   });
 
+  it("fails when dedup collapsed a reported anchor into the surviving finding", () => {
+    const score = scoreEvalIdentity({
+      kind: "keep-distinct",
+      evalCase: keepDistinctCase,
+      trial: {
+        identitySteps: [
+          step(0, ["fp-same"], ["fnd_1"], ["new"], [baseFinding], ["fp-same"]),
+        ],
+      },
+    });
+
+    // Both anchors were reported; persistence merged them. That is an identity
+    // failure, not the detection miss the anchor count alone would suggest.
+    expect(score.passed).toBe(false);
+    expect(score.naReason).toBeUndefined();
+    expect(score.detail.anchors.some((anchor) => anchor.status === "fail")).toBe(true);
+    expect(score.detail.summary).toContain("failed identity check");
+  });
+
+  it("still reports a genuine detection miss as n/a when nothing collapsed", () => {
+    const score = scoreEvalIdentity({
+      kind: "keep-distinct",
+      evalCase: keepDistinctCase,
+      trial: {
+        identitySteps: [step(0, ["fp-a"], ["fnd_1"], ["new"], [baseFinding], [])],
+      },
+    });
+
+    expect(score.passed).toBe(true);
+    expect(score.naReason).toBe("insufficient detected anchors");
+  });
+
+  it("ignores a collapse unrelated to the matched anchors", () => {
+    const score = scoreEvalIdentity({
+      kind: "keep-distinct",
+      evalCase: keepDistinctCase,
+      trial: {
+        identitySteps: [
+          step(0, ["fp-a"], ["fnd_1"], ["new"], [baseFinding], ["fp-unrelated"]),
+        ],
+      },
+    });
+
+    expect(score.passed).toBe(true);
+    expect(score.naReason).toBe("insufficient detected anchors");
+  });
+
   it("does not claim one finding for two overlapping expected anchors", () => {
     const score = scoreEvalIdentity({
       kind: "keep-distinct",
@@ -408,6 +457,46 @@ describe("scoreEvalIdentity integration", () => {
     expect(score.naReason).toBeUndefined();
     expect(score.detail.anchors.some((anchor) => anchor.status === "pass")).toBe(true);
   });
+
+  it("turns the keep-distinct gate red when the runner reports a collapse", async () => {
+    const evalCase = await loadEvalCase(join(corpusDir, "keep-distinct-in-same-symbol"));
+    const kind = resolveEvalIdentityKind(evalCase)!;
+    // Two defects the model reports separately but that share one fingerprint —
+    // the over-collapse this gate exists to detect.
+    const collided = {
+      severity: "warning" as const,
+      file: "src/profile.ts",
+      confidence: "high" as const,
+      title: "Defect in syncProfile",
+      body: "Something is wrong in this symbol.",
+    };
+    const runReview = async (): Promise<ReviewResult> => ({
+      sessionId: "session-collapse",
+      report: {
+        summary: "Two defects.",
+        findings: [
+          { ...collided, line: 3 },
+          { ...collided, line: 13 },
+        ],
+      },
+    });
+
+    const trial = await runEvalIdentityTrial(evalCase, {}, {
+      getFindingsForStep: buildDiffowlGetFindingsForStep(
+        {},
+        { runReview, prepareReviewServer: async () => undefined },
+      ),
+    });
+
+    const score = scoreEvalIdentity({ kind, evalCase, trial });
+
+    expect(trial.error).toBeUndefined();
+    expect(score.passed).toBe(false);
+    expect(score.naReason).toBeUndefined();
+    expect(score.detail.anchors.some((anchor) => anchor.reason?.includes("collapsed"))).toBe(
+      true,
+    );
+  }, 30_000);
 
   it("scores recognize-same-across-commits with matching durable ids", async () => {
     const evalCase = await loadEvalCase(join(corpusDir, "recognize-same-across-commits"));
@@ -536,8 +625,16 @@ function step(
   durableIds: string[],
   classifications: Array<"new" | "existing" | "regressed">,
   findings: ReviewFinding[],
+  collapsedFingerprints?: string[],
 ): EvalIdentityStepResult {
-  return { step: stepIndex, fingerprints, durableIds, classifications, findings };
+  return {
+    step: stepIndex,
+    fingerprints,
+    durableIds,
+    classifications,
+    findings,
+    ...(collapsedFingerprints ? { collapsedFingerprints } : {}),
+  };
 }
 
 function repeatedFinding(): ReviewFinding {

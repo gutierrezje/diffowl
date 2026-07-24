@@ -123,6 +123,21 @@ describe("runEvalIdentityTrial", () => {
     expect(first.durableIds).toHaveLength(1);
     expect(first.classifications).toHaveLength(1);
     expect(first.findings[0]?.durable?.id).toBe(first.durableIds[0]);
+
+    // The collapse is recorded, so the scorer can tell "merged by persistence"
+    // apart from "the model never reported it".
+    expect(first.collapsedFingerprints).toEqual([first.fingerprints[0]]);
+  });
+
+  it("records no collapse when reported findings have distinct fingerprints", async () => {
+    const evalCase = await createTwoStepCase();
+    const result = await runEvalIdentityTrial(evalCase, {}, {
+      getFindingsForStep: pipelineStep([[repeatedFinding, otherFinding]]),
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.identitySteps![0]?.findings).toHaveLength(2);
+    expect(result.identitySteps![0]?.collapsedFingerprints).toEqual([]);
   });
 
   it("rejects multi-step cases with staged target", async () => {

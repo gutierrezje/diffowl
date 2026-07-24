@@ -23,6 +23,12 @@ export const EvalIdentityStepResultSchema = z.object({
   durableIds: z.array(z.string()),
   classifications: z.array(z.enum(["new", "existing", "regressed"])),
   findings: z.array(ReviewFindingSchema),
+  /**
+   * Fingerprints the persist path merged more than one reported finding into.
+   * Without this, an over-collapsing fingerprint is indistinguishable from the
+   * model never reporting the second finding at all.
+   */
+  collapsedFingerprints: z.array(z.string()).optional(),
 });
 
 export const EvalTrialResultSchema = z.object({

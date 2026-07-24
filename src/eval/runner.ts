@@ -19,6 +19,8 @@ import {
 import type { ReviewTarget } from "../review/target.js";
 import type { ReviewFinding, ReviewTiming } from "../review/types.js";
 import type { ReviewUsage } from "../review/usage.js";
+import { computeFindingFingerprint } from "../state/fingerprint.js";
+import { toFindingCandidate } from "../state/persist.js";
 import { BASELINE_AGENT_PROMPT, buildBaselinePrompt, renderBaselineDiff } from "./baseline.js";
 import type { EvalCase } from "./case-types.js";
 import { applyCaseStep, copyCaseBase } from "./corpus.js";
@@ -236,6 +238,9 @@ export function buildDiffowlGetFindingsForStep(
     return {
       findings: review.findings,
       sessionId: review.sessionId,
+      ...(review.collapsedFingerprints
+        ? { collapsedFingerprints: review.collapsedFingerprints }
+        : {}),
       ...(review.usage ? { usage: review.usage } : {}),
     };
   };
@@ -286,6 +291,7 @@ interface EvalReviewOutcome {
   timings: ReviewTiming[];
   sessionId: string;
   summary: string;
+  collapsedFingerprints?: string[];
   usage?: ReviewUsage;
 }
 
@@ -302,6 +308,7 @@ async function runDiffowlReview(params: {
   dependencies: EvalRunnerDependencies;
 }): Promise<EvalReviewOutcome> {
   const { workDir, diffOwlDir, target, config, options, dependencies } = params;
+  let collapsedFingerprints: string[] = [];
   const outcome = await runReviewPipeline(
     {
       target,
@@ -314,7 +321,9 @@ async function runDiffowlReview(params: {
       persistEmptyDiff: false,
       ...(options.signal ? { signal: options.signal } : {}),
     },
-    buildEvalPipelineDeps(config, dependencies),
+    buildEvalPipelineDeps(config, dependencies, (findings) => {
+      collapsedFingerprints = findCollapsedFingerprints(findings);
+    }),
   );
 
   // An empty or documentation-only diff means "no findings" for a trial, not an error.
@@ -328,8 +337,29 @@ async function runDiffowlReview(params: {
     timings: outcome.report.timings ?? [],
     sessionId: outcome.sessionId,
     summary: outcome.report.summary,
+    collapsedFingerprints,
     ...(outcome.usage ? { usage: outcome.usage } : {}),
   };
+}
+
+/**
+ * Fingerprints shared by more than one reported finding, sampled at the input
+ * to the persist path — the last point where the two are still distinguishable.
+ */
+function findCollapsedFingerprints(findings: ReviewFinding[]): string[] {
+  const seen = new Set<string>();
+  const collapsed = new Set<string>();
+
+  for (const finding of findings) {
+    const fingerprint = computeFindingFingerprint(toFindingCandidate(finding));
+    if (seen.has(fingerprint)) {
+      collapsed.add(fingerprint);
+      continue;
+    }
+    seen.add(fingerprint);
+  }
+
+  return [...collapsed];
 }
 
 /**
@@ -381,6 +411,7 @@ async function runBaselineReview(
 function buildEvalPipelineDeps(
   config: DiffOwlConfig,
   dependencies: EvalRunnerDependencies,
+  onPersistInput: (findings: ReviewFinding[]) => void,
 ): ReviewPipelineDeps {
   const ensureReviewServer = async (): Promise<void> => {
     await dependencies.prepareReviewServer(config);
@@ -389,6 +420,10 @@ function buildEvalPipelineDeps(
   return {
     ...defaultReviewPipelineDeps,
     runReview: dependencies.runReview,
+    persistReviewRun: async (diffOwlDir, input) => {
+      onPersistInput(input.findings);
+      return defaultReviewPipelineDeps.persistReviewRun(diffOwlDir, input);
+    },
     ensureServer: async (port) => {
       await ensureReviewServer();
       return `http://127.0.0.1:${port}`;
