@@ -46,7 +46,7 @@ describe("runEvalIdentityTrial", () => {
           await access(statePath);
           stateDbSeen = true;
         }
-        return [{ ...repeatedFinding, line: ctx.stepIndex === 0 ? 4 : 18 }];
+        return { findings: [{ ...repeatedFinding, line: ctx.stepIndex === 0 ? 4 : 18 }] };
       },
     });
 
@@ -64,8 +64,9 @@ describe("runEvalIdentityTrial", () => {
   it("assigns distinct durable ids for different findings across steps", async () => {
     const evalCase = await createTwoStepCase();
     const result = await runEvalIdentityTrial(evalCase, {}, {
-      getFindingsForStep: async ({ stepIndex }) =>
-        stepIndex === 0 ? [repeatedFinding] : [otherFinding],
+      getFindingsForStep: async ({ stepIndex }) => ({
+        findings: stepIndex === 0 ? [repeatedFinding] : [otherFinding],
+      }),
     });
 
     expect(result.error).toBeUndefined();
@@ -80,7 +81,7 @@ describe("runEvalIdentityTrial", () => {
     const duplicateA = { ...repeatedFinding, line: 4 };
     const duplicateB = { ...repeatedFinding, line: 5 };
     const result = await runEvalIdentityTrial(evalCase, {}, {
-      getFindingsForStep: async () => [duplicateA, duplicateB],
+      getFindingsForStep: async () => ({ findings: [duplicateA, duplicateB] }),
     });
 
     expect(result.error).toBeUndefined();
@@ -98,7 +99,7 @@ describe("runEvalIdentityTrial", () => {
   it("rejects multi-step cases with staged target", async () => {
     const evalCase = await createTwoStepCase({ target: "staged" });
     const result = await runEvalIdentityTrial(evalCase, {}, {
-      getFindingsForStep: async () => [repeatedFinding],
+      getFindingsForStep: async () => ({ findings: [repeatedFinding] }),
     });
 
     expect(result.error).toMatch(/target "commit"/);

@@ -382,13 +382,15 @@ describe("scoreEvalIdentity integration", () => {
   it("scores canned two-step identity runner output as recognize-same pass", async () => {
     const evalCase = await createTwoStepCase();
     const trial = await runEvalIdentityTrial(evalCase, {}, {
-      getFindingsForStep: async (ctx) => [
-        {
-          ...repeatedFinding(),
-          file: "src/repeated.ts",
-          line: ctx.stepIndex === 0 ? 2 : 3,
-        },
-      ],
+      getFindingsForStep: async (ctx) => ({
+        findings: [
+          {
+            ...repeatedFinding(),
+            file: "src/repeated.ts",
+            line: ctx.stepIndex === 0 ? 2 : 3,
+          },
+        ],
+      }),
     });
 
     const score = scoreEvalIdentity({
@@ -407,7 +409,8 @@ describe("scoreEvalIdentity integration", () => {
     const kind = resolveEvalIdentityKind(evalCase)!;
 
     const trial = await runEvalIdentityTrial(evalCase, {}, {
-      getFindingsForStep: async ({ stepIndex }) => [
+      getFindingsForStep: async ({ stepIndex }) => ({
+        findings: [
         {
           severity: "warning",
           file: "src/fetch.ts",
@@ -421,7 +424,8 @@ describe("scoreEvalIdentity integration", () => {
             status: "open",
           },
         },
-      ],
+        ],
+      }),
     });
 
     const score = scoreEvalIdentity({ kind, evalCase, trial });
@@ -480,6 +484,33 @@ describe("tryScoreEvalIdentity", () => {
         trials: [
           {
             trial: 0,
+            identitySteps: [
+              step(0, ["fp-same"], ["fnd_1"], ["new"], [baseFinding]),
+              step(1, ["fp-same"], ["fnd_1"], ["existing"], [{ ...baseFinding, line: 18 }]),
+            ],
+          },
+        ],
+      },
+    );
+
+    expect(score?.kind).toBe("recognize-same");
+    expect(score?.passed).toBe(true);
+  });
+
+  it("skips leading trials without identity steps", () => {
+    const score = tryScoreEvalIdentity(
+      {
+        id: "x",
+        expected: [],
+        steps: twoStepEvalCase.steps,
+        tags: [],
+        identity: { kind: "recognize-same" },
+      },
+      {
+        trials: [
+          { trial: 0, error: "stream ended", identitySteps: [] },
+          {
+            trial: 1,
             identitySteps: [
               step(0, ["fp-same"], ["fnd_1"], ["new"], [baseFinding]),
               step(1, ["fp-same"], ["fnd_1"], ["existing"], [{ ...baseFinding, line: 18 }]),

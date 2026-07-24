@@ -83,6 +83,11 @@ export async function commitEvalBaseline(workDir: string, message: string): Prom
   await execa("git", ["commit", "-m", message], { cwd: workDir });
 }
 
+export async function resolveEvalHeadSha(workDir: string): Promise<string> {
+  const { stdout } = await execa("git", ["rev-parse", "HEAD"], { cwd: workDir });
+  return stdout.trim();
+}
+
 export async function finalizeEvalCaseTarget(workDir: string, evalCase: EvalCase): Promise<ReviewTarget> {
   await execa("git", ["add", "-A"], { cwd: workDir });
   if (evalCase.target === "staged") {

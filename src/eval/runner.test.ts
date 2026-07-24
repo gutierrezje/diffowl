@@ -182,18 +182,84 @@ describe("runEvalCaseTrial", () => {
     );
   });
 
-  it("rejects multi-step cases until sequential execution is wired", async () => {
-    const evalCase = await loadEvalCase(join(corpusDir, "harmless-trim"));
-    const multiStep = {
-      ...evalCase,
-      steps: [...evalCase.steps, { patchPath: evalCase.patchPath, expected: [] }],
+  it("routes multi-step diffowl cases through the identity runner", async () => {
+    const evalCase = await loadEvalCase(join(corpusDir, "recognize-same-across-commits"));
+    const runReview = vi.fn(async (): Promise<ReviewResult> => ({
+      sessionId: "session-identity",
+      report: { summary: "Step review.", findings: [] },
+    }));
+
+    const result = await runEvalCase(
+      evalCase,
+      { mode: "diffowl" },
+      { runReview, prepareReviewServer: vi.fn(async () => undefined) },
+    );
+
+    expect(result.trials).toHaveLength(1);
+    expect(result.trials[0]?.error).toBeUndefined();
+    expect(result.trials[0]?.identitySteps).toHaveLength(2);
+    expect(runReview).toHaveBeenCalledTimes(2);
+    expect(runReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        localContext: expect.stringContaining("Local Review Context"),
+      }),
+    );
+  }, 30_000);
+
+  it("runs one baseline review on the cumulative multi-step diff", async () => {
+    const evalCase = await loadEvalCase(join(corpusDir, "recognize-same-across-commits"));
+    const runReview = vi.fn(async (): Promise<ReviewResult> => ({
+      sessionId: "baseline-session",
+      report: { summary: "Baseline.", findings: [] },
+    }));
+
+    const result = await runEvalCase(
+      evalCase,
+      { mode: "baseline" },
+      { runReview, prepareReviewServer: vi.fn(async () => undefined) },
+    );
+
+    expect(result.trials[0]?.error).toBeUndefined();
+    expect(result.trials[0]?.identitySteps).toBeUndefined();
+    expect(runReview).toHaveBeenCalledTimes(1);
+    expect(runReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: expect.objectContaining({ kind: "base", ref: expect.any(String) }),
+        systemPrompt: BASELINE_AGENT_PROMPT,
+        userPrompt: expect.stringContaining("diff --git"),
+      }),
+    );
+    // Cumulative prompt must include the step-0 defect, not only step-1 drift.
+    expect(runReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userPrompt: expect.stringContaining("void fetch"),
+      }),
+    );
+  }, 30_000);
+
+  it("aggregates usage across multi-step diffowl reviews", async () => {
+    const evalCase = await loadEvalCase(join(corpusDir, "recognize-same-across-commits"));
+    const usage = {
+      tokens: { input: 10, output: 5, reasoning: 0, cache: { read: 0, write: 0 } },
+      cost: 0.01,
     };
+    const runReview = vi.fn(async (): Promise<ReviewResult> => ({
+      sessionId: "session-identity",
+      report: { summary: "Step review.", findings: [] },
+      usage,
+    }));
 
-    await expect(
-      runEvalCaseTrial(multiStep, {}, { runReview: vi.fn(), prepareReviewServer: vi.fn() }),
-    ).rejects.toThrow(/only supports single-step cases/);
-  });
+    const result = await runEvalCase(
+      evalCase,
+      { mode: "diffowl" },
+      { runReview, prepareReviewServer: vi.fn(async () => undefined) },
+    );
 
+    expect(result.trials[0]?.usage).toEqual({
+      tokens: { input: 20, output: 10, reasoning: 0, cache: { read: 0, write: 0 } },
+      cost: 0.02,
+    });
+  }, 30_000);
   it("returns an error result when materialization fails", async () => {
     const evalCase = await loadEvalCase(join(corpusDir, "harmless-trim"));
     vi.spyOn(repo, "materializeEvalCaseRepo").mockRejectedValueOnce(new Error("git init failed"));
@@ -272,4 +338,25 @@ describe("runEvalCaseBoth", () => {
     expect(result.baseline.trials).toHaveLength(2);
     expect(runReview).toHaveBeenCalledTimes(4);
   });
+
+  it("runs multi-step cases in both modes", async () => {
+    const evalCase = await loadEvalCase(join(corpusDir, "recognize-same-across-commits"));
+    const runReview = vi.fn(async (): Promise<ReviewResult> => ({
+      sessionId: "session-eval",
+      report: { summary: "Clean.", findings: [] },
+    }));
+
+    const result = await runEvalCaseBoth(
+      evalCase,
+      {},
+      {
+        runReview,
+        prepareReviewServer: vi.fn(async () => undefined),
+      },
+    );
+
+    expect(result.diffowl.trials[0]?.identitySteps).toHaveLength(2);
+    expect(result.baseline.trials[0]?.identitySteps).toBeUndefined();
+    expect(runReview).toHaveBeenCalledTimes(3);
+  }, 30_000);
 });

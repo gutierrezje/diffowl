@@ -1,3 +1,6 @@
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { loadConfigFromRoot, type DiffOwlConfig } from "../config.js";
 import { runReview } from "../opencode/client.js";
@@ -12,10 +15,25 @@ import {
   filterFindingsByConfidence,
 } from "../review/filters.js";
 import { formatExcludedCandidateSummary } from "../review/formatter.js";
+import type { ReviewTarget } from "../review/target.js";
 import type { ReviewFinding } from "../review/types.js";
 import { BASELINE_AGENT_PROMPT, buildBaselinePrompt, renderBaselineDiff } from "./baseline.js";
 import type { EvalCase } from "./case-types.js";
-import { cleanupMaterializedRepo, materializeEvalCaseRepo } from "./repo.js";
+import { applyCaseStep, copyCaseBase } from "./corpus.js";
+import {
+  cleanupMaterializedRepo,
+  commitEvalBaseline,
+  finalizeEvalCaseTarget,
+  initEvalGitRepo,
+  materializeEvalCaseRepo,
+  resolveEvalHeadSha,
+  type MaterializedEvalCase,
+} from "./repo.js";
+import {
+  runEvalIdentityTrial,
+  type EvalIdentityStepContext,
+  type EvalIdentityStepReview,
+} from "./identity-runner.js";
 import type {
   EvalCaseRunResult,
   EvalDualCaseRunResult,
@@ -49,7 +67,13 @@ export async function runEvalCase(
   const results: EvalTrialResult[] = [];
 
   for (let trial = 0; trial < trials; trial++) {
-    results.push(await runEvalCaseTrial(evalCase, { ...options, mode }, dependencies, trial));
+    if (evalCase.steps.length > 1) {
+      results.push(
+        await runMultiStepEvalCaseTrial(evalCase, { ...options, mode }, dependencies, trial),
+      );
+    } else {
+      results.push(await runEvalCaseTrial(evalCase, { ...options, mode }, dependencies, trial));
+    }
   }
 
   return { caseId: evalCase.id, mode, trials: results };
@@ -75,75 +99,18 @@ export async function runEvalCaseTrial(
   const startedAt = performance.now();
   let workDir: string | undefined;
 
-  // Phase 2 (plan 029) wires sequential step execution; until then a multi-step
-  // case would review only step 0 while being scored against every step's
-  // expected findings, so fail loudly instead of silently under-scoring.
-  if (evalCase.steps.length > 1) {
-    throw new Error(
-      `Case "${evalCase.id}" declares ${evalCase.steps.length} steps, but the eval runner only supports single-step cases.`,
-    );
-  }
-
   try {
     const materialized = await materializeEvalCaseRepo(evalCase);
     workDir = materialized.workDir;
-
-    const config = resolveEvalRunnerConfig(
-      await loadConfigFromRoot(materialized.workDir),
-      options,
-    );
-    const depth = config.context.depth;
-    const snapshot = await loadReviewSnapshot(materialized.workDir, materialized.target);
-    const reviewContext =
-      mode === "diffowl" ? await buildReviewContextFromDiff(snapshot, config, depth) : undefined;
-    const changedFiles =
-      reviewContext?.changedFiles.map((file) => file.file.path) ??
-      snapshot.diff.files.map((file) => file.path);
-
-    await dependencies.prepareReviewServer(config);
-    const reviewResult =
-      mode === "baseline"
-        ? await dependencies.runReview({
-            target: materialized.target,
-            directory: materialized.workDir,
-            config,
-            depth,
-            systemPrompt: BASELINE_AGENT_PROMPT,
-            userPrompt: buildBaselinePrompt(
-              materialized.target,
-              renderBaselineDiff(snapshot, depth),
-              config,
-            ),
-            ...(options.signal ? { signal: options.signal } : {}),
-          })
-        : await dependencies.runReview({
-            target: materialized.target,
-            directory: materialized.workDir,
-            config,
-            localContext: renderReviewContext(reviewContext!, { depth }),
-            depth,
-            ...(options.signal ? { signal: options.signal } : {}),
-          });
-
-    const filtered = applyActionableFindingFilters(
-      reviewResult.report.findings,
-      reviewResult.report.diagnostics ?? [],
-      changedFiles,
-      config.min_confidence,
-    );
-
-    return {
-      caseId: evalCase.id,
-      trial,
+    return await runReviewForMaterializedCase(
+      evalCase,
+      materialized,
       mode,
-      findings: filtered.findings,
-      timings: reviewResult.report.timings ?? [],
-      ...(reviewResult.usage ? { usage: reviewResult.usage } : {}),
-      sessionId: reviewResult.sessionId,
-      summary: reviewResult.report.summary,
-      diagnostics: filtered.diagnostics,
-      durationMs: Math.round(performance.now() - startedAt),
-    };
+      options,
+      dependencies,
+      trial,
+      startedAt,
+    );
   } catch (error) {
     return {
       caseId: evalCase.id,
@@ -162,6 +129,197 @@ export async function runEvalCaseTrial(
       await cleanupMaterializedRepo(workDir);
     }
   }
+}
+
+async function runMultiStepEvalCaseTrial(
+  evalCase: EvalCase,
+  options: EvalRunnerOptions,
+  dependencies: EvalRunnerDependencies,
+  trial: number,
+): Promise<EvalTrialResult> {
+  if (options.mode === "baseline") {
+    return runMultiStepBaselineTrial(evalCase, options, dependencies, trial);
+  }
+
+  return runEvalIdentityTrial(evalCase, options, {
+    getFindingsForStep: buildDiffowlGetFindingsForStep(options, dependencies),
+  }, trial);
+}
+
+async function runMultiStepBaselineTrial(
+  evalCase: EvalCase,
+  options: EvalRunnerOptions,
+  dependencies: EvalRunnerDependencies,
+  trial: number,
+): Promise<EvalTrialResult> {
+  const startedAt = performance.now();
+  let workDir: string | undefined;
+
+  try {
+    const materialized = await materializeMultiStepEvalCaseAtFinalState(evalCase);
+    workDir = materialized.workDir;
+    return await runReviewForMaterializedCase(
+      evalCase,
+      materialized,
+      "baseline",
+      options,
+      dependencies,
+      trial,
+      startedAt,
+    );
+  } catch (error) {
+    return {
+      caseId: evalCase.id,
+      trial,
+      mode: "baseline",
+      findings: [],
+      timings: [],
+      sessionId: "",
+      summary: "",
+      diagnostics: [],
+      durationMs: Math.round(performance.now() - startedAt),
+      error: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    if (workDir) {
+      await cleanupMaterializedRepo(workDir);
+    }
+  }
+}
+
+async function materializeMultiStepEvalCaseAtFinalState(
+  evalCase: EvalCase,
+): Promise<MaterializedEvalCase> {
+  const workDir = await mkdtemp(join(tmpdir(), `diffowl-eval-${evalCase.id}-`));
+  try {
+    await copyCaseBase(evalCase, workDir);
+    await initEvalGitRepo(workDir);
+    await commitEvalBaseline(workDir, `eval(${evalCase.id}): baseline`);
+    const baselineSha = await resolveEvalHeadSha(workDir);
+
+    for (let stepIndex = 0; stepIndex < evalCase.steps.length; stepIndex++) {
+      await applyCaseStep(evalCase, workDir, stepIndex);
+      await finalizeEvalCaseTarget(workDir, evalCase);
+    }
+
+    // Cumulative diff from pre-step baseline through HEAD so baseline mode
+    // sees every step's defects, not only the last commit's patch.
+    const target: ReviewTarget =
+      evalCase.target === "staged"
+        ? { kind: "staged" }
+        : { kind: "base", ref: baselineSha };
+
+    return { workDir, target };
+  } catch (error) {
+    await cleanupMaterializedRepo(workDir);
+    throw error;
+  }
+}
+
+function buildDiffowlGetFindingsForStep(
+  options: EvalRunnerOptions,
+  dependencies: EvalRunnerDependencies,
+): (ctx: EvalIdentityStepContext) => Promise<EvalIdentityStepReview> {
+  return async (ctx) => {
+    const config = resolveEvalRunnerConfig(
+      await loadConfigFromRoot(ctx.workDir),
+      options,
+    );
+    const depth = config.context.depth;
+    const snapshot = await loadReviewSnapshot(ctx.workDir, ctx.target);
+    const reviewContext = await buildReviewContextFromDiff(snapshot, config, depth);
+    const changedFiles = reviewContext.changedFiles.map((file) => file.file.path);
+
+    await dependencies.prepareReviewServer(config);
+    const reviewResult = await dependencies.runReview({
+      target: ctx.target,
+      directory: ctx.workDir,
+      config,
+      localContext: renderReviewContext(reviewContext, { depth }),
+      depth,
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+
+    const filtered = applyActionableFindingFilters(
+      reviewResult.report.findings,
+      reviewResult.report.diagnostics ?? [],
+      changedFiles,
+      config.min_confidence,
+    );
+    return {
+      findings: filtered.findings,
+      ...(reviewResult.usage ? { usage: reviewResult.usage } : {}),
+    };
+  };
+}
+
+async function runReviewForMaterializedCase(
+  evalCase: EvalCase,
+  materialized: MaterializedEvalCase,
+  mode: EvalRunMode,
+  options: EvalRunnerOptions,
+  dependencies: EvalRunnerDependencies,
+  trial: number,
+  startedAt: number,
+  extras: Pick<EvalTrialResult, "identitySteps"> = {},
+): Promise<EvalTrialResult> {
+  const config = resolveEvalRunnerConfig(
+    await loadConfigFromRoot(materialized.workDir),
+    options,
+  );
+  const depth = config.context.depth;
+  const snapshot = await loadReviewSnapshot(materialized.workDir, materialized.target);
+  const reviewContext =
+    mode === "diffowl" ? await buildReviewContextFromDiff(snapshot, config, depth) : undefined;
+  const changedFiles =
+    reviewContext?.changedFiles.map((file) => file.file.path) ??
+    snapshot.diff.files.map((file) => file.path);
+
+  await dependencies.prepareReviewServer(config);
+  const reviewResult =
+    mode === "baseline"
+      ? await dependencies.runReview({
+          target: materialized.target,
+          directory: materialized.workDir,
+          config,
+          depth,
+          systemPrompt: BASELINE_AGENT_PROMPT,
+          userPrompt: buildBaselinePrompt(
+            materialized.target,
+            renderBaselineDiff(snapshot, depth),
+            config,
+          ),
+          ...(options.signal ? { signal: options.signal } : {}),
+        })
+      : await dependencies.runReview({
+          target: materialized.target,
+          directory: materialized.workDir,
+          config,
+          localContext: renderReviewContext(reviewContext!, { depth }),
+          depth,
+          ...(options.signal ? { signal: options.signal } : {}),
+        });
+
+  const filtered = applyActionableFindingFilters(
+    reviewResult.report.findings,
+    reviewResult.report.diagnostics ?? [],
+    changedFiles,
+    config.min_confidence,
+  );
+
+  return {
+    caseId: evalCase.id,
+    trial,
+    mode,
+    findings: filtered.findings,
+    timings: reviewResult.report.timings ?? [],
+    ...(reviewResult.usage ? { usage: reviewResult.usage } : {}),
+    sessionId: reviewResult.sessionId,
+    summary: reviewResult.report.summary,
+    diagnostics: filtered.diagnostics,
+    durationMs: Math.round(performance.now() - startedAt),
+    ...extras,
+  };
 }
 
 export function resolveEvalRunnerConfig(
