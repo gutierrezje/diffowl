@@ -388,6 +388,11 @@ describe("scoreEvalIdentity integration", () => {
             ...repeatedFinding(),
             file: "src/repeated.ts",
             line: ctx.stepIndex === 0 ? 2 : 3,
+            durable: {
+              id: "fnd_two_step",
+              classification: ctx.stepIndex === 0 ? "new" : "existing",
+              status: "open",
+            },
           },
         ],
       }),

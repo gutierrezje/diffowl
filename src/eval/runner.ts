@@ -4,19 +4,21 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { loadConfigFromRoot, type DiffOwlConfig } from "../config.js";
 import { runReview } from "../opencode/client.js";
-import { ensureServer, isServerRunning } from "../opencode/server.js";
-import {
-  buildReviewContextFromDiff,
-  loadReviewSnapshot,
-  renderReviewContext,
-} from "../review/context.js";
+import { loadReviewSnapshot } from "../review/context.js";
 import {
   filterFindingsByChangedFiles,
   filterFindingsByConfidence,
 } from "../review/filters.js";
 import { formatExcludedCandidateSummary } from "../review/formatter.js";
+import {
+  defaultReviewPipelineDeps,
+  prepareReviewServer,
+  runReviewPipeline,
+  type ReviewPipelineDeps,
+} from "../review/run.js";
 import type { ReviewTarget } from "../review/target.js";
-import type { ReviewFinding } from "../review/types.js";
+import type { ReviewFinding, ReviewTiming } from "../review/types.js";
+import type { ReviewUsage } from "../review/usage.js";
 import { BASELINE_AGENT_PROMPT, buildBaselinePrompt, renderBaselineDiff } from "./baseline.js";
 import type { EvalCase } from "./case-types.js";
 import { applyCaseStep, copyCaseBase } from "./corpus.js";
@@ -216,39 +218,25 @@ async function materializeMultiStepEvalCaseAtFinalState(
   }
 }
 
-function buildDiffowlGetFindingsForStep(
+export function buildDiffowlGetFindingsForStep(
   options: EvalRunnerOptions,
   dependencies: EvalRunnerDependencies,
 ): (ctx: EvalIdentityStepContext) => Promise<EvalIdentityStepReview> {
   return async (ctx) => {
-    const config = resolveEvalRunnerConfig(
-      await loadConfigFromRoot(ctx.workDir),
-      options,
-    );
-    const depth = config.context.depth;
-    const snapshot = await loadReviewSnapshot(ctx.workDir, ctx.target);
-    const reviewContext = await buildReviewContextFromDiff(snapshot, config, depth);
-    const changedFiles = reviewContext.changedFiles.map((file) => file.file.path);
-
-    await dependencies.prepareReviewServer(config);
-    const reviewResult = await dependencies.runReview({
+    const config = resolveEvalRunnerConfig(await loadConfigFromRoot(ctx.workDir), options);
+    const review = await runDiffowlReview({
+      workDir: ctx.workDir,
+      diffOwlDir: ctx.diffOwlDir,
       target: ctx.target,
-      directory: ctx.workDir,
       config,
-      localContext: renderReviewContext(reviewContext, { depth }),
-      depth,
-      ...(options.signal ? { signal: options.signal } : {}),
+      options,
+      dependencies,
     });
 
-    const filtered = applyActionableFindingFilters(
-      reviewResult.report.findings,
-      reviewResult.report.diagnostics ?? [],
-      changedFiles,
-      config.min_confidence,
-    );
     return {
-      findings: filtered.findings,
-      ...(reviewResult.usage ? { usage: reviewResult.usage } : {}),
+      findings: review.findings,
+      sessionId: review.sessionId,
+      ...(review.usage ? { usage: review.usage } : {}),
     };
   };
 }
@@ -261,64 +249,157 @@ async function runReviewForMaterializedCase(
   dependencies: EvalRunnerDependencies,
   trial: number,
   startedAt: number,
-  extras: Pick<EvalTrialResult, "identitySteps"> = {},
 ): Promise<EvalTrialResult> {
   const config = resolveEvalRunnerConfig(
     await loadConfigFromRoot(materialized.workDir),
     options,
   );
-  const depth = config.context.depth;
-  const snapshot = await loadReviewSnapshot(materialized.workDir, materialized.target);
-  const reviewContext =
-    mode === "diffowl" ? await buildReviewContextFromDiff(snapshot, config, depth) : undefined;
-  const changedFiles =
-    reviewContext?.changedFiles.map((file) => file.file.path) ??
-    snapshot.diff.files.map((file) => file.path);
-
-  await dependencies.prepareReviewServer(config);
-  const reviewResult =
+  const review =
     mode === "baseline"
-      ? await dependencies.runReview({
+      ? await runBaselineReview(materialized, config, options, dependencies)
+      : await runDiffowlReview({
+          workDir: materialized.workDir,
+          diffOwlDir: join(materialized.workDir, ".diffowl"),
           target: materialized.target,
-          directory: materialized.workDir,
           config,
-          depth,
-          systemPrompt: BASELINE_AGENT_PROMPT,
-          userPrompt: buildBaselinePrompt(
-            materialized.target,
-            renderBaselineDiff(snapshot, depth),
-            config,
-          ),
-          ...(options.signal ? { signal: options.signal } : {}),
-        })
-      : await dependencies.runReview({
-          target: materialized.target,
-          directory: materialized.workDir,
-          config,
-          localContext: renderReviewContext(reviewContext!, { depth }),
-          depth,
-          ...(options.signal ? { signal: options.signal } : {}),
+          options,
+          dependencies,
         });
-
-  const filtered = applyActionableFindingFilters(
-    reviewResult.report.findings,
-    reviewResult.report.diagnostics ?? [],
-    changedFiles,
-    config.min_confidence,
-  );
 
   return {
     caseId: evalCase.id,
     trial,
     mode,
+    findings: review.findings,
+    timings: review.timings,
+    ...(review.usage ? { usage: review.usage } : {}),
+    sessionId: review.sessionId,
+    summary: review.summary,
+    diagnostics: review.diagnostics,
+    durationMs: Math.round(performance.now() - startedAt),
+  };
+}
+
+interface EvalReviewOutcome {
+  findings: ReviewFinding[];
+  diagnostics: string[];
+  timings: ReviewTiming[];
+  sessionId: string;
+  summary: string;
+  usage?: ReviewUsage;
+}
+
+/**
+ * The DiffOwl arm runs the production pipeline so evals grade the same
+ * filtering, deduplication and durable-identity path a real review takes.
+ */
+async function runDiffowlReview(params: {
+  workDir: string;
+  diffOwlDir: string;
+  target: ReviewTarget;
+  config: DiffOwlConfig;
+  options: EvalRunnerOptions;
+  dependencies: EvalRunnerDependencies;
+}): Promise<EvalReviewOutcome> {
+  const { workDir, diffOwlDir, target, config, options, dependencies } = params;
+  const outcome = await runReviewPipeline(
+    {
+      target,
+      config,
+      depth: config.context.depth,
+      verbose: false,
+      projectRoot: workDir,
+      diffOwlDir,
+      timings: [],
+      persistEmptyDiff: false,
+      ...(options.signal ? { signal: options.signal } : {}),
+    },
+    buildEvalPipelineDeps(config, dependencies),
+  );
+
+  // An empty or documentation-only diff means "no findings" for a trial, not an error.
+  if (outcome.kind !== "completed") {
+    return { findings: [], diagnostics: [], timings: [], sessionId: "", summary: "" };
+  }
+
+  return {
+    findings: outcome.report.findings,
+    diagnostics: outcome.report.diagnostics ?? [],
+    timings: outcome.report.timings ?? [],
+    sessionId: outcome.sessionId,
+    summary: outcome.report.summary,
+    ...(outcome.usage ? { usage: outcome.usage } : {}),
+  };
+}
+
+/**
+ * Baseline stays hand-assembled: it needs system/user prompt overrides the
+ * pipeline deliberately does not expose, and it never needs durable identity.
+ */
+async function runBaselineReview(
+  materialized: MaterializedEvalCase,
+  config: DiffOwlConfig,
+  options: EvalRunnerOptions,
+  dependencies: EvalRunnerDependencies,
+): Promise<EvalReviewOutcome> {
+  const depth = config.context.depth;
+  const snapshot = await loadReviewSnapshot(materialized.workDir, materialized.target);
+
+  await dependencies.prepareReviewServer(config);
+  const reviewResult = await dependencies.runReview({
+    target: materialized.target,
+    directory: materialized.workDir,
+    config,
+    depth,
+    systemPrompt: BASELINE_AGENT_PROMPT,
+    userPrompt: buildBaselinePrompt(
+      materialized.target,
+      renderBaselineDiff(snapshot, depth),
+      config,
+    ),
+    ...(options.signal ? { signal: options.signal } : {}),
+  });
+
+  const filtered = applyActionableFindingFilters(
+    reviewResult.report.findings,
+    reviewResult.report.diagnostics ?? [],
+    snapshot.diff.files.map((file) => file.path),
+    config.min_confidence,
+  );
+
+  return {
     findings: filtered.findings,
+    diagnostics: filtered.diagnostics,
     timings: reviewResult.report.timings ?? [],
-    ...(reviewResult.usage ? { usage: reviewResult.usage } : {}),
     sessionId: reviewResult.sessionId,
     summary: reviewResult.report.summary,
-    diagnostics: filtered.diagnostics,
-    durationMs: Math.round(performance.now() - startedAt),
-    ...extras,
+    ...(reviewResult.usage ? { usage: reviewResult.usage } : {}),
+  };
+}
+
+/** Trials grade findings, not reports: no markdown is rendered and no report file is written. */
+function buildEvalPipelineDeps(
+  config: DiffOwlConfig,
+  dependencies: EvalRunnerDependencies,
+): ReviewPipelineDeps {
+  const ensureReviewServer = async (): Promise<void> => {
+    await dependencies.prepareReviewServer(config);
+  };
+
+  return {
+    ...defaultReviewPipelineDeps,
+    runReview: dependencies.runReview,
+    ensureServer: async (port) => {
+      await ensureReviewServer();
+      return `http://127.0.0.1:${port}`;
+    },
+    isServerRunning: async () => {
+      await ensureReviewServer();
+      return true;
+    },
+    renderMarkdown: () => "",
+    writeMarkdownReport: async () => "",
+    updatePersistedReview: async () => undefined,
   };
 }
 
@@ -348,21 +429,6 @@ export function resolveEvalModel(explicitModel?: string): string | undefined {
   }
   const fromEnv = process.env["DIFFOWL_EVAL_MODEL"]?.trim();
   return fromEnv || undefined;
-}
-
-async function prepareReviewServer(config: DiffOwlConfig): Promise<void> {
-  if (config.server.auto_start) {
-    await ensureServer(config.server.port);
-    return;
-  }
-
-  if (await isServerRunning(config.server.port)) {
-    return;
-  }
-
-  throw new Error(
-    `OpenCode server is not running on port ${config.server.port}. Start it with \`diffowl server start\` or set server.auto_start: true.`,
-  );
 }
 
 function applyActionableFindingFilters(
