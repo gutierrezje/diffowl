@@ -19,8 +19,6 @@ import {
 import type { ReviewTarget } from "../review/target.js";
 import type { ReviewFinding, ReviewTiming } from "../review/types.js";
 import type { ReviewUsage } from "../review/usage.js";
-import { computeFindingFingerprint } from "../state/fingerprint.js";
-import { toFindingCandidate } from "../state/persist.js";
 import { BASELINE_AGENT_PROMPT, buildBaselinePrompt, renderBaselineDiff } from "./baseline.js";
 import type { EvalCase } from "./case-types.js";
 import { applyCaseStep, copyCaseBase } from "./corpus.js";
@@ -238,9 +236,7 @@ export function buildDiffowlGetFindingsForStep(
     return {
       findings: review.findings,
       sessionId: review.sessionId,
-      ...(review.collapsedFingerprints
-        ? { collapsedFingerprints: review.collapsedFingerprints }
-        : {}),
+      ...(review.preDedupFindings ? { preDedupFindings: review.preDedupFindings } : {}),
       ...(review.usage ? { usage: review.usage } : {}),
     };
   };
@@ -291,7 +287,7 @@ interface EvalReviewOutcome {
   timings: ReviewTiming[];
   sessionId: string;
   summary: string;
-  collapsedFingerprints?: string[];
+  preDedupFindings?: ReviewFinding[];
   usage?: ReviewUsage;
 }
 
@@ -308,7 +304,11 @@ async function runDiffowlReview(params: {
   dependencies: EvalRunnerDependencies;
 }): Promise<EvalReviewOutcome> {
   const { workDir, diffOwlDir, target, config, options, dependencies } = params;
-  let collapsedFingerprints: string[] = [];
+  // Snapshot of the findings that entered the persist path — post-filter but
+  // pre-dedup. Sampled here because it is the last point where two findings
+  // that share a fingerprint still exist as two distinct findings; the scorer
+  // needs them to tell a genuine collapse apart from a detection miss.
+  let preDedupFindings: ReviewFinding[] = [];
   const outcome = await runReviewPipeline(
     {
       target,
@@ -322,7 +322,7 @@ async function runDiffowlReview(params: {
       ...(options.signal ? { signal: options.signal } : {}),
     },
     buildEvalPipelineDeps(config, dependencies, (findings) => {
-      collapsedFingerprints = findCollapsedFingerprints(findings);
+      preDedupFindings = [...findings];
     }),
   );
 
@@ -337,29 +337,9 @@ async function runDiffowlReview(params: {
     timings: outcome.report.timings ?? [],
     sessionId: outcome.sessionId,
     summary: outcome.report.summary,
-    collapsedFingerprints,
+    preDedupFindings,
     ...(outcome.usage ? { usage: outcome.usage } : {}),
   };
-}
-
-/**
- * Fingerprints shared by more than one reported finding, sampled at the input
- * to the persist path — the last point where the two are still distinguishable.
- */
-function findCollapsedFingerprints(findings: ReviewFinding[]): string[] {
-  const seen = new Set<string>();
-  const collapsed = new Set<string>();
-
-  for (const finding of findings) {
-    const fingerprint = computeFindingFingerprint(toFindingCandidate(finding));
-    if (seen.has(fingerprint)) {
-      collapsed.add(fingerprint);
-      continue;
-    }
-    seen.add(fingerprint);
-  }
-
-  return [...collapsed];
 }
 
 /**

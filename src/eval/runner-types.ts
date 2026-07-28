@@ -24,11 +24,14 @@ export const EvalIdentityStepResultSchema = z.object({
   classifications: z.array(z.enum(["new", "existing", "regressed"])),
   findings: z.array(ReviewFindingSchema),
   /**
-   * Fingerprints the persist path merged more than one reported finding into.
-   * Without this, an over-collapsing fingerprint is indistinguishable from the
-   * model never reporting the second finding at all.
+   * Findings as they entered the persist path — post-filter but pre-dedup.
+   * The scorer matches these against expected anchors to tell an over-collapsing
+   * fingerprint (two distinct anchors merged into one) apart from a detection
+   * miss (an anchor never reported). The post-dedup `findings` cannot, and a
+   * fingerprint-only signal cannot either: it can't distinguish one anchor
+   * reported twice from two distinct anchors that collided on the same key.
    */
-  collapsedFingerprints: z.array(z.string()).optional(),
+  preDedupFindings: z.array(ReviewFindingSchema).optional(),
 });
 
 export const EvalTrialResultSchema = z.object({

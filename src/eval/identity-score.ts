@@ -227,13 +227,20 @@ function scoreKeepDistinct(
   }
 
   if (hits.length < minDistinct) {
-    // A shortfall is normally a detection miss, which is n/a — but if one of the
-    // findings that DID match is a fingerprint the persist path merged, the
-    // missing anchor was reported and then collapsed. That is the identity
-    // failure this gate exists to catch, not a miss.
-    const collapsed = new Set(last.collapsedFingerprints ?? []);
-    const collapsedAnchor = hits.some((hit) => collapsed.has(hit.fingerprint));
-    if (!collapsedAnchor) {
+    // A shortfall is normally a detection miss, which is n/a. But dedup can merge
+    // two distinct anchors that were BOTH reported into one surviving finding —
+    // and that collapse is the identity failure this gate exists to catch.
+    //
+    // The discriminator is how many DISTINCT expected anchors matched before
+    // dedup: match the pre-dedup findings the same greedy way. If enough
+    // distinct anchors were reported yet fewer survived, dedup collapsed them.
+    // If not enough were reported in the first place, it is a genuine miss.
+    // A fingerprint-only signal cannot make this call: it cannot tell one anchor
+    // reported twice (a miss) from two anchors that collided (a collapse).
+    const preDedupHits = last.preDedupFindings
+      ? countDistinctExpectedMatches(expected, last.preDedupFindings)
+      : hits.length;
+    if (preDedupHits < minDistinct) {
       return aggregateIdentityAnchors(
         "keep-distinct",
         anchors,
@@ -314,6 +321,31 @@ function observationAt(
     return undefined;
   }
   return { fingerprint, durableId, classification };
+}
+
+/**
+ * Distinct expected anchors matched by these findings, using the same greedy
+ * one-finding-per-anchor rule as scoring. Run against the pre-dedup findings it
+ * reveals how many distinct anchors were reported before deduplication merged
+ * any of them — the count that separates a collapse from a detection miss.
+ */
+function countDistinctExpectedMatches(
+  expected: EvalExpectedFinding[],
+  findings: ReviewFinding[],
+): number {
+  const usedIndices = new Set<number>();
+  let count = 0;
+  for (const expectedEntry of expected) {
+    if (!expectedEntry) {
+      continue;
+    }
+    const matchIndex = firstMatch(expectedEntry, findings, usedIndices);
+    if (matchIndex !== undefined) {
+      usedIndices.add(matchIndex);
+      count++;
+    }
+  }
+  return count;
 }
 
 function firstMatch(

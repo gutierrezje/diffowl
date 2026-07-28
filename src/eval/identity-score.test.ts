@@ -40,6 +40,16 @@ const otherFinding: ReviewFinding = {
   body: "Branch is unreachable.",
 };
 
+// Matches neither keep-distinct anchor (src/a.ts, src/b.ts).
+const unrelatedFinding: ReviewFinding = {
+  severity: "warning",
+  file: "src/c.ts",
+  line: 9,
+  confidence: "high",
+  title: "Noisy log line",
+  body: "Debug logging left in place.",
+};
+
 const twoStepExpected = [
   { file: "src/a.ts", line: 4, line_tolerance: 2, min_severity: "warning" as const, must_detect: true },
   { file: "src/a.ts", line: 18, line_tolerance: 2, min_severity: "warning" as const, must_detect: true },
@@ -351,7 +361,8 @@ describe("scoreEvalIdentity keep-distinct", () => {
       evalCase: keepDistinctCase,
       trial: {
         identitySteps: [
-          step(0, ["fp-same"], ["fnd_1"], ["new"], [baseFinding], ["fp-same"]),
+          // Both distinct anchors were reported pre-dedup; only one survived.
+          step(0, ["fp-same"], ["fnd_1"], ["new"], [baseFinding], [baseFinding, otherFinding]),
         ],
       },
     });
@@ -369,7 +380,29 @@ describe("scoreEvalIdentity keep-distinct", () => {
       kind: "keep-distinct",
       evalCase: keepDistinctCase,
       trial: {
-        identitySteps: [step(0, ["fp-a"], ["fnd_1"], ["new"], [baseFinding], [])],
+        // Only one anchor ever reported: pre-dedup and post-dedup agree at one.
+        identitySteps: [step(0, ["fp-a"], ["fnd_1"], ["new"], [baseFinding], [baseFinding])],
+      },
+    });
+
+    expect(score.passed).toBe(true);
+    expect(score.naReason).toBe("insufficient detected anchors");
+  });
+
+  it("reports duplicate reporting of one anchor plus a miss as n/a, not a collapse", () => {
+    const score = scoreEvalIdentity({
+      kind: "keep-distinct",
+      evalCase: keepDistinctCase,
+      trial: {
+        identitySteps: [
+          // The model reported anchor A twice and never reported anchor B. Dedup
+          // merges the two A copies, so the anchor count still falls short — but
+          // this is a detection miss on B, not two distinct anchors collapsing.
+          step(0, ["fp-a"], ["fnd_1"], ["new"], [baseFinding], [
+            baseFinding,
+            { ...baseFinding, line: 5 },
+          ]),
+        ],
       },
     });
 
@@ -383,7 +416,9 @@ describe("scoreEvalIdentity keep-distinct", () => {
       evalCase: keepDistinctCase,
       trial: {
         identitySteps: [
-          step(0, ["fp-a"], ["fnd_1"], ["new"], [baseFinding], ["fp-unrelated"]),
+          // A second finding was reported and collapsed, but it matches no
+          // expected anchor, so it cannot account for the shortfall.
+          step(0, ["fp-a"], ["fnd_1"], ["new"], [baseFinding], [baseFinding, unrelatedFinding]),
         ],
       },
     });
@@ -625,7 +660,7 @@ function step(
   durableIds: string[],
   classifications: Array<"new" | "existing" | "regressed">,
   findings: ReviewFinding[],
-  collapsedFingerprints?: string[],
+  preDedupFindings?: ReviewFinding[],
 ): EvalIdentityStepResult {
   return {
     step: stepIndex,
@@ -633,7 +668,7 @@ function step(
     durableIds,
     classifications,
     findings,
-    ...(collapsedFingerprints ? { collapsedFingerprints } : {}),
+    ...(preDedupFindings ? { preDedupFindings } : {}),
   };
 }
 
