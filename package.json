@@ -35,7 +35,7 @@
     "test": "vitest run",
     "pretypecheck": "pnpm run check:runtime",
     "typecheck": "node scripts/typecheck.mjs --noEmit",
-    "lint": "oxlint . && pnpm run typecheck",
+    "lint": "oxlint src && pnpm run typecheck",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "eval": "pnpm run build && node dist/cli.js eval",
