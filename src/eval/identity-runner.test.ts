@@ -2,10 +2,13 @@ import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { ReviewResult } from "../opencode/client.js";
 import type { ReviewFinding } from "../review/types.js";
 import type { EvalCase } from "./case-types.js";
 import { loadEvalCase } from "./corpus.js";
+import type { EvalIdentityStepContext } from "./identity-runner.js";
 import { runEvalIdentityTrial } from "./identity-runner.js";
+import { buildDiffowlGetFindingsForStep } from "./runner.js";
 
 let tempDirs: string[] = [];
 
@@ -24,9 +27,11 @@ const repeatedFinding: ReviewFinding = {
   evidence: "if (!id) return null;",
 };
 
+// Same changed file as the fixture patches — findings outside the diff are
+// dropped by the pipeline's changed-file filter before they reach identity.
 const otherFinding: ReviewFinding = {
   severity: "error",
-  file: "src/other.ts",
+  file: "src/repeated.ts",
   line: 6,
   confidence: "high",
   title: "Unhandled promise rejection",
@@ -34,20 +39,47 @@ const otherFinding: ReviewFinding = {
   evidence: "void fetchData();",
 };
 
+/**
+ * Drives the production step adapter with a stubbed model, so these tests
+ * exercise the real persist and durable-identity path rather than a parallel one.
+ */
+function pipelineStep(
+  findingsByStep: ReviewFinding[][],
+  beforeStep?: (ctx: EvalIdentityStepContext) => Promise<void>,
+): (ctx: EvalIdentityStepContext) => Promise<{ findings: ReviewFinding[] }> {
+  let call = 0;
+  const getFindingsForStep = buildDiffowlGetFindingsForStep(
+    {},
+    {
+      runReview: async (): Promise<ReviewResult> => ({
+        sessionId: `session-step-${call}`,
+        report: { summary: "Step review.", findings: findingsByStep[call++] ?? [] },
+      }),
+      prepareReviewServer: async () => undefined,
+    },
+  );
+
+  return async (ctx) => {
+    await beforeStep?.(ctx);
+    return getFindingsForStep(ctx);
+  };
+}
+
 describe("runEvalIdentityTrial", () => {
   it("persists the same fingerprint across steps as existing with a stable durable id", async () => {
     let stateDbSeen = false;
 
     const evalCase = await createTwoStepCase();
     const result = await runEvalIdentityTrial(evalCase, {}, {
-      getFindingsForStep: async (ctx) => {
-        if (ctx.stepIndex === 1) {
-          const statePath = join(ctx.workDir, ".diffowl", "state.db");
-          await access(statePath);
-          stateDbSeen = true;
-        }
-        return { findings: [{ ...repeatedFinding, line: ctx.stepIndex === 0 ? 4 : 18 }] };
-      },
+      getFindingsForStep: pipelineStep(
+        [[{ ...repeatedFinding, line: 4 }], [{ ...repeatedFinding, line: 18 }]],
+        async (ctx) => {
+          if (ctx.stepIndex === 1) {
+            await access(join(ctx.diffOwlDir, "state.db"));
+            stateDbSeen = true;
+          }
+        },
+      ),
     });
 
     expect(result.error).toBeUndefined();
@@ -64,9 +96,7 @@ describe("runEvalIdentityTrial", () => {
   it("assigns distinct durable ids for different findings across steps", async () => {
     const evalCase = await createTwoStepCase();
     const result = await runEvalIdentityTrial(evalCase, {}, {
-      getFindingsForStep: async ({ stepIndex }) => ({
-        findings: stepIndex === 0 ? [repeatedFinding] : [otherFinding],
-      }),
+      getFindingsForStep: pipelineStep([[repeatedFinding], [otherFinding]]),
     });
 
     expect(result.error).toBeUndefined();
@@ -76,30 +106,29 @@ describe("runEvalIdentityTrial", () => {
     expect(result.identitySteps![0]?.durableIds[0]).not.toBe(result.identitySteps![1]?.durableIds[0]);
   });
 
-  it("keeps observation arrays aligned to findings when fingerprints collide", async () => {
+  it("collapses colliding fingerprints the way a real review does", async () => {
     const evalCase = await createTwoStepCase();
     const duplicateA = { ...repeatedFinding, line: 4 };
     const duplicateB = { ...repeatedFinding, line: 5 };
     const result = await runEvalIdentityTrial(evalCase, {}, {
-      getFindingsForStep: async () => ({ findings: [duplicateA, duplicateB] }),
+      getFindingsForStep: pipelineStep([[duplicateA, duplicateB]]),
     });
 
     expect(result.error).toBeUndefined();
     const first = result.identitySteps![0]!;
-    expect(first.findings).toHaveLength(2);
-    expect(first.fingerprints).toHaveLength(2);
-    expect(first.durableIds).toHaveLength(2);
-    expect(first.classifications).toHaveLength(2);
-    expect(first.fingerprints[0]).toBe(first.fingerprints[1]);
-    expect(first.durableIds[0]).toBe(first.durableIds[1]);
+    // The persist path deduplicates by fingerprint, so the graded step sees one
+    // finding — the same count a user would see in the report.
+    expect(first.findings).toHaveLength(1);
+    expect(first.fingerprints).toHaveLength(1);
+    expect(first.durableIds).toHaveLength(1);
+    expect(first.classifications).toHaveLength(1);
     expect(first.findings[0]?.durable?.id).toBe(first.durableIds[0]);
-    expect(first.findings[1]?.durable?.id).toBe(first.durableIds[1]);
   });
 
   it("rejects multi-step cases with staged target", async () => {
     const evalCase = await createTwoStepCase({ target: "staged" });
     const result = await runEvalIdentityTrial(evalCase, {}, {
-      getFindingsForStep: async () => ({ findings: [repeatedFinding] }),
+      getFindingsForStep: pipelineStep([[repeatedFinding]]),
     });
 
     expect(result.error).toMatch(/target "commit"/);

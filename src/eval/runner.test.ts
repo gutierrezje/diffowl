@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DiffOwlConfig } from "../config.js";
 import type { ReviewResult } from "../opencode/client.js";
 import type { ReviewFinding } from "../review/types.js";
+import { computeFindingFingerprint } from "../state/fingerprint.js";
+import { toFindingCandidate } from "../state/persist.js";
 import { BASELINE_AGENT_PROMPT } from "./baseline.js";
 import { loadEvalCase } from "./corpus.js";
 import * as repo from "./repo.js";
@@ -235,6 +237,46 @@ describe("runEvalCaseTrial", () => {
         userPrompt: expect.stringContaining("void fetch"),
       }),
     );
+  }, 30_000);
+
+  it("grades the fingerprint the production persist path stores", async () => {
+    const evalCase = await loadEvalCase(join(corpusDir, "recognize-same-across-commits"));
+    const finding: ReviewFinding = {
+      severity: "warning",
+      file: "src/fetch.ts",
+      line: 3,
+      confidence: "high",
+      title: "Fire-and-forget promise",
+      body: "The fetch result is never awaited.",
+      evidence: "void fetchUser(id);",
+    };
+    const runReview = vi.fn(async (): Promise<ReviewResult> => ({
+      sessionId: "session-identity",
+      report: { summary: "Step review.", findings: [finding] },
+    }));
+
+    const result = await runEvalCase(
+      evalCase,
+      { mode: "diffowl" },
+      { runReview, prepareReviewServer: vi.fn(async () => undefined) },
+    );
+
+    const steps = result.trials[0]?.identitySteps;
+    expect(result.trials[0]?.error).toBeUndefined();
+    expect(steps).toHaveLength(2);
+
+    // The key the harness grades must be the key production computes for the
+    // same finding — otherwise identity fixtures measure a mechanism no review
+    // ever runs.
+    const productionFingerprint = computeFindingFingerprint(toFindingCandidate(finding));
+    expect(steps![0]?.fingerprints[0]).toBe(productionFingerprint);
+    expect(steps![1]?.fingerprints[0]).toBe(productionFingerprint);
+
+    // A non-empty durable id proves the pipeline matched that key against a
+    // stored observation, closing the chain graded key -> stored key.
+    expect(steps![0]?.durableIds[0]).toBeTruthy();
+    expect(steps![1]?.durableIds[0]).toBe(steps![0]?.durableIds[0]);
+    expect(steps![1]?.classifications[0]).toBe("existing");
   }, 30_000);
 
   it("aggregates usage across multi-step diffowl reviews", async () => {

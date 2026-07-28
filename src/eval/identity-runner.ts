@@ -1,17 +1,11 @@
-import { mkdir, mkdtemp } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import type { ReviewFinding } from "../review/types.js";
 import type { ReviewTarget } from "../review/target.js";
 import { aggregateReviewUsage, type ReviewUsage } from "../review/usage.js";
-import {
-  computeDiffHash,
-  enrichReviewFindingsWithDurableMetadata,
-  mapReviewTarget,
-  persistReviewRun,
-  type PersistReviewRunResult,
-} from "../state/persist.js";
+import { toFindingCandidate } from "../state/persist.js";
 import { computeFindingFingerprint } from "../state/fingerprint.js";
 import { copyCaseBase, applyCaseStep } from "./corpus.js";
 import type { EvalCase } from "./case-types.js";
@@ -31,23 +25,25 @@ import type {
 export interface EvalIdentityStepContext {
   evalCase: EvalCase;
   workDir: string;
+  /** Shared across steps so lifecycle reconciliation accumulates within a trial. */
+  diffOwlDir: string;
   stepIndex: number;
   target: ReviewTarget;
 }
 
+/** Findings are expected to carry durable metadata already — the step review persists. */
 export interface EvalIdentityStepReview {
   findings: ReviewFinding[];
+  sessionId?: string;
   usage?: ReviewUsage;
 }
 
 export interface EvalIdentityRunnerDependencies {
   getFindingsForStep: (ctx: EvalIdentityStepContext) => Promise<EvalIdentityStepReview>;
-  persistReviewRun?: typeof persistReviewRun;
 }
 
 const defaultDependencies: EvalIdentityRunnerDependencies = {
   getFindingsForStep: async () => ({ findings: [] }),
-  persistReviewRun,
 };
 
 export async function runEvalIdentityCase(
@@ -67,13 +63,13 @@ export async function runEvalIdentityCase(
 
 export async function runEvalIdentityTrial(
   evalCase: EvalCase,
-  options: EvalRunnerOptions = {},
+  // Run options are resolved by the step review, which owns config and model selection.
+  _options: EvalRunnerOptions = {},
   dependencies: EvalIdentityRunnerDependencies = defaultDependencies,
   trial = 0,
 ): Promise<EvalTrialResult> {
   const startedAt = performance.now();
   let workDir: string | undefined;
-  const persist = dependencies.persistReviewRun ?? persistReviewRun;
 
   try {
     if (evalCase.steps.length > 1 && evalCase.target === "staged") {
@@ -96,33 +92,15 @@ export async function runEvalIdentityTrial(
     for (let stepIndex = 0; stepIndex < evalCase.steps.length; stepIndex++) {
       await applyCaseStep(evalCase, workDir, stepIndex);
       const target = await finalizeEvalCaseTarget(workDir, evalCase);
-      const ctx: EvalIdentityStepContext = { evalCase, workDir, stepIndex, target };
+      const ctx: EvalIdentityStepContext = { evalCase, workDir, diffOwlDir, stepIndex, target };
       const stepReview = await dependencies.getFindingsForStep(ctx);
-      const findings = stepReview.findings;
       if (stepReview.usage) {
         usageEntries.push(stepReview.usage);
       }
-      const { targetKind, targetRef } = mapReviewTarget(target);
 
-      await mkdir(diffOwlDir, { recursive: true });
-      const persisted = await persist(diffOwlDir, {
-        targetKind,
-        targetRef,
-        targetCommit: null,
-        diffHash: computeDiffHash(`${stepIndex}:${findings.map((f) => f.title).join("|")}`),
-        model: options.model ?? "eval/identity",
-        reasoning: options.reasoning ?? "auto",
-        depth: options.depth ?? "default",
-        sessionId: `eval-identity-${evalCase.id}-step-${stepIndex}`,
-        summary: `Eval identity step ${stepIndex}.`,
-        diagnostics: [],
-        timings: [],
-        findings,
-      });
-
-      identitySteps.push(toIdentityStepResult(stepIndex, findings, persisted));
+      identitySteps.push(toIdentityStepResult(stepIndex, stepReview.findings));
       lastFindings = identitySteps[identitySteps.length - 1]!.findings;
-      lastSessionId = `eval-identity-${evalCase.id}-step-${stepIndex}`;
+      lastSessionId = stepReview.sessionId ?? "";
     }
 
     const usage = aggregateReviewUsage(usageEntries);
@@ -159,35 +137,16 @@ export async function runEvalIdentityTrial(
   }
 }
 
-function toIdentityStepResult(
-  step: number,
-  findings: ReviewFinding[],
-  persisted: PersistReviewRunResult,
-): EvalIdentityStepResult {
-  // Align observation arrays to findings order. Reconcile observations are
-  // fingerprint-deduped, so indexing them by finding position is wrong.
-  const enriched = enrichReviewFindingsWithDurableMetadata(findings, persisted.reconcile);
-
+function toIdentityStepResult(step: number, findings: ReviewFinding[]): EvalIdentityStepResult {
+  // Keys are computed the way the production persist path computes them, so a
+  // fingerprint graded here is the same key a real review would have stored.
   return {
     step,
-    fingerprints: enriched.map((finding) => fingerprintForFinding(finding)),
-    durableIds: enriched.map((finding) => finding.durable?.id ?? ""),
-    classifications: enriched.map(
-      (finding) => finding.durable?.classification ?? "new",
+    fingerprints: findings.map((finding) =>
+      computeFindingFingerprint(toFindingCandidate(finding)),
     ),
-    findings: enriched,
+    durableIds: findings.map((finding) => finding.durable?.id ?? ""),
+    classifications: findings.map((finding) => finding.durable?.classification ?? "new"),
+    findings,
   };
-}
-
-function fingerprintForFinding(finding: ReviewFinding): string {
-  return computeFindingFingerprint(
-    finding.evidence === undefined
-      ? { file: finding.file, title: finding.title, body: finding.body }
-      : {
-          file: finding.file,
-          title: finding.title,
-          body: finding.body,
-          evidence: finding.evidence,
-        },
-  );
 }
