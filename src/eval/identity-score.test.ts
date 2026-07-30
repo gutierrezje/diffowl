@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ReviewResult } from "../opencode/client.js";
 import type { ReviewFinding } from "../review/types.js";
+import { dismissFindingByLocator, withFindingDatabase } from "../state/findings-query.js";
 import type { EvalCase } from "./case-types.js";
 import { loadEvalCase } from "./corpus.js";
 import { runEvalIdentityTrial } from "./identity-runner.js";
@@ -356,13 +357,24 @@ describe("scoreEvalIdentity keep-distinct", () => {
   });
 
   it("fails when dedup collapsed a reported anchor into the surviving finding", () => {
+    const sameFileCase = {
+      ...keepDistinctCase,
+      expected: [
+        keepDistinctCase.expected[0]!,
+        { ...keepDistinctCase.expected[1]!, file: "src/a.ts", line: 14 },
+      ],
+    };
+    const collidingOtherAnchor = { ...baseFinding, line: 14 };
     const score = scoreEvalIdentity({
       kind: "keep-distinct",
-      evalCase: keepDistinctCase,
+      evalCase: sameFileCase,
       trial: {
         identitySteps: [
           // Both distinct anchors were reported pre-dedup; only one survived.
-          step(0, ["fp-same"], ["fnd_1"], ["new"], [baseFinding], [baseFinding, otherFinding]),
+          step(0, ["fp-same"], ["fnd_1"], ["new"], [baseFinding], [
+            baseFinding,
+            collidingOtherAnchor,
+          ]),
         ],
       },
     });
@@ -373,6 +385,24 @@ describe("scoreEvalIdentity keep-distinct", () => {
     expect(score.naReason).toBeUndefined();
     expect(score.detail.anchors.some((anchor) => anchor.status === "fail")).toBe(true);
     expect(score.detail.summary).toContain("failed identity check");
+  });
+
+  it("does not misclassify lifecycle suppression as a dedup collapse", () => {
+    const score = scoreEvalIdentity({
+      kind: "keep-distinct",
+      evalCase: keepDistinctCase,
+      trial: {
+        identitySteps: [
+          // Both distinct anchors survived fingerprint deduplication, but only
+          // the actionable one remains in the report after lifecycle suppression.
+          step(0, ["fp-a"], ["fnd_1"], ["new"], [baseFinding], [baseFinding, otherFinding]),
+        ],
+      },
+    });
+
+    expect(score.passed).toBe(true);
+    expect(score.naReason).toBe("lifecycle-suppressed anchors");
+    expect(score.detail.anchors.some((anchor) => anchor.status === "fail")).toBe(false);
   });
 
   it("still reports a genuine detection miss as n/a when nothing collapsed", () => {
@@ -531,6 +561,70 @@ describe("scoreEvalIdentity integration", () => {
     expect(score.detail.anchors.some((anchor) => anchor.reason?.includes("collapsed"))).toBe(
       true,
     );
+  }, 30_000);
+
+  it("does not turn lifecycle suppression into a keep-distinct failure", async () => {
+    const evalCase = await loadEvalCase(join(corpusDir, "keep-distinct-in-same-symbol"));
+    const kind = resolveEvalIdentityKind(evalCase)!;
+    let stepIndex = 0;
+    const getFindingsForStep = buildDiffowlGetFindingsForStep(
+      {},
+      {
+        runReview: async (): Promise<ReviewResult> => {
+          const reviewStep = stepIndex++;
+          return {
+            sessionId: `session-lifecycle-${reviewStep}`,
+            report: {
+              summary: "Two distinct defects.",
+              findings: [
+                {
+                  severity: "warning",
+                  file: "src/profile.ts",
+                  line: 3,
+                  confidence: "high",
+                  title: "Missing empty-id validation",
+                  body: "The profile id is used without validation.",
+                },
+                {
+                  severity: "warning",
+                  file: "src/profile.ts",
+                  line: reviewStep === 0 ? 10 : 13,
+                  confidence: "high",
+                  title: "Fire-and-forget profile fetch",
+                  body: "The profile fetch is not awaited.",
+                },
+              ],
+            },
+          };
+        },
+        prepareReviewServer: async () => undefined,
+      },
+    );
+
+    const trial = await runEvalIdentityTrial(
+      evalCase,
+      {},
+      {
+        getFindingsForStep: async (ctx) => {
+          if (ctx.stepIndex === 1) {
+            await withFindingDatabase(ctx.diffOwlDir, (db) =>
+              dismissFindingByLocator(db, "latest:2", {
+                actor: "user",
+                reason: "Lifecycle suppression fixture.",
+              }),
+            );
+          }
+          return getFindingsForStep(ctx);
+        },
+      },
+    );
+    const score = scoreEvalIdentity({ kind, evalCase, trial });
+
+    expect(trial.error).toBeUndefined();
+    expect(trial.identitySteps?.[1]?.preDedupFindings).toHaveLength(2);
+    expect(trial.identitySteps?.[1]?.findings).toHaveLength(1);
+    expect(score.passed).toBe(true);
+    expect(score.naReason).toBe("lifecycle-suppressed anchors");
   }, 30_000);
 
   it("scores recognize-same-across-commits with matching durable ids", async () => {

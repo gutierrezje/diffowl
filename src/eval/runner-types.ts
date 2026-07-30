@@ -27,9 +27,9 @@ export const EvalIdentityStepResultSchema = z.object({
    * Findings as they entered the persist path — post-filter but pre-dedup.
    * The scorer matches these against expected anchors to tell an over-collapsing
    * fingerprint (two distinct anchors merged into one) apart from a detection
-   * miss (an anchor never reported). The post-dedup `findings` cannot, and a
-   * fingerprint-only signal cannot either: it can't distinguish one anchor
-   * reported twice from two distinct anchors that collided on the same key.
+   * miss (an anchor never reported). It also replays production deduplication
+   * over this snapshot because `findings` contains only post-lifecycle actionable
+   * output; a dismissed or deferred anchor must not look like a collapse.
    */
   preDedupFindings: z.array(ReviewFindingSchema).optional(),
 });

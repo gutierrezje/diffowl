@@ -2,6 +2,7 @@ import { findingMatchesExpected } from "./score.js";
 import type { EvalCase, EvalExpectedFinding } from "./case-types.js";
 import type { EvalIdentityStepResult, EvalTrialResult } from "./runner-types.js";
 import type { ReviewFinding } from "../review/types.js";
+import { deduplicateReviewFindings } from "../state/persist.js";
 import type {
   EvalIdentityAnchorResult,
   EvalIdentityKind,
@@ -237,14 +238,30 @@ function scoreKeepDistinct(
     // If not enough were reported in the first place, it is a genuine miss.
     // A fingerprint-only signal cannot make this call: it cannot tell one anchor
     // reported twice (a miss) from two anchors that collided (a collapse).
-    const preDedupHits = last.preDedupFindings
-      ? countDistinctExpectedMatches(expected, last.preDedupFindings)
-      : hits.length;
+    const preDedupFindings = last.preDedupFindings ?? last.findings;
+    const preDedupHits = countDistinctExpectedMatches(expected, preDedupFindings);
     if (preDedupHits < minDistinct) {
       return aggregateIdentityAnchors(
         "keep-distinct",
         anchors,
         "insufficient detected anchors",
+      );
+    }
+
+    // The report keeps only actionable findings, so a dismissed or deferred
+    // anchor can disappear after deduplication without being collapsed. Replay
+    // the production deduplication boundary over the captured input: if enough
+    // anchors survived that boundary, the actionable shortfall is lifecycle
+    // suppression and cannot be graded as an identity failure.
+    const postDedupHits = countDistinctExpectedMatches(
+      expected,
+      deduplicateReviewFindings(preDedupFindings),
+    );
+    if (postDedupHits >= minDistinct) {
+      return aggregateIdentityAnchors(
+        "keep-distinct",
+        anchors,
+        "lifecycle-suppressed anchors",
       );
     }
 
