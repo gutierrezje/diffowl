@@ -6,6 +6,7 @@ dist/
 .pnpm-store/
 
 plans/
+docs/agents/
 
 # Eval harness (see eval/README.md). Committed: corpus/, baselines/, gates/, improvements/
 eval/results/

@@ -5,6 +5,20 @@
 
 Local AI code review CLI. Orchestrates a headless OpenCode server and delegates repo analysis to a local agent.
 
+## Agent skills
+
+### Issue tracker
+
+Issues and Wayfinder maps live in the Linear `DiffOwl` project under the `Creator` team. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the canonical triage labels configured in Linear. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+DiffOwl uses a single-context domain-doc layout. See `docs/agents/domain.md`.
+
 ## Structure
 
 ```
@@ -24,25 +38,25 @@ Local AI code review CLI. Orchestrates a headless OpenCode server and delegates 
 
 ## Where to Look
 
-| Task                                  | Location                                               |
-| ------------------------------------- | ------------------------------------------------------ |
-| Add CLI command                       | `src/cli.ts`                                           |
-| Run eval harness                      | `src/eval/command.ts`, `pnpm run eval`                 |
-| Corpus manifest / fixtures            | `eval/corpus-manifest.json`, `eval/corpus/`              |
-| Compare eval runs vs baseline         | `src/eval/compare.ts`, `--compare` on `diffowl eval`     |
-| Change review prompt / agent behavior | `src/opencode/agent.ts`                                |
-| Tweak diff parser                     | `src/git/diff.ts`                                      |
-| Change report format                  | `src/review/formatter.ts`                              |
-| Review pipeline engine                | `src/review/run.ts`                                    |
-| Add context source (AST, refs)        | `src/review/context.ts`, `src/review/ast/`             |
-| Adjust server lifecycle               | `src/opencode/server.ts`                               |
-| Handle SSE events / settlement        | `src/opencode/client.ts`, `src/opencode/settlement.ts` |
+| Task                                              | Location                                                |
+| ------------------------------------------------- | ------------------------------------------------------- |
+| Add CLI command                                   | `src/cli.ts`                                            |
+| Run eval harness                                  | `src/eval/command.ts`, `pnpm run eval`                  |
+| Corpus manifest / fixtures                        | `eval/corpus-manifest.json`, `eval/corpus/`             |
+| Compare eval runs vs baseline                     | `src/eval/compare.ts`, `--compare` on `diffowl eval`    |
+| Change review prompt / agent behavior             | `src/opencode/agent.ts`                                 |
+| Tweak diff parser                                 | `src/git/diff.ts`                                       |
+| Change report format                              | `src/review/formatter.ts`                               |
+| Review pipeline engine                            | `src/review/run.ts`                                     |
+| Add context source (AST, refs)                    | `src/review/context.ts`, `src/review/ast/`              |
+| Adjust server lifecycle                           | `src/opencode/server.ts`                                |
+| Handle SSE events / settlement                    | `src/opencode/client.ts`, `src/opencode/settlement.ts`  |
 | Findings lifecycle (resolve/dismiss/defer/reopen) | `src/state/lifecycle.ts`, `src/state/findings-query.ts` |
-| Persist review runs / reconcile findings | `src/state/persist.ts`, `src/state/reconcile.ts`    |
-| Finding fingerprints / durable ids    | `src/state/fingerprint.ts`                             |
-| `--format json` review document       | `src/output/json.ts`                                   |
-| Findings list/detail CLI rendering    | `src/output/findings.ts`                               |
-| Verify CLI end-to-end (agent skill)   | `skills/verify-diffowl/`                               |
+| Persist review runs / reconcile findings          | `src/state/persist.ts`, `src/state/reconcile.ts`        |
+| Finding fingerprints / durable ids                | `src/state/fingerprint.ts`                              |
+| `--format json` review document                   | `src/output/json.ts`                                    |
+| Findings list/detail CLI rendering                | `src/output/findings.ts`                                |
+| Verify CLI end-to-end (agent skill)               | `skills/verify-diffowl/`                                |
 
 ## Conventions
 
