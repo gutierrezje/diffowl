@@ -23,6 +23,15 @@ export const EvalIdentityStepResultSchema = z.object({
   durableIds: z.array(z.string()),
   classifications: z.array(z.enum(["new", "existing", "regressed"])),
   findings: z.array(ReviewFindingSchema),
+  /**
+   * Findings as they entered the persist path — post-filter but pre-dedup.
+   * The scorer matches these against expected anchors to tell an over-collapsing
+   * fingerprint (two distinct anchors merged into one) apart from a detection
+   * miss (an anchor never reported). It also replays production deduplication
+   * over this snapshot because `findings` contains only post-lifecycle actionable
+   * output; a dismissed or deferred anchor must not look like a collapse.
+   */
+  preDedupFindings: z.array(ReviewFindingSchema).optional(),
 });
 
 export const EvalTrialResultSchema = z.object({

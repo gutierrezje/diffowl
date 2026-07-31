@@ -2,6 +2,7 @@ import { findingMatchesExpected } from "./score.js";
 import type { EvalCase, EvalExpectedFinding } from "./case-types.js";
 import type { EvalIdentityStepResult, EvalTrialResult } from "./runner-types.js";
 import type { ReviewFinding } from "../review/types.js";
+import { deduplicateReviewFindings } from "../state/persist.js";
 import type {
   EvalIdentityAnchorResult,
   EvalIdentityKind,
@@ -227,10 +228,53 @@ function scoreKeepDistinct(
   }
 
   if (hits.length < minDistinct) {
+    // A shortfall is normally a detection miss, which is n/a. But dedup can merge
+    // two distinct anchors that were BOTH reported into one surviving finding —
+    // and that collapse is the identity failure this gate exists to catch.
+    //
+    // The discriminator is how many DISTINCT expected anchors matched before
+    // dedup: match the pre-dedup findings the same greedy way. If enough
+    // distinct anchors were reported yet fewer survived, dedup collapsed them.
+    // If not enough were reported in the first place, it is a genuine miss.
+    // A fingerprint-only signal cannot make this call: it cannot tell one anchor
+    // reported twice (a miss) from two anchors that collided (a collapse).
+    const preDedupFindings = last.preDedupFindings ?? last.findings;
+    const preDedupMatches = matchExpectedIndices(expected, preDedupFindings);
+    if (preDedupMatches.size < minDistinct) {
+      return aggregateIdentityAnchors(
+        "keep-distinct",
+        anchors,
+        "insufficient detected anchors",
+      );
+    }
+
+    // The report keeps only actionable findings, so a dismissed or deferred
+    // anchor can disappear after deduplication without being collapsed. Replay
+    // the production deduplication boundary over the captured input: if enough
+    // anchors survived that boundary, the actionable shortfall is lifecycle
+    // suppression and cannot be graded as an identity failure.
+    const postDedupMatches = matchExpectedIndices(
+      expected,
+      deduplicateReviewFindings(preDedupFindings),
+    );
+    if (postDedupMatches.size >= minDistinct) {
+      return aggregateIdentityAnchors(
+        "keep-distinct",
+        anchors,
+        "lifecycle-suppressed anchors",
+      );
+    }
+
+    const reason = "deduplication collapsed distinct anchors into one finding";
     return aggregateIdentityAnchors(
       "keep-distinct",
-      anchors,
-      "insufficient detected anchors",
+      anchors.map((anchor) =>
+        anchor.status === "na" &&
+        preDedupMatches.has(anchor.expectedIndex) &&
+        !postDedupMatches.has(anchor.expectedIndex)
+          ? { ...anchor, status: "fail" as const, reason }
+          : anchor,
+      ),
     );
   }
 
@@ -298,6 +342,31 @@ function observationAt(
     return undefined;
   }
   return { fingerprint, durableId, classification };
+}
+
+/**
+ * Expected anchor indices matched by these findings, using the same greedy
+ * one-finding-per-anchor rule as scoring. Comparing the sets before and after
+ * deduplication identifies collapse victims without relabeling plain misses.
+ */
+function matchExpectedIndices(
+  expected: EvalExpectedFinding[],
+  findings: ReviewFinding[],
+): Set<number> {
+  const usedIndices = new Set<number>();
+  const matchedIndices = new Set<number>();
+  for (let expectedIndex = 0; expectedIndex < expected.length; expectedIndex++) {
+    const expectedEntry = expected[expectedIndex];
+    if (!expectedEntry) {
+      continue;
+    }
+    const matchIndex = firstMatch(expectedEntry, findings, usedIndices);
+    if (matchIndex !== undefined) {
+      usedIndices.add(matchIndex);
+      matchedIndices.add(expectedIndex);
+    }
+  }
+  return matchedIndices;
 }
 
 function firstMatch(

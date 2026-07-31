@@ -35,6 +35,8 @@ export interface EvalIdentityStepContext {
 export interface EvalIdentityStepReview {
   findings: ReviewFinding[];
   sessionId?: string;
+  /** Findings at the persist input — post-filter, pre-dedup (see step-result schema). */
+  preDedupFindings?: ReviewFinding[];
   usage?: ReviewUsage;
 }
 
@@ -98,7 +100,9 @@ export async function runEvalIdentityTrial(
         usageEntries.push(stepReview.usage);
       }
 
-      identitySteps.push(toIdentityStepResult(stepIndex, stepReview.findings));
+      identitySteps.push(
+        toIdentityStepResult(stepIndex, stepReview.findings, stepReview.preDedupFindings),
+      );
       lastFindings = identitySteps[identitySteps.length - 1]!.findings;
       lastSessionId = stepReview.sessionId ?? "";
     }
@@ -137,7 +141,11 @@ export async function runEvalIdentityTrial(
   }
 }
 
-function toIdentityStepResult(step: number, findings: ReviewFinding[]): EvalIdentityStepResult {
+function toIdentityStepResult(
+  step: number,
+  findings: ReviewFinding[],
+  preDedupFindings?: ReviewFinding[],
+): EvalIdentityStepResult {
   // Keys are computed the way the production persist path computes them, so a
   // fingerprint graded here is the same key a real review would have stored.
   return {
@@ -148,5 +156,6 @@ function toIdentityStepResult(step: number, findings: ReviewFinding[]): EvalIden
     durableIds: findings.map((finding) => finding.durable?.id ?? ""),
     classifications: findings.map((finding) => finding.durable?.classification ?? "new"),
     findings,
+    ...(preDedupFindings ? { preDedupFindings } : {}),
   };
 }
