@@ -239,8 +239,8 @@ function scoreKeepDistinct(
     // A fingerprint-only signal cannot make this call: it cannot tell one anchor
     // reported twice (a miss) from two anchors that collided (a collapse).
     const preDedupFindings = last.preDedupFindings ?? last.findings;
-    const preDedupHits = countDistinctExpectedMatches(expected, preDedupFindings);
-    if (preDedupHits < minDistinct) {
+    const preDedupMatches = matchExpectedIndices(expected, preDedupFindings);
+    if (preDedupMatches.size < minDistinct) {
       return aggregateIdentityAnchors(
         "keep-distinct",
         anchors,
@@ -253,11 +253,11 @@ function scoreKeepDistinct(
     // the production deduplication boundary over the captured input: if enough
     // anchors survived that boundary, the actionable shortfall is lifecycle
     // suppression and cannot be graded as an identity failure.
-    const postDedupHits = countDistinctExpectedMatches(
+    const postDedupMatches = matchExpectedIndices(
       expected,
       deduplicateReviewFindings(preDedupFindings),
     );
-    if (postDedupHits >= minDistinct) {
+    if (postDedupMatches.size >= minDistinct) {
       return aggregateIdentityAnchors(
         "keep-distinct",
         anchors,
@@ -269,7 +269,11 @@ function scoreKeepDistinct(
     return aggregateIdentityAnchors(
       "keep-distinct",
       anchors.map((anchor) =>
-        anchor.status === "na" ? { ...anchor, status: "fail" as const, reason } : anchor,
+        anchor.status === "na" &&
+        preDedupMatches.has(anchor.expectedIndex) &&
+        !postDedupMatches.has(anchor.expectedIndex)
+          ? { ...anchor, status: "fail" as const, reason }
+          : anchor,
       ),
     );
   }
@@ -341,28 +345,28 @@ function observationAt(
 }
 
 /**
- * Distinct expected anchors matched by these findings, using the same greedy
- * one-finding-per-anchor rule as scoring. Run against the pre-dedup findings it
- * reveals how many distinct anchors were reported before deduplication merged
- * any of them — the count that separates a collapse from a detection miss.
+ * Expected anchor indices matched by these findings, using the same greedy
+ * one-finding-per-anchor rule as scoring. Comparing the sets before and after
+ * deduplication identifies collapse victims without relabeling plain misses.
  */
-function countDistinctExpectedMatches(
+function matchExpectedIndices(
   expected: EvalExpectedFinding[],
   findings: ReviewFinding[],
-): number {
+): Set<number> {
   const usedIndices = new Set<number>();
-  let count = 0;
-  for (const expectedEntry of expected) {
+  const matchedIndices = new Set<number>();
+  for (let expectedIndex = 0; expectedIndex < expected.length; expectedIndex++) {
+    const expectedEntry = expected[expectedIndex];
     if (!expectedEntry) {
       continue;
     }
     const matchIndex = firstMatch(expectedEntry, findings, usedIndices);
     if (matchIndex !== undefined) {
       usedIndices.add(matchIndex);
-      count++;
+      matchedIndices.add(expectedIndex);
     }
   }
-  return count;
+  return matchedIndices;
 }
 
 function firstMatch(

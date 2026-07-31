@@ -387,6 +387,39 @@ describe("scoreEvalIdentity keep-distinct", () => {
     expect(score.detail.summary).toContain("failed identity check");
   });
 
+  it("fails only collapsed anchors when another anchor was never detected", () => {
+    const threeAnchorCase = {
+      ...keepDistinctCase,
+      expected: [
+        keepDistinctCase.expected[0]!,
+        { ...keepDistinctCase.expected[1]!, file: "src/a.ts", line: 14 },
+        { ...keepDistinctCase.expected[1]!, file: "src/a.ts", line: 24 },
+      ],
+    };
+    const collidingOtherAnchor = { ...baseFinding, line: 14 };
+    const score = scoreEvalIdentity({
+      kind: "keep-distinct",
+      evalCase: threeAnchorCase,
+      trial: {
+        identitySteps: [
+          step(0, ["fp-same"], ["fnd_1"], ["new"], [baseFinding], [
+            baseFinding,
+            collidingOtherAnchor,
+          ]),
+        ],
+      },
+      minDistinct: 2,
+    });
+
+    expect(score.passed).toBe(false);
+    expect(score.detail.anchors.map((anchor) => anchor.status)).toEqual([
+      "pass",
+      "fail",
+      "na",
+    ]);
+    expect(score.detail.summary).toBe("1 anchor(s) failed identity check");
+  });
+
   it("does not misclassify lifecycle suppression as a dedup collapse", () => {
     const score = scoreEvalIdentity({
       kind: "keep-distinct",
