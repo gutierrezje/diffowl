@@ -7,6 +7,7 @@ dist/
 
 plans/
 docs/agents/
+.planning/
 
 # Eval harness (see eval/README.md). Committed: corpus/, baselines/, gates/, improvements/
 eval/results/
