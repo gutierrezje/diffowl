@@ -2,7 +2,7 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { existsSync } from "node:fs";
 import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { execa } from "execa";
 import { removeTempDir } from "./test/helpers.js";
 import { closeStateDatabase, openStateDatabase } from "./state/db.js";
@@ -417,6 +417,62 @@ describe("diffowl findings summary", () => {
     expect(ordinaryResult.stdout).toBe(
       "DiffOwl: 1 open findings, top severity warning — run `diffowl findings list`.",
     );
+  });
+});
+
+describe("diffowl agent-hook install", () => {
+  it("installs a direct-exec Claude SessionStart hook for --client claude", async () => {
+    const repo = await createRepo("diffowl-cli-agent-hook-claude-");
+    const settingsPath = join(repo, ".claude", "settings.json");
+
+    const result = await execa("node", [cliPath, "agent-hook", "install", "--client", "claude"], {
+      cwd: repo,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("claude");
+    expect(result.stdout).toContain(settingsPath);
+    // The command names the client and the destination; it does not render a runnable shell line.
+    expect(result.stdout).not.toContain("sh -c");
+    expect(result.stdout).not.toContain("findings summary");
+    const settings = JSON.parse(await readFile(settingsPath, "utf8")) as {
+      hooks: {
+        SessionStart: { matcher?: string; hooks: { type: string; command: string; args: string[] }[] }[];
+      };
+    };
+    expect(settings.hooks.SessionStart).toHaveLength(1);
+    expect(settings.hooks.SessionStart[0]!.matcher).toBe("startup|resume");
+    const entry = settings.hooks.SessionStart[0]!.hooks[0]!;
+    expect(entry.type).toBe("command");
+    expect(isAbsolute(entry.command)).toBe(true);
+    expect(entry.args).toEqual([cliPath, "findings", "summary", "--format", "text"]);
+  });
+
+  it("rejects a missing --client before writing settings", async () => {
+    const repo = await createRepo("diffowl-cli-agent-hook-missing-client-");
+
+    const result = await execa("node", [cliPath, "agent-hook", "install"], {
+      cwd: repo,
+      reject: false,
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("--client");
+    expect(existsSync(join(repo, ".claude"))).toBe(false);
+  });
+
+  it("rejects an unsupported client before writing settings", async () => {
+    const repo = await createRepo("diffowl-cli-agent-hook-unknown-client-");
+
+    const result = await execa("node", [cliPath, "agent-hook", "install", "--client", "codex"], {
+      cwd: repo,
+      reject: false,
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("codex");
+    expect(existsSync(join(repo, ".claude", "settings.json"))).toBe(false);
+    expect(existsSync(join(repo, ".claude"))).toBe(false);
   });
 });
 
