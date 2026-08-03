@@ -437,7 +437,10 @@ describe("diffowl agent-hook install", () => {
     expect(result.stdout).not.toContain("findings summary");
     const settings = JSON.parse(await readFile(settingsPath, "utf8")) as {
       hooks: {
-        SessionStart: { matcher?: string; hooks: { type: string; command: string; args: string[] }[] }[];
+        SessionStart: {
+          matcher?: string;
+          hooks: { type: string; command: string; args: string[] }[];
+        }[];
       };
     };
     expect(settings.hooks.SessionStart).toHaveLength(1);

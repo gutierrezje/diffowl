@@ -48,6 +48,7 @@ import {
   writeHookStatus,
 } from "./git/hooks.js";
 import { isGitRepo, hasCommits } from "./git/diff.js";
+import { installClaudeCodeHook } from "./integrations/claude-code.js";
 import { getSharedDiffOwlDir } from "./git/state-root.js";
 import { printHeader, printFooter, parseReviewMetadata } from "./review/formatter.js";
 import {
@@ -786,6 +787,38 @@ program
       process.once("exit", () => releaseHookReviewLock(hookLock));
     }
     await runPendingHookReviews();
+  });
+
+// Agent client hooks. Distinct from the `hook` group above, which is the git post-commit hook.
+const AGENT_HOOK_CLIENTS = ["claude"] as const;
+
+const agentHookCmd = program.command("agent-hook").description("Manage agent client session hooks");
+
+agentHookCmd
+  .command("install")
+  .description("Install the session-start findings hook for an agent client")
+  .requiredOption("--client <client>", `Agent client: ${AGENT_HOOK_CLIENTS.join(", ")}`)
+  .action(async (options: { client: string }) => {
+    // Exhaustive local dispatch rather than a registry: one adapter does not yet prove a shared
+    // contract, and the rejecting default keeps the supported set explicit (D-13, D-19).
+    switch (options.client) {
+      case "claude": {
+        try {
+          const result = await installClaudeCodeHook();
+          console.log(chalk.green(`✓ Claude Code session hook ${result.action}`));
+          console.log(chalk.dim("Client: claude"));
+          console.log(chalk.dim(`Settings: ${result.settingsPath}`));
+        } catch (err) {
+          console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+          process.exit(1);
+        }
+        return;
+      }
+      default:
+        console.error(chalk.red(`Unsupported client: ${options.client}`));
+        console.error(chalk.dim(`Supported clients: ${AGENT_HOOK_CLIENTS.join(", ")}`));
+        process.exit(1);
+    }
   });
 
 function collectEvalCaseIds(value: string, previous: string[]): string[] {
