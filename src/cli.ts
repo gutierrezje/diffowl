@@ -71,6 +71,7 @@ import {
 import {
   formatFindingDetail,
   formatFindingList,
+  formatFindingSummaryLine,
   renderFindingDetailJson,
   renderFindingListJson,
 } from "./output/findings.js";
@@ -85,6 +86,7 @@ import {
   requireFindingDetail,
   withFindingDatabase,
 } from "./state/findings-query.js";
+import { getFindingSummary, hasReportableFindings } from "./state/findings-summary.js";
 import { InvalidFindingTransitionError } from "./state/db.js";
 import type { SqliteDatabase } from "./state/sqlite.js";
 import type { FindingActor } from "./state/types.js";
@@ -888,6 +890,27 @@ findingsCmd
       return;
     }
     console.log(formatFindingList(items));
+  });
+
+findingsCmd
+  .command("summary")
+  .description("Print an aggregate summary of unresolved findings reachable from HEAD")
+  .option("--format <format>", "Output format: text or json", "text")
+  .action(async (options: { format?: string }) => {
+    const format = resolveReviewOutputFormat(options.format);
+    if (format === "json") {
+      // JSON projection lands in a later plan behind a decision checkpoint (D-08).
+      failFindingsCommand(format, new Error("findings summary --format json is not available yet."));
+    }
+    // Deliberately no loadConfigOrExit() here, unlike every sibling findings subcommand: this is
+    // the command invoked automatically at session start, and exiting 1 on a missing/invalid
+    // .diffowl.yml would break session start in any repo the user has not configured (D-17). This
+    // command reads git and SQLite only; it needs no model and no config.
+    const summary = await getFindingSummary(await getSharedDiffOwlDir(), {});
+    if (!hasReportableFindings(summary)) {
+      return;
+    }
+    console.log(formatFindingSummaryLine(summary));
   });
 
 findingsCmd
