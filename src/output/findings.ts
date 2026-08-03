@@ -1,5 +1,6 @@
 import chalk from "chalk";
 import type { FindingDetail, FindingListItem } from "../state/findings-query.js";
+import type { FindingSummary } from "../state/findings-summary.js";
 
 const ID_WIDTH = 12;
 const STATUS_WIDTH = 10;
@@ -127,6 +128,25 @@ export function renderFindingListJson(items: FindingListItem[]): string {
     null,
     2,
   )}\n`;
+}
+
+/**
+ * Aggregate-only one-line projection of a FindingSummary (D-10). Reads only `openCount`,
+ * `regressedCount`, `topSeverity`, and `inspectCommand` — never a finding title, file path, line
+ * number, or body. This is the structural mitigation for T-01-02: whatever this function returns
+ * is injected verbatim into a model's context at session start, so no free-text field may ever
+ * reach it.
+ */
+export function formatFindingSummaryLine(summary: FindingSummary): string {
+  const parts: string[] = [];
+  if (summary.openCount > 0) {
+    parts.push(`${summary.openCount} open findings`);
+  }
+  if (summary.regressedCount > 0) {
+    parts.push(`${summary.regressedCount} regressed`);
+  }
+  const severitySuffix = summary.topSeverity ? `, top severity ${summary.topSeverity}` : "";
+  return `DiffOwl: ${parts.join(", ")}${severitySuffix} — run \`${summary.inspectCommand}\`.`;
 }
 
 function computeListLayout(columns: number): ListLayout {
