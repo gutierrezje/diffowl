@@ -19,12 +19,16 @@ export async function filterReachableCommits(
         reject: false,
         ...(cwd ? { cwd } : {}),
       });
-      // exitCode 0: ancestor (reachable). exitCode 1: not an ancestor. exitCode 128: unknown
-      // object (rebased away or garbage-collected) — treated as not reachable rather than as a
-      // failure, per D-04 and the isRecoverableGitLookupError precedent in git/state-root.ts.
-      // Any other exit code is a genuine git failure (not a repo, unreadable object store,
-      // permission error) and must not be silently reported as "not reachable" — that would
-      // under-report the summary rather than surface the problem (carried forward from PR #60).
+      // exitCode 0: ancestor (reachable). exitCode 1: not an ancestor. Those are the only two
+      // answers this predicate has; every fatal condition goes through git's die(), which always
+      // exits 128. So 128 means "git gave up", not specifically "unknown object" — a rebased-away
+      // or garbage-collected SHA, a missing repo, and an unreadable object store are
+      // indistinguishable by exit code, and all are folded into "not reachable" per D-04 and the
+      // isRecoverableGitLookupError precedent in git/state-root.ts. That is deliberate for a
+      // fail-silent session-start path (D-17): dropping a finding is preferable to breaking the
+      // hook. The throw below therefore catches only exit codes git does not otherwise produce
+      // (e.g. a shell/spawn failure), so an unexpected contract change surfaces instead of
+      // silently under-reporting the summary (carried forward from PR #60).
       if (result.exitCode !== 0 && result.exitCode !== 1 && result.exitCode !== 128) {
         throw new Error(
           `git merge-base --is-ancestor exited ${String(result.exitCode)} for ${sha}: ${result.stderr}`,
