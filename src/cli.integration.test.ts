@@ -1,9 +1,16 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { existsSync } from "node:fs";
 import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
 import { removeTempDir } from "./test/helpers.js";
+import { closeStateDatabase, openStateDatabase } from "./state/db.js";
+import { dismissFinding } from "./state/lifecycle.js";
+import { reconcileReviewFindings } from "./state/reconcile.js";
+import { insertReview } from "./state/repositories/reviews.js";
+import { getFindingSummary } from "./state/findings-summary.js";
+import type { FindingCandidate, ReviewSeverity } from "./state/types.js";
 
 const projectRoot = join(import.meta.dirname, "..");
 const cliPath = join(projectRoot, "dist/cli.js");
@@ -255,6 +262,118 @@ describe("diffowl CLI", () => {
     await expect(access(join(repo, ".diffowl/state.db"))).resolves.toBeUndefined();
   });
 });
+
+describe("diffowl findings summary", () => {
+  it("surfaces a reachable open finding, then nothing once it is resolved", async () => {
+    const repo = await createRepo("diffowl-cli-findings-summary-");
+    await writeFile(join(repo, "README.md"), "hello\n", "utf8");
+    await commitAll(repo, "initial");
+    const { stdout: headCommit } = await execa("git", ["rev-parse", "HEAD"], { cwd: repo });
+    const { findingId } = await seedOpenFinding(repo, headCommit.trim());
+
+    const populated = await execa("node", [cliPath, "findings", "summary"], { cwd: repo });
+    expect(populated.exitCode).toBe(0);
+    expect(populated.stdout).toBe(
+      "DiffOwl: 1 open findings, top severity error — run `diffowl findings list`.",
+    );
+
+    // Resolve the same finding directly against state.db, then re-run: the populated and
+    // resolved cases share one repo/finding to assert the transition rather than a second,
+    // independent fixture (per plan action 5).
+    const state = await openStateDatabase(join(repo, ".diffowl"));
+    try {
+      dismissFinding(state.db, findingId, { actor: "user", reason: "test: resolved" });
+    } finally {
+      closeStateDatabase(state);
+    }
+
+    const resolved = await execa("node", [cliPath, "findings", "summary"], { cwd: repo });
+    expect(resolved.exitCode).toBe(0);
+    expect(resolved.stdout).toBe("");
+  });
+
+  it("excludes a finding whose review commit is not an ancestor of HEAD", async () => {
+    const repo = await createRepo("diffowl-cli-findings-summary-unreachable-");
+    await writeFile(join(repo, "README.md"), "hello\n", "utf8");
+    await commitAll(repo, "initial");
+    await execa("git", ["switch", "-c", "side"], { cwd: repo });
+    await writeFile(join(repo, "side.md"), "side\n", "utf8");
+    await commitAll(repo, "side commit");
+    const { stdout: sideCommit } = await execa("git", ["rev-parse", "HEAD"], { cwd: repo });
+    await execa("git", ["switch", "main"], { cwd: repo });
+    await seedOpenFinding(repo, sideCommit.trim());
+
+    const result = await execa("node", [cliPath, "findings", "summary"], { cwd: repo });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("");
+  });
+
+  it("never creates .diffowl state when DiffOwl has not run", async () => {
+    const repo = await mkdtemp(join(tmpdir(), "diffowl-cli-findings-summary-fresh-"));
+    tempDirs.push(repo);
+    await execa("git", ["init", "--initial-branch=main"], { cwd: repo });
+    await writeFile(join(repo, "README.md"), "hello\n", "utf8");
+    await commitAll(repo, "initial");
+    const diffOwlDir = join(repo, ".diffowl");
+
+    // Asserted directly (not only through the CLI subprocess): getFindingSummary must return
+    // before ever reaching withFindingDatabase/openStateDatabase when the state database file is
+    // absent. An empty stdout from the CLI alone would pass even with the side effect present.
+    const directSummary = await getFindingSummary(diffOwlDir, { cwd: repo });
+    expect(directSummary).toEqual({
+      openCount: 0,
+      regressedCount: 0,
+      topSeverity: null,
+      inspectCommand: "diffowl findings list",
+    });
+    expect(existsSync(diffOwlDir)).toBe(false);
+
+    const result = await execa("node", [cliPath, "findings", "summary"], { cwd: repo });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("");
+    expect(existsSync(join(diffOwlDir, "state.db"))).toBe(false);
+    expect(existsSync(diffOwlDir)).toBe(false);
+  });
+});
+
+/**
+ * Seeds one review targeting `targetCommit` and one open finding observed on it, by calling
+ * `insertReview` + `reconcileReviewFindings` directly against the repo's `.diffowl/state.db`
+ * rather than through the (model-dependent) review pipeline.
+ */
+async function seedOpenFinding(
+  repo: string,
+  targetCommit: string,
+  overrides: { severity?: ReviewSeverity; title?: string; body?: string } = {},
+): Promise<{ findingId: string }> {
+  const state = await openStateDatabase(join(repo, ".diffowl"));
+  try {
+    const review = insertReview(state.db, {
+      targetKind: "commit",
+      targetCommit,
+      diffHash: "seed-hash",
+      model: "provider/model",
+      reasoning: "auto",
+      depth: "default",
+      sessionId: "seed-session",
+      summary: "seed",
+    });
+    const candidate: FindingCandidate = {
+      file: "src/example.ts",
+      line: 1,
+      severity: overrides.severity ?? "error",
+      confidence: "high",
+      title: overrides.title ?? "Example finding",
+      body: overrides.body ?? "Example body",
+    };
+    const result = reconcileReviewFindings(state.db, review.id, [candidate]);
+    return { findingId: result.observations[0]!.finding.id };
+  } finally {
+    closeStateDatabase(state);
+  }
+}
 
 async function createRepo(
   prefix: string,
