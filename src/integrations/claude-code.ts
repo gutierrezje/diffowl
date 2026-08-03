@@ -141,17 +141,31 @@ function requireSessionStartContainer(
  * Replace a previously installed (or behaviorally equivalent hand-written) DiffOwl hook in place,
  * so reinstalling after a Node upgrade updates one entry instead of appending a second. Matcher
  * groups DiffOwl does not recognize are skipped, not rewritten.
+ *
+ * Identity is the argument suffix, so an adopted hand-written entry can be sitting under a
+ * narrower matcher than the canonical one (e.g. "startup"). Updating such an entry in place would
+ * leave a hook that silently never fires on resume, so instead it is lifted out of that group and
+ * the caller appends a fresh canonical group. Unrelated hooks in the narrow group are left alone;
+ * the group itself is pruned only if removing our entry empties it.
  */
 function replaceManagedEntry(sessionStart: unknown[], entry: ClaudeSessionStartEntry): boolean {
-  for (const group of sessionStart) {
+  for (const [groupIndex, group] of sessionStart.entries()) {
     if (!isPlainObject(group)) continue;
     const groupHooks = group["hooks"];
     if (!Array.isArray(groupHooks)) continue;
     const index = groupHooks.findIndex(isManagedEntry);
-    if (index !== -1) {
+    if (index === -1) continue;
+
+    if (group["matcher"] === SESSION_START_MATCHER) {
       groupHooks[index] = entry;
       return true;
     }
+
+    groupHooks.splice(index, 1);
+    if (groupHooks.length === 0) {
+      sessionStart.splice(groupIndex, 1);
+    }
+    return false;
   }
   return false;
 }
