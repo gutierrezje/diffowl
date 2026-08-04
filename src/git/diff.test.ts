@@ -10,6 +10,7 @@ import {
   getStagedDiff,
   parseDiff,
   parseGitDiffLine,
+  planProcessTreeKill,
   resolveCommitRef,
   isDocFile,
   isDocOnlyDiff,
@@ -579,6 +580,28 @@ describe("getStagedDiff timeout", () => {
 
     const result = await getStagedDiff(root);
     expect(result.files).toHaveLength(1);
+  });
+});
+
+describe("planProcessTreeKill", () => {
+  // The two timing tests above can only run on the host they run on, so on a POSIX developer
+  // machine nothing else proves the Windows leg of this bound still exists. These pin the routing
+  // decision itself; the timing tests remain the proof that the chosen mechanism actually works.
+  it("signals the process group on POSIX", () => {
+    expect(planProcessTreeKill(1234, "linux")).toEqual({ kind: "signal-group", pid: 1234 });
+    expect(planProcessTreeKill(1234, "darwin")).toEqual({ kind: "signal-group", pid: 1234 });
+  });
+
+  it("kills the parent-PID tree on Windows", () => {
+    // `process.kill(-pid)` is a POSIX process-group signal. On Windows it throws, the catch around
+    // it swallows the throw, and the bound silently degrades to execa's `timeout` — which a diff
+    // driver holding git's stderr pipe outlives (measured on windows-2022: 10.1s against a 300ms
+    // timeout, the same number POSIX produced before the group kill was added).
+    expect(planProcessTreeKill(1234, "win32")).toEqual({
+      kind: "spawn",
+      command: "taskkill",
+      args: ["/pid", "1234", "/t", "/f"],
+    });
   });
 });
 
