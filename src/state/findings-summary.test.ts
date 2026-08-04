@@ -10,7 +10,7 @@ import { getStagedDiff } from "../git/diff.js";
 import { applyMigrations, closeDatabaseConnection, getStateDbPath } from "./db.js";
 import { MIGRATION_001_INITIAL_SCHEMA } from "./migrations/001-initial-schema.js";
 import { openSqliteDatabase } from "./sqlite.js";
-import { getFindingSummary } from "./findings-summary.js";
+import { getFindingSummary, logSummaryDegradation } from "./findings-summary.js";
 import { listUnresolvedFindings, withFindingDatabase } from "./findings-query.js";
 import { deferFinding, dismissFinding, fixFinding } from "./lifecycle.js";
 import { computeDiffHash } from "./persist.js";
@@ -788,6 +788,26 @@ describe("getFindingSummary fail-silent boundary", () => {
       topSeverity: null,
       inspectCommand: "diffowl findings list",
     });
+  });
+
+  it("logs a degradation whose error cannot be stringified rather than rejecting", async () => {
+    const { diffOwlDir } = await createRepo();
+    // The diagnostic channel is called from inside `getFindingSummary`'s outer catch, so if it can
+    // reject the rejection escapes the boundary and reaches session start — the one failure this
+    // whole module exists to prevent. Coercing the caught value is the only step that can throw,
+    // so it belongs inside the try. Defensive rather than currently reachable: execa and
+    // node:sqlite throw Error instances. Raised by CodeRabbit on PR #64.
+    const unstringifiable = {
+      toString(): string {
+        throw new Error("hostile toString");
+      },
+    };
+
+    await expect(
+      logSummaryDegradation(diffOwlDir, "hostile error value", unstringifiable),
+    ).resolves.toBeUndefined();
+
+    expect(await readDiffOwlLog(diffOwlDir)).toContain("hostile error value");
   });
 }, 20_000);
 

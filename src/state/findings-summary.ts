@@ -270,7 +270,7 @@ export async function logSummaryDegradation(
   reason: string,
   error: unknown,
 ): Promise<void> {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = describeSummaryError(error);
   try {
     await appendFile(
       join(diffOwlDir, "hook.log"),
@@ -280,6 +280,20 @@ export async function logSummaryDegradation(
   } catch {
     // The one swallow D-17 permits: if the log itself cannot be written there is nowhere left to
     // report to, and failing here would defeat the boundary this function serves.
+  }
+}
+
+/**
+ * Coercing an arbitrary caught value is itself fallible — a throwing `toString`, or an `Error`
+ * whose `message` is a throwing getter — and `logSummaryDegradation` promises never to reject.
+ * Falling back to a placeholder rather than rethrowing keeps the reason, which is the half of the
+ * line that actually identifies the failure, in the log.
+ */
+function describeSummaryError(error: unknown): string {
+  try {
+    return error instanceof Error ? error.message : String(error);
+  } catch {
+    return "<error value could not be stringified>";
   }
 }
 
