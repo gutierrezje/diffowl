@@ -552,6 +552,36 @@ async function commitFile(
   await execa("git", ["commit", "-m", message], { cwd: root });
 }
 
+describe("getStagedDiff timeout", () => {
+  it("abandons a staged diff whose textconv driver stalls", async () => {
+    // A repository can make `git diff --staged` arbitrarily slow through a textconv or LFS diff
+    // driver, and the summary runs this command automatically at session start. Without a timeout
+    // the driver's runtime becomes session start's runtime; this pins the bound.
+    const root = await mkdtemp(join(tmpdir(), "diffowl-staged-timeout-"));
+    tempDirs.push(root);
+    await execa("git", ["init"], { cwd: root });
+    await execa("git", ["config", "diff.slow.textconv", "sleep 10; cat"], { cwd: root });
+    await writeFile(join(root, ".gitattributes"), "*.slow diff=slow\n", "utf-8");
+    await writeFile(join(root, "payload.slow"), "content\n", "utf-8");
+    await execa("git", ["add", "."], { cwd: root });
+
+    const startedAt = performance.now();
+    await expect(getStagedDiff(root, { timeoutMs: 300 })).rejects.toThrow();
+    expect(performance.now() - startedAt).toBeLessThan(5_000);
+  }, 15_000);
+
+  it("does not impose a timeout when none is requested", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-staged-untimed-"));
+    tempDirs.push(root);
+    await execa("git", ["init"], { cwd: root });
+    await writeFile(join(root, "file.txt"), "content\n", "utf-8");
+    await execa("git", ["add", "."], { cwd: root });
+
+    const result = await getStagedDiff(root);
+    expect(result.files).toHaveLength(1);
+  });
+});
+
 describe("isDocFile", () => {
   it("does not classify source files by documentation name prefixes", () => {
     expect(isDocFile("README.ts")).toBe(false);

@@ -24,18 +24,23 @@ import type { FindingCandidate, InsertReviewInput } from "./types.js";
 // Delegates to the real getStagedDiff while counting calls and allowing failure injection, so the
 // "at most one git diff per summary" and "a diff failure excludes rather than throws" properties
 // can be asserted without stubbing git itself.
-const stagedDiff = vi.hoisted(() => ({ calls: 0, failure: null as Error | null }));
+const stagedDiff = vi.hoisted(() => ({
+  calls: 0,
+  failure: null as Error | null,
+  lastOptions: null as { timeoutMs?: number } | null,
+}));
 
 vi.mock("../git/diff.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../git/diff.js")>();
   return {
     ...actual,
-    getStagedDiff: async (cwd?: string) => {
+    getStagedDiff: async (cwd?: string, options?: { timeoutMs?: number }) => {
       stagedDiff.calls++;
+      stagedDiff.lastOptions = options ?? null;
       if (stagedDiff.failure) {
         throw stagedDiff.failure;
       }
-      return actual.getStagedDiff(cwd);
+      return actual.getStagedDiff(cwd, options);
     },
   };
 });
@@ -67,6 +72,7 @@ let tempStateDirs: string[] = [];
 afterEach(async () => {
   stagedDiff.calls = 0;
   stagedDiff.failure = null;
+  stagedDiff.lastOptions = null;
   reachability.failure = null;
   await Promise.all(tempStateDirs.map((dir) => removeTempStateDir(dir)));
   tempStateDirs = [];
@@ -432,6 +438,27 @@ describe("getFindingSummary staged-review gate", () => {
     expect(log).toContain("git diff --staged exploded");
   });
 
+  it("bounds the staged diff with an explicit sub-second timeout", async () => {
+    const { root, diffOwlDir, commit, stage, stagedHash } = await createRepo();
+    await commit("A");
+    await stage("staged.ts", "export const handler = () => {};\n");
+
+    const reviewedHash = await stagedHash();
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, stagedReviewFor(reviewedHash, "session-staged"));
+      reconcileReviewFindings(db, review.id, [candidateAt("staged.ts")]);
+    });
+
+    stagedDiff.lastOptions = null;
+    await getFindingSummary(diffOwlDir, { cwd: root });
+
+    // The gate fires whenever any unresolved staged observation exists, which in an active repo is
+    // most of the time, so this shell-out sits on the session-start path by default. It must carry
+    // a bound of its own rather than inheriting only the 5s external hook kill.
+    expect(stagedDiff.lastOptions?.timeoutMs).toBeGreaterThan(0);
+    expect(stagedDiff.lastOptions?.timeoutMs).toBeLessThan(1_000);
+  });
+
   it("never runs git diff --staged when no staged review is on record", async () => {
     const { root, diffOwlDir, commit } = await createRepo();
     const a = await commit("A");
@@ -695,6 +722,40 @@ describe("getFindingSummary fail-silent boundary", () => {
     expect(log).toContain("reachability");
     expect(log).toContain("exited 77");
   });
+
+  it("degrades to the empty summary rather than waiting on a stalled staged diff", async () => {
+    const { root, diffOwlDir, commit, stage, stagedHash } = await createRepo();
+    await commit("A");
+    await stage("staged.ts", "export const handler = () => {};\n");
+
+    const reviewedHash = await stagedHash();
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, stagedReviewFor(reviewedHash, "session-staged"));
+      reconcileReviewFindings(db, review.id, [candidateAt("staged.ts")]);
+    });
+
+    // A textconv driver is the cheapest faithful stand-in for the real hazard (LFS and other
+    // custom diff drivers behave the same way): it makes `git diff --staged` take as long as it
+    // likes, and without a bound that runtime becomes session start's runtime.
+    await execa("git", ["config", "diff.slow.textconv", "sleep 10; cat"], { cwd: root });
+    await writeFile(join(root, ".gitattributes"), "*.slow diff=slow\n", "utf-8");
+    await writeFile(join(root, "payload.slow"), "content\n", "utf-8");
+    await execa("git", ["add", "."], { cwd: root });
+
+    const startedAt = performance.now();
+    await expect(getFindingSummary(diffOwlDir, { cwd: root })).resolves.toEqual({
+      openCount: 0,
+      regressedCount: 0,
+      topSeverity: null,
+      inspectCommand: "diffowl findings list",
+    });
+    // Ceiling well below the driver's 10s sleep: the assertion is that the bound fired at all, not
+    // that it fired at a precise moment, so it stays insensitive to loaded-CI scheduling.
+    expect(performance.now() - startedAt).toBeLessThan(5_000);
+
+    const log = await readDiffOwlLog(diffOwlDir);
+    expect(log).toContain("staged diff");
+  }, 20_000);
 
   it("returns the empty summary when invoked from outside any git repository", async () => {
     // git dies with exit 128 here, which reachability.ts folds into "not reachable" rather than
