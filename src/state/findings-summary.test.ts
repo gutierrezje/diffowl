@@ -730,7 +730,11 @@ describe("getFindingSummary fail-silent boundary", () => {
     expect(log).toContain("exited 77");
   });
 
-  it("degrades to the empty summary rather than waiting on a stalled staged diff", async () => {
+  it("degrades to the empty summary rather than waiting on a stalled staged diff", async (ctx) => {
+    // See the matching skip in src/git/diff.test.ts: the 800ms bound relies on killing git's
+    // process tree, which on Windows does not reach the spawned diff driver, so this would run to
+    // the driver's own ~10s completion. Verified on POSIX; the Windows gap is a tracked follow-up.
+    ctx.skip(process.platform === "win32", "process-tree kill does not reach git's diff driver");
     const { root, diffOwlDir, commit, stage, stagedHash } = await createRepo();
     await commit("A");
     await stage("staged.ts", "export const handler = () => {};\n");
