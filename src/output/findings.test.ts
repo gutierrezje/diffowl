@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { formatFindingList, renderFindingListJson, shortenFindingId } from "./findings.js";
+import {
+  formatFindingList,
+  renderFindingListJson,
+  renderFindingSummaryJson,
+  shortenFindingId,
+} from "./findings.js";
 import type { FindingListItem } from "../state/findings-query.js";
+import type { FindingSummary } from "../state/findings-summary.js";
 import type { FindingObservationRecord, FindingRecord } from "../state/types.js";
 
 const baseFinding: FindingRecord = {
@@ -194,5 +200,73 @@ describe("renderFindingListJson", () => {
     } finally {
       process.stdout.columns = previousColumns;
     }
+  });
+});
+
+describe("renderFindingSummaryJson", () => {
+  const populatedSummary: FindingSummary = {
+    openCount: 3,
+    regressedCount: 1,
+    topSeverity: "error",
+    inspectCommand: "diffowl findings list",
+  };
+
+  const emptySummary: FindingSummary = {
+    openCount: 0,
+    regressedCount: 0,
+    topSeverity: null,
+    inspectCommand: "diffowl findings list",
+  };
+
+  it("renders the approved document with a trailing newline", () => {
+    const output = renderFindingSummaryJson(populatedSummary);
+
+    expect(output.endsWith("\n")).toBe(true);
+    expect(JSON.parse(output)).toEqual({
+      schema_version: 1,
+      open_count: 3,
+      regressed_count: 1,
+      top_severity: "error",
+      inspect_command: "diffowl findings list",
+    });
+  });
+
+  it("publishes exactly the approved field set and nothing else", () => {
+    // D-08 is rated one-way: this document is the contract MCP handlers and user scripts read, so
+    // an added key is as much a change to it as a renamed one. Asserted as a whole-key-set equality
+    // rather than per-field so a future field cannot be introduced without editing this line.
+    const document = JSON.parse(renderFindingSummaryJson(populatedSummary)) as Record<
+      string,
+      unknown
+    >;
+
+    expect(Object.keys(document).sort()).toEqual([
+      "inspect_command",
+      "open_count",
+      "regressed_count",
+      "schema_version",
+      "top_severity",
+    ]);
+  });
+
+  it("renders zero counts and a null top severity for an empty summary, not an empty string", () => {
+    const output = renderFindingSummaryJson(emptySummary);
+
+    // The fail-silent contract from plan 01-05 is asymmetric on purpose: only the text projection
+    // goes literally silent. A consumer parsing stdout needs parseable JSON.
+    expect(output).not.toBe("");
+    expect(JSON.parse(output)).toEqual({
+      schema_version: 1,
+      open_count: 0,
+      regressed_count: 0,
+      top_severity: null,
+      inspect_command: "diffowl findings list",
+    });
+  });
+
+  it("pretty-prints like the other renderers in the findings namespace", () => {
+    // renderReviewJsonDocument is compact; renderFindingListJson and renderFindingDetailJson are
+    // two-space indented. This function extends the findings namespace, so it follows that one.
+    expect(renderFindingSummaryJson(populatedSummary)).toContain('\n  "open_count": 3');
   });
 });
