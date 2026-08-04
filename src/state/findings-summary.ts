@@ -295,7 +295,7 @@ async function computeStagedDiffHash(
  * look. `.planning/codebase/CONCERNS.md` flags ~20 silent catch blocks as a known defect, and D-17
  * calls out logging specifically so this does not become the twenty-first.
  *
- * Two properties are load-bearing:
+ * Three properties are load-bearing:
  *
  * 1. It never rejects. A diagnostic channel that can throw would reintroduce exactly the
  *    session-start failure the fail-silent boundary exists to prevent.
