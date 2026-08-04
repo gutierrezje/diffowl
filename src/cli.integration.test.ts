@@ -570,6 +570,70 @@ describe("diffowl findings summary", () => {
     },
   );
 
+  it("reports findings the default view filters out when --all is passed", async () => {
+    // One seeded repository, both invocations, so the comparison is between two views of the same
+    // database rather than between two fixtures (D-09).
+    const repo = await createRepo("diffowl-cli-findings-summary-all-");
+    await writeFile(join(repo, "README.md"), "hello\n", "utf8");
+    await commitAll(repo, "initial");
+    await execa("git", ["switch", "-c", "side"], { cwd: repo });
+    await writeFile(join(repo, "side.md"), "side\n", "utf8");
+    await commitAll(repo, "side commit");
+    const { stdout: sideCommit } = await execa("git", ["rev-parse", "HEAD"], { cwd: repo });
+    await execa("git", ["switch", "main"], { cwd: repo });
+    await seedOpenFinding(repo, sideCommit.trim());
+
+    const filtered = await execa("node", [cliPath, "findings", "summary"], { cwd: repo });
+    const unfiltered = await execa("node", [cliPath, "findings", "summary", "--all"], {
+      cwd: repo,
+    });
+
+    expect(filtered.exitCode).toBe(0);
+    expect(filtered.stdout).toBe("");
+    expect(unfiltered.exitCode).toBe(0);
+    expect(unfiltered.stdout).toBe(
+      "DiffOwl: 1 open findings, top severity error — run `diffowl findings list`.",
+    );
+  });
+
+  it("composes --all with --format json", async () => {
+    const repo = await createRepo("diffowl-cli-findings-summary-all-json-");
+    await writeFile(join(repo, "README.md"), "hello\n", "utf8");
+    await commitAll(repo, "initial");
+    await execa("git", ["switch", "-c", "side"], { cwd: repo });
+    await writeFile(join(repo, "side.md"), "side\n", "utf8");
+    await commitAll(repo, "side commit");
+    const { stdout: sideCommit } = await execa("git", ["rev-parse", "HEAD"], { cwd: repo });
+    await execa("git", ["switch", "main"], { cwd: repo });
+    await seedOpenFinding(repo, sideCommit.trim());
+
+    const filtered = await execa("node", [cliPath, "findings", "summary", "--format", "json"], {
+      cwd: repo,
+    });
+    const unfiltered = await execa(
+      "node",
+      [cliPath, "findings", "summary", "--all", "--format", "json"],
+      { cwd: repo },
+    );
+
+    expect(JSON.parse(filtered.stdout)).toMatchObject({ open_count: 0, top_severity: null });
+    // The published document shape is unchanged by the flag — --all selects rows, not fields.
+    expect(JSON.parse(unfiltered.stdout)).toEqual({
+      schema_version: 1,
+      open_count: 1,
+      regressed_count: 0,
+      top_severity: "error",
+      inspect_command: "diffowl findings list",
+    });
+  });
+
+  it("documents both --format and --all in its help", async () => {
+    const { stdout } = await execa("node", [cliPath, "findings", "summary", "--help"]);
+
+    expect(stdout).toContain("--format <format>");
+    expect(stdout).toContain("--all");
+  });
+
   it("rejects an unsupported --format with a non-zero exit", async () => {
     // The fail-silent boundary must not swallow this: an unsupported flag is a user error on a
     // hand-typed command, not a session-start hazard, and it keeps its nonzero exit.
