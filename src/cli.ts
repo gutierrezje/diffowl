@@ -941,6 +941,7 @@ findingsCmd
   .option("--all", "Also include findings from commits not reachable from HEAD")
   .action(async (options: { format?: string; all?: boolean }) => {
     const format = resolveReviewOutputFormat(options.format);
+    containStdoutErrors();
     // Deliberately no loadConfigOrExit() here, unlike every sibling findings subcommand: this is
     // the command invoked automatically at session start, and exiting 1 on a missing/invalid
     // .diffowl.yml would break session start in any repo the user has not configured (D-17). This
@@ -964,10 +965,10 @@ findingsCmd
       // already accept under D-17.
       //
       // Guarded, because this write is not obviously safer than the one that just failed: if the
-      // try-block threw *because* the stdout write threw — EPIPE when a `--format json` consumer
-      // closed the pipe, which is the script and MCP usage this command is built for — then
-      // re-running the same write here rejects the action and exits non-zero, which is the single
-      // outcome this whole boundary exists to prevent.
+      // try-block threw while rendering or writing, re-running the same write here would reject the
+      // action and exit non-zero, which is the single outcome this whole boundary exists to
+      // prevent. This catches synchronous failures only — the asynchronous ones are contained by
+      // containStdoutErrors() above, which is what actually covers the EPIPE case.
       try {
         writeFindingSummary(EMPTY_FINDING_SUMMARY, format);
       } catch {
@@ -996,6 +997,33 @@ function writeFindingSummary(summary: FindingSummary, format: ReviewOutputFormat
     return;
   }
   console.log(formatFindingSummaryLine(summary));
+}
+
+/**
+ * Contain stdout failures that a try/catch structurally cannot reach.
+ *
+ * When stdout is a pipe — which is the case for the SessionStart hook, and for the script and MCP
+ * consumers `--format json` exists for — `process.stdout.write()` is asynchronous. If the consumer
+ * closes the pipe, EPIPE arrives as an `'error'` event on the stream, not as a synchronous throw,
+ * so wrapping the write in try/catch does nothing: with no listener the event becomes an uncaught
+ * exception and the process still exits non-zero. Verified by hand against Node's default
+ * behaviour, which reports "Unhandled 'error' event" and exits 1.
+ *
+ * A listener is therefore the only thing that contains it, and it must be attached before the
+ * first write. Swallowing is the whole point: at this stage the summary has already been rendered
+ * for a reader who is no longer there, so there is nothing left to deliver and nothing to salvage.
+ *
+ * Scoped to this command rather than installed globally. Every other command is one a user ran and
+ * is watching, and a silently truncated stdout there would hide a real failure; D-17's
+ * never-fail rule is specific to the automatic session-start path.
+ */
+function containStdoutErrors(): void {
+  process.stdout.on("error", () => {
+    // Deliberately total, not EPIPE-only. The contract this serves is "no path out of this command
+    // is a non-zero exit", and narrowing it to one errno would leave the rest of the stream's error
+    // surface — ERR_STREAM_DESTROYED, a closed fd — reaching the same uncaught handler by the same
+    // route. Nothing is lost by swallowing: stdout is where a diagnostic would otherwise go.
+  });
 }
 
 /** Never throws: its whole purpose is to be safe to call from the session-start path. */
