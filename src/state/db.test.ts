@@ -281,6 +281,9 @@ describe("closeStateDatabase checkpoint option", () => {
     closeStateDatabase(seed);
 
     const holder = await openSqliteDatabase(getStateDbPath(dir));
+    // The holder must actually read before it counts: SQLite attaches to the -shm on first
+    // statement, and it is that attachment that stops the writer's close from deleting the -wal.
+    holder.prepare("SELECT COUNT(*) FROM reviews").get();
     try {
       const checkpointed = await openStateDatabase(dir);
       insertReview(checkpointed.db, reviewInput("session-checkpointed"));

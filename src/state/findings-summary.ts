@@ -3,13 +3,29 @@ import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getStagedDiff } from "../git/diff.js";
 import { filterReachableCommits } from "../git/reachability.js";
-import { getStateDbPath } from "./db.js";
-import { withFindingDatabase } from "./findings-query.js";
+import { closeStateDatabase, getStateDbPath, openStateDatabaseForRead } from "./db.js";
 import { computeDiffHash } from "./persist.js";
 import type { SqliteDatabase } from "./sqlite.js";
 import type { FindingStatus, ReviewSeverity } from "./types.js";
 
 const INSPECT_COMMAND = "diffowl findings list";
+
+/**
+ * The only in-process bound that exists on this read.
+ *
+ * D-17 gives the whole summary a budget of roughly one second, and plan 01-03 installs the Claude
+ * SessionStart entry with a 5-second external timeout as the outer backstop. 800ms sits comfortably
+ * under the inner budget while leaving room for the git legs, and well under the outer one — so if
+ * a concurrent hook worker holds the database, this read gives up long before either bound is hit.
+ * Every other caller keeps `BUSY_TIMEOUT_MS`'s 5000ms, which is fine for a command a user ran.
+ *
+ * Deliberately NOT paired with a Promise.race, setTimeout, or AbortSignal guard: node:sqlite's
+ * DatabaseSync is fully synchronous, so `prepare(...).all()` blocks the main thread while SQLite
+ * busy-waits internally and the event loop cannot service a timer callback while that call is in
+ * flight. Such a guard would look correct in review and do nothing at runtime. The busy_timeout
+ * pragma is the only in-process control that exists here.
+ */
+const SUMMARY_BUSY_TIMEOUT_MS = 800;
 
 // Duplicated locally rather than imported from src/eval/score.ts: .planning/codebase/
 // ARCHITECTURE.md places eval/ as a sibling layer to state/, so importing it here would create a
@@ -119,7 +135,20 @@ async function computeFindingSummary(
 
 async function readUnresolvedObservationRows(diffOwlDir: string): Promise<SummaryRow[] | null> {
   try {
-    return await withFindingDatabase(diffOwlDir, queryUnresolvedObservationRows);
+    // Deliberately not withFindingDatabase: that helper is shared by six write-capable commands and
+    // routes through openStateDatabase, which creates the directory and migrates the schema. This
+    // path needs the read-only open and the two options below, and widening the shared helper to
+    // carry them would change behavior for callers that have no reason to want it.
+    const state = await openStateDatabaseForRead(diffOwlDir, {
+      busyTimeoutMs: SUMMARY_BUSY_TIMEOUT_MS,
+    });
+    try {
+      return queryUnresolvedObservationRows(state.db);
+    } finally {
+      // Nothing was written, so there is nothing to checkpoint — and the truncating checkpoint
+      // takes an exclusive lock, which would make this read's close the very stall D-17 forbids.
+      closeStateDatabase(state, { checkpoint: false });
+    }
   } catch (error) {
     // Corrupt file, unreadable file, or a schema this build cannot serve. All of them mean the
     // summary has nothing trustworthy to report, and none of them may break session start.

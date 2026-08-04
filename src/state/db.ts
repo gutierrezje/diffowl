@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { MIGRATION_001_INITIAL_SCHEMA } from "./migrations/001-initial-schema.js";
@@ -25,16 +26,37 @@ export interface StateDatabase {
   path: string;
 }
 
+export interface OpenStateDatabaseOptions {
+  /**
+   * Overrides the connection's `busy_timeout`. `BUSY_TIMEOUT_MS` remains the default so every
+   * existing caller is unaffected; only a caller with a stricter wall-clock budget than the write
+   * path should set this.
+   */
+  busyTimeoutMs?: number;
+}
+
+export interface CloseStateDatabaseOptions {
+  /**
+   * When false, close without the truncating WAL checkpoint. That checkpoint takes an exclusive
+   * lock, so a connection that wrote nothing can skip it and avoid blocking on a concurrent
+   * writer. Defaults to true, which preserves the Windows cleanup behavior described below.
+   */
+  checkpoint?: boolean;
+}
+
 export function getStateDbPath(diffOwlDir: string): string {
   return join(diffOwlDir, "state.db");
 }
 
-export async function openStateDatabase(diffOwlDir: string): Promise<StateDatabase> {
+export async function openStateDatabase(
+  diffOwlDir: string,
+  options: OpenStateDatabaseOptions = {},
+): Promise<StateDatabase> {
   await mkdir(diffOwlDir, { recursive: true });
   const path = getStateDbPath(diffOwlDir);
   const db = await openSqliteDatabase(path);
   try {
-    configureDatabase(db);
+    configureDatabase(db, options.busyTimeoutMs ?? BUSY_TIMEOUT_MS);
     assertCompatibleSchema(db);
     applyMigrations(db, CURRENT_SCHEMA_VERSION);
     return { db, path };
@@ -48,27 +70,76 @@ export async function openStateDatabase(diffOwlDir: string): Promise<StateDataba
   }
 }
 
-export function closeDatabaseConnection(db: SqliteDatabase): void {
+/**
+ * Opens an existing state database for reading, with none of `openStateDatabase`'s side effects.
+ *
+ * The difference is the whole point, not an optimization. `openStateDatabase` creates `diffOwlDir`
+ * and runs `applyMigrations`, so a command that only reports on state would upgrade the user's
+ * database in place simply by being run — and `findings summary` is run automatically at every
+ * session start once the Claude hook is installed. This path therefore:
+ *
+ * - refuses a missing database instead of creating one (no `mkdir`, no `DatabaseSync` create),
+ * - refuses an older schema instead of migrating it, leaving the upgrade to a command the user
+ *   actually invoked to write,
+ * - refuses a newer schema, as `assertCompatibleSchema` already did.
+ *
+ * It also leaves `journal_mode` and `foreign_keys` alone: setting `journal_mode` is a header write
+ * when the database is not already in WAL, and foreign key enforcement is irrelevant to a reader.
+ * Only `busy_timeout`, a purely connection-local setting, is applied.
+ */
+export async function openStateDatabaseForRead(
+  diffOwlDir: string,
+  options: OpenStateDatabaseOptions = {},
+): Promise<StateDatabase> {
+  const path = getStateDbPath(diffOwlDir);
+  if (!existsSync(path)) {
+    throw new StateDatabaseError(`No state database at ${path}`);
+  }
+
+  const db = await openSqliteDatabase(path);
+  try {
+    db.pragma(`busy_timeout = ${options.busyTimeoutMs ?? BUSY_TIMEOUT_MS}`);
+    assertReadableSchema(db);
+    return { db, path };
+  } catch (error) {
+    try {
+      closeDatabaseConnection(db, { checkpoint: false });
+    } catch {
+      // Best-effort cleanup; preserve the original open/setup failure.
+    }
+    throw error;
+  }
+}
+
+export function closeDatabaseConnection(
+  db: SqliteDatabase,
+  options: CloseStateDatabaseOptions = {},
+): void {
   if (!db.open) {
     return;
   }
 
   try {
-    // Checkpoint WAL so Windows can release state.db, -wal, and -shm during cleanup.
-    db.pragma("wal_checkpoint(TRUNCATE)");
+    if (options.checkpoint ?? true) {
+      // Checkpoint WAL so Windows can release state.db, -wal, and -shm during cleanup.
+      db.pragma("wal_checkpoint(TRUNCATE)");
+    }
   } finally {
     db.close();
   }
 }
 
-export function closeStateDatabase(state: StateDatabase): void {
-  closeDatabaseConnection(state.db);
+export function closeStateDatabase(
+  state: StateDatabase,
+  options: CloseStateDatabaseOptions = {},
+): void {
+  closeDatabaseConnection(state.db, options);
 }
 
-function configureDatabase(db: SqliteDatabase): void {
+function configureDatabase(db: SqliteDatabase, busyTimeoutMs: number): void {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
-  db.pragma(`busy_timeout = ${BUSY_TIMEOUT_MS}`);
+  db.pragma(`busy_timeout = ${busyTimeoutMs}`);
 }
 
 function assertCompatibleSchema(db: SqliteDatabase): void {
@@ -86,6 +157,18 @@ function assertCompatibleSchema(db: SqliteDatabase): void {
   if (maxVersion > CURRENT_SCHEMA_VERSION) {
     throw new StateDatabaseError(
       `Database schema version ${maxVersion} is newer than supported version ${CURRENT_SCHEMA_VERSION}`,
+    );
+  }
+}
+
+function assertReadableSchema(db: SqliteDatabase): void {
+  assertCompatibleSchema(db);
+
+  const appliedVersions = listAppliedMigrationVersions(db);
+  const maxVersion = appliedVersions.length > 0 ? Math.max(...appliedVersions) : 0;
+  if (maxVersion < CURRENT_SCHEMA_VERSION) {
+    throw new StateDatabaseError(
+      `Database schema version ${maxVersion} is older than supported version ${CURRENT_SCHEMA_VERSION}; run a DiffOwl command that writes state to migrate it`,
     );
   }
 }
