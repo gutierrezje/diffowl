@@ -64,6 +64,13 @@ vi.mock("../git/reachability.js", async (importOriginal) => {
   };
 });
 
+// Read through a function rather than inline: a test that resets `lastOptions` to null narrows the
+// property to `null` for the rest of its block, and control-flow analysis cannot know that the
+// getFindingSummary call in between rewrote it.
+function lastStagedDiffOptions(): { timeoutMs?: number } | null {
+  return stagedDiff.lastOptions;
+}
+
 const gitIdentity = ["-c", "user.name=DiffOwl Test", "-c", "user.email=diffowl@example.test"];
 
 let tempRepoDirs: string[] = [];
@@ -455,8 +462,8 @@ describe("getFindingSummary staged-review gate", () => {
     // The gate fires whenever any unresolved staged observation exists, which in an active repo is
     // most of the time, so this shell-out sits on the session-start path by default. It must carry
     // a bound of its own rather than inheriting only the 5s external hook kill.
-    expect(stagedDiff.lastOptions?.timeoutMs).toBeGreaterThan(0);
-    expect(stagedDiff.lastOptions?.timeoutMs).toBeLessThan(1_000);
+    expect(lastStagedDiffOptions()?.timeoutMs).toBeGreaterThan(0);
+    expect(lastStagedDiffOptions()?.timeoutMs).toBeLessThan(1_000);
   });
 
   it("never runs git diff --staged when no staged review is on record", async () => {
