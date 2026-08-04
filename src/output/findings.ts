@@ -131,6 +131,34 @@ export function renderFindingListJson(items: FindingListItem[]): string {
 }
 
 /**
+ * The published JSON projection of a FindingSummary (D-08). Aggregate-only, exactly like
+ * `formatFindingSummaryLine`: counts, one severity label, the inspect command, and a schema
+ * version. Nothing else may be added here — no findings array, no top finding, no sample title.
+ * The absence is the mitigation for T-01-02, because this document is what an MCP handler or a
+ * user's script reads straight into an agent's context (D-10).
+ *
+ * D-08 is rated one-way, so the field names below are a published contract: renaming one breaks
+ * consumers DiffOwl cannot reach in to update. `schema_version` is a literal rather than
+ * JSON_OUTPUT_SCHEMA_VERSION from src/output/json.ts, matching `renderFindingListJson` above —
+ * the findings namespace versions itself independently of the review namespace, so bumping the
+ * review document cannot silently re-advertise this one's version to a consumer doing version
+ * negotiation. Approved at plan 01-06's decision checkpoint (option-a).
+ */
+export function renderFindingSummaryJson(summary: FindingSummary): string {
+  return `${JSON.stringify(
+    {
+      schema_version: 1,
+      open_count: summary.openCount,
+      regressed_count: summary.regressedCount,
+      top_severity: summary.topSeverity,
+      inspect_command: summary.inspectCommand,
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+/**
  * Aggregate-only one-line projection of a FindingSummary (D-10). Reads only `openCount`,
  * `regressedCount`, `topSeverity`, and `inspectCommand` — never a finding title, file path, line
  * number, or body. This is the structural mitigation for T-01-02: whatever this function returns

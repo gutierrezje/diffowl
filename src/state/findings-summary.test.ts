@@ -49,17 +49,42 @@ vi.mock("../git/diff.js", async (importOriginal) => {
 // git exit codes git does not produce (src/git/reachability.ts), so a real repository cannot
 // reproduce that branch. Injecting the failure here tests the fail-silent boundary itself rather
 // than a scenario that never reaches it.
-const reachability = vi.hoisted(() => ({ failure: null as Error | null }));
+const reachability = vi.hoisted(() => ({ failure: null as Error | null, calls: 0 }));
 
 vi.mock("../git/reachability.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../git/reachability.js")>();
   return {
     ...actual,
     filterReachableCommits: async (candidates: readonly string[], cwd?: string) => {
+      reachability.calls++;
       if (reachability.failure) {
         throw reachability.failure;
       }
       return actual.filterReachableCommits(candidates, cwd);
+    },
+  };
+});
+
+// Counts `git merge-base` subprocesses, so "--all skips the reachability step" can be asserted at
+// the process boundary rather than only at the module seam above. The module seam alone would still
+// pass if the work were rebuilt inline somewhere else; this one is what pins that no git ancestry
+// call happens at all, which is the point of the flag (a user whose git is misbehaving still gets
+// their findings).
+const gitInvocations = vi.hoisted(() => ({ mergeBase: 0 }));
+
+vi.mock("execa", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("execa")>();
+  return {
+    ...actual,
+    execa: (file: string, args?: readonly string[], options?: unknown) => {
+      if (file === "git" && args?.[0] === "merge-base") {
+        gitInvocations.mergeBase++;
+      }
+      return (actual.execa as unknown as (...passthrough: unknown[]) => unknown)(
+        file,
+        args,
+        options,
+      );
     },
   };
 });
@@ -81,6 +106,8 @@ afterEach(async () => {
   stagedDiff.failure = null;
   stagedDiff.lastOptions = null;
   reachability.failure = null;
+  reachability.calls = 0;
+  gitInvocations.mergeBase = 0;
   await Promise.all(tempStateDirs.map((dir) => removeTempStateDir(dir)));
   tempStateDirs = [];
   await Promise.all(tempRepoDirs.map((dir) => removeTempDir(dir)));
@@ -291,6 +318,116 @@ describe("getFindingSummary reachability", () => {
     });
 
     const summary = await getFindingSummary(diffOwlDir, { cwd: root });
+    expect(summary.openCount).toBe(1);
+  });
+}, 20_000);
+
+describe("getFindingSummary includeUnreachable", () => {
+  it("counts a finding observed only on a sibling branch", async () => {
+    // The same fixture the default view drops (see the reachability block above): D-09 keeps this
+    // opt-out so it stays possible to see what reachability filtering hid, which is the comparison
+    // D-02 says should feed READY-03.
+    const { root, diffOwlDir, commit, currentBranch } = await createRepo();
+    await commit("A");
+    const main = await currentBranch();
+    await execa("git", ["checkout", "-b", "side"], { cwd: root });
+    const c = await commit("C");
+    await execa("git", ["checkout", main], { cwd: root });
+    await commit("B");
+
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, reviewFor(c, "session-side"));
+      reconcileReviewFindings(db, review.id, [
+        candidateAt("src/sibling.ts", { severity: "error" }),
+      ]);
+    });
+
+    const filtered = await getFindingSummary(diffOwlDir, { cwd: root });
+    expect(filtered.openCount).toBe(0);
+    expect(filtered.topSeverity).toBeNull();
+
+    const unfiltered = await getFindingSummary(diffOwlDir, { cwd: root, includeUnreachable: true });
+    expect(unfiltered.openCount).toBe(1);
+    expect(unfiltered.topSeverity).toBe("error");
+  });
+
+  it("runs no git merge-base at all rather than computing reachability and discarding it", async () => {
+    const { root, diffOwlDir, commit } = await createRepo();
+    const a = await commit("A");
+
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, reviewFor(a, "session-committed"));
+      reconcileReviewFindings(db, review.id, [candidateAt("src/committed.ts")]);
+    });
+
+    reachability.calls = 0;
+    gitInvocations.mergeBase = 0;
+    const summary = await getFindingSummary(diffOwlDir, { cwd: root, includeUnreachable: true });
+
+    expect(summary.openCount).toBe(1);
+    // Load-bearing, not an optimization: --all exists partly so a user in a repository where git is
+    // misbehaving can still see their findings, so running the ancestry calls and ignoring the
+    // answer would preserve the exact failure the flag routes around.
+    expect(reachability.calls).toBe(0);
+    expect(gitInvocations.mergeBase).toBe(0);
+  });
+
+  it("still runs the reachability step on the default path", async () => {
+    // The mutation guard for the assertion above: it must be able to fail.
+    const { root, diffOwlDir, commit } = await createRepo();
+    const a = await commit("A");
+
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, reviewFor(a, "session-committed"));
+      reconcileReviewFindings(db, review.id, [candidateAt("src/committed.ts")]);
+    });
+
+    reachability.calls = 0;
+    gitInvocations.mergeBase = 0;
+    await getFindingSummary(diffOwlDir, { cwd: root });
+
+    expect(reachability.calls).toBe(1);
+    expect(gitInvocations.mergeBase).toBe(1);
+  });
+
+  it("keeps a stale staged finding excluded, because D-03's gate is not what --all opts out of", async () => {
+    // "Show me everything" is a natural reading of --all that the flag deliberately does not
+    // satisfy: D-09 governs reachability and D-03's hash gate governs staged rows. A stale staged
+    // finding stays out of the summary under --all and remains visible through `findings list`,
+    // which is where D-03 says it belongs.
+    const { root, diffOwlDir, commit, stage, stagedHash } = await createRepo();
+    await commit("A");
+    await stage("staged.ts", "export const handler = () => {};\n");
+    const reviewedHash = await stagedHash();
+
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, stagedReviewFor(reviewedHash, "session-staged"));
+      reconcileReviewFindings(db, review.id, [candidateAt("staged.ts")]);
+    });
+
+    await stage("unrelated.ts", "export const unrelated = 1;\n");
+
+    const summary = await getFindingSummary(diffOwlDir, { cwd: root, includeUnreachable: true });
+    expect(summary.openCount).toBe(0);
+
+    // Still on record and still reachable through the command D-03 points at.
+    const listed = await withFindingDatabase(diffOwlDir, listUnresolvedFindings);
+    expect(listed).toHaveLength(1);
+  });
+
+  it("still admits a matching staged finding under includeUnreachable", async () => {
+    // The other side of the case above: the flag neither loosens nor tightens the staged gate.
+    const { root, diffOwlDir, commit, stage, stagedHash } = await createRepo();
+    await commit("A");
+    await stage("staged.ts", "export const handler = () => {};\n");
+    const reviewedHash = await stagedHash();
+
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, stagedReviewFor(reviewedHash, "session-staged"));
+      reconcileReviewFindings(db, review.id, [candidateAt("staged.ts")]);
+    });
+
+    const summary = await getFindingSummary(diffOwlDir, { cwd: root, includeUnreachable: true });
     expect(summary.openCount).toBe(1);
   });
 }, 20_000);

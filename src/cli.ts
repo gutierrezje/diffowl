@@ -76,6 +76,7 @@ import {
   formatFindingSummaryLine,
   renderFindingDetailJson,
   renderFindingListJson,
+  renderFindingSummaryJson,
 } from "./output/findings.js";
 import {
   deferFindingByLocator,
@@ -89,9 +90,11 @@ import {
   withFindingDatabase,
 } from "./state/findings-query.js";
 import {
+  EMPTY_FINDING_SUMMARY,
   getFindingSummary,
   hasReportableFindings,
   logSummaryDegradation,
+  type FindingSummary,
 } from "./state/findings-summary.js";
 import { InvalidFindingTransitionError } from "./state/db.js";
 import type { SqliteDatabase } from "./state/sqlite.js";
@@ -935,33 +938,55 @@ findingsCmd
   .command("summary")
   .description("Print an aggregate summary of unresolved findings reachable from HEAD")
   .option("--format <format>", "Output format: text or json", "text")
-  .action(async (options: { format?: string }) => {
+  .option("--all", "Also include findings from commits not reachable from HEAD")
+  .action(async (options: { format?: string; all?: boolean }) => {
     const format = resolveReviewOutputFormat(options.format);
-    if (format === "json") {
-      // JSON projection lands in a later plan behind a decision checkpoint (D-08).
-      failFindingsCommand(
-        format,
-        new Error("findings summary --format json is not available yet."),
-      );
-    }
     // Deliberately no loadConfigOrExit() here, unlike every sibling findings subcommand: this is
     // the command invoked automatically at session start, and exiting 1 on a missing/invalid
     // .diffowl.yml would break session start in any repo the user has not configured (D-17). This
     // command reads git and SQLite only; it needs no model and no config.
     try {
-      const summary = await getFindingSummary(await getSharedDiffOwlDir(), {});
-      if (!hasReportableFindings(summary)) {
-        return;
-      }
-      console.log(formatFindingSummaryLine(summary));
+      const summary = await getFindingSummary(await getSharedDiffOwlDir(), {
+        includeUnreachable: options.all === true,
+      });
+      writeFindingSummary(summary, format);
     } catch (error) {
       // getFindingSummary has its own fail-silent boundary, but it only covers what happens inside
       // it. This one covers the rest of the action — resolving the shared state directory (which
       // shells out to git, and throws on any git failure it does not recognise), rendering, and the
       // write itself — so that no path out of a session-start command is a non-zero exit.
       await reportSummaryFailure(error);
+      // The published JSON contract stays total across this boundary too. getFindingSummary already
+      // degrades every failure inside it to the zero-count summary, which the JSON projection duly
+      // publishes, so the outer boundary must not be the single path that writes an empty buffer to
+      // a consumer parsing stdout. Either way the reason is in hook.log, which is the only place
+      // "0 findings" and "could not tell" are distinguishable — the same ambiguity the inner legs
+      // already accept under D-17.
+      writeFindingSummary(EMPTY_FINDING_SUMMARY, format);
     }
   });
+
+/**
+ * The two projections of one getFindingSummary result (D-18). Neither recomputes counts,
+ * reachability, or severity; both read the same value.
+ *
+ * The fail-silent contract from plan 01-05 is asymmetric across them on purpose. The text
+ * projection is what a SessionStart hook injects verbatim, so with nothing to report it prints
+ * nothing at all (D-11) — silence is the correct signal and costs zero context. The JSON
+ * projection is read by a script or an MCP handler that parses stdout, so it always emits a
+ * document, carrying zero counts and a null top severity when there is nothing to report; an empty
+ * buffer there is a parse error, not "no findings".
+ */
+function writeFindingSummary(summary: FindingSummary, format: ReviewOutputFormat): void {
+  if (format === "json") {
+    process.stdout.write(renderFindingSummaryJson(summary));
+    return;
+  }
+  if (!hasReportableFindings(summary)) {
+    return;
+  }
+  console.log(formatFindingSummaryLine(summary));
+}
 
 /** Never throws: its whole purpose is to be safe to call from the session-start path. */
 async function reportSummaryFailure(error: unknown): Promise<void> {
