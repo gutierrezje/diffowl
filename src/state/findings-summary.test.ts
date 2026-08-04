@@ -7,7 +7,9 @@ import { execa } from "execa";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { removeTempDir } from "../test/helpers.js";
 import { getStagedDiff } from "../git/diff.js";
-import { getStateDbPath } from "./db.js";
+import { applyMigrations, closeDatabaseConnection, getStateDbPath } from "./db.js";
+import { MIGRATION_001_INITIAL_SCHEMA } from "./migrations/001-initial-schema.js";
+import { openSqliteDatabase } from "./sqlite.js";
 import { getFindingSummary } from "./findings-summary.js";
 import { listUnresolvedFindings, withFindingDatabase } from "./findings-query.js";
 import { deferFinding, dismissFinding, fixFinding } from "./lifecycle.js";
@@ -637,6 +639,36 @@ describe("getFindingSummary fail-silent boundary", () => {
 
     const log = await readDiffOwlLog(diffOwlDir);
     expect(log).toContain("findings summary");
+    expect(log).toContain("state database");
+  });
+
+  it("refuses an older-schema state database instead of migrating the one it only reads", async () => {
+    const { root, diffOwlDir, commit } = await createRepo();
+    await commit("A");
+    const db = await openSqliteDatabase(getStateDbPath(diffOwlDir));
+    applyMigrations(db, 1, { 1: MIGRATION_001_INITIAL_SCHEMA });
+    closeDatabaseConnection(db, { checkpoint: false });
+
+    await expect(getFindingSummary(diffOwlDir, { cwd: root })).resolves.toEqual({
+      openCount: 0,
+      regressedCount: 0,
+      topSeverity: null,
+      inspectCommand: "diffowl findings list",
+    });
+
+    // The property under test is the absence of a side effect: `findings summary` is invoked
+    // automatically at session start, so upgrading the user's schema in place would be a write
+    // nobody asked for, performed by a command that claims only to read.
+    const after = await openSqliteDatabase(getStateDbPath(diffOwlDir));
+    try {
+      expect(after.prepare("SELECT MAX(version) AS v FROM schema_migrations").get()).toEqual({
+        v: 1,
+      });
+    } finally {
+      closeDatabaseConnection(after, { checkpoint: false });
+    }
+
+    const log = await readDiffOwlLog(diffOwlDir);
     expect(log).toContain("state database");
   });
 

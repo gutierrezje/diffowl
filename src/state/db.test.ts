@@ -1,3 +1,4 @@
+import { existsSync, statSync } from "node:fs";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +9,7 @@ import {
   closeStateDatabase,
   getStateDbPath,
   openStateDatabase,
+  openStateDatabaseForRead,
   runInTransaction,
   StateDatabaseError,
 } from "./db.js";
@@ -244,6 +246,129 @@ describe("runInTransaction", () => {
     }
   });
 });
+
+describe("openStateDatabase busy timeout option", () => {
+  it("keeps the 5000ms default for every existing caller", async () => {
+    const dir = await createTempDir();
+    const state = await openStateDatabase(dir);
+    try {
+      expect(state.db.pragma("busy_timeout", { simple: true })).toBe(5000);
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
+  it("applies an explicit sub-second busy timeout", async () => {
+    const dir = await createTempDir();
+    const state = await openStateDatabase(dir, { busyTimeoutMs: 800 });
+    try {
+      expect(state.db.pragma("busy_timeout", { simple: true })).toBe(800);
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+});
+
+describe("closeStateDatabase checkpoint option", () => {
+  // A second connection is held open throughout, because SQLite deletes -wal and -shm when the
+  // last connection closes — without a holder both variants would leave no -wal to measure and the
+  // test would pass for the wrong reason.
+  it("truncates the WAL by default and leaves it intact when checkpointing is disabled", async () => {
+    const dir = await createTempDir();
+    const walPath = `${getStateDbPath(dir)}-wal`;
+
+    const seed = await openStateDatabase(dir);
+    closeStateDatabase(seed);
+
+    const holder = await openSqliteDatabase(getStateDbPath(dir));
+    try {
+      const checkpointed = await openStateDatabase(dir);
+      insertReview(checkpointed.db, reviewInput("session-checkpointed"));
+      closeStateDatabase(checkpointed);
+      expect(statSync(walPath).size).toBe(0);
+
+      const uncheckpointed = await openStateDatabase(dir);
+      insertReview(uncheckpointed.db, reviewInput("session-uncheckpointed"));
+      closeStateDatabase(uncheckpointed, { checkpoint: false });
+      // The truncating checkpoint takes an exclusive lock, so skipping it is what keeps a read that
+      // wrote nothing from blocking on a concurrent hook worker at session start (D-17).
+      expect(statSync(walPath).size).toBeGreaterThan(0);
+    } finally {
+      closeDatabaseConnection(holder, { checkpoint: false });
+    }
+  });
+});
+
+describe("openStateDatabaseForRead", () => {
+  it("never creates the directory or the database file", async () => {
+    const dir = await createTempDir();
+    const absent = join(dir, "never-ran");
+
+    await expect(openStateDatabaseForRead(absent)).rejects.toBeInstanceOf(StateDatabaseError);
+    expect(existsSync(getStateDbPath(absent))).toBe(false);
+    expect(existsSync(absent)).toBe(false);
+  });
+
+  it("reads a current-schema database", async () => {
+    const dir = await createTempDir();
+    const writer = await openStateDatabase(dir);
+    insertReview(writer.db, reviewInput("session-read"));
+    closeStateDatabase(writer);
+
+    const reader = await openStateDatabaseForRead(dir, { busyTimeoutMs: 800 });
+    try {
+      expect(reader.db.pragma("busy_timeout", { simple: true })).toBe(800);
+      expect(reader.db.prepare("SELECT COUNT(*) AS n FROM reviews").get()).toEqual({ n: 1 });
+    } finally {
+      closeStateDatabase(reader, { checkpoint: false });
+    }
+  });
+
+  it("refuses an older-schema database instead of migrating it in place", async () => {
+    const dir = await createTempDir();
+    const db = await openSqliteDatabase(getStateDbPath(dir));
+    applyMigrations(db, 1, { 1: MIGRATION_001_INITIAL_SCHEMA });
+    closeDatabaseConnection(db);
+
+    await expect(openStateDatabaseForRead(dir)).rejects.toBeInstanceOf(StateDatabaseError);
+
+    // The point of the refusal: a read-only command must not upgrade the user's database as a side
+    // effect of being run, so the on-disk schema is unchanged after the rejection.
+    const after = await openSqliteDatabase(getStateDbPath(dir));
+    try {
+      expect(after.prepare("SELECT MAX(version) AS v FROM schema_migrations").get()).toEqual({
+        v: 1,
+      });
+    } finally {
+      closeDatabaseConnection(after, { checkpoint: false });
+    }
+  });
+
+  it("refuses a newer-schema database", async () => {
+    const dir = await createTempDir();
+    const writer = await openStateDatabase(dir);
+    writer.db
+      .prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)")
+      .run(CURRENT_SCHEMA_VERSION + 1, new Date().toISOString());
+    closeStateDatabase(writer);
+
+    await expect(openStateDatabaseForRead(dir)).rejects.toBeInstanceOf(StateDatabaseError);
+  });
+});
+
+function reviewInput(sessionId: string) {
+  return {
+    targetKind: "last-commit" as const,
+    targetRef: null,
+    targetCommit: "0".repeat(40),
+    diffHash: "hash",
+    model: "provider/model",
+    reasoning: "medium" as const,
+    depth: "default" as const,
+    sessionId,
+    summary: "Seed review.",
+  };
+}
 
 async function createTempDir(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "diffowl-state-"));
