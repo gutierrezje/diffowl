@@ -177,12 +177,10 @@ async function collectGitDiff(
   const subprocess = execa("git", args, {
     maxBuffer: MAX_DIFF_OUTPUT_BYTES,
     ...(cwd ? { cwd } : {}),
-    // `detached` puts git in its own process group so the backstop below can reach the diff
-    // drivers it spawned. Only on the timed path, so untimed callers keep the default group.
-    ...(timeoutMs === undefined ? {} : { timeout: timeoutMs, detached: true }),
+    ...(timeoutMs === undefined ? {} : timedSpawnOptions(timeoutMs)),
   });
   const backstop =
-    timeoutMs === undefined ? undefined : scheduleProcessGroupKill(subprocess, timeoutMs);
+    timeoutMs === undefined ? undefined : scheduleProcessTreeKill(subprocess, timeoutMs);
 
   try {
     const { stdout } = await subprocess;
@@ -206,27 +204,90 @@ async function collectGitDiff(
  * execa's own `timeout` signals git and nothing else, which is not enough to bound the wait: a diff
  * driver git spawned (textconv, LFS) inherits git's stderr pipe, so it holds that pipe — and with it
  * the `await` above — open for its full runtime even after git itself is dead. Measured against a
- * `sleep 10` textconv driver, a 300ms execa timeout still settled at 10s.
+ * `sleep 10` textconv driver, a 300ms execa timeout still settled at 10s. On Windows, where the
+ * group kill below used to be a no-op, CI measured the same 10s.
  *
- * So the real bound is this: kill git's whole process group, which takes the drivers with it and
- * closes the pipes. The grace period lets execa's timeout land first, so the caller sees an accurate
- * "timed out" error rather than a bare SIGKILL; the group kill only cleans up what survives it.
+ * The real bound is killing the drivers too, and the two platforms reach them by opposite routes:
+ *
+ * - POSIX signals git's process group, which outlives git. So execa's timeout goes first — the
+ *   caller gets an accurate "timed out" error rather than a bare SIGKILL — and the group kill a
+ *   grace period later only cleans up whatever survived it.
+ * - Windows has no process group to signal. `taskkill /T` walks the parent-PID tree instead, and
+ *   that tree only exists while git is still in it: once execa's timeout has terminated git,
+ *   taskkill cannot find the target and the orphaned drivers keep the pipe open. So there the tree
+ *   kill goes first and execa's timeout is demoted to a fallback for taskkill being unavailable.
  */
-const PROCESS_GROUP_KILL_GRACE_MS = 250;
+const PROCESS_TREE_KILL_GRACE_MS = 250;
 
-function scheduleProcessGroupKill(subprocess: { pid?: number }, timeoutMs: number): NodeJS.Timeout {
+/**
+ * Windows only: how far behind the tree kill execa's timeout sits. Generous because it is a
+ * fallback, not the expected bound — it only matters if spawning taskkill fails outright, and
+ * leaving room for a process spawn on a loaded runner costs nothing when taskkill works.
+ */
+const WINDOWS_TIMEOUT_FALLBACK_MS = 1_000;
+
+function timedSpawnOptions(timeoutMs: number) {
+  if (process.platform === "win32") {
+    // No `detached` here: on Windows it means DETACHED_PROCESS (a console-less child), which buys
+    // nothing because taskkill walks parent PIDs rather than process groups.
+    return { timeout: timeoutMs + WINDOWS_TIMEOUT_FALLBACK_MS };
+  }
+  // `detached` puts git in its own process group so the backstop below can reach the diff drivers
+  // it spawned. Only on the timed path, so untimed callers keep the default group.
+  return { timeout: timeoutMs, detached: true } as const;
+}
+
+function scheduleProcessTreeKill(subprocess: { pid?: number }, timeoutMs: number): NodeJS.Timeout {
+  const delayMs = process.platform === "win32" ? timeoutMs : timeoutMs + PROCESS_TREE_KILL_GRACE_MS;
   const backstop = setTimeout(() => {
     const { pid } = subprocess;
     if (pid === undefined) return;
-    try {
-      process.kill(-pid, "SIGKILL");
-    } catch {
-      // Group already gone, or a platform without process groups. Nothing left to bound.
-    }
-  }, timeoutMs + PROCESS_GROUP_KILL_GRACE_MS);
+    killProcessTree(pid);
+  }, delayMs);
   // Never let the backstop hold the process open on its own.
   backstop.unref();
   return backstop;
+}
+
+export type ProcessTreeKillPlan =
+  | { kind: "signal-group"; pid: number }
+  | { kind: "spawn"; command: string; args: string[] };
+
+/**
+ * Exported for the routing test: the timing tests can only exercise the host they run on, so this
+ * is the one place a POSIX machine can check that the Windows leg still exists.
+ */
+export function planProcessTreeKill(
+  pid: number,
+  platform: NodeJS.Platform = process.platform,
+): ProcessTreeKillPlan {
+  if (platform === "win32") {
+    return { kind: "spawn", command: "taskkill", args: ["/pid", String(pid), "/t", "/f"] };
+  }
+  return { kind: "signal-group", pid };
+}
+
+function killProcessTree(pid: number): void {
+  const plan = planProcessTreeKill(pid);
+  if (plan.kind === "signal-group") {
+    try {
+      process.kill(-plan.pid, "SIGKILL");
+    } catch {
+      // Group already gone. Nothing left to bound.
+    }
+    return;
+  }
+
+  // Fire and forget: the caller's await settles on its own once the tree dies and the pipes close,
+  // so nothing here needs the result. `reject: false` plus the catch keeps a missing taskkill from
+  // surfacing as an unhandled rejection on a path whose whole job is to fail quietly.
+  const killer = execa(plan.command, plan.args, {
+    reject: false,
+    stdout: "ignore",
+    stderr: "ignore",
+  });
+  killer.unref();
+  void killer.catch(() => {});
 }
 
 /**
