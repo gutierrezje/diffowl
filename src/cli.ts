@@ -804,7 +804,10 @@ agentHookCmd
     switch (options.client) {
       case "claude": {
         try {
-          const result = await installClaudeCodeHook();
+          // Anchor to the project root, not the invocation directory: Claude loads
+          // .claude/settings.json from the project root, so installing from a subdirectory would
+          // otherwise write a hook that never runs. Same anchor the rest of the CLI uses.
+          const result = await installClaudeCodeHook(getProjectRoot());
           console.log(chalk.green(`✓ Claude Code session hook ${result.action}`));
           console.log(chalk.dim("Client: claude"));
           console.log(chalk.dim(`Settings: ${result.settingsPath}`));

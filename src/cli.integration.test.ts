@@ -451,6 +451,23 @@ describe("diffowl agent-hook install", () => {
     expect(entry.args).toEqual([cliPath, "findings", "summary", "--format", "text"]);
   });
 
+  it("anchors settings to the project root when run from a subdirectory", async () => {
+    const repo = await createRepo("diffowl-cli-agent-hook-subdir-");
+    const subdir = join(repo, "src", "nested");
+    await mkdir(subdir, { recursive: true });
+
+    const result = await execa("node", [cliPath, "agent-hook", "install", "--client", "claude"], {
+      cwd: subdir,
+    });
+
+    expect(result.exitCode).toBe(0);
+    // Claude loads .claude/settings.json from the project root, so installing into the invocation
+    // directory would produce a hook that never runs.
+    expect(existsSync(join(repo, ".claude", "settings.json"))).toBe(true);
+    expect(existsSync(join(subdir, ".claude"))).toBe(false);
+    expect(result.stdout).toContain(join(repo, ".claude", "settings.json"));
+  });
+
   it("rejects a missing --client before writing settings", async () => {
     const repo = await createRepo("diffowl-cli-agent-hook-missing-client-");
 
