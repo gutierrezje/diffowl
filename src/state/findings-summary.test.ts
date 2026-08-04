@@ -946,6 +946,37 @@ describe("getFindingSummary fail-silent boundary", () => {
 
     expect(await readDiffOwlLog(diffOwlDir)).toContain("hostile error value");
   });
+
+  it("bounds hook.log so a recurring degradation cannot grow it without limit", async () => {
+    const { diffOwlDir } = await createRepo();
+    const logPath = join(diffOwlDir, "hook.log");
+    const cap = 1024 * 1024;
+    // Twice the cap, not a byte over it: with a filler barely above the bound, a trimmed and an
+    // untrimmed file differ by a byte and the assertion passes either way.
+    await writeFile(logPath, "o".repeat(cap * 2), "utf-8");
+
+    await expect(
+      logSummaryDegradation(diffOwlDir, "recurring failure", new Error("boom")),
+    ).resolves.toBeUndefined();
+
+    const content = await readDiffOwlLog(diffOwlDir);
+    // Trimmed to the cap, then one line appended — so the bound holds with room for that line, and
+    // is nowhere near the 2MiB an untrimmed append would leave behind.
+    expect(content.length).toBeLessThan(cap + 1024);
+    // The trim keeps the tail, so the newest line — the reason a reader is here for — survives it.
+    expect(content).toContain("recurring failure");
+  });
+
+  it("still writes the degradation when hook.log is under the cap", async () => {
+    const { diffOwlDir } = await createRepo();
+    await writeFile(join(diffOwlDir, "hook.log"), "existing line\n", "utf-8");
+
+    await logSummaryDegradation(diffOwlDir, "small log", new Error("boom"));
+
+    const content = await readDiffOwlLog(diffOwlDir);
+    expect(content).toContain("existing line");
+    expect(content).toContain("small log");
+  });
 }, 20_000);
 
 /**

@@ -936,7 +936,7 @@ findingsCmd
 
 findingsCmd
   .command("summary")
-  .description("Print an aggregate summary of unresolved findings reachable from HEAD")
+  .description("Print an aggregate summary of unresolved findings (reachable from HEAD by default)")
   .option("--format <format>", "Output format: text or json", "text")
   .option("--all", "Also include findings from commits not reachable from HEAD")
   .action(async (options: { format?: string; all?: boolean }) => {
@@ -962,7 +962,17 @@ findingsCmd
       // a consumer parsing stdout. Either way the reason is in hook.log, which is the only place
       // "0 findings" and "could not tell" are distinguishable — the same ambiguity the inner legs
       // already accept under D-17.
-      writeFindingSummary(EMPTY_FINDING_SUMMARY, format);
+      //
+      // Guarded, because this write is not obviously safer than the one that just failed: if the
+      // try-block threw *because* the stdout write threw — EPIPE when a `--format json` consumer
+      // closed the pipe, which is the script and MCP usage this command is built for — then
+      // re-running the same write here rejects the action and exits non-zero, which is the single
+      // outcome this whole boundary exists to prevent.
+      try {
+        writeFindingSummary(EMPTY_FINDING_SUMMARY, format);
+      } catch {
+        // Both the report and its fallback are now unwritable. hook.log already has the reason.
+      }
     }
   });
 
