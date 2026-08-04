@@ -105,7 +105,7 @@ export async function getFindingSummary(
   try {
     return await computeFindingSummary(diffOwlDir, options);
   } catch (error) {
-    await logDegradation(diffOwlDir, "unexpected failure", error);
+    await logSummaryDegradation(diffOwlDir, "unexpected failure", error);
     return EMPTY_SUMMARY;
   }
 }
@@ -168,7 +168,7 @@ async function readUnresolvedObservationRows(diffOwlDir: string): Promise<Summar
   } catch (error) {
     // Corrupt file, unreadable file, or a schema this build cannot serve. All of them mean the
     // summary has nothing trustworthy to report, and none of them may break session start.
-    await logDegradation(diffOwlDir, "state database could not be read", error);
+    await logSummaryDegradation(diffOwlDir, "state database could not be read", error);
     return null;
   }
 }
@@ -187,7 +187,7 @@ async function resolveReachableCommits(
     // filterReachableCommits already folds git's own failure modes (exit 1 and exit 128) into
     // "not reachable", so reaching this catch means git broke its documented exit-code contract or
     // could not be spawned at all. Surfacing it as a rejection is what D-17 forbids.
-    await logDegradation(diffOwlDir, "reachability check failed", error);
+    await logSummaryDegradation(diffOwlDir, "reachability check failed", error);
     return null;
   }
 }
@@ -243,7 +243,7 @@ async function computeStagedDiffHash(
     // nothing else, so a silent exclusion here is indistinguishable from a clean repository. The
     // log is the diagnostic channel, and it is structurally incapable of breaking session start
     // because logDegradation never rejects (see its own catch).
-    await logDegradation(diffOwlDir, "staged diff unavailable", error);
+    await logSummaryDegradation(diffOwlDir, "staged diff unavailable", error);
     return null;
   }
 }
@@ -258,11 +258,18 @@ async function computeStagedDiffHash(
  *
  * 1. It never rejects. A diagnostic channel that can throw would reintroduce exactly the
  *    session-start failure the fail-silent boundary exists to prevent.
- * 2. It never creates a directory. Every caller runs after the `existsSync(getStateDbPath(...))`
- *    short-circuit, so `diffOwlDir` provably exists by then; appending (rather than ensuring the
- *    directory first) keeps it impossible for logging to violate the no-state-from-a-read property.
+ * 2. It never creates a directory. The callers inside this module run after the
+ *    `existsSync(getStateDbPath(...))` short-circuit, so `diffOwlDir` provably exists by then;
+ *    appending (rather than ensuring the directory first) keeps it impossible for logging to
+ *    violate the no-state-from-a-read property. The CLI caller has no such guarantee, and relies
+ *    on the same rule from the other side: a missing directory loses the line, it does not create
+ *    one in a repository the user never ran DiffOwl in.
  */
-async function logDegradation(diffOwlDir: string, reason: string, error: unknown): Promise<void> {
+export async function logSummaryDegradation(
+  diffOwlDir: string,
+  reason: string,
+  error: unknown,
+): Promise<void> {
   const message = error instanceof Error ? error.message : String(error);
   try {
     await appendFile(
