@@ -1,11 +1,13 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { execa } from "execa";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { removeTempDir } from "../test/helpers.js";
 import { getStagedDiff } from "../git/diff.js";
+import { getStateDbPath } from "./db.js";
 import { getFindingSummary } from "./findings-summary.js";
 import { listUnresolvedFindings, withFindingDatabase } from "./findings-query.js";
 import { deferFinding, dismissFinding, fixFinding } from "./lifecycle.js";
@@ -36,6 +38,25 @@ vi.mock("../git/diff.js", async (importOriginal) => {
   };
 });
 
+// Same seam for the reachability leg: the only inputs that make filterReachableCommits throw are
+// git exit codes git does not produce (src/git/reachability.ts), so a real repository cannot
+// reproduce that branch. Injecting the failure here tests the fail-silent boundary itself rather
+// than a scenario that never reaches it.
+const reachability = vi.hoisted(() => ({ failure: null as Error | null }));
+
+vi.mock("../git/reachability.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../git/reachability.js")>();
+  return {
+    ...actual,
+    filterReachableCommits: async (candidates: readonly string[], cwd?: string) => {
+      if (reachability.failure) {
+        throw reachability.failure;
+      }
+      return actual.filterReachableCommits(candidates, cwd);
+    },
+  };
+});
+
 const gitIdentity = ["-c", "user.name=DiffOwl Test", "-c", "user.email=diffowl@example.test"];
 
 let tempRepoDirs: string[] = [];
@@ -44,6 +65,7 @@ let tempStateDirs: string[] = [];
 afterEach(async () => {
   stagedDiff.calls = 0;
   stagedDiff.failure = null;
+  reachability.failure = null;
   await Promise.all(tempStateDirs.map((dir) => removeTempStateDir(dir)));
   tempStateDirs = [];
   await Promise.all(tempRepoDirs.map((dir) => removeTempDir(dir)));
@@ -93,6 +115,16 @@ async function createRepo(): Promise<RepoFixture> {
   const stagedHash = async (): Promise<string> => computeDiffHash((await getStagedDiff(root)).raw);
 
   return { root, diffOwlDir, commit, currentBranch, stage, stagedHash };
+}
+
+// D-17 requires every degradation to state a reason rather than be swallowed, so the log is part
+// of the observable contract, not incidental output.
+async function readDiffOwlLog(diffOwlDir: string): Promise<string> {
+  try {
+    return await readFile(join(diffOwlDir, "hook.log"), "utf-8");
+  } catch {
+    return "";
+  }
 }
 
 function candidateAt(file: string, overrides: Partial<FindingCandidate> = {}): FindingCandidate {
@@ -388,6 +420,14 @@ describe("getFindingSummary staged-review gate", () => {
       regressedCount: 0,
       topSeverity: null,
     });
+
+    // The exclusion is deliberate (D-03 yields to D-17), but an agent only ever sees the summary,
+    // so D-04's "still visible via findings list" mitigation does not reach it. The log is the
+    // diagnostic channel that closes that gap without being able to break session start.
+    const log = await readDiffOwlLog(diffOwlDir);
+    expect(log).toContain("findings summary");
+    expect(log).toContain("staged diff");
+    expect(log).toContain("git diff --staged exploded");
   });
 
   it("never runs git diff --staged when no staged review is on record", async () => {
@@ -557,5 +597,92 @@ describe("getFindingSummary status counting", () => {
     const admitted = await withFindingDatabase(diffOwlDir, listUnresolvedFindings);
     expect(summary.openCount + summary.regressedCount).toBe(admitted.length);
     expect(admitted.length).toBe(4);
+  });
+}, 20_000);
+
+describe("getFindingSummary fail-silent boundary", () => {
+  it("leaves no state.db and no .diffowl directory behind when DiffOwl has never run", async () => {
+    // Service-level regression guard on the short-circuit plan 01-01 installed. The CLI-level
+    // assertion in cli.integration.test.ts covers the same property, and both are kept because
+    // they fail differently: this one pins the guard's position inside getFindingSummary, that one
+    // pins the shipped command's observable behavior.
+    const { root, commit } = await createRepo();
+    await commit("A");
+    // A path under the repo that DiffOwl has never written to, so the guard is exercised against
+    // a genuinely absent directory rather than only an absent file.
+    const untouched = join(root, "never-ran", ".diffowl");
+
+    await expect(getFindingSummary(untouched, { cwd: root })).resolves.toEqual({
+      openCount: 0,
+      regressedCount: 0,
+      topSeverity: null,
+      inspectCommand: "diffowl findings list",
+    });
+
+    expect(existsSync(getStateDbPath(untouched))).toBe(false);
+    expect(existsSync(untouched)).toBe(false);
+  });
+
+  it("returns the empty summary and logs a reason when state.db cannot be opened", async () => {
+    const { root, diffOwlDir, commit } = await createRepo();
+    await commit("A");
+    await writeFile(getStateDbPath(diffOwlDir), "this is not a SQLite database\n", "utf-8");
+
+    await expect(getFindingSummary(diffOwlDir, { cwd: root })).resolves.toEqual({
+      openCount: 0,
+      regressedCount: 0,
+      topSeverity: null,
+      inspectCommand: "diffowl findings list",
+    });
+
+    const log = await readDiffOwlLog(diffOwlDir);
+    expect(log).toContain("findings summary");
+    expect(log).toContain("state database");
+  });
+
+  it("returns the empty summary and logs a reason when the reachability check fails", async () => {
+    const { root, diffOwlDir, commit } = await createRepo();
+    const a = await commit("A");
+
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, reviewFor(a, "session-reachability"));
+      reconcileReviewFindings(db, review.id, [candidateAt("src/reachable.ts")]);
+    });
+
+    reachability.failure = new Error("git merge-base --is-ancestor exited 77");
+
+    await expect(getFindingSummary(diffOwlDir, { cwd: root })).resolves.toEqual({
+      openCount: 0,
+      regressedCount: 0,
+      topSeverity: null,
+      inspectCommand: "diffowl findings list",
+    });
+
+    const log = await readDiffOwlLog(diffOwlDir);
+    expect(log).toContain("findings summary");
+    expect(log).toContain("reachability");
+    expect(log).toContain("exited 77");
+  });
+
+  it("returns the empty summary when invoked from outside any git repository", async () => {
+    // git dies with exit 128 here, which reachability.ts folds into "not reachable" rather than
+    // throwing (D-04). Asserted as a distinct case from the injected failure above because the two
+    // travel different paths to the same empty summary.
+    const { diffOwlDir, commit } = await createRepo();
+    const a = await commit("A");
+    const outsideRepo = await realpath(await mkdtemp(join(tmpdir(), "diffowl-not-a-repo-")));
+    tempRepoDirs.push(outsideRepo);
+
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, reviewFor(a, "session-outside"));
+      reconcileReviewFindings(db, review.id, [candidateAt("src/outside.ts")]);
+    });
+
+    await expect(getFindingSummary(diffOwlDir, { cwd: outsideRepo })).resolves.toEqual({
+      openCount: 0,
+      regressedCount: 0,
+      topSeverity: null,
+      inspectCommand: "diffowl findings list",
+    });
   });
 }, 20_000);
