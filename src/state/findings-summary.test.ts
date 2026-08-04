@@ -1,16 +1,40 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { execa } from "execa";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { removeTempDir } from "../test/helpers.js";
+import { getStagedDiff } from "../git/diff.js";
 import { getFindingSummary } from "./findings-summary.js";
-import { withFindingDatabase } from "./findings-query.js";
+import { listUnresolvedFindings, withFindingDatabase } from "./findings-query.js";
+import { deferFinding, dismissFinding, fixFinding } from "./lifecycle.js";
+import { computeDiffHash } from "./persist.js";
 import { reconcileReviewFindings } from "./reconcile.js";
+import { getFindingById } from "./repositories/findings.js";
+import { getLatestObservationForFinding } from "./repositories/observations.js";
 import { insertReview } from "./repositories/reviews.js";
 import { removeTempStateDir } from "./test-helpers.js";
 import type { FindingCandidate, InsertReviewInput } from "./types.js";
+
+// Delegates to the real getStagedDiff while counting calls and allowing failure injection, so the
+// "at most one git diff per summary" and "a diff failure excludes rather than throws" properties
+// can be asserted without stubbing git itself.
+const stagedDiff = vi.hoisted(() => ({ calls: 0, failure: null as Error | null }));
+
+vi.mock("../git/diff.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../git/diff.js")>();
+  return {
+    ...actual,
+    getStagedDiff: async (cwd?: string) => {
+      stagedDiff.calls++;
+      if (stagedDiff.failure) {
+        throw stagedDiff.failure;
+      }
+      return actual.getStagedDiff(cwd);
+    },
+  };
+});
 
 const gitIdentity = ["-c", "user.name=DiffOwl Test", "-c", "user.email=diffowl@example.test"];
 
@@ -18,6 +42,8 @@ let tempRepoDirs: string[] = [];
 let tempStateDirs: string[] = [];
 
 afterEach(async () => {
+  stagedDiff.calls = 0;
+  stagedDiff.failure = null;
   await Promise.all(tempStateDirs.map((dir) => removeTempStateDir(dir)));
   tempStateDirs = [];
   await Promise.all(tempRepoDirs.map((dir) => removeTempDir(dir)));
@@ -29,6 +55,8 @@ interface RepoFixture {
   diffOwlDir: string;
   commit: (message: string) => Promise<string>;
   currentBranch: () => Promise<string>;
+  stage: (file: string, content: string) => Promise<void>;
+  stagedHash: () => Promise<string>;
 }
 
 async function createRepo(): Promise<RepoFixture> {
@@ -55,7 +83,16 @@ async function createRepo(): Promise<RepoFixture> {
     return stdout.trim();
   };
 
-  return { root, diffOwlDir, commit, currentBranch };
+  const stage = async (file: string, content: string): Promise<void> => {
+    await writeFile(join(root, file), content, "utf-8");
+    await execa("git", ["add", file], { cwd: root });
+  };
+
+  // Hashes the fixture's own real staged diff rather than a literal, so the stored value is
+  // produced by exactly the function src/state/persist.ts uses at review time.
+  const stagedHash = async (): Promise<string> => computeDiffHash((await getStagedDiff(root)).raw);
+
+  return { root, diffOwlDir, commit, currentBranch, stage, stagedHash };
 }
 
 function candidateAt(file: string, overrides: Partial<FindingCandidate> = {}): FindingCandidate {
@@ -77,6 +114,20 @@ function reviewFor(targetCommit: string, sessionId: string): InsertReviewInput {
     targetRef: null,
     targetCommit,
     diffHash: "hash",
+    model: "provider/model",
+    reasoning: "medium",
+    depth: "default",
+    sessionId,
+    summary: "Needs work.",
+  };
+}
+
+function stagedReviewFor(diffHash: string, sessionId: string): InsertReviewInput {
+  return {
+    targetKind: "staged",
+    targetRef: null,
+    targetCommit: null,
+    diffHash,
     model: "provider/model",
     reasoning: "medium",
     depth: "default",
@@ -194,5 +245,317 @@ describe("getFindingSummary reachability", () => {
 
     const summary = await getFindingSummary(diffOwlDir, { cwd: root });
     expect(summary.openCount).toBe(1);
+  });
+}, 20_000);
+
+describe("getFindingSummary staged-review gate", () => {
+  it("counts a staged finding while the staging area still hashes to what was reviewed", async () => {
+    const { root, diffOwlDir, commit, stage, stagedHash } = await createRepo();
+    await commit("A");
+    await stage("staged.ts", "export const handler = () => {};\n");
+
+    const reviewedHash = await stagedHash();
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, stagedReviewFor(reviewedHash, "session-staged"));
+      reconcileReviewFindings(db, review.id, [candidateAt("staged.ts")]);
+    });
+
+    stagedDiff.calls = 0;
+    const summary = await getFindingSummary(diffOwlDir, { cwd: root });
+    expect(summary.openCount).toBe(1);
+    expect(stagedDiff.calls).toBe(1);
+  });
+
+  it("excludes a staged finding once one extra unrelated file is staged", async () => {
+    const { root, diffOwlDir, commit, stage, stagedHash } = await createRepo();
+    await commit("A");
+    await stage("staged.ts", "export const handler = () => {};\n");
+
+    const reviewedHash = await stagedHash();
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, stagedReviewFor(reviewedHash, "session-staged"));
+      reconcileReviewFindings(db, review.id, [candidateAt("staged.ts")]);
+    });
+
+    await stage("unrelated.ts", "export const unrelated = 1;\n");
+
+    const summary = await getFindingSummary(diffOwlDir, { cwd: root });
+    expect(summary.openCount).toBe(0);
+  });
+
+  it("excludes a staged finding once the reviewed change itself is edited and re-staged", async () => {
+    const { root, diffOwlDir, commit, stage, stagedHash } = await createRepo();
+    await commit("A");
+    await stage("staged.ts", "export const handler = () => {};\n");
+
+    const reviewedHash = await stagedHash();
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, stagedReviewFor(reviewedHash, "session-staged"));
+      reconcileReviewFindings(db, review.id, [candidateAt("staged.ts")]);
+    });
+
+    await stage("staged.ts", "export const handler = (payload: unknown) => payload;\n");
+
+    const summary = await getFindingSummary(diffOwlDir, { cwd: root });
+    expect(summary.openCount).toBe(0);
+  });
+
+  it("does not surface worktree A's staged finding in worktree B, which shares one state.db", async () => {
+    const { root, diffOwlDir, commit, stage, stagedHash } = await createRepo();
+    await commit("A");
+    await stage("staged.ts", "export const handler = () => {};\n");
+
+    const reviewedHash = await stagedHash();
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, stagedReviewFor(reviewedHash, "session-worktree-a"));
+      reconcileReviewFindings(db, review.id, [candidateAt("staged.ts")]);
+    });
+
+    const worktree = join(dirname(root), `${basename(root)}-worktree`);
+    tempRepoDirs.push(worktree);
+    await execa("git", ["worktree", "add", worktree], { cwd: root });
+
+    // Same diffOwlDir on purpose: git --git-common-dir makes state.db worktree-shared, and a null
+    // target_commit carries no worktree identity. The per-worktree staging area is the only
+    // discriminator, and it is the hash gate that reads it.
+    const inWorktreeB = await getFindingSummary(diffOwlDir, { cwd: worktree });
+    expect(inWorktreeB.openCount).toBe(0);
+
+    const inWorktreeA = await getFindingSummary(diffOwlDir, { cwd: root });
+    expect(inWorktreeA.openCount).toBe(1);
+
+    // D-04: excluded from the summary, never hidden from `diffowl findings list`.
+    const unresolved = await withFindingDatabase(diffOwlDir, listUnresolvedFindings);
+    expect(unresolved).toHaveLength(1);
+  });
+
+  it("excludes a staged finding when nothing is staged at all", async () => {
+    const { root, diffOwlDir, commit, stage, stagedHash } = await createRepo();
+    await commit("A");
+    await stage("staged.ts", "export const handler = () => {};\n");
+
+    const reviewedHash = await stagedHash();
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, stagedReviewFor(reviewedHash, "session-staged"));
+      reconcileReviewFindings(db, review.id, [candidateAt("staged.ts")]);
+    });
+
+    await execa("git", ["reset"], { cwd: root });
+
+    const summary = await getFindingSummary(diffOwlDir, { cwd: root });
+    expect(summary.openCount).toBe(0);
+  });
+
+  it("counts only the staged review whose diff hash matches the current staging area", async () => {
+    const { root, diffOwlDir, commit, stage, stagedHash } = await createRepo();
+    await commit("A");
+    await stage("staged.ts", "export const handler = () => {};\n");
+    const firstHash = await stagedHash();
+    await stage("later.ts", "export const later = 1;\n");
+    const secondHash = await stagedHash();
+    expect(secondHash).not.toBe(firstHash);
+
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const stale = insertReview(db, stagedReviewFor(firstHash, "session-stale"));
+      reconcileReviewFindings(db, stale.id, [candidateAt("staged.ts", { severity: "error" })]);
+      const current = insertReview(db, stagedReviewFor(secondHash, "session-current"));
+      reconcileReviewFindings(db, current.id, [candidateAt("later.ts", { severity: "warning" })]);
+    });
+
+    stagedDiff.calls = 0;
+    const summary = await getFindingSummary(diffOwlDir, { cwd: root });
+    expect(summary.openCount).toBe(1);
+    // The surviving finding is the matching review's warning, not the stale review's error.
+    expect(summary.topSeverity).toBe("warning");
+    expect(stagedDiff.calls).toBe(1);
+  });
+
+  it("excludes staged findings when the staged diff cannot be computed, instead of rejecting", async () => {
+    const { root, diffOwlDir, commit, stage, stagedHash } = await createRepo();
+    await commit("A");
+    await stage("staged.ts", "export const handler = () => {};\n");
+
+    const reviewedHash = await stagedHash();
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, stagedReviewFor(reviewedHash, "session-staged"));
+      reconcileReviewFindings(db, review.id, [candidateAt("staged.ts")]);
+    });
+
+    stagedDiff.failure = new Error("git diff --staged exploded");
+
+    await expect(getFindingSummary(diffOwlDir, { cwd: root })).resolves.toMatchObject({
+      openCount: 0,
+      regressedCount: 0,
+      topSeverity: null,
+    });
+  });
+
+  it("never runs git diff --staged when no staged review is on record", async () => {
+    const { root, diffOwlDir, commit } = await createRepo();
+    const a = await commit("A");
+
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, reviewFor(a, "session-committed"));
+      reconcileReviewFindings(db, review.id, [candidateAt("src/committed.ts")]);
+    });
+
+    stagedDiff.calls = 0;
+    const summary = await getFindingSummary(diffOwlDir, { cwd: root });
+    expect(summary.openCount).toBe(1);
+    expect(stagedDiff.calls).toBe(0);
+  });
+}, 20_000);
+
+describe("getFindingSummary status counting", () => {
+  it("counts a still-regressed finding whose newest observation is classified existing", async () => {
+    // The regression test for D-06's mechanism correction. finding_observations.classification is
+    // written "regressed" only on the transition-causing observation, so a classification-based
+    // count loses this finding entirely the moment it is observed again.
+    const { root, diffOwlDir, commit } = await createRepo();
+    const a = await commit("A");
+    const b = await commit("B");
+    const c = await commit("C");
+    const candidate = candidateAt("src/regressed.ts");
+
+    const latestClassification = await withFindingDatabase(diffOwlDir, (db) => {
+      const first = insertReview(db, reviewFor(a, "session-a"));
+      const [observed] = reconcileReviewFindings(db, first.id, [candidate]).observations;
+      const findingId = observed!.finding.id;
+
+      fixFinding(db, findingId, {
+        actor: "user",
+        note: "Believed fixed.",
+        verifiedBy: ["manual"],
+      });
+
+      const second = insertReview(db, reviewFor(b, "session-b"));
+      reconcileReviewFindings(db, second.id, [candidate]);
+
+      const third = insertReview(db, reviewFor(c, "session-c"));
+      reconcileReviewFindings(db, third.id, [candidate]);
+
+      expect(getFindingById(db, findingId)?.status).toBe("regressed");
+      return getLatestObservationForFinding(db, findingId)?.classification;
+    });
+
+    expect(latestClassification).toBe("existing");
+
+    const summary = await getFindingSummary(diffOwlDir, { cwd: root });
+    expect(summary.regressedCount).toBe(1);
+    expect(summary.openCount).toBe(0);
+  });
+
+  it("never counts a deferred finding, even with a reachable observation", async () => {
+    const { root, diffOwlDir, commit } = await createRepo();
+    const a = await commit("A");
+
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, reviewFor(a, "session-deferred"));
+      const [observed] = reconcileReviewFindings(db, review.id, [
+        candidateAt("src/deferred.ts"),
+      ]).observations;
+      deferFinding(db, observed!.finding.id, { actor: "user", reason: "Later." });
+    });
+
+    await expect(getFindingSummary(diffOwlDir, { cwd: root })).resolves.toMatchObject({
+      openCount: 0,
+      regressedCount: 0,
+      topSeverity: null,
+    });
+  });
+
+  it("never counts dismissed or fixed findings", async () => {
+    const { root, diffOwlDir, commit } = await createRepo();
+    const a = await commit("A");
+
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, reviewFor(a, "session-resolved"));
+      const observations = reconcileReviewFindings(db, review.id, [
+        candidateAt("src/dismissed.ts"),
+        candidateAt("src/fixed.ts"),
+      ]).observations;
+      dismissFinding(db, observations[0]!.finding.id, { actor: "user", reason: "Not a bug." });
+      fixFinding(db, observations[1]!.finding.id, {
+        actor: "user",
+        note: "Patched.",
+        verifiedBy: ["manual"],
+      });
+    });
+
+    await expect(getFindingSummary(diffOwlDir, { cwd: root })).resolves.toMatchObject({
+      openCount: 0,
+      regressedCount: 0,
+      topSeverity: null,
+    });
+  });
+
+  it("keeps openCount and regressedCount disjoint for a regressed finding", async () => {
+    const { root, diffOwlDir, commit } = await createRepo();
+    const a = await commit("A");
+    const b = await commit("B");
+
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const first = insertReview(db, reviewFor(a, "session-a"));
+      const observations = reconcileReviewFindings(db, first.id, [
+        candidateAt("src/stays-open.ts"),
+        candidateAt("src/regresses.ts"),
+      ]).observations;
+      fixFinding(db, observations[1]!.finding.id, {
+        actor: "user",
+        note: "Believed fixed.",
+        verifiedBy: ["manual"],
+      });
+
+      const second = insertReview(db, reviewFor(b, "session-b"));
+      reconcileReviewFindings(db, second.id, [
+        candidateAt("src/stays-open.ts"),
+        candidateAt("src/regresses.ts"),
+      ]);
+    });
+
+    const summary = await getFindingSummary(diffOwlDir, { cwd: root });
+    // Two findings, two observations each: the regressed one must not also land in openCount.
+    expect(summary.openCount).toBe(1);
+    expect(summary.regressedCount).toBe(1);
+  });
+
+  it("sums openCount and regressedCount to the number of distinct admitted findings", async () => {
+    const { root, diffOwlDir, commit, stage, stagedHash } = await createRepo();
+    const a = await commit("A");
+    const b = await commit("B");
+    await stage("staged.ts", "export const handler = () => {};\n");
+    const reviewedHash = await stagedHash();
+
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const first = insertReview(db, reviewFor(a, "session-a"));
+      const observations = reconcileReviewFindings(db, first.id, [
+        candidateAt("src/open-one.ts"),
+        candidateAt("src/open-two.ts"),
+        candidateAt("src/regresses.ts"),
+        candidateAt("src/deferred.ts"),
+        candidateAt("src/dismissed.ts"),
+      ]).observations;
+      fixFinding(db, observations[2]!.finding.id, {
+        actor: "user",
+        note: "Believed fixed.",
+        verifiedBy: ["manual"],
+      });
+      deferFinding(db, observations[3]!.finding.id, { actor: "user", reason: "Later." });
+      dismissFinding(db, observations[4]!.finding.id, { actor: "user", reason: "Not a bug." });
+
+      const second = insertReview(db, reviewFor(b, "session-b"));
+      reconcileReviewFindings(db, second.id, [candidateAt("src/regresses.ts")]);
+
+      const staged = insertReview(db, stagedReviewFor(reviewedHash, "session-staged"));
+      reconcileReviewFindings(db, staged.id, [candidateAt("staged.ts")]);
+    });
+
+    const summary = await getFindingSummary(diffOwlDir, { cwd: root });
+    // Every unresolved finding in this fixture is admitted: the committed ones are reachable from
+    // HEAD and the staged one still hashes to the reviewed staging area. Asserting the sum against
+    // that independently derived count keeps the property true if the fixture changes.
+    const admitted = await withFindingDatabase(diffOwlDir, listUnresolvedFindings);
+    expect(summary.openCount + summary.regressedCount).toBe(admitted.length);
+    expect(admitted.length).toBe(4);
   });
 }, 20_000);
