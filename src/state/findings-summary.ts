@@ -61,6 +61,17 @@ export interface FindingSummary {
 
 export interface FindingSummaryOptions {
   cwd?: string;
+  /**
+   * Counts every unresolved finding regardless of whether its reviews' target commits are reachable
+   * from HEAD (D-09, `findings summary --all`). Skips the reachability step entirely rather than
+   * computing it and discarding the answer — one reason the opt-out exists is that a user whose git
+   * is misbehaving can still see their findings, and running the ancestry calls anyway would
+   * preserve the exact failure this routes around.
+   *
+   * Staged rows are unaffected: D-03's diff-hash gate governs those, and a stale staged finding
+   * stays out of the summary here and remains visible through `findings list`.
+   */
+  includeUnreachable?: boolean;
 }
 
 interface SummaryRow {
@@ -138,15 +149,20 @@ async function computeFindingSummary(
     }
   }
 
-  const reachableCommits = await resolveReachableCommits(diffOwlDir, committedRows, options.cwd);
-  if (reachableCommits === null) {
-    // Empty, never partial: a summary built from staged rows alone would report a lower count than
-    // reality and read as reassuring, which is worse than reporting nothing (D-17).
-    return EMPTY_FINDING_SUMMARY;
+  const admittedRows: SummaryRow[] = [];
+  if (options.includeUnreachable) {
+    // No reachability call on this path at all — see FindingSummaryOptions.includeUnreachable for
+    // why skipping is the requirement rather than filtering with an always-true predicate.
+    admittedRows.push(...committedRows);
+  } else {
+    const reachableCommits = await resolveReachableCommits(diffOwlDir, committedRows, options.cwd);
+    if (reachableCommits === null) {
+      // Empty, never partial: a summary built from staged rows alone would report a lower count than
+      // reality and read as reassuring, which is worse than reporting nothing (D-17).
+      return EMPTY_FINDING_SUMMARY;
+    }
+    admittedRows.push(...committedRows.filter((row) => reachableCommits.has(row.targetCommit)));
   }
-  const admittedRows: SummaryRow[] = committedRows.filter((row) =>
-    reachableCommits.has(row.targetCommit),
-  );
 
   if (stagedRows.length > 0) {
     admittedRows.push(...(await admitStagedRows(diffOwlDir, stagedRows, options.cwd)));

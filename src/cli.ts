@@ -938,14 +938,17 @@ findingsCmd
   .command("summary")
   .description("Print an aggregate summary of unresolved findings reachable from HEAD")
   .option("--format <format>", "Output format: text or json", "text")
-  .action(async (options: { format?: string }) => {
+  .option("--all", "Also include findings from commits not reachable from HEAD")
+  .action(async (options: { format?: string; all?: boolean }) => {
     const format = resolveReviewOutputFormat(options.format);
     // Deliberately no loadConfigOrExit() here, unlike every sibling findings subcommand: this is
     // the command invoked automatically at session start, and exiting 1 on a missing/invalid
     // .diffowl.yml would break session start in any repo the user has not configured (D-17). This
     // command reads git and SQLite only; it needs no model and no config.
     try {
-      const summary = await getFindingSummary(await getSharedDiffOwlDir(), {});
+      const summary = await getFindingSummary(await getSharedDiffOwlDir(), {
+        includeUnreachable: options.all === true,
+      });
       writeFindingSummary(summary, format);
     } catch (error) {
       // getFindingSummary has its own fail-silent boundary, but it only covers what happens inside
