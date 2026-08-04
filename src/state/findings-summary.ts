@@ -64,9 +64,15 @@ export interface FindingSummaryOptions {
   /**
    * Counts every unresolved finding regardless of whether its reviews' target commits are reachable
    * from HEAD (D-09, `findings summary --all`). Skips the reachability step entirely rather than
-   * computing it and discarding the answer — one reason the opt-out exists is that a user whose git
-   * is misbehaving can still see their findings, and running the ancestry calls anyway would
-   * preserve the exact failure this routes around.
+   * computing it and discarding the answer, so a failure confined to *that* leg — a garbage-collected
+   * or rebased-away SHA, an unreadable object store — cannot hide findings the flag was asked to
+   * show. Running the ancestry calls anyway would preserve the exact failure this routes around.
+   *
+   * The guarantee stops there, and deliberately does not extend to git generally: the CLI resolves
+   * the shared state directory before this option is ever read, and that shells out to git too, so a
+   * git binary failing in a way `getSharedDiffOwlDir` does not recognise still degrades to the empty
+   * summary under `--all`. Narrowed here rather than widened in code, because degrading state-root
+   * resolution per-flag would give `--all` a second, divergent fail-silent path.
    *
    * Staged rows are unaffected: D-03's diff-hash gate governs those, and a stale staged finding
    * stays out of the summary here and remains visible through `findings list`.
