@@ -74,7 +74,13 @@ interface SummaryRow {
 
 type CommittedSummaryRow = SummaryRow & { targetCommit: string };
 
-const EMPTY_SUMMARY: FindingSummary = {
+/**
+ * The value every degradation in this module falls back to. Exported so the CLI's own outer
+ * fail-silent boundary can publish the same nothing-to-report document the inner legs produce,
+ * instead of restating INSPECT_COMMAND — the inspect command is part of a published JSON contract
+ * (D-08), so it must have exactly one definition.
+ */
+export const EMPTY_FINDING_SUMMARY: FindingSummary = {
   openCount: 0,
   regressedCount: 0,
   topSeverity: null,
@@ -95,7 +101,7 @@ export async function getFindingSummary(
   // materialize .diffowl/state.db in a repo where DiffOwl has never run, so this check must
   // happen before openStateDatabase (via withFindingDatabase) is ever called.
   if (!existsSync(getStateDbPath(diffOwlDir))) {
-    return EMPTY_SUMMARY;
+    return EMPTY_FINDING_SUMMARY;
   }
 
   // Outer fail-silent boundary (D-17). Every named degradation below already logs and degrades on
@@ -106,7 +112,7 @@ export async function getFindingSummary(
     return await computeFindingSummary(diffOwlDir, options);
   } catch (error) {
     await logSummaryDegradation(diffOwlDir, "unexpected failure", error);
-    return EMPTY_SUMMARY;
+    return EMPTY_FINDING_SUMMARY;
   }
 }
 
@@ -116,7 +122,7 @@ async function computeFindingSummary(
 ): Promise<FindingSummary> {
   const rows = await readUnresolvedObservationRows(diffOwlDir);
   if (rows === null || rows.length === 0) {
-    return EMPTY_SUMMARY;
+    return EMPTY_FINDING_SUMMARY;
   }
 
   // A null targetCommit means the review targeted the staging area (src/review/context.ts), so the
@@ -136,7 +142,7 @@ async function computeFindingSummary(
   if (reachableCommits === null) {
     // Empty, never partial: a summary built from staged rows alone would report a lower count than
     // reality and read as reassuring, which is worse than reporting nothing (D-17).
-    return EMPTY_SUMMARY;
+    return EMPTY_FINDING_SUMMARY;
   }
   const admittedRows: SummaryRow[] = committedRows.filter((row) =>
     reachableCommits.has(row.targetCommit),
