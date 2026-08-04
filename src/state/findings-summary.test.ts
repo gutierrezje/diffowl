@@ -779,3 +779,132 @@ describe("getFindingSummary fail-silent boundary", () => {
     });
   });
 }, 20_000);
+
+/**
+ * Ceiling for every case below. Derived from the 800ms `SUMMARY_BUSY_TIMEOUT_MS` in
+ * findings-summary.ts: a contended read either sails through or gives up when that timeout expires,
+ * so ~3.7x the bound absorbs a loaded CI scheduler without ever being reached legitimately.
+ *
+ * The upper side of the number is what makes these assertions worth writing: 3000ms sits below the
+ * 5000ms `BUSY_TIMEOUT_MS` that every other `openStateDatabase` caller inherits. If the busy-timeout
+ * option regressed to that default, the measured wait would be ~5s and these cases would fail
+ * instead of quietly passing. Verified by hand against both values before this was committed.
+ */
+const CONTENTION_CEILING_MS = 3_000;
+
+/**
+ * Floor for the one case that must genuinely block. 700ms is 100ms under the busy timeout, enough
+ * slack for timer resolution while still proving the read waited on the lock rather than failing
+ * instantly for some unrelated reason — which would make the ceiling assertion above vacuous.
+ */
+const CONTENTION_FLOOR_MS = 700;
+
+describe("getFindingSummary under database contention", () => {
+  it("is unaffected by a concurrent writer holding an open write transaction", async () => {
+    // The finding, stated as a test: in WAL mode readers do not block on writers, so the scenario
+    // D-17 was written against — the post-commit hook worker writing while session start reads —
+    // does not contend at all. This case is a regression guard on that structural property, not a
+    // demonstration of the timeout: if a future change dropped WAL, the summary would start
+    // waiting here and the ceiling would catch it.
+    const { root, diffOwlDir, commit } = await createRepo();
+    const a = await commit("A");
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, reviewFor(a, "session-writer"));
+      reconcileReviewFindings(db, review.id, [candidateAt("src/contended.ts")]);
+    });
+
+    const writer = await openSqliteDatabase(getStateDbPath(diffOwlDir));
+    try {
+      // BEGIN IMMEDIATE takes the write lock at BEGIN, so no statement is needed to hold it.
+      writer.exec("BEGIN IMMEDIATE");
+
+      const startedAt = performance.now();
+      // Populated, not empty: the read is expected to succeed outright, which is the whole point.
+      await expect(getFindingSummary(diffOwlDir, { cwd: root })).resolves.toEqual({
+        openCount: 1,
+        regressedCount: 0,
+        topSeverity: "warning",
+        inspectCommand: "diffowl findings list",
+      });
+      expect(performance.now() - startedAt).toBeLessThan(CONTENTION_CEILING_MS);
+    } finally {
+      try {
+        writer.exec("ROLLBACK");
+      } finally {
+        closeDatabaseConnection(writer, { checkpoint: false });
+      }
+    }
+  });
+
+  it("stays bounded and complete against a WAL another connection has truncated", async () => {
+    // node:sqlite is synchronous, so a checkpoint and a read cannot literally overlap inside one
+    // process; there is no in-process way to catch the summary mid-checkpoint. What this pins is
+    // the state a hook worker's close leaves behind — closeDatabaseConnection runs exactly this
+    // truncating checkpoint — with the checkpointing connection still attached to the shm.
+    const { root, diffOwlDir, commit } = await createRepo();
+    const a = await commit("A");
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, reviewFor(a, "session-checkpoint"));
+      reconcileReviewFindings(db, review.id, [candidateAt("src/checkpointed.ts")]);
+    });
+
+    const checkpointer = await openSqliteDatabase(getStateDbPath(diffOwlDir));
+    try {
+      checkpointer.pragma("wal_checkpoint(TRUNCATE)");
+
+      const startedAt = performance.now();
+      await expect(getFindingSummary(diffOwlDir, { cwd: root })).resolves.toEqual({
+        openCount: 1,
+        regressedCount: 0,
+        topSeverity: "warning",
+        inspectCommand: "diffowl findings list",
+      });
+      expect(performance.now() - startedAt).toBeLessThan(CONTENTION_CEILING_MS);
+    } finally {
+      closeDatabaseConnection(checkpointer, { checkpoint: false });
+    }
+  });
+
+  it("gives up at its own busy timeout and returns an empty summary, never a partial one", async () => {
+    const { root, diffOwlDir, commit } = await createRepo();
+    const a = await commit("A");
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, reviewFor(a, "session-locked"));
+      reconcileReviewFindings(db, review.id, [candidateAt("src/locked.ts")]);
+    });
+
+    const holder = await openSqliteDatabase(getStateDbPath(diffOwlDir));
+    try {
+      // `locking_mode = EXCLUSIVE` holds, for as long as this connection wants, the same file lock
+      // a truncating checkpoint takes for an instant. It is the deterministic stand-in for a lock
+      // whose real occurrence is a race — the database under test keeps its own WAL configuration
+      // untouched, so this manufactures the timing, not the configuration.
+      holder.pragma("locking_mode = EXCLUSIVE");
+      holder.exec("BEGIN IMMEDIATE");
+
+      const startedAt = performance.now();
+      await expect(getFindingSummary(diffOwlDir, { cwd: root })).resolves.toEqual({
+        openCount: 0,
+        regressedCount: 0,
+        topSeverity: null,
+        inspectCommand: "diffowl findings list",
+      });
+      const elapsed = performance.now() - startedAt;
+      expect(elapsed).toBeGreaterThan(CONTENTION_FLOOR_MS);
+      expect(elapsed).toBeLessThan(CONTENTION_CEILING_MS);
+
+      // Empty rather than partial is the property that matters: one finding exists and is
+      // reachable, so a summary that reported anything less than all of it — including a
+      // plausible-looking zero with a severity attached — would understate reality at exactly the
+      // moment the user is trusting it. Zero counts AND a null severity, asserted together above.
+      const log = await readDiffOwlLog(diffOwlDir);
+      expect(log).toContain("state database");
+    } finally {
+      try {
+        holder.exec("ROLLBACK");
+      } finally {
+        closeDatabaseConnection(holder, { checkpoint: false });
+      }
+    }
+  });
+}, 20_000);
