@@ -19,13 +19,29 @@ const INSPECT_COMMAND = "diffowl findings list";
  * a concurrent hook worker holds the database, this read gives up long before either bound is hit.
  * Every other caller keeps `BUSY_TIMEOUT_MS`'s 5000ms, which is fine for a command a user ran.
  *
- * Deliberately NOT paired with a Promise.race, setTimeout, or AbortSignal guard: node:sqlite's
+ * Deliberately NOT paired with a promise race, a timer, or an abort signal: node:sqlite's
  * DatabaseSync is fully synchronous, so `prepare(...).all()` blocks the main thread while SQLite
  * busy-waits internally and the event loop cannot service a timer callback while that call is in
  * flight. Such a guard would look correct in review and do nothing at runtime. The busy_timeout
  * pragma is the only in-process control that exists here.
  */
 const SUMMARY_BUSY_TIMEOUT_MS = 800;
+
+/**
+ * The bound on the other leg of the same budget. The staged gate below fires whenever any
+ * unresolved staged observation exists — common in an active repo — so a `git diff --staged` sits
+ * on the session-start path by default, and a textconv or LFS diff driver can make it take as long
+ * as it likes. `maxBuffer` in src/git/diff.ts bounds the output size, never the runtime.
+ *
+ * Matched to SUMMARY_BUSY_TIMEOUT_MS rather than derived independently: both legs are guarding the
+ * same ~1s D-17 design target, and one number is easier to keep honest than two. The pathological
+ * case where both legs time out is ~1.6s, over the soft target but comfortably inside the 5-second
+ * external kill on the hook entry that plan 01-03 installs, which is the hard bound.
+ *
+ * Unlike the busy timeout above, this one is enforced by killing a real child process, so it works
+ * — git is spawned asynchronously and the event loop is free while it runs.
+ */
+const STAGED_DIFF_TIMEOUT_MS = 800;
 
 // Duplicated locally rather than imported from src/eval/score.ts: .planning/codebase/
 // ARCHITECTURE.md places eval/ as a sibling layer to state/, so importing it here would create a
@@ -212,7 +228,7 @@ async function computeStagedDiffHash(
   cwd: string | undefined,
 ): Promise<string | null> {
   try {
-    const staged = await getStagedDiff(cwd);
+    const staged = await getStagedDiff(cwd, { timeoutMs: STAGED_DIFF_TIMEOUT_MS });
     // Must be computeDiffHash over DiffResult.raw — the same function over the same input that
     // src/state/persist.ts hashed at review time. Any renormalization here would compare two
     // different things and make the gate meaningless.

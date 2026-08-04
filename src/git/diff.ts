@@ -134,10 +134,24 @@ export async function resolveCommitRef(ref: string, cwd?: string): Promise<strin
   }
 }
 
+export interface StagedDiffOptions {
+  /**
+   * Kills the git process and rejects after this many milliseconds. Off by default, because the
+   * interactive review path should wait for whatever the repository's diff drivers need. Callers
+   * on a latency-bound path — `findings summary` at session start — must set it: a textconv or LFS
+   * diff driver can make `git diff --staged` take arbitrarily long, and `maxBuffer` bounds only the
+   * output size, never the runtime.
+   */
+  timeoutMs?: number;
+}
+
 /**
  * Get the diff for staged changes
  */
-export async function getStagedDiff(cwd?: string): Promise<DiffResult> {
+export async function getStagedDiff(
+  cwd?: string,
+  options: StagedDiffOptions = {},
+): Promise<DiffResult> {
   const raw = await collectGitDiff(
     [
       "-c",
@@ -150,6 +164,7 @@ export async function getStagedDiff(cwd?: string): Promise<DiffResult> {
       "--patch",
     ],
     cwd,
+    options.timeoutMs,
   );
   return parseDiff(raw.stdout, raw.diagnostics);
 }
@@ -157,12 +172,20 @@ export async function getStagedDiff(cwd?: string): Promise<DiffResult> {
 async function collectGitDiff(
   args: string[],
   cwd?: string,
+  timeoutMs?: number,
 ): Promise<{ stdout: string; diagnostics: string[] }> {
+  const subprocess = execa("git", args, {
+    maxBuffer: MAX_DIFF_OUTPUT_BYTES,
+    ...(cwd ? { cwd } : {}),
+    // `detached` puts git in its own process group so the backstop below can reach the diff
+    // drivers it spawned. Only on the timed path, so untimed callers keep the default group.
+    ...(timeoutMs === undefined ? {} : { timeout: timeoutMs, detached: true }),
+  });
+  const backstop =
+    timeoutMs === undefined ? undefined : scheduleProcessGroupKill(subprocess, timeoutMs);
+
   try {
-    const { stdout } = await execa("git", args, {
-      maxBuffer: MAX_DIFF_OUTPUT_BYTES,
-      ...(cwd ? { cwd } : {}),
-    });
+    const { stdout } = await subprocess;
     return { stdout, diagnostics: [] };
   } catch (err) {
     if (isMaxBufferError(err)) {
@@ -174,7 +197,36 @@ async function collectGitDiff(
       };
     }
     throw err;
+  } finally {
+    if (backstop !== undefined) clearTimeout(backstop);
   }
+}
+
+/**
+ * execa's own `timeout` signals git and nothing else, which is not enough to bound the wait: a diff
+ * driver git spawned (textconv, LFS) inherits git's stderr pipe, so it holds that pipe — and with it
+ * the `await` above — open for its full runtime even after git itself is dead. Measured against a
+ * `sleep 10` textconv driver, a 300ms execa timeout still settled at 10s.
+ *
+ * So the real bound is this: kill git's whole process group, which takes the drivers with it and
+ * closes the pipes. The grace period lets execa's timeout land first, so the caller sees an accurate
+ * "timed out" error rather than a bare SIGKILL; the group kill only cleans up what survives it.
+ */
+const PROCESS_GROUP_KILL_GRACE_MS = 250;
+
+function scheduleProcessGroupKill(subprocess: { pid?: number }, timeoutMs: number): NodeJS.Timeout {
+  const backstop = setTimeout(() => {
+    const { pid } = subprocess;
+    if (pid === undefined) return;
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      // Group already gone, or a platform without process groups. Nothing left to bound.
+    }
+  }, timeoutMs + PROCESS_GROUP_KILL_GRACE_MS);
+  // Never let the backstop hold the process open on its own.
+  backstop.unref();
+  return backstop;
 }
 
 /**
