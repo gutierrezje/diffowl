@@ -418,6 +418,46 @@ describe("diffowl findings summary", () => {
       "DiffOwl: 1 open findings, top severity warning — run `diffowl findings list`.",
     );
   });
+
+  it("exits cleanly when git itself fails in a way nothing anticipated", async () => {
+    // Session start runs this command automatically, so whatever it cannot absorb becomes the
+    // user's session. A `git` on PATH that exits with an unrecognised code — a corporate wrapper
+    // script, a half-installed git — makes resolving the shared state directory throw, which is
+    // outside getFindingSummary's own fail-silent boundary. D-17 says the command degrades to
+    // silence instead: exit 0, no output, and no stack trace in the transcript.
+    const repo = await createRepo("diffowl-cli-findings-summary-hostile-git-");
+    const binDir = await mkdtemp(join(tmpdir(), "diffowl-cli-fake-git-"));
+    tempDirs.push(binDir);
+    await writeFile(join(binDir, "git"), "#!/bin/sh\nexit 3\n", { mode: 0o755 });
+
+    const result = await execa("node", [cliPath, "findings", "summary"], {
+      cwd: repo,
+      env: { PATH: `${binDir}:${process.env["PATH"] ?? ""}` },
+      reject: false,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).not.toContain("ExecaError");
+
+    // Silent to the session, not silent to the operator: the reason lands in the same hook.log
+    // the rest of the fail-silent path writes to.
+    const log = await readFile(join(repo, ".diffowl", "hook.log"), "utf8");
+    expect(log).toContain("findings summary");
+  });
+
+  it("still reports that --format json is unavailable", async () => {
+    // The fail-silent boundary above must not swallow this: an unsupported flag is a user error on
+    // a hand-typed command, not a session-start hazard, and it keeps its nonzero exit.
+    const repo = await createRepo("diffowl-cli-findings-summary-json-");
+
+    const result = await execa("node", [cliPath, "findings", "summary", "--format", "json"], {
+      cwd: repo,
+      reject: false,
+    });
+
+    expect(result.exitCode).toBe(1);
+  });
 });
 
 describe("diffowl agent-hook install", () => {
