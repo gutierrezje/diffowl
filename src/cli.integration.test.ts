@@ -418,6 +418,56 @@ describe("diffowl findings summary", () => {
       "DiffOwl: 1 open findings, top severity warning — run `diffowl findings list`.",
     );
   });
+
+  // POSIX only, and only because of how the hostile git is staged: the fixture is an extensionless
+  // `git` shell script on PATH, and Windows resolves executables through PATHEXT, so a file named
+  // `git` with no extension is never run as `git` there. The hostile git simply never happens, the
+  // command succeeds, and the assertions below have nothing to observe (CI saw this as an ENOENT
+  // opening hook.log). That is a limit of the fixture, not of the boundary under test — the
+  // boundary is platform-independent, and restoring this coverage on Windows means adding a
+  // PATHEXT-visible `git.cmd` alongside the shell script, not changing src/cli.ts.
+  it.skipIf(process.platform === "win32")(
+    "exits cleanly when git itself fails in a way nothing anticipated",
+    async () => {
+      // Session start runs this command automatically, so whatever it cannot absorb becomes the
+      // user's session. A `git` on PATH that exits with an unrecognised code — a corporate wrapper
+      // script, a half-installed git — makes resolving the shared state directory throw, which is
+      // outside getFindingSummary's own fail-silent boundary. D-17 says the command degrades to
+      // silence instead: exit 0, no output, and no stack trace in the transcript.
+      const repo = await createRepo("diffowl-cli-findings-summary-hostile-git-");
+      const binDir = await mkdtemp(join(tmpdir(), "diffowl-cli-fake-git-"));
+      tempDirs.push(binDir);
+      await writeFile(join(binDir, "git"), "#!/bin/sh\nexit 3\n", { mode: 0o755 });
+
+      const result = await execa("node", [cliPath, "findings", "summary"], {
+        cwd: repo,
+        env: { PATH: `${binDir}:${process.env["PATH"] ?? ""}` },
+        reject: false,
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).not.toContain("ExecaError");
+
+      // Silent to the session, not silent to the operator: the reason lands in the same hook.log
+      // the rest of the fail-silent path writes to.
+      const log = await readFile(join(repo, ".diffowl", "hook.log"), "utf8");
+      expect(log).toContain("findings summary");
+    },
+  );
+
+  it("still reports that --format json is unavailable", async () => {
+    // The fail-silent boundary above must not swallow this: an unsupported flag is a user error on
+    // a hand-typed command, not a session-start hazard, and it keeps its nonzero exit.
+    const repo = await createRepo("diffowl-cli-findings-summary-json-");
+
+    const result = await execa("node", [cliPath, "findings", "summary", "--format", "json"], {
+      cwd: repo,
+      reject: false,
+    });
+
+    expect(result.exitCode).toBe(1);
+  });
 });
 
 describe("diffowl agent-hook install", () => {

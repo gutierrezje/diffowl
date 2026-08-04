@@ -8,6 +8,7 @@ import {
   loadConfig,
   saveConfig,
   configExists,
+  getDiffOwlDir,
   getProjectRoot,
   parseModel,
   parseReviewContextDepth,
@@ -87,7 +88,11 @@ import {
   requireFindingDetail,
   withFindingDatabase,
 } from "./state/findings-query.js";
-import { getFindingSummary, hasReportableFindings } from "./state/findings-summary.js";
+import {
+  getFindingSummary,
+  hasReportableFindings,
+  logSummaryDegradation,
+} from "./state/findings-summary.js";
 import { InvalidFindingTransitionError } from "./state/db.js";
 import type { SqliteDatabase } from "./state/sqlite.js";
 import type { FindingActor } from "./state/types.js";
@@ -734,9 +739,7 @@ hookCmd
     console.log(chalk.dim(`Hook Node: ${await describeNodeRuntime(command.node)}`));
     console.log(chalk.dim(`Hook Entrypoint: ${command.cli}`));
     console.log(chalk.dim("Reviews will run automatically after each commit (non-blocking)"));
-    console.log(
-      chalk.dim("Hook output: .diffowl/hook.log; reports: .diffowl/reviews/"),
-    );
+    console.log(chalk.dim("Hook output: .diffowl/hook.log; reports: .diffowl/reviews/"));
   });
 
 hookCmd
@@ -936,18 +939,41 @@ findingsCmd
     const format = resolveReviewOutputFormat(options.format);
     if (format === "json") {
       // JSON projection lands in a later plan behind a decision checkpoint (D-08).
-      failFindingsCommand(format, new Error("findings summary --format json is not available yet."));
+      failFindingsCommand(
+        format,
+        new Error("findings summary --format json is not available yet."),
+      );
     }
     // Deliberately no loadConfigOrExit() here, unlike every sibling findings subcommand: this is
     // the command invoked automatically at session start, and exiting 1 on a missing/invalid
     // .diffowl.yml would break session start in any repo the user has not configured (D-17). This
     // command reads git and SQLite only; it needs no model and no config.
-    const summary = await getFindingSummary(await getSharedDiffOwlDir(), {});
-    if (!hasReportableFindings(summary)) {
-      return;
+    try {
+      const summary = await getFindingSummary(await getSharedDiffOwlDir(), {});
+      if (!hasReportableFindings(summary)) {
+        return;
+      }
+      console.log(formatFindingSummaryLine(summary));
+    } catch (error) {
+      // getFindingSummary has its own fail-silent boundary, but it only covers what happens inside
+      // it. This one covers the rest of the action — resolving the shared state directory (which
+      // shells out to git, and throws on any git failure it does not recognise), rendering, and the
+      // write itself — so that no path out of a session-start command is a non-zero exit.
+      await reportSummaryFailure(error);
     }
-    console.log(formatFindingSummaryLine(summary));
   });
+
+/** Never throws: its whole purpose is to be safe to call from the session-start path. */
+async function reportSummaryFailure(error: unknown): Promise<void> {
+  try {
+    // getDiffOwlDir() is the checkout-local path rather than the shared one, because the shared
+    // lookup is itself a thing that can fail here. It also never creates anything, so an unwritable
+    // or absent directory loses the line instead of leaving state behind in an unused repo.
+    await logSummaryDegradation(getDiffOwlDir(), "findings summary could not run", error);
+  } catch {
+    // Nowhere left to report to. Silence is the contract.
+  }
+}
 
 findingsCmd
   .command("show")

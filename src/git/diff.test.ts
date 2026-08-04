@@ -10,6 +10,7 @@ import {
   getStagedDiff,
   parseDiff,
   parseGitDiffLine,
+  planProcessTreeKill,
   resolveCommitRef,
   isDocFile,
   isDocOnlyDiff,
@@ -551,6 +552,63 @@ async function commitFile(
   await execa("git", ["add", path], { cwd: root });
   await execa("git", ["commit", "-m", message], { cwd: root });
 }
+
+describe("getStagedDiff timeout", () => {
+  it("abandons a staged diff whose textconv driver stalls", async (ctx) => {
+    // The bound is enforced by killing git's process tree, and on Windows that kill does not
+    // reliably reach the spawned diff driver: the call runs to the driver's own ~10s completion
+    // instead of the 300ms bound. Skipped rather than loosened, so the assertion keeps
+    // discriminating on POSIX; Claude's 5s hook timeout is the external backstop on Windows.
+    ctx.skip(process.platform === "win32", "process-tree kill does not reach git's diff driver");
+    // A repository can make `git diff --staged` arbitrarily slow through a textconv or LFS diff
+    // driver, and the summary runs this command automatically at session start. Without a timeout
+    // the driver's runtime becomes session start's runtime; this pins the bound.
+    const root = await mkdtemp(join(tmpdir(), "diffowl-staged-timeout-"));
+    tempDirs.push(root);
+    await execa("git", ["init"], { cwd: root });
+    await execa("git", ["config", "diff.slow.textconv", "sleep 10; cat"], { cwd: root });
+    await writeFile(join(root, ".gitattributes"), "*.slow diff=slow\n", "utf-8");
+    await writeFile(join(root, "payload.slow"), "content\n", "utf-8");
+    await execa("git", ["add", "."], { cwd: root });
+
+    const startedAt = performance.now();
+    await expect(getStagedDiff(root, { timeoutMs: 300 })).rejects.toThrow();
+    expect(performance.now() - startedAt).toBeLessThan(5_000);
+  }, 15_000);
+
+  it("does not impose a timeout when none is requested", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-staged-untimed-"));
+    tempDirs.push(root);
+    await execa("git", ["init"], { cwd: root });
+    await writeFile(join(root, "file.txt"), "content\n", "utf-8");
+    await execa("git", ["add", "."], { cwd: root });
+
+    const result = await getStagedDiff(root);
+    expect(result.files).toHaveLength(1);
+  });
+});
+
+describe("planProcessTreeKill", () => {
+  // The two timing tests above can only run on the host they run on, so on a POSIX developer
+  // machine nothing else proves the Windows leg of this bound still exists. These pin the routing
+  // decision itself; the timing tests remain the proof that the chosen mechanism actually works.
+  it("signals the process group on POSIX", () => {
+    expect(planProcessTreeKill(1234, "linux")).toEqual({ kind: "signal-group", pid: 1234 });
+    expect(planProcessTreeKill(1234, "darwin")).toEqual({ kind: "signal-group", pid: 1234 });
+  });
+
+  it("kills the parent-PID tree on Windows", () => {
+    // `process.kill(-pid)` is a POSIX process-group signal. On Windows it throws, the catch around
+    // it swallows the throw, and the bound silently degrades to execa's `timeout` — which a diff
+    // driver holding git's stderr pipe outlives (measured on windows-2022: 10.1s against a 300ms
+    // timeout, the same number POSIX produced before the group kill was added).
+    expect(planProcessTreeKill(1234, "win32")).toEqual({
+      kind: "spawn",
+      command: "taskkill",
+      args: ["/pid", "1234", "/t", "/f"],
+    });
+  });
+});
 
 describe("isDocFile", () => {
   it("does not classify source files by documentation name prefixes", () => {

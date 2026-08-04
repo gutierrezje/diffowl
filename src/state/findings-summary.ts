@@ -1,13 +1,47 @@
 import { existsSync } from "node:fs";
+import { appendFile } from "node:fs/promises";
+import { join } from "node:path";
 import { getStagedDiff } from "../git/diff.js";
 import { filterReachableCommits } from "../git/reachability.js";
-import { getStateDbPath } from "./db.js";
-import { withFindingDatabase } from "./findings-query.js";
+import { closeStateDatabase, getStateDbPath, openStateDatabaseForRead } from "./db.js";
 import { computeDiffHash } from "./persist.js";
 import type { SqliteDatabase } from "./sqlite.js";
 import type { FindingStatus, ReviewSeverity } from "./types.js";
 
 const INSPECT_COMMAND = "diffowl findings list";
+
+/**
+ * The only in-process bound that exists on this read.
+ *
+ * D-17 gives the whole summary a budget of roughly one second, and plan 01-03 installs the Claude
+ * SessionStart entry with a 5-second external timeout as the outer backstop. 800ms sits comfortably
+ * under the inner budget while leaving room for the git legs, and well under the outer one — so if
+ * a concurrent hook worker holds the database, this read gives up long before either bound is hit.
+ * Every other caller keeps `BUSY_TIMEOUT_MS`'s 5000ms, which is fine for a command a user ran.
+ *
+ * Deliberately NOT paired with a promise race, a timer, or an abort signal: node:sqlite's
+ * DatabaseSync is fully synchronous, so `prepare(...).all()` blocks the main thread while SQLite
+ * busy-waits internally and the event loop cannot service a timer callback while that call is in
+ * flight. Such a guard would look correct in review and do nothing at runtime. The busy_timeout
+ * pragma is the only in-process control that exists here.
+ */
+const SUMMARY_BUSY_TIMEOUT_MS = 800;
+
+/**
+ * The bound on the other leg of the same budget. The staged gate below fires whenever any
+ * unresolved staged observation exists — common in an active repo — so a `git diff --staged` sits
+ * on the session-start path by default, and a textconv or LFS diff driver can make it take as long
+ * as it likes. `maxBuffer` in src/git/diff.ts bounds the output size, never the runtime.
+ *
+ * Matched to SUMMARY_BUSY_TIMEOUT_MS rather than derived independently: both legs are guarding the
+ * same ~1s D-17 design target, and one number is easier to keep honest than two. The pathological
+ * case where both legs time out is ~1.6s, over the soft target but comfortably inside the 5-second
+ * external kill on the hook entry that plan 01-03 installs, which is the hard bound.
+ *
+ * Unlike the busy timeout above, this one is enforced by killing a real child process, so it works
+ * — git is spawned asynchronously and the event loop is free while it runs.
+ */
+const STAGED_DIFF_TIMEOUT_MS = 800;
 
 // Duplicated locally rather than imported from src/eval/score.ts: .planning/codebase/
 // ARCHITECTURE.md places eval/ as a sibling layer to state/, so importing it here would create a
@@ -64,8 +98,24 @@ export async function getFindingSummary(
     return EMPTY_SUMMARY;
   }
 
-  const rows = await withFindingDatabase(diffOwlDir, queryUnresolvedObservationRows);
-  if (rows.length === 0) {
+  // Outer fail-silent boundary (D-17). Every named degradation below already logs and degrades on
+  // its own; this catch exists for the unnamed ones, because the caller at session start is a hook
+  // whose non-zero exit puts an error in front of the user at exactly the moment D-17 protects.
+  // Nothing thrown from here may reach that caller.
+  try {
+    return await computeFindingSummary(diffOwlDir, options);
+  } catch (error) {
+    await logSummaryDegradation(diffOwlDir, "unexpected failure", error);
+    return EMPTY_SUMMARY;
+  }
+}
+
+async function computeFindingSummary(
+  diffOwlDir: string,
+  options: FindingSummaryOptions,
+): Promise<FindingSummary> {
+  const rows = await readUnresolvedObservationRows(diffOwlDir);
+  if (rows === null || rows.length === 0) {
     return EMPTY_SUMMARY;
   }
 
@@ -82,19 +132,64 @@ export async function getFindingSummary(
     }
   }
 
-  const reachableCommits = await filterReachableCommits(
-    committedRows.map((row) => row.targetCommit),
-    options.cwd,
-  );
+  const reachableCommits = await resolveReachableCommits(diffOwlDir, committedRows, options.cwd);
+  if (reachableCommits === null) {
+    // Empty, never partial: a summary built from staged rows alone would report a lower count than
+    // reality and read as reassuring, which is worse than reporting nothing (D-17).
+    return EMPTY_SUMMARY;
+  }
   const admittedRows: SummaryRow[] = committedRows.filter((row) =>
     reachableCommits.has(row.targetCommit),
   );
 
   if (stagedRows.length > 0) {
-    admittedRows.push(...(await admitStagedRows(stagedRows, options.cwd)));
+    admittedRows.push(...(await admitStagedRows(diffOwlDir, stagedRows, options.cwd)));
   }
 
   return summarizeRows(admittedRows);
+}
+
+async function readUnresolvedObservationRows(diffOwlDir: string): Promise<SummaryRow[] | null> {
+  try {
+    // Deliberately not withFindingDatabase: that helper is shared by six write-capable commands and
+    // routes through openStateDatabase, which creates the directory and migrates the schema. This
+    // path needs the read-only open and the two options below, and widening the shared helper to
+    // carry them would change behavior for callers that have no reason to want it.
+    const state = await openStateDatabaseForRead(diffOwlDir, {
+      busyTimeoutMs: SUMMARY_BUSY_TIMEOUT_MS,
+    });
+    try {
+      return queryUnresolvedObservationRows(state.db);
+    } finally {
+      // Nothing was written, so there is nothing to checkpoint — and the truncating checkpoint
+      // takes an exclusive lock, which would make this read's close the very stall D-17 forbids.
+      closeStateDatabase(state, { checkpoint: false });
+    }
+  } catch (error) {
+    // Corrupt file, unreadable file, or a schema this build cannot serve. All of them mean the
+    // summary has nothing trustworthy to report, and none of them may break session start.
+    await logSummaryDegradation(diffOwlDir, "state database could not be read", error);
+    return null;
+  }
+}
+
+async function resolveReachableCommits(
+  diffOwlDir: string,
+  committedRows: readonly CommittedSummaryRow[],
+  cwd: string | undefined,
+): Promise<Set<string> | null> {
+  try {
+    return await filterReachableCommits(
+      committedRows.map((row) => row.targetCommit),
+      cwd,
+    );
+  } catch (error) {
+    // filterReachableCommits already folds git's own failure modes (exit 1 and exit 128) into
+    // "not reachable", so reaching this catch means git broke its documented exit-code contract or
+    // could not be spawned at all. Surfacing it as a rejection is what D-17 forbids.
+    await logSummaryDegradation(diffOwlDir, "reachability check failed", error);
+    return null;
+  }
 }
 
 /**
@@ -117,28 +212,88 @@ export async function getFindingSummary(
  * be the whole D-17 budget.
  */
 async function admitStagedRows(
+  diffOwlDir: string,
   stagedRows: readonly SummaryRow[],
   cwd: string | undefined,
 ): Promise<SummaryRow[]> {
-  const stagedHash = await computeStagedDiffHash(cwd);
+  const stagedHash = await computeStagedDiffHash(diffOwlDir, cwd);
   if (stagedHash === null) {
     return [];
   }
   return stagedRows.filter((row) => row.diffHash === stagedHash);
 }
 
-async function computeStagedDiffHash(cwd: string | undefined): Promise<string | null> {
+async function computeStagedDiffHash(
+  diffOwlDir: string,
+  cwd: string | undefined,
+): Promise<string | null> {
   try {
-    const staged = await getStagedDiff(cwd);
+    const staged = await getStagedDiff(cwd, { timeoutMs: STAGED_DIFF_TIMEOUT_MS });
     // Must be computeDiffHash over DiffResult.raw — the same function over the same input that
     // src/state/persist.ts hashed at review time. Any renormalization here would compare two
     // different things and make the gate meaningless.
     return computeDiffHash(staged.raw);
-  } catch {
+  } catch (error) {
     // Fail closed, not loud: D-03 states that if the staged diff cannot be produced inside the
-    // budget, D-17 wins and nothing is injected. Excluding is the safe direction, and the findings
-    // remain visible via `diffowl findings list` (D-04).
+    // budget, D-17 wins and nothing is injected. Excluding is the safe direction.
+    //
+    // Logged rather than swallowed for a reason specific to this gate. D-04's mitigation for an
+    // excluded finding is "still visible via `diffowl findings list`", and that mitigation does not
+    // reach the consumer this path exists for: an agent at session start sees the summary and
+    // nothing else, so a silent exclusion here is indistinguishable from a clean repository. The
+    // log is the diagnostic channel, and it is structurally incapable of breaking session start
+    // because logDegradation never rejects (see its own catch).
+    await logSummaryDegradation(diffOwlDir, "staged diff unavailable", error);
     return null;
+  }
+}
+
+/**
+ * The one place a degradation inside the summary path becomes visible. Appends to the same
+ * `.diffowl/hook.log` the post-commit hook path already writes to, so there is a single place to
+ * look. `.planning/codebase/CONCERNS.md` flags ~20 silent catch blocks as a known defect, and D-17
+ * calls out logging specifically so this does not become the twenty-first.
+ *
+ * Two properties are load-bearing:
+ *
+ * 1. It never rejects. A diagnostic channel that can throw would reintroduce exactly the
+ *    session-start failure the fail-silent boundary exists to prevent.
+ * 2. It never creates a directory. The callers inside this module run after the
+ *    `existsSync(getStateDbPath(...))` short-circuit, so `diffOwlDir` provably exists by then;
+ *    appending (rather than ensuring the directory first) keeps it impossible for logging to
+ *    violate the no-state-from-a-read property. The CLI caller has no such guarantee, and relies
+ *    on the same rule from the other side: a missing directory loses the line, it does not create
+ *    one in a repository the user never ran DiffOwl in.
+ */
+export async function logSummaryDegradation(
+  diffOwlDir: string,
+  reason: string,
+  error: unknown,
+): Promise<void> {
+  const message = describeSummaryError(error);
+  try {
+    await appendFile(
+      join(diffOwlDir, "hook.log"),
+      `diffowl: findings summary degraded at ${new Date().toISOString()} — ${reason}: ${message}\n`,
+      "utf-8",
+    );
+  } catch {
+    // The one swallow D-17 permits: if the log itself cannot be written there is nowhere left to
+    // report to, and failing here would defeat the boundary this function serves.
+  }
+}
+
+/**
+ * Coercing an arbitrary caught value is itself fallible — a throwing `toString`, or an `Error`
+ * whose `message` is a throwing getter — and `logSummaryDegradation` promises never to reject.
+ * Falling back to a placeholder rather than rethrowing keeps the reason, which is the half of the
+ * line that actually identifies the failure, in the log.
+ */
+function describeSummaryError(error: unknown): string {
+  try {
+    return error instanceof Error ? error.message : String(error);
+  } catch {
+    return "<error value could not be stringified>";
   }
 }
 

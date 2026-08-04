@@ -1,12 +1,16 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { execa } from "execa";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { removeTempDir } from "../test/helpers.js";
 import { getStagedDiff } from "../git/diff.js";
-import { getFindingSummary } from "./findings-summary.js";
+import { applyMigrations, closeDatabaseConnection, getStateDbPath } from "./db.js";
+import { MIGRATION_001_INITIAL_SCHEMA } from "./migrations/001-initial-schema.js";
+import { openSqliteDatabase } from "./sqlite.js";
+import { getFindingSummary, logSummaryDegradation } from "./findings-summary.js";
 import { listUnresolvedFindings, withFindingDatabase } from "./findings-query.js";
 import { deferFinding, dismissFinding, fixFinding } from "./lifecycle.js";
 import { computeDiffHash } from "./persist.js";
@@ -20,21 +24,52 @@ import type { FindingCandidate, InsertReviewInput } from "./types.js";
 // Delegates to the real getStagedDiff while counting calls and allowing failure injection, so the
 // "at most one git diff per summary" and "a diff failure excludes rather than throws" properties
 // can be asserted without stubbing git itself.
-const stagedDiff = vi.hoisted(() => ({ calls: 0, failure: null as Error | null }));
+const stagedDiff = vi.hoisted(() => ({
+  calls: 0,
+  failure: null as Error | null,
+  lastOptions: null as { timeoutMs?: number } | null,
+}));
 
 vi.mock("../git/diff.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../git/diff.js")>();
   return {
     ...actual,
-    getStagedDiff: async (cwd?: string) => {
+    getStagedDiff: async (cwd?: string, options?: { timeoutMs?: number }) => {
       stagedDiff.calls++;
+      stagedDiff.lastOptions = options ?? null;
       if (stagedDiff.failure) {
         throw stagedDiff.failure;
       }
-      return actual.getStagedDiff(cwd);
+      return actual.getStagedDiff(cwd, options);
     },
   };
 });
+
+// Same seam for the reachability leg: the only inputs that make filterReachableCommits throw are
+// git exit codes git does not produce (src/git/reachability.ts), so a real repository cannot
+// reproduce that branch. Injecting the failure here tests the fail-silent boundary itself rather
+// than a scenario that never reaches it.
+const reachability = vi.hoisted(() => ({ failure: null as Error | null }));
+
+vi.mock("../git/reachability.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../git/reachability.js")>();
+  return {
+    ...actual,
+    filterReachableCommits: async (candidates: readonly string[], cwd?: string) => {
+      if (reachability.failure) {
+        throw reachability.failure;
+      }
+      return actual.filterReachableCommits(candidates, cwd);
+    },
+  };
+});
+
+// Read through a function rather than inline: a test that resets `lastOptions` to null narrows the
+// property to `null` for the rest of its block, and control-flow analysis cannot know that the
+// getFindingSummary call in between rewrote it.
+function lastStagedDiffOptions(): { timeoutMs?: number } | null {
+  return stagedDiff.lastOptions;
+}
 
 const gitIdentity = ["-c", "user.name=DiffOwl Test", "-c", "user.email=diffowl@example.test"];
 
@@ -44,6 +79,8 @@ let tempStateDirs: string[] = [];
 afterEach(async () => {
   stagedDiff.calls = 0;
   stagedDiff.failure = null;
+  stagedDiff.lastOptions = null;
+  reachability.failure = null;
   await Promise.all(tempStateDirs.map((dir) => removeTempStateDir(dir)));
   tempStateDirs = [];
   await Promise.all(tempRepoDirs.map((dir) => removeTempDir(dir)));
@@ -93,6 +130,16 @@ async function createRepo(): Promise<RepoFixture> {
   const stagedHash = async (): Promise<string> => computeDiffHash((await getStagedDiff(root)).raw);
 
   return { root, diffOwlDir, commit, currentBranch, stage, stagedHash };
+}
+
+// D-17 requires every degradation to state a reason rather than be swallowed, so the log is part
+// of the observable contract, not incidental output.
+async function readDiffOwlLog(diffOwlDir: string): Promise<string> {
+  try {
+    return await readFile(join(diffOwlDir, "hook.log"), "utf-8");
+  } catch {
+    return "";
+  }
 }
 
 function candidateAt(file: string, overrides: Partial<FindingCandidate> = {}): FindingCandidate {
@@ -388,6 +435,35 @@ describe("getFindingSummary staged-review gate", () => {
       regressedCount: 0,
       topSeverity: null,
     });
+
+    // The exclusion is deliberate (D-03 yields to D-17), but an agent only ever sees the summary,
+    // so D-04's "still visible via findings list" mitigation does not reach it. The log is the
+    // diagnostic channel that closes that gap without being able to break session start.
+    const log = await readDiffOwlLog(diffOwlDir);
+    expect(log).toContain("findings summary");
+    expect(log).toContain("staged diff");
+    expect(log).toContain("git diff --staged exploded");
+  });
+
+  it("bounds the staged diff with an explicit sub-second timeout", async () => {
+    const { root, diffOwlDir, commit, stage, stagedHash } = await createRepo();
+    await commit("A");
+    await stage("staged.ts", "export const handler = () => {};\n");
+
+    const reviewedHash = await stagedHash();
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, stagedReviewFor(reviewedHash, "session-staged"));
+      reconcileReviewFindings(db, review.id, [candidateAt("staged.ts")]);
+    });
+
+    stagedDiff.lastOptions = null;
+    await getFindingSummary(diffOwlDir, { cwd: root });
+
+    // The gate fires whenever any unresolved staged observation exists, which in an active repo is
+    // most of the time, so this shell-out sits on the session-start path by default. It must carry
+    // a bound of its own rather than inheriting only the 5s external hook kill.
+    expect(lastStagedDiffOptions()?.timeoutMs).toBeGreaterThan(0);
+    expect(lastStagedDiffOptions()?.timeoutMs).toBeLessThan(1_000);
   });
 
   it("never runs git diff --staged when no staged review is on record", async () => {
@@ -557,5 +633,309 @@ describe("getFindingSummary status counting", () => {
     const admitted = await withFindingDatabase(diffOwlDir, listUnresolvedFindings);
     expect(summary.openCount + summary.regressedCount).toBe(admitted.length);
     expect(admitted.length).toBe(4);
+  });
+}, 20_000);
+
+describe("getFindingSummary fail-silent boundary", () => {
+  it("leaves no state.db and no .diffowl directory behind when DiffOwl has never run", async () => {
+    // Service-level regression guard on the short-circuit plan 01-01 installed. The CLI-level
+    // assertion in cli.integration.test.ts covers the same property, and both are kept because
+    // they fail differently: this one pins the guard's position inside getFindingSummary, that one
+    // pins the shipped command's observable behavior.
+    const { root, commit } = await createRepo();
+    await commit("A");
+    // A path under the repo that DiffOwl has never written to, so the guard is exercised against
+    // a genuinely absent directory rather than only an absent file.
+    const untouched = join(root, "never-ran", ".diffowl");
+
+    await expect(getFindingSummary(untouched, { cwd: root })).resolves.toEqual({
+      openCount: 0,
+      regressedCount: 0,
+      topSeverity: null,
+      inspectCommand: "diffowl findings list",
+    });
+
+    expect(existsSync(getStateDbPath(untouched))).toBe(false);
+    expect(existsSync(untouched)).toBe(false);
+  });
+
+  it("returns the empty summary and logs a reason when state.db cannot be opened", async () => {
+    const { root, diffOwlDir, commit } = await createRepo();
+    await commit("A");
+    await writeFile(getStateDbPath(diffOwlDir), "this is not a SQLite database\n", "utf-8");
+
+    await expect(getFindingSummary(diffOwlDir, { cwd: root })).resolves.toEqual({
+      openCount: 0,
+      regressedCount: 0,
+      topSeverity: null,
+      inspectCommand: "diffowl findings list",
+    });
+
+    const log = await readDiffOwlLog(diffOwlDir);
+    expect(log).toContain("findings summary");
+    expect(log).toContain("state database");
+  });
+
+  it("refuses an older-schema state database instead of migrating the one it only reads", async () => {
+    const { root, diffOwlDir, commit } = await createRepo();
+    await commit("A");
+    const db = await openSqliteDatabase(getStateDbPath(diffOwlDir));
+    applyMigrations(db, 1, { 1: MIGRATION_001_INITIAL_SCHEMA });
+    closeDatabaseConnection(db, { checkpoint: false });
+
+    await expect(getFindingSummary(diffOwlDir, { cwd: root })).resolves.toEqual({
+      openCount: 0,
+      regressedCount: 0,
+      topSeverity: null,
+      inspectCommand: "diffowl findings list",
+    });
+
+    // The property under test is the absence of a side effect: `findings summary` is invoked
+    // automatically at session start, so upgrading the user's schema in place would be a write
+    // nobody asked for, performed by a command that claims only to read.
+    const after = await openSqliteDatabase(getStateDbPath(diffOwlDir));
+    try {
+      expect(after.prepare("SELECT MAX(version) AS v FROM schema_migrations").get()).toEqual({
+        v: 1,
+      });
+    } finally {
+      closeDatabaseConnection(after, { checkpoint: false });
+    }
+
+    const log = await readDiffOwlLog(diffOwlDir);
+    expect(log).toContain("state database");
+  });
+
+  it("returns the empty summary and logs a reason when the reachability check fails", async () => {
+    const { root, diffOwlDir, commit } = await createRepo();
+    const a = await commit("A");
+
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, reviewFor(a, "session-reachability"));
+      reconcileReviewFindings(db, review.id, [candidateAt("src/reachable.ts")]);
+    });
+
+    reachability.failure = new Error("git merge-base --is-ancestor exited 77");
+
+    await expect(getFindingSummary(diffOwlDir, { cwd: root })).resolves.toEqual({
+      openCount: 0,
+      regressedCount: 0,
+      topSeverity: null,
+      inspectCommand: "diffowl findings list",
+    });
+
+    const log = await readDiffOwlLog(diffOwlDir);
+    expect(log).toContain("findings summary");
+    expect(log).toContain("reachability");
+    expect(log).toContain("exited 77");
+  });
+
+  it("degrades to the empty summary rather than waiting on a stalled staged diff", async (ctx) => {
+    // See the matching skip in src/git/diff.test.ts: the 800ms bound relies on killing git's
+    // process tree, which on Windows does not reach the spawned diff driver, so this would run to
+    // the driver's own ~10s completion. Verified on POSIX; the Windows gap is a tracked follow-up.
+    ctx.skip(process.platform === "win32", "process-tree kill does not reach git's diff driver");
+    const { root, diffOwlDir, commit, stage, stagedHash } = await createRepo();
+    await commit("A");
+    await stage("staged.ts", "export const handler = () => {};\n");
+
+    const reviewedHash = await stagedHash();
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, stagedReviewFor(reviewedHash, "session-staged"));
+      reconcileReviewFindings(db, review.id, [candidateAt("staged.ts")]);
+    });
+
+    // A textconv driver is the cheapest faithful stand-in for the real hazard (LFS and other
+    // custom diff drivers behave the same way): it makes `git diff --staged` take as long as it
+    // likes, and without a bound that runtime becomes session start's runtime.
+    await execa("git", ["config", "diff.slow.textconv", "sleep 10; cat"], { cwd: root });
+    await writeFile(join(root, ".gitattributes"), "*.slow diff=slow\n", "utf-8");
+    await writeFile(join(root, "payload.slow"), "content\n", "utf-8");
+    await execa("git", ["add", "."], { cwd: root });
+
+    const startedAt = performance.now();
+    await expect(getFindingSummary(diffOwlDir, { cwd: root })).resolves.toEqual({
+      openCount: 0,
+      regressedCount: 0,
+      topSeverity: null,
+      inspectCommand: "diffowl findings list",
+    });
+    // Ceiling well below the driver's 10s sleep: the assertion is that the bound fired at all, not
+    // that it fired at a precise moment, so it stays insensitive to loaded-CI scheduling.
+    expect(performance.now() - startedAt).toBeLessThan(5_000);
+
+    const log = await readDiffOwlLog(diffOwlDir);
+    expect(log).toContain("staged diff");
+  }, 20_000);
+
+  it("returns the empty summary when invoked from outside any git repository", async () => {
+    // git dies with exit 128 here, which reachability.ts folds into "not reachable" rather than
+    // throwing (D-04). Asserted as a distinct case from the injected failure above because the two
+    // travel different paths to the same empty summary.
+    const { diffOwlDir, commit } = await createRepo();
+    const a = await commit("A");
+    const outsideRepo = await realpath(await mkdtemp(join(tmpdir(), "diffowl-not-a-repo-")));
+    tempRepoDirs.push(outsideRepo);
+
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, reviewFor(a, "session-outside"));
+      reconcileReviewFindings(db, review.id, [candidateAt("src/outside.ts")]);
+    });
+
+    await expect(getFindingSummary(diffOwlDir, { cwd: outsideRepo })).resolves.toEqual({
+      openCount: 0,
+      regressedCount: 0,
+      topSeverity: null,
+      inspectCommand: "diffowl findings list",
+    });
+  });
+
+  it("logs a degradation whose error cannot be stringified rather than rejecting", async () => {
+    const { diffOwlDir } = await createRepo();
+    // The diagnostic channel is called from inside `getFindingSummary`'s outer catch, so if it can
+    // reject the rejection escapes the boundary and reaches session start — the one failure this
+    // whole module exists to prevent. Coercing the caught value is the only step that can throw,
+    // so it belongs inside the try. Defensive rather than currently reachable: execa and
+    // node:sqlite throw Error instances. Raised by CodeRabbit on PR #64.
+    const unstringifiable = {
+      toString(): string {
+        throw new Error("hostile toString");
+      },
+    };
+
+    await expect(
+      logSummaryDegradation(diffOwlDir, "hostile error value", unstringifiable),
+    ).resolves.toBeUndefined();
+
+    expect(await readDiffOwlLog(diffOwlDir)).toContain("hostile error value");
+  });
+}, 20_000);
+
+/**
+ * Ceiling for every case below. Derived from the 800ms `SUMMARY_BUSY_TIMEOUT_MS` in
+ * findings-summary.ts: a contended read either sails through or gives up when that timeout expires,
+ * so ~3.7x the bound absorbs a loaded CI scheduler without ever being reached legitimately.
+ *
+ * The upper side of the number is what makes these assertions worth writing: 3000ms sits below the
+ * 5000ms `BUSY_TIMEOUT_MS` that every other `openStateDatabase` caller inherits. If the busy-timeout
+ * option regressed to that default, the measured wait would be ~5s and these cases would fail
+ * instead of quietly passing. Verified by hand against both values before this was committed.
+ */
+const CONTENTION_CEILING_MS = 3_000;
+
+/**
+ * Floor for the one case that must genuinely block. 700ms is 100ms under the busy timeout, enough
+ * slack for timer resolution while still proving the read waited on the lock rather than failing
+ * instantly for some unrelated reason — which would make the ceiling assertion above vacuous.
+ */
+const CONTENTION_FLOOR_MS = 700;
+
+describe("getFindingSummary under database contention", () => {
+  it("is unaffected by a concurrent writer holding an open write transaction", async () => {
+    // The finding, stated as a test: in WAL mode readers do not block on writers, so the scenario
+    // D-17 was written against — the post-commit hook worker writing while session start reads —
+    // does not contend at all. This case is a regression guard on that structural property, not a
+    // demonstration of the timeout: if a future change dropped WAL, the summary would start
+    // waiting here and the ceiling would catch it.
+    const { root, diffOwlDir, commit } = await createRepo();
+    const a = await commit("A");
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, reviewFor(a, "session-writer"));
+      reconcileReviewFindings(db, review.id, [candidateAt("src/contended.ts")]);
+    });
+
+    const writer = await openSqliteDatabase(getStateDbPath(diffOwlDir));
+    try {
+      // BEGIN IMMEDIATE takes the write lock at BEGIN, so no statement is needed to hold it.
+      writer.exec("BEGIN IMMEDIATE");
+
+      const startedAt = performance.now();
+      // Populated, not empty: the read is expected to succeed outright, which is the whole point.
+      await expect(getFindingSummary(diffOwlDir, { cwd: root })).resolves.toEqual({
+        openCount: 1,
+        regressedCount: 0,
+        topSeverity: "warning",
+        inspectCommand: "diffowl findings list",
+      });
+      expect(performance.now() - startedAt).toBeLessThan(CONTENTION_CEILING_MS);
+    } finally {
+      try {
+        writer.exec("ROLLBACK");
+      } finally {
+        closeDatabaseConnection(writer, { checkpoint: false });
+      }
+    }
+  });
+
+  it("stays bounded and complete against a WAL another connection has truncated", async () => {
+    // node:sqlite is synchronous, so a checkpoint and a read cannot literally overlap inside one
+    // process; there is no in-process way to catch the summary mid-checkpoint. What this pins is
+    // the state a hook worker's close leaves behind — closeDatabaseConnection runs exactly this
+    // truncating checkpoint — with the checkpointing connection still attached to the shm.
+    const { root, diffOwlDir, commit } = await createRepo();
+    const a = await commit("A");
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, reviewFor(a, "session-checkpoint"));
+      reconcileReviewFindings(db, review.id, [candidateAt("src/checkpointed.ts")]);
+    });
+
+    const checkpointer = await openSqliteDatabase(getStateDbPath(diffOwlDir));
+    try {
+      checkpointer.pragma("wal_checkpoint(TRUNCATE)");
+
+      const startedAt = performance.now();
+      await expect(getFindingSummary(diffOwlDir, { cwd: root })).resolves.toEqual({
+        openCount: 1,
+        regressedCount: 0,
+        topSeverity: "warning",
+        inspectCommand: "diffowl findings list",
+      });
+      expect(performance.now() - startedAt).toBeLessThan(CONTENTION_CEILING_MS);
+    } finally {
+      closeDatabaseConnection(checkpointer, { checkpoint: false });
+    }
+  });
+
+  it("gives up at its own busy timeout and returns an empty summary, never a partial one", async () => {
+    const { root, diffOwlDir, commit } = await createRepo();
+    const a = await commit("A");
+    await withFindingDatabase(diffOwlDir, (db) => {
+      const review = insertReview(db, reviewFor(a, "session-locked"));
+      reconcileReviewFindings(db, review.id, [candidateAt("src/locked.ts")]);
+    });
+
+    const holder = await openSqliteDatabase(getStateDbPath(diffOwlDir));
+    try {
+      // `locking_mode = EXCLUSIVE` holds, for as long as this connection wants, the same file lock
+      // a truncating checkpoint takes for an instant. It is the deterministic stand-in for a lock
+      // whose real occurrence is a race — the database under test keeps its own WAL configuration
+      // untouched, so this manufactures the timing, not the configuration.
+      holder.pragma("locking_mode = EXCLUSIVE");
+      holder.exec("BEGIN IMMEDIATE");
+
+      const startedAt = performance.now();
+      await expect(getFindingSummary(diffOwlDir, { cwd: root })).resolves.toEqual({
+        openCount: 0,
+        regressedCount: 0,
+        topSeverity: null,
+        inspectCommand: "diffowl findings list",
+      });
+      const elapsed = performance.now() - startedAt;
+      expect(elapsed).toBeGreaterThan(CONTENTION_FLOOR_MS);
+      expect(elapsed).toBeLessThan(CONTENTION_CEILING_MS);
+
+      // Empty rather than partial is the property that matters: one finding exists and is
+      // reachable, so a summary that reported anything less than all of it — including a
+      // plausible-looking zero with a severity attached — would understate reality at exactly the
+      // moment the user is trusting it. Zero counts AND a null severity, asserted together above.
+      const log = await readDiffOwlLog(diffOwlDir);
+      expect(log).toContain("state database");
+    } finally {
+      try {
+        holder.exec("ROLLBACK");
+      } finally {
+        closeDatabaseConnection(holder, { checkpoint: false });
+      }
+    }
   });
 }, 20_000);
