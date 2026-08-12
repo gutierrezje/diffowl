@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { execa } from "execa";
@@ -264,6 +264,76 @@ describe("installClaudeCodeHook matcher normalization", () => {
     expect(groups).toHaveLength(1);
     expect(groups[0]!.hooks).toHaveLength(1);
     expect(groups[0]!.hooks[0]!.command).toBe(process.execPath);
+  });
+
+  it("collapses pre-existing duplicate managed entries into one", async () => {
+    const project = await createProject("diffowl-claude-duplicates-");
+    // The state the previous implementation could not recover from: it returned at the first
+    // managed entry, so the second survived every reinstall and both fired on every session start.
+    await writeSettings(project, {
+      hooks: {
+        SessionStart: [
+          {
+            matcher: "startup|resume",
+            hooks: [
+              { type: "command", command: "/old/node", args: [...CLAUDE_HOOK_ARGS_SIGNATURE] },
+            ],
+          },
+          {
+            matcher: "startup",
+            hooks: [
+              { type: "command", command: "/older/node", args: [...CLAUDE_HOOK_ARGS_SIGNATURE] },
+            ],
+          },
+        ],
+      },
+    });
+
+    const result = await installClaudeCodeHook(project);
+
+    expect(result.action).toBe("updated");
+    const groups = await readSessionStartGroups(project);
+    const managed = groups.flatMap((group) => group.hooks.filter(isManagedEntry));
+    expect(managed).toHaveLength(1);
+    expect(managed[0]!.command).toBe(process.execPath);
+    // The narrow "startup" group held nothing else, so it is pruned rather than left empty.
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.matcher).toBe("startup|resume");
+  });
+
+  it("preserves unrelated hooks when pruning a duplicate out of their group", async () => {
+    const project = await createProject("diffowl-claude-unrelated-");
+    await writeSettings(project, {
+      hooks: {
+        SessionStart: [
+          {
+            matcher: "startup",
+            hooks: [
+              { type: "command", command: "/usr/bin/other", args: ["unrelated", "tool"] },
+              { type: "command", command: "/old/node", args: [...CLAUDE_HOOK_ARGS_SIGNATURE] },
+            ],
+          },
+        ],
+      },
+    });
+
+    await installClaudeCodeHook(project);
+
+    const groups = await readSessionStartGroups(project);
+    const narrow = groups.find((group) => group.matcher === "startup");
+    expect(narrow?.hooks).toHaveLength(1);
+    expect(narrow?.hooks[0]!.command).toBe("/usr/bin/other");
+    expect(groups.flatMap((group) => group.hooks.filter(isManagedEntry))).toHaveLength(1);
+  });
+
+  it("leaves no temp file beside the settings it rewrote", async () => {
+    const project = await createProject("diffowl-claude-atomic-");
+    await writeSettings(project, { hooks: {} });
+
+    await installClaudeCodeHook(project);
+
+    const entries = await readdir(join(project, ".claude"));
+    expect(entries).toEqual(["settings.json"]);
   });
 });
 
