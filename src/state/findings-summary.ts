@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { getStagedDiff } from "../git/diff.js";
 import { filterReachableCommits } from "../git/reachability.js";
 import { closeStateDatabase, getStateDbPath, openStateDatabaseForRead } from "./db.js";
+import { trimHookLog } from "../review/retention.js";
 import { computeDiffHash } from "./persist.js";
 import type { SqliteDatabase } from "./sqlite.js";
 import type { FindingStatus, ReviewSeverity } from "./types.js";
@@ -42,6 +43,18 @@ const SUMMARY_BUSY_TIMEOUT_MS = 800;
  * — git is spawned asynchronously and the event loop is free while it runs.
  */
 const STAGED_DIFF_TIMEOUT_MS = 800;
+
+/**
+ * The cap `logSummaryDegradation` trims `hook.log` to before appending.
+ *
+ * Mirrors `retention.hook_log_kb`'s default instead of reading the configured value, because this
+ * module is reached from `findings summary`, the one command that deliberately runs without config
+ * (D-17 — see the action in src/cli.ts). Loading config here to trim a log would add exactly the
+ * failure path and the I/O that the no-config rule exists to keep off the session-start path, so a
+ * repo that raised or lowered `hook_log_kb` gets the default bound for degradation lines only. The
+ * post-commit hook path still honours the configured value (src/git/hooks.ts).
+ */
+const SUMMARY_LOG_MAX_BYTES = 1024 * 1024;
 
 // Duplicated locally rather than imported from src/eval/score.ts: .planning/codebase/
 // ARCHITECTURE.md places eval/ as a sibling layer to state/, so importing it here would create a
@@ -270,7 +283,7 @@ async function computeStagedDiffHash(
     // reach the consumer this path exists for: an agent at session start sees the summary and
     // nothing else, so a silent exclusion here is indistinguishable from a clean repository. The
     // log is the diagnostic channel, and it is structurally incapable of breaking session start
-    // because logDegradation never rejects (see its own catch).
+    // because logSummaryDegradation never rejects (see its own catch).
     await logSummaryDegradation(diffOwlDir, "staged diff unavailable", error);
     return null;
   }
@@ -282,11 +295,15 @@ async function computeStagedDiffHash(
  * look. `.planning/codebase/CONCERNS.md` flags ~20 silent catch blocks as a known defect, and D-17
  * calls out logging specifically so this does not become the twenty-first.
  *
- * Two properties are load-bearing:
+ * Three properties are load-bearing:
  *
  * 1. It never rejects. A diagnostic channel that can throw would reintroduce exactly the
  *    session-start failure the fail-silent boundary exists to prevent.
- * 2. It never creates a directory. The callers inside this module run after the
+ * 2. It is bounded. Session start runs on every session, so an unbounded append here would grow
+ *    `hook.log` without limit for as long as a degradation keeps recurring — the post-commit path
+ *    caps the same file, and this one has more occasions to write to it. See
+ *    SUMMARY_LOG_MAX_BYTES for why the cap is a constant rather than the configured value.
+ * 3. It never creates a directory. The callers inside this module run after the
  *    `existsSync(getStateDbPath(...))` short-circuit, so `diffOwlDir` provably exists by then;
  *    appending (rather than ensuring the directory first) keeps it impossible for logging to
  *    violate the no-state-from-a-read property. The CLI caller has no such guarantee, and relies
@@ -300,6 +317,10 @@ export async function logSummaryDegradation(
 ): Promise<void> {
   const message = describeSummaryError(error);
   try {
+    // Trim before appending, the same order src/git/hooks.ts uses. trimHookLog swallows its own
+    // errors and no-ops on a missing file, so it cannot break property 1 below or create the
+    // directory property 2 forbids.
+    await trimHookLog(join(diffOwlDir, "hook.log"), SUMMARY_LOG_MAX_BYTES);
     await appendFile(
       join(diffOwlDir, "hook.log"),
       `diffowl: findings summary degraded at ${new Date().toISOString()} — ${reason}: ${message}\n`,
