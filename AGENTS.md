@@ -116,3 +116,15 @@ diffowl hook install
 - After changing `src/**`, rebuild so the linked global binary picks up `dist/cli.js`.
 - Unit tests are heavily mocked and will miss simple ReferenceErrors. Always run `pnpm run lint` before committing.
 - /tdd skill always for any moderate to large change
+
+## Cursor Cloud specific instructions
+
+- The base env supplies Node `>=22.14.0` and pnpm; bootstrap with `pnpm install --frozen-lockfile`.
+- Full `diffowl review`/`eval` needs an external OpenCode provider (`npm i -g opencode-ai`, then authenticate). Offline surfaces (`hook`, `findings`, config, build/lint/test) run without it.
+- `pnpm run test` creates hundreds of throwaway git repos and commits. When the global git config enables commit signing (Cursor Cloud sets `commit.gpgsign=true` with an SSH signing program), every test commit blocks on the signer and the suite times out. Run tests with signing disabled:
+
+  ```bash
+  GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=commit.gpgsign GIT_CONFIG_VALUE_0=false pnpm run test
+  ```
+
+  This drops the suite from ~4.5 min (with timeouts) to ~15s and does not touch your global config or the agent's own signed commits.
