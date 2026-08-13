@@ -75,6 +75,7 @@ describe("config", () => {
     expect(config.context.depth).toBe("default");
     expect(config.reasoning.effort).toBe("auto");
     expect(config.retention).toEqual({ hook_log_kb: 1024 });
+    expect(config.gate).toEqual({ fail_on_findings: false });
     expect(config.skip_doc_only).toBe(false);
     expect(config.verbose).toBe(false);
   });
@@ -93,6 +94,7 @@ describe("config", () => {
 
     expect(second.server.port).toBe(4096);
     expect(second.context.depth).toBe("default");
+    expect(second.gate.fail_on_findings).toBe(false);
     expect(second.include).toEqual(["**/*"]);
   });
 
@@ -124,6 +126,19 @@ describe("config", () => {
     const config = await loadConfig();
     expect(config.skip_doc_only).toBe(true);
     expect(config.verbose).toBe(true);
+  });
+
+  it("loads an enabled review gate", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
+    tempDirs.push(root);
+    await writeFile(
+      join(root, ".diffowl.yml"),
+      ["model: provider/model", "gate:", "  fail_on_findings: true"].join("\n"),
+      "utf-8",
+    );
+    process.chdir(root);
+
+    expect((await loadConfig()).gate.fail_on_findings).toBe(true);
   });
 
   it("loads valid context depth", async () => {

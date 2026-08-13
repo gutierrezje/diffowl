@@ -106,11 +106,6 @@ export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJson
     input.persisted.reconcile.observations,
     input.verbose,
   );
-  const unsuppressed = input.persisted.reconcile.observations.filter((item) => !item.suppressed);
-  const actionableCount = unsuppressed.filter(
-    (item) => item.observation.severity !== "info",
-  ).length;
-  const advisoryCount = unsuppressed.filter((item) => item.observation.severity === "info").length;
 
   return {
     schema_version: JSON_OUTPUT_SCHEMA_VERSION,
@@ -127,7 +122,7 @@ export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJson
       depth: input.review.depth,
       session_id: input.review.sessionId,
       summary: input.review.summary,
-      status: resolveReviewJsonStatus(input.review, actionableCount, advisoryCount),
+      status: reviewStatusFromPersisted(input.review, input.persisted.reconcile.observations),
       report_path: input.review.reportPath,
       skipped_reason: input.review.skippedReason,
     },
@@ -173,8 +168,8 @@ function selectJsonObservations(
   return observations.filter((item) => !item.suppressed);
 }
 
-function resolveReviewJsonStatus(
-  review: ReviewRecord,
+export function resolveReviewJsonStatus(
+  review: Pick<ReviewRecord, "skippedReason">,
   actionableCount: number,
   advisoryCount: number,
 ): ReviewJsonStatus {
@@ -188,6 +183,18 @@ function resolveReviewJsonStatus(
     return "advisory";
   }
   return "resolved";
+}
+
+export function reviewStatusFromPersisted(
+  review: Pick<ReviewRecord, "skippedReason">,
+  observations: readonly PersistedObservation[],
+): ReviewJsonStatus {
+  const unsuppressed = observations.filter((item) => !item.suppressed);
+  const actionableCount = unsuppressed.filter(
+    (item) => item.observation.severity !== "info",
+  ).length;
+  const advisoryCount = unsuppressed.filter((item) => item.observation.severity === "info").length;
+  return resolveReviewJsonStatus(review, actionableCount, advisoryCount);
 }
 
 function mapJsonFinding(

@@ -6,6 +6,11 @@ All notable changes to DiffOwl are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in review gate: `--fail-on-findings` or `gate.fail_on_findings` exits 1 when
+  the review status is `open`. Default reviews and `--hook` still exit 0.
+
 ## [0.3.3] - 2026-07-15
 
 The **Branch Review** release. DiffOwl can now review everything a branch

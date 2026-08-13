@@ -66,6 +66,7 @@ import {
 import {
   buildReviewJsonDocument,
   parseReviewOutputFormat,
+  reviewStatusFromPersisted,
   writeJsonError,
   writeReviewJsonSuccess,
   type ReviewOutputFormat,
@@ -99,6 +100,7 @@ import {
 import { InvalidFindingTransitionError } from "./state/db.js";
 import type { SqliteDatabase } from "./state/sqlite.js";
 import type { FindingActor } from "./state/types.js";
+import { decideGateExit, resolveGateEnabled } from "./review/gate.js";
 import { runReviewPipeline } from "./review/run.js";
 
 import { readFile } from "node:fs/promises";
@@ -121,6 +123,7 @@ program
   .option("--commit <ref>", "Review a specific commit ref instead of HEAD")
   .option("--base [ref]", "Review committed branch changes since the merge base")
   .option("--hook", "Running from git hook (non-blocking mode)")
+  .option("--fail-on-findings", "Exit 1 when the review status is open")
   .option("--depth <depth>", "Review context depth: shallow or default")
   .option(
     "--reasoning <effort>",
@@ -363,10 +366,23 @@ program
         printFooter(report, outcome.reportPath);
         printTimingSummary(outputTimings);
       }
+      const status = reviewStatusFromPersisted(
+        { skippedReason: null },
+        outcome.persisted.reconcile.observations,
+      );
+      const enabled = resolveGateEnabled(
+        Boolean(options.failOnFindings),
+        config.gate.fail_on_findings,
+      );
+      const exitCode = decideGateExit(status, enabled, Boolean(options.hook));
       if (options.hook) {
         await writeHookStatus(0, hookCommit);
         process.exit(0);
       }
+      if (exitCode === 1 && !jsonMode) {
+        console.error(chalk.red("Review gate failed: open findings remain."));
+      }
+      process.exit(exitCode);
     } catch (err) {
       spinner?.stop();
       if (cancelController.signal.aborted || isReviewCancellation(err)) {

@@ -188,7 +188,10 @@ Runs a code review on your repository.
 - `--commit <ref>`: Reviews a specific commit ref instead of the last commit.
 - `--base [ref]`: Reviews all committed branch changes since the merge base with `ref`. With no
   ref, DiffOwl detects `origin/HEAD`, then local `main` or `master`.
-- `--hook`: Runs in background, non-blocking mode (used by Git hook).
+- `--hook`: Runs in background, non-blocking mode (used by Git hook). Hook reviews exit 0 for
+  review outcomes, even when the review gate is enabled.
+- `--fail-on-findings`: Exits 1 when the completed review status is `open`. This flag enables the
+  same gate as `gate.fail_on_findings: true`.
 - `--depth <depth>`: Overrides configured review depth. Valid values: `shallow`, `default`.
 - `--reasoning <effort>`: Overrides configured OpenCode reasoning variant. Valid values: `auto`, `none`, `minimal`, `low`, `medium`, `high`, `max`, `xhigh`.
 - `--verbose`: Includes suppressed findings and extra review details in the report.
@@ -218,6 +221,9 @@ diffowl review --base
 
 # Review this branch against an explicit base
 diffowl review --base main
+
+# Fail CI or pre-push when unsuppressed error/warning findings remain
+diffowl review --base --fail-on-findings
 
 # Review a stacked branch against its parent branch
 diffowl review --base feature/parent-branch
@@ -366,6 +372,11 @@ retention:
   # Before each hook review, retain approximately this many KiB
   # of previous hook.log output. The new run may exceed this target.
   hook_log_kb: 1024
+
+# Exit 1 from `diffowl review` when unsuppressed error/warning findings remain.
+# Omit or false keeps today's non-blocking reviews. `--hook` still exits 0.
+gate:
+  fail_on_findings: false
 
 # Review timeout in seconds
 timeout: 300

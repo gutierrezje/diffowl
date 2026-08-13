@@ -4,9 +4,10 @@ import {
   parseReviewOutputFormat,
   renderJsonErrorDocument,
   renderReviewJsonDocument,
+  reviewStatusFromPersisted,
 } from "./json.js";
 import type { PersistReviewRunResult } from "../state/persist.js";
-import type { ReviewRecord } from "../state/types.js";
+import type { PersistedObservation, ReviewRecord } from "../state/types.js";
 
 const review: ReviewRecord = {
   id: "rev_test",
@@ -91,6 +92,44 @@ const persisted: PersistReviewRunResult = {
   },
 };
 
+const reviewStatusCases: Array<{
+  expected: "open" | "advisory" | "resolved" | "skipped";
+  review: ReviewRecord;
+  observations: PersistedObservation[];
+}> = [
+  {
+    expected: "open",
+    review,
+    observations: persisted.reconcile.observations,
+  },
+  {
+    expected: "advisory",
+    review,
+    observations: [
+      {
+        ...persisted.reconcile.observations[1]!,
+        suppressed: false,
+      },
+    ],
+  },
+  {
+    expected: "resolved",
+    review,
+    observations: persisted.reconcile.observations.map((item) => ({
+      ...item,
+      suppressed: true,
+    })),
+  },
+  {
+    expected: "skipped",
+    review: {
+      ...review,
+      skippedReason: "documentation-only",
+    },
+    observations: [],
+  },
+];
+
 describe("parseReviewOutputFormat", () => {
   it("defaults to text", () => {
     expect(parseReviewOutputFormat(undefined)).toBe("text");
@@ -104,6 +143,29 @@ describe("parseReviewOutputFormat", () => {
   it("rejects unknown formats", () => {
     expect(() => parseReviewOutputFormat("yaml")).toThrow(/Invalid output format/);
   });
+});
+
+describe("reviewStatusFromPersisted", () => {
+  it.each(reviewStatusCases)(
+    "agrees with the JSON document for $expected reviews",
+    ({ expected, review: caseReview, observations }) => {
+      const document = buildReviewJsonDocument({
+        review: caseReview,
+        persisted: {
+          ...persisted,
+          reconcile: {
+            observations,
+            suppressedCounts: { dismissed: 0, deferred: 0 },
+          },
+        },
+        occurrenceCounts: new Map(),
+        suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+      });
+
+      expect(reviewStatusFromPersisted(caseReview, observations)).toBe(document.review.status);
+      expect(document.review.status).toBe(expected);
+    },
+  );
 });
 
 describe("buildReviewJsonDocument", () => {
