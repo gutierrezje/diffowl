@@ -374,7 +374,6 @@ retention:
   hook_log_kb: 1024
 
 # Exit 1 from `diffowl review` when unsuppressed error/warning findings remain.
-# Omit or false keeps today's non-blocking reviews. `--hook` still exits 0.
 gate:
   fail_on_findings: false
 
