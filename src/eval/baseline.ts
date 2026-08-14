@@ -1,6 +1,7 @@
 import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
 import type { LoadedReviewSnapshot } from "../review/context.js";
 import type { ReviewTarget } from "../review/target.js";
+import { REVIEW_JSON_MARKER } from "../opencode/review-parser.js";
 
 const MAX_DIFF_CHARS = 40_000;
 const MAX_QUICK_DIFF_CHARS = 12_000;
@@ -9,7 +10,7 @@ export const BASELINE_AGENT_PROMPT = `You are a meticulous senior code reviewer.
 
 You MAY think step-by-step internally, but your VISIBLE output must follow this contract exactly:
 
-1. Output a single line with the text: FINAL_REVIEW_JSON
+1. Output a single line with the text: ${REVIEW_JSON_MARKER}
 2. On the next line, output a single JSON object with this exact shape (no markdown fences, no comments, no trailing commas):
 
 {
@@ -29,6 +30,7 @@ You MAY think step-by-step internally, but your VISIBLE output must follow this 
 
 3. Do not wrap the JSON in backticks or markdown code fences.
 4. Do not print any other text before or after the JSON line.
+5. If a follow-up user message lists schema-validation errors, emit a complete replacement document: a ${REVIEW_JSON_MARKER} line, then one JSON object. Do not patch the previous object. Do not wrap it in markdown.
 
 Review rules:
 - Focus on substantive issues: bugs, security, logic errors, edge cases, error handling, and performance.

@@ -60,5 +60,7 @@ describe("BASELINE_AGENT_PROMPT", () => {
     expect(BASELINE_AGENT_PROMPT).toContain("FINAL_REVIEW_JSON");
     expect(BASELINE_AGENT_PROMPT).toContain('"findings"');
     expect(BASELINE_AGENT_PROMPT).not.toContain("DiffOwl");
+    expect(BASELINE_AGENT_PROMPT).toContain("follow-up user message");
+    expect(BASELINE_AGENT_PROMPT).toContain("schema");
   });
 });

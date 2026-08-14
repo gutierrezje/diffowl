@@ -126,14 +126,25 @@ describe("createReviewSettlementCoordinator", () => {
     await assertion;
   });
 
-  it("rejects incomplete text when the event stream finishes", async () => {
+  it("resolves accumulated text when the event stream finishes with a response", async () => {
+    vi.useFakeTimers();
+    const outcome = deferred<string>();
+    const coordinator = createCoordinator(outcome);
+    const partial = 'FINAL_REVIEW_JSON\n{"summary":';
+    coordinator.acceptText(partial);
+
+    coordinator.finish();
+
+    await expect(outcome.promise).resolves.toBe(partial);
+  });
+
+  it("rejects when the event stream finishes with no response", async () => {
     vi.useFakeTimers();
     const outcome = deferred<string>();
     const coordinator = createCoordinator(outcome);
     const assertion = expect(outcome.promise).rejects.toThrow(
       "OpenCode event stream ended before a complete review was received.",
     );
-    coordinator.acceptText('FINAL_REVIEW_JSON\n{"summary":');
 
     coordinator.finish();
 
@@ -219,6 +230,95 @@ describe("createReviewSettlementCoordinator", () => {
     await expect(outcome.promise).resolves.toBe(text);
     expect(resolveSpy).toHaveBeenCalledTimes(1);
     expect(rejectSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not abort on a successful resolve", async () => {
+    vi.useFakeTimers();
+    const outcome = deferred<string>();
+    const onAbort = vi.fn();
+    const coordinator = createCoordinator(outcome, { onAbort });
+    const text = 'FINAL_REVIEW_JSON\n{"summary":"ok","findings":[]}';
+
+    expect(coordinator.acceptText(text)).toBe(true);
+
+    await expect(outcome.promise).resolves.toBe(text);
+    expect(onAbort).not.toHaveBeenCalled();
+  });
+
+  it("aborts only when the attempt is rejected", async () => {
+    vi.useFakeTimers();
+    const outcome = deferred<string>();
+    const onAbort = vi.fn();
+    const coordinator = createCoordinator(outcome, { onAbort });
+
+    coordinator.reject(new Error("Review timed out."));
+
+    await expect(outcome.promise).rejects.toThrow("Review timed out.");
+    expect(onAbort).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops timers without resolving or rejecting when released", async () => {
+    vi.useFakeTimers();
+    const outcome = deferred<string>();
+    const resolveSpy = vi.fn(outcome.resolve);
+    const rejectSpy = vi.fn(outcome.reject);
+    const onAbort = vi.fn();
+    const coordinator = createReviewSettlementCoordinator({
+      timeoutMs: 1000,
+      reconciliationIntervalMs: 1000,
+      reconcile: async () => ({ kind: "empty" }),
+      onAbort,
+      resolve: resolveSpy,
+      reject: rejectSpy,
+    });
+
+    coordinator.release();
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(coordinator.isSettled()).toBe(true);
+    expect(resolveSpy).not.toHaveBeenCalled();
+    expect(rejectSpy).not.toHaveBeenCalled();
+    expect(onAbort).not.toHaveBeenCalled();
+  });
+
+  it("reports hasResponse only after the current attempt has text", () => {
+    vi.useFakeTimers();
+    const outcome = deferred<string>();
+    const coordinator = createCoordinator(outcome);
+
+    expect(coordinator.hasResponse()).toBe(false);
+    coordinator.acceptText("partial");
+    expect(coordinator.hasResponse()).toBe(true);
+  });
+
+  it("replaces the buffer when a new message id is shorter", async () => {
+    vi.useFakeTimers();
+    const outcome = deferred<string>();
+    const coordinator = createCoordinator(outcome);
+    const replacement = 'FINAL_REVIEW_JSON\n{"summary":"ok","findings":[]}';
+
+    expect(
+      coordinator.acceptText('FINAL_REVIEW_JSON\n{"summary":"this is a long incomplete', {
+        messageId: "msg-1",
+      }),
+    ).toBe(false);
+    expect(coordinator.acceptText(replacement, { messageId: "msg-2" })).toBe(true);
+
+    await expect(outcome.promise).resolves.toBe(replacement);
+  });
+
+  it("keeps length-monotonic updates for the same message id", () => {
+    vi.useFakeTimers();
+    const outcome = deferred<string>();
+    const onText = vi.fn();
+    const coordinator = createCoordinator(outcome, { onText });
+
+    coordinator.acceptText('FINAL_REVIEW_JSON\n{"summary":"longer incomplete', { messageId: "msg-1" });
+    coordinator.acceptText('FINAL_REVIEW_JSON\n{"s"', { messageId: "msg-1" });
+
+    expect(onText).toHaveBeenLastCalledWith('FINAL_REVIEW_JSON\n{"summary":"longer incomplete');
+    expect(coordinator.hasResponse()).toBe(true);
+    expect(coordinator.isSettled()).toBe(false);
   });
 
   it("ignores text received after settlement", async () => {

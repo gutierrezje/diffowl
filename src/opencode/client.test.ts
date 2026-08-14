@@ -16,6 +16,11 @@ import {
   looksLikeCompleteStructuredReview,
 } from "./client.js";
 import { REVIEW_AGENT_PROMPT } from "./agent.js";
+import {
+  inspectReviewText,
+  REVIEW_JSON_MARKER,
+  SchemaValidationError,
+} from "./review-parser.js";
 
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 
@@ -274,6 +279,10 @@ async function readFixture(name: string): Promise<string> {
   return readFile(join(fixturesDir, name), "utf-8");
 }
 
+function markedDocument(payload: unknown): string {
+  return `${REVIEW_JSON_MARKER}\n${JSON.stringify(payload)}`;
+}
+
 describe("parseStructuredReview", () => {
   it("parses a realistic strict final review fixture", async () => {
     const report = parseStructuredReview(await readFixture("strict-review-response.txt"));
@@ -302,32 +311,20 @@ describe("parseStructuredReview", () => {
     expect(report.diagnostics).toBeUndefined();
   });
 
-  it("parses fallback JSON fixtures and reports dropped malformed findings", async () => {
-    const report = parseStructuredReview(await readFixture("fallback-mixed-review-response.json"));
+  it("rejects fallback JSON fixtures as invalid, including the malformed finding", async () => {
+    const raw = await readFixture("fallback-mixed-review-response.json");
+    expect(() => parseStructuredReview(raw)).toThrow(SchemaValidationError);
 
-    expect(report.findings).toEqual([
-      {
-        severity: "info",
-        file: "src/config.ts",
-        line: 42,
-        evidence: "timeout: z.number().int().positive()",
-        title: "Timeout validation has no upper bound",
-        body: "Very large timeout values can make a review appear hung. Consider a documented maximum if this is user-facing.",
-        confidence: "low",
-      },
-      {
-        severity: "warning",
-        file: "src/config.ts",
-        line: 45,
-        title: "Missing evidence stays parseable",
-        body: "Evidence is optional, so older model outputs without evidence should still parse.",
-        confidence: "low",
-      },
-    ]);
-    expect(report.diagnostics).toEqual([
-      "Review JSON did not include FINAL_REVIEW_JSON marker; parsed fallback JSON object.",
-      "Dropped malformed finding at index 2.",
-    ]);
+    try {
+      parseStructuredReview(raw);
+    } catch (err) {
+      expect(err).toBeInstanceOf(SchemaValidationError);
+      const error = err as SchemaValidationError;
+      expect(error.issues.some((issue) => issue.locator === "marker")).toBe(true);
+      expect(error.issues.some((issue) => issue.locator.startsWith("findings[2]"))).toBe(true);
+      expect(error.message).not.toContain("Dropped malformed finding");
+      expect(error.message).not.toContain("The model returned a bare JSON object");
+    }
   });
 
   it("parses the strict marker format", () => {
@@ -339,14 +336,19 @@ describe("parseStructuredReview", () => {
     expect(report.findings).toEqual([]);
   });
 
-  it("falls back to a bare JSON object when the marker is missing", () => {
-    const report = parseStructuredReview('{"summary":"No issues.","findings":[]}');
+  it("throws when the marker is missing from a complete JSON object", () => {
+    expect(() => parseStructuredReview('{"summary":"No issues.","findings":[]}')).toThrow(
+      SchemaValidationError,
+    );
 
-    expect(report.summary).toBe("No issues.");
-    expect(report.findings).toEqual([]);
-    expect(report.diagnostics).toEqual([
-      "Review JSON did not include FINAL_REVIEW_JSON marker; parsed fallback JSON object.",
-    ]);
+    try {
+      parseStructuredReview('{"summary":"No issues.","findings":[]}');
+    } catch (err) {
+      expect(err).toBeInstanceOf(SchemaValidationError);
+      expect((err as SchemaValidationError).issues).toEqual([
+        { locator: "marker", message: "missing FINAL_REVIEW_JSON marker" },
+      ]);
+    }
   });
 
   it("does not echo raw model output when parsing fails", () => {
@@ -363,41 +365,74 @@ describe("parseStructuredReview", () => {
     expect(error?.message).not.toContain(sentinel);
   });
 
-  it("drops malformed findings and reports diagnostics", () => {
-    const report = parseStructuredReview(
-      JSON.stringify({
-        summary: "Mixed quality output.",
-        findings: [
-          {
-            severity: "warning",
-            file: "src/config.ts",
-            line: 12,
-            title: "Valid issue",
-            body: "This is a valid finding.",
-            confidence: "medium",
-          },
-          {
-            severity: "warning",
-            file: "",
-            line: 0,
-            title: "",
-            body: "",
-            confidence: "high",
-          },
-        ],
-      }),
-    );
+  it("rejects the whole document when any finding fails the schema", () => {
+    const raw = markedDocument({
+      summary: "Mixed quality output.",
+      findings: [
+        {
+          severity: "warning",
+          file: "src/config.ts",
+          line: 12,
+          title: "Valid issue",
+          body: "This is a valid finding.",
+          confidence: "medium",
+        },
+        {
+          severity: "warning",
+          file: "",
+          line: 0,
+          title: "",
+          body: "",
+          confidence: "high",
+        },
+      ],
+    });
 
-    expect(report.findings).toHaveLength(1);
-    expect(report.diagnostics).toEqual([
-      "Review JSON did not include FINAL_REVIEW_JSON marker; parsed fallback JSON object.",
-      "Dropped malformed finding at index 1.",
-    ]);
+    expect(() => parseStructuredReview(raw)).toThrow(SchemaValidationError);
+
+    try {
+      parseStructuredReview(raw);
+    } catch (err) {
+      expect(err).toBeInstanceOf(SchemaValidationError);
+      const error = err as SchemaValidationError;
+      expect(error.issues.some((issue) => issue.message.startsWith("finding 1:"))).toBe(true);
+      expect(error.message).not.toContain("Dropped malformed finding");
+      expect(error.issues.some((issue) => issue.message.includes("finding 0:"))).toBe(false);
+    }
+  });
+
+  it("reports a zero line as finding 0: line must be a positive integer", () => {
+    const raw = markedDocument({
+      summary: "Bad line.",
+      findings: [
+        {
+          severity: "warning",
+          file: "src/config.ts",
+          line: 0,
+          title: "Valid title",
+          body: "Valid body.",
+          confidence: "low",
+        },
+      ],
+    });
+
+    try {
+      parseStructuredReview(raw);
+      throw new Error("expected SchemaValidationError");
+    } catch (err) {
+      expect(err).toBeInstanceOf(SchemaValidationError);
+      expect((err as SchemaValidationError).issues.map((issue) => issue.message)).toContain(
+        "finding 0: line must be a positive integer",
+      );
+      expect((err as SchemaValidationError).issues.map((issue) => issue.locator)).toContain(
+        "findings[0].line",
+      );
+    }
   });
 
   it("defaults missing or invalid finding confidence to low", () => {
     const report = parseStructuredReview(
-      JSON.stringify({
+      markedDocument({
         summary: "Confidence normalized.",
         findings: [
           {
@@ -422,17 +457,30 @@ describe("parseStructuredReview", () => {
     expect(report.findings.map((finding) => finding.confidence)).toEqual(["low", "low"]);
   });
 
-  it("normalizes safe relative finding paths and drops unsafe paths", () => {
-    const paths = [
-      "./src/config.ts",
-      "src\\config.ts",
-      ".\\src\\config.ts",
-      "/absolute/src/config.ts",
-      "C:\\repo\\src\\config.ts",
-      "../src/config.ts",
-    ];
+  it("coerces a string line number to an integer", () => {
     const report = parseStructuredReview(
-      JSON.stringify({
+      markedDocument({
+        summary: "Line coerced.",
+        findings: [
+          {
+            severity: "warning",
+            file: "src/config.ts",
+            line: "12",
+            title: "String line",
+            body: "Numeric strings should parse.",
+            confidence: "medium",
+          },
+        ],
+      }),
+    );
+
+    expect(report.findings[0]?.line).toBe(12);
+  });
+
+  it("normalizes safe relative finding paths", () => {
+    const paths = ["./src/config.ts", "src\\config.ts", ".\\src\\config.ts"];
+    const report = parseStructuredReview(
+      markedDocument({
         summary: "Path normalization.",
         findings: paths.map((file, index) => ({
           severity: "warning",
@@ -450,12 +498,79 @@ describe("parseStructuredReview", () => {
       "src/config.ts",
       "src/config.ts",
     ]);
-    expect(report.diagnostics).toEqual([
-      "Review JSON did not include FINAL_REVIEW_JSON marker; parsed fallback JSON object.",
-      "Dropped malformed finding at index 3.",
-      "Dropped malformed finding at index 4.",
-      "Dropped malformed finding at index 5.",
-    ]);
+    expect(report.diagnostics).toBeUndefined();
+  });
+
+  it("rejects the whole document when any finding path is unsafe", () => {
+    const paths = [
+      "./src/config.ts",
+      "src\\config.ts",
+      ".\\src\\config.ts",
+      "/absolute/src/config.ts",
+      "C:\\repo\\src\\config.ts",
+      "../src/config.ts",
+    ];
+    const raw = markedDocument({
+      summary: "Path normalization.",
+      findings: paths.map((file, index) => ({
+        severity: "warning",
+        file,
+        line: index + 1,
+        title: `Finding ${index}`,
+        body: "Path behavior.",
+        confidence: "medium",
+      })),
+    });
+
+    expect(() => parseStructuredReview(raw)).toThrow(SchemaValidationError);
+
+    try {
+      parseStructuredReview(raw);
+    } catch (err) {
+      expect(err).toBeInstanceOf(SchemaValidationError);
+      const locators = (err as SchemaValidationError).issues.map((issue) => issue.locator);
+      expect(locators).toEqual(expect.arrayContaining(["findings[3].file", "findings[4].file", "findings[5].file"]));
+      expect(locators.some((locator) => locator.startsWith("findings[0]"))).toBe(false);
+    }
+  });
+
+  it("silently skips duplicate findings after a valid array", () => {
+    const finding = {
+      severity: "warning",
+      file: "src/config.ts",
+      line: 12,
+      title: "Same issue",
+      body: "First body.",
+      confidence: "medium",
+    };
+    const report = parseStructuredReview(
+      markedDocument({
+        summary: "Duplicates.",
+        findings: [finding, { ...finding, body: "Second body." }],
+      }),
+    );
+
+    expect(report.findings).toHaveLength(1);
+    expect(report.findings[0]?.body).toBe("First body.");
+    expect(report.diagnostics).toBeUndefined();
+  });
+
+  it("uses the last FINAL_REVIEW_JSON marker when documents are concatenated", () => {
+    const raw = `${markedDocument({
+      summary: "first",
+      findings: [
+        {
+          severity: "warning",
+          file: "a.ts",
+          line: 0,
+          title: "Bad",
+          body: "Invalid first attempt.",
+          confidence: "low",
+        },
+      ],
+    })}\n${markedDocument({ summary: "second", findings: [] })}`;
+
+    expect(parseStructuredReview(raw).summary).toBe("second");
   });
 });
 
@@ -486,11 +601,45 @@ describe("looksLikeCompleteStructuredReview", () => {
   it("returns true for a structurally complete review object", () => {
     const text = 'FINAL_REVIEW_JSON\n{"summary":"abc","findings":[]}';
     expect(looksLikeCompleteStructuredReview(text)).toBe(true);
+    expect(inspectReviewText(text).kind).toBe("valid");
   });
 
   it("ignores mismatched braces inside string values (like evidence)", () => {
     const text = 'FINAL_REVIEW_JSON\n{"summary":"abc","findings":[],"evidence":"function foo() {"}';
     expect(looksLikeCompleteStructuredReview(text)).toBe(true);
+  });
+
+  it("returns true for a closed document whose findings fail the schema", () => {
+    const text = markedDocument({
+      summary: "junk findings",
+      findings: [
+        {
+          severity: "warning",
+          file: "a.ts",
+          line: 0,
+          title: "t",
+          body: "b",
+          confidence: "low",
+        },
+      ],
+    });
+
+    expect(looksLikeCompleteStructuredReview(text)).toBe(true);
+    expect(inspectReviewText(text).kind).toBe("invalid");
+  });
+
+  it("keeps marker-less complete JSON open while streaming", () => {
+    const text = '{"summary":"abc","findings":[]}';
+    expect(looksLikeCompleteStructuredReview(text)).toBe(false);
+
+    const inspection = inspectReviewText(text);
+    expect(inspection.kind).toBe("open");
+    if (inspection.kind === "open") {
+      expect(inspection.ifFinished).toEqual({
+        kind: "invalid",
+        issues: [{ locator: "marker", message: "missing FINAL_REVIEW_JSON marker" }],
+      });
+    }
   });
 });
 
@@ -670,6 +819,60 @@ describe("extractSessionMessageResult", () => {
 
   it("returns an explicit empty result when no assistant result is available", () => {
     expect(extractSessionMessageResult({ data: [] })).toEqual({ kind: "empty" });
+  });
+
+  it("skips consumed message ids so a retry does not resettle the previous attempt", () => {
+    expect(
+      extractSessionMessageResult(
+        {
+          data: [
+            {
+              info: { role: "assistant", id: "msg-1" },
+              parts: [{ type: "text", text: 'FINAL_REVIEW_JSON\n{"summary":"attempt 1","findings":[]}' }],
+            },
+            {
+              info: { role: "assistant", id: "msg-2" },
+              parts: [{ type: "text", text: 'FINAL_REVIEW_JSON\n{"summary":"attempt 2","findings":[]}' }],
+            },
+          ],
+        },
+        { ignoreMessageIds: new Set(["msg-1"]) },
+      ),
+    ).toEqual({
+      kind: "text",
+      text: 'FINAL_REVIEW_JSON\n{"summary":"attempt 2","findings":[]}',
+    });
+
+    expect(
+      extractSessionMessageResult(
+        {
+          data: [
+            {
+              info: { role: "assistant", id: "msg-1" },
+              parts: [{ type: "text", text: 'FINAL_REVIEW_JSON\n{"summary":"attempt 1","findings":[]}' }],
+            },
+          ],
+        },
+        { ignoreMessageIds: new Set(["msg-1"]) },
+      ),
+    ).toEqual({ kind: "empty" });
+  });
+
+  it("skips last-rejected raw text when the assistant message has no id", () => {
+    const rejected = 'FINAL_REVIEW_JSON\n{"summary":"attempt 1","findings":[]}';
+    expect(
+      extractSessionMessageResult(
+        {
+          data: [
+            {
+              info: { role: "assistant" },
+              parts: [{ type: "text", text: rejected }],
+            },
+          ],
+        },
+        { ignoreRawTexts: new Set([rejected]) },
+      ),
+    ).toEqual({ kind: "empty" });
   });
 });
 
