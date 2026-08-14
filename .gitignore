@@ -15,6 +15,7 @@ eval/output/
 eval/baselines/local/
 
 # Editor/agent-local tooling
+.agents/
 .cursor/
 
 # verify-diffowl skill run proofs (keep skill; never commit evidence)
