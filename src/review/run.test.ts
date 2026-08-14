@@ -33,6 +33,7 @@ const persisted: PersistReviewRunResult = {
   reconcile: { observations: [], suppressedCounts: { dismissed: 0, deferred: 0 } },
   actionableFindings: [],
   lifecycleSuppressedFindings: [],
+  identityDiagnostics: [],
 };
 
 function makeSnapshot(

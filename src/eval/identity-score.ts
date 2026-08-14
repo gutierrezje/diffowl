@@ -2,7 +2,7 @@ import { findingMatchesExpected } from "./score.js";
 import type { EvalCase, EvalExpectedFinding } from "./case-types.js";
 import type { EvalIdentityStepResult, EvalTrialResult } from "./runner-types.js";
 import type { ReviewFinding } from "../review/types.js";
-import { deduplicateReviewFindings } from "../state/persist.js";
+import { deduplicateReviewFindings, isUntrackedFinding } from "../state/persist.js";
 import type {
   EvalIdentityAnchorResult,
   EvalIdentityKind,
@@ -248,20 +248,28 @@ function scoreKeepDistinct(
       );
     }
 
-    // The report keeps only actionable findings, so a dismissed or deferred
-    // anchor can disappear after deduplication without being collapsed. Replay
-    // the production deduplication boundary over the captured input: if enough
-    // anchors survived that boundary, the actionable shortfall is lifecycle
-    // suppression and cannot be graded as an identity failure.
-    const postDedupMatches = matchExpectedIndices(
-      expected,
-      deduplicateReviewFindings(preDedupFindings),
-    );
+    // The report keeps only actionable findings, so a dismissed, deferred, or
+    // untracked anchor can disappear from durable hits without being collapsed.
+    // Replay the production deduplication boundary over the captured input: if
+    // enough anchors survived that boundary, the shortfall is lifecycle
+    // suppression or missing quotes, not an identity failure.
+    const postDedupFindings = deduplicateReviewFindings(preDedupFindings);
+    const postDedupMatches = matchExpectedIndices(expected, postDedupFindings);
     if (postDedupMatches.size >= minDistinct) {
+      const untrackedMatched = [...postDedupMatches].some((expectedIndex) => {
+        const expectedEntry = expected[expectedIndex];
+        return (
+          expectedEntry !== undefined &&
+          postDedupFindings.some(
+            (finding) =>
+              isUntrackedFinding(finding) && findingMatchesExpected(expectedEntry, finding),
+          )
+        );
+      });
       return aggregateIdentityAnchors(
         "keep-distinct",
         anchors,
-        "lifecycle-suppressed anchors",
+        untrackedMatched ? "untracked anchors" : "lifecycle-suppressed anchors",
       );
     }
 

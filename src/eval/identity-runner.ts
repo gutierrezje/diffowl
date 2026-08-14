@@ -150,8 +150,8 @@ function toIdentityStepResult(
   // fingerprint graded here is the same key a real review would have stored.
   return {
     step,
-    fingerprints: findings.map((finding) =>
-      computeFindingFingerprint(toFindingCandidate(finding)),
+    fingerprints: findings.map(
+      (finding) => computeFindingFingerprint(toFindingCandidate(finding)) ?? "",
     ),
     durableIds: findings.map((finding) => finding.durable?.id ?? ""),
     classifications: findings.map((finding) => finding.durable?.classification ?? "new"),

@@ -198,7 +198,12 @@ describe("scoreEvalTrial", () => {
 describe("scoreEvalCase", () => {
   it("detects repeated false positives across trials", () => {
     const evalCase = makeEvalCase({ category: "clean" });
-    const repeatedFinding = makeFinding({ file: "src/noise.ts", line: 1, title: "Repeated noise" });
+    const repeatedFinding = makeFinding({
+      file: "src/noise.ts",
+      line: 1,
+      title: "Repeated noise",
+      evidence: "noise();",
+    });
     const run: EvalCaseRunResult = {
       caseId: "test-case",
       mode: "diffowl",

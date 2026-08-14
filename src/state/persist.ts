@@ -33,6 +33,7 @@ export interface PersistReviewRunResult {
   reconcile: ReconcileReviewFindingsResult;
   actionableFindings: ReviewFinding[];
   lifecycleSuppressedFindings: ReviewFinding[];
+  identityDiagnostics: string[];
 }
 
 export interface UpdatePersistedReviewInput {
@@ -50,6 +51,10 @@ export function deduplicateReviewFindings(findings: ReviewFinding[]): ReviewFind
 
   for (const finding of findings) {
     const fingerprint = computeFindingFingerprint(toFindingCandidate(finding));
+    if (fingerprint === null) {
+      deduped.push(finding);
+      continue;
+    }
     if (seen.has(fingerprint)) {
       continue;
     }
@@ -73,6 +78,10 @@ export function toFindingCandidate(finding: ReviewFinding): FindingCandidate {
     candidate.evidence = finding.evidence;
   }
   return candidate;
+}
+
+export function isUntrackedFinding(finding: ReviewFinding): boolean {
+  return computeFindingFingerprint(toFindingCandidate(finding)) === null;
 }
 
 export function formatLifecycleSuppressedSummary(counts: {
@@ -139,7 +148,7 @@ function fingerprintUniqueReviewFindings(
 
   for (const finding of findings) {
     const fingerprint = computeFindingFingerprint(toFindingCandidate(finding));
-    if (seen.has(fingerprint)) {
+    if (fingerprint === null || seen.has(fingerprint)) {
       continue;
     }
     seen.add(fingerprint);
@@ -159,6 +168,9 @@ export function enrichReviewFindingsWithDurableMetadata(
 
   return findings.map((finding) => {
     const fingerprint = computeFindingFingerprint(toFindingCandidate(finding));
+    if (fingerprint === null) {
+      return finding;
+    }
     const observation = observationsByFingerprint.get(fingerprint);
     if (!observation) {
       return finding;
@@ -199,17 +211,44 @@ export async function persistReviewRun(
         skippedReason: input.skippedReason ?? null,
       });
 
-      const findings = deduplicateReviewFindings(input.findings);
-      const candidates = findings.map(toFindingCandidate);
-      const reconcile = reconcileReviewFindings(state.db, review.id, candidates);
+      const identifiable: ReviewFinding[] = [];
+      const untracked: ReviewFinding[] = [];
+      for (const finding of input.findings) {
+        if (computeFindingFingerprint(toFindingCandidate(finding)) === null) {
+          untracked.push(finding);
+        } else {
+          identifiable.push(finding);
+        }
+      }
+
+      const uniqueIdentifiable = deduplicateReviewFindings(identifiable);
+      const mergeCount = identifiable.length - uniqueIdentifiable.length;
+      const reconcile = reconcileReviewFindings(
+        state.db,
+        review.id,
+        uniqueIdentifiable.map(toFindingCandidate),
+      );
       const { actionableFindings, lifecycleSuppressedFindings } =
-        splitFindingsByLifecycleSuppression(findings, reconcile);
+        splitFindingsByLifecycleSuppression(uniqueIdentifiable, reconcile);
+
+      const identityDiagnostics: string[] = [];
+      if (untracked.length > 0) {
+        identityDiagnostics.push(
+          `${untracked.length} finding(s) quoted no code and were not tracked.`,
+        );
+      }
+      if (mergeCount > 0) {
+        identityDiagnostics.push(
+          `${mergeCount} reported finding(s) shared a code anchor and were merged into one.`,
+        );
+      }
 
       return {
         reviewId: review.id,
         reconcile,
-        actionableFindings,
+        actionableFindings: [...actionableFindings, ...untracked],
         lifecycleSuppressedFindings,
+        identityDiagnostics,
       };
     });
   } finally {

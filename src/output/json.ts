@@ -1,5 +1,5 @@
-import type { ReviewTiming, ReviewUsage } from "../review/types.js";
-import type { PersistReviewRunResult } from "../state/persist.js";
+import type { ReviewFinding, ReviewTiming, ReviewUsage } from "../review/types.js";
+import { isUntrackedFinding, type PersistReviewRunResult } from "../state/persist.js";
 import type {
   FindingStatus,
   ObservationClassification,
@@ -10,7 +10,7 @@ import type {
   ReviewTargetKind,
 } from "../state/types.js";
 
-export const JSON_OUTPUT_SCHEMA_VERSION = 1 as const;
+export const JSON_OUTPUT_SCHEMA_VERSION = 2 as const;
 
 export type ReviewOutputFormat = "text" | "json";
 
@@ -23,11 +23,13 @@ export interface ReviewJsonErrorDocument {
   };
 }
 
-export interface ReviewJsonFindingV1 {
-  id: string;
-  fingerprint: string;
+export type ReviewJsonClassification = ObservationClassification | "untracked";
+
+export interface ReviewJsonFindingV2 {
+  id: string | null;
+  fingerprint: string | null;
   status: FindingStatus;
-  classification: ObservationClassification;
+  classification: ReviewJsonClassification;
   suppressed: boolean;
   location: {
     file: string;
@@ -45,7 +47,7 @@ export interface ReviewJsonFindingV1 {
   occurrence_count: number;
 }
 
-export interface ReviewJsonDocumentV1 {
+export interface ReviewJsonDocumentV2 {
   schema_version: typeof JSON_OUTPUT_SCHEMA_VERSION;
   review: {
     id: string;
@@ -64,7 +66,7 @@ export interface ReviewJsonDocumentV1 {
     report_path: string | null;
     skipped_reason: string | null;
   };
-  findings: ReviewJsonFindingV1[];
+  findings: ReviewJsonFindingV2[];
   suppressed: {
     lifecycle: {
       dismissed: number;
@@ -101,11 +103,12 @@ export function parseReviewOutputFormat(value: unknown): ReviewOutputFormat {
   throw new Error(`Invalid output format: ${String(value)}. Expected text or json.`);
 }
 
-export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJsonDocumentV1 {
+export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJsonDocumentV2 {
   const observations = selectJsonObservations(
     input.persisted.reconcile.observations,
     input.verbose,
   );
+  const untracked = untrackedActionableFindings(input.persisted.actionableFindings);
 
   return {
     schema_version: JSON_OUTPUT_SCHEMA_VERSION,
@@ -122,11 +125,14 @@ export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJson
       depth: input.review.depth,
       session_id: input.review.sessionId,
       summary: input.review.summary,
-      status: reviewStatusFromPersisted(input.review, input.persisted.reconcile.observations),
+      status: reviewStatusFromPersisted(input.review, input.persisted),
       report_path: input.review.reportPath,
       skipped_reason: input.review.skippedReason,
     },
-    findings: observations.map((item) => mapJsonFinding(item, input.occurrenceCounts)),
+    findings: [
+      ...observations.map((item) => mapJsonFinding(item, input.occurrenceCounts)),
+      ...untracked.map((finding) => mapUntrackedJsonFinding(finding, input.review.createdAt)),
+    ],
     suppressed: {
       lifecycle: input.persisted.reconcile.suppressedCounts,
       outside_changed_files: input.suppressed.outsideChangedFiles,
@@ -138,7 +144,7 @@ export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJson
   };
 }
 
-export function renderReviewJsonDocument(document: ReviewJsonDocumentV1): string {
+export function renderReviewJsonDocument(document: ReviewJsonDocumentV2): string {
   return `${JSON.stringify(document)}\n`;
 }
 
@@ -150,7 +156,7 @@ export function renderJsonErrorDocument(message: string): string {
   return `${JSON.stringify(document)}\n`;
 }
 
-export async function writeReviewJsonSuccess(document: ReviewJsonDocumentV1): Promise<void> {
+export async function writeReviewJsonSuccess(document: ReviewJsonDocumentV2): Promise<void> {
   await writeFully(process.stdout, renderReviewJsonDocument(document));
 }
 
@@ -199,20 +205,27 @@ export function resolveReviewJsonStatus(
 
 export function reviewStatusFromPersisted(
   review: Pick<ReviewRecord, "skippedReason">,
-  observations: readonly PersistedObservation[],
+  persisted: Pick<PersistReviewRunResult, "reconcile" | "actionableFindings">,
 ): ReviewJsonStatus {
-  const unsuppressed = observations.filter((item) => !item.suppressed);
-  const actionableCount = unsuppressed.filter(
-    (item) => item.observation.severity !== "info",
-  ).length;
-  const advisoryCount = unsuppressed.filter((item) => item.observation.severity === "info").length;
+  const unsuppressed = persisted.reconcile.observations.filter((item) => !item.suppressed);
+  const untracked = untrackedActionableFindings(persisted.actionableFindings);
+  const actionableCount =
+    unsuppressed.filter((item) => item.observation.severity !== "info").length +
+    untracked.filter((finding) => finding.severity !== "info").length;
+  const advisoryCount =
+    unsuppressed.filter((item) => item.observation.severity === "info").length +
+    untracked.filter((finding) => finding.severity === "info").length;
   return resolveReviewJsonStatus(review, actionableCount, advisoryCount);
+}
+
+function untrackedActionableFindings(findings: readonly ReviewFinding[]): ReviewFinding[] {
+  return findings.filter(isUntrackedFinding);
 }
 
 function mapJsonFinding(
   item: PersistedObservation,
   occurrenceCounts: Map<string, number>,
-): ReviewJsonFindingV1 {
+): ReviewJsonFindingV2 {
   const { observation, finding, fingerprint, suppressed } = item;
   return {
     id: finding.id,
@@ -234,5 +247,29 @@ function mapJsonFinding(
     created_at: finding.createdAt,
     updated_at: finding.updatedAt,
     occurrence_count: occurrenceCounts.get(finding.id) ?? 1,
+  };
+}
+
+function mapUntrackedJsonFinding(finding: ReviewFinding, createdAt: string): ReviewJsonFindingV2 {
+  return {
+    id: null,
+    fingerprint: null,
+    status: "open",
+    classification: "untracked",
+    suppressed: false,
+    location: {
+      file: finding.file,
+      line: finding.line,
+    },
+    content: {
+      title: finding.title,
+      body: finding.body,
+      evidence: finding.evidence ?? null,
+    },
+    severity: finding.severity,
+    confidence: finding.confidence,
+    created_at: createdAt,
+    updated_at: createdAt,
+    occurrence_count: 1,
   };
 }
