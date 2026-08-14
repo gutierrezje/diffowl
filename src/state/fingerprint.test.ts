@@ -54,11 +54,11 @@ describe("computeFindingFingerprint", () => {
     expect(computeFindingFingerprint({ file: "src/auth.ts" })).toBeNull();
     expect(computeFindingFingerprint({ file: "src/auth.ts", evidence: "" })).toBeNull();
     expect(computeFindingFingerprint({ file: "src/auth.ts", evidence: "   \n\t  " })).toBeNull();
-    expect(
-      computeFindingFingerprint({
-        file: "src/auth.ts",
-        body: "The handler does not validate the payload.",
-      }),
-    ).toBeNull();
+
+    const bodyOnly = {
+      file: "src/auth.ts",
+      body: "The handler does not validate the payload.",
+    };
+    expect(computeFindingFingerprint(bodyOnly)).toBeNull();
   });
 });
