@@ -6,30 +6,53 @@ All notable changes to DiffOwl are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-14
+
+The **Reliable Review Automation** release. DiffOwl now carries findings across
+reviews more reliably, repairs malformed review output in-session, and can gate
+pre-PR workflows on unresolved findings.
+
 ### Added
 
-- Opt-in review gate: `--fail-on-findings` or `gate.fail_on_findings` exits 1 when
-  the review status is `open`. Default reviews and `--hook` still exit 0.
+- Aggregate `diffowl findings summary` output for findings reachable from the
+  current checkout. Staged summaries include only findings whose reviewed diff
+  still matches; `--format json` provides machine-readable output and `--all`
+  includes findings outside the reachable history.
+- Opt-in review gate: `--fail-on-findings` or `gate.fail_on_findings` exits 1
+  when unsuppressed error or warning findings remain.
 
 ### Changed
 
-- Finding identity is file plus quoted evidence. Title and body no longer enter
-  the hash, so two reviews of the same quote share an id even when the model
-  rewrites the prose. Findings with no quote still appear in the report but are
-  not stored, dismissed, or merged. Local `.diffowl/state.db` identities reset;
-  dismissed v1 findings can reappear.
-- `--format json` review documents are schema version 2. Untracked findings may
-  have null `id`/`fingerprint` and `classification: "untracked"`. Findings-list
-  JSON stays at schema version 1.
+- Finding identity is now file plus quoted evidence. Findings without quoted
+  evidence remain visible but are untracked and cannot be dismissed, deferred,
+  or merged.
+- Review JSON is now schema version 2, with null `id` and `fingerprint` values
+  for untracked findings and `classification: "untracked"`.
+- Invalid or missing-marker review documents are repaired in the same session;
+  after three total attempts, DiffOwl throws instead of silently dropping
+  findings.
+- Reports are stored as uniquely timestamped files. `latest` and `latest.md`
+  resolve to the newest report instead of relying on a mutable `latest.md` copy.
 
 ### Fixed
 
-- Untracked (no-quote) findings now appear in `--format json` and count toward
-  review status / `--fail-on-findings`, matching the markdown report.
-- Keep-distinct scoring no longer treats unquoted findings as a fingerprint
-  collapse. Dedup replay keeps them without merging.
-- Completed `--format json` reviews wait for stdout to flush before exiting, so a
-  gate failure cannot truncate a piped JSON document.
+- Untracked findings now appear in JSON and participate in review status and
+  gate decisions.
+- Completed JSON reviews wait for stdout to flush before exiting, preventing
+  truncated output when a gate fails.
+- `FINAL_REVIEW_JSON` is recognized only as a standalone line, so marker text
+  inside JSON content cannot corrupt document extraction.
+- Findings summaries are fail-silent and time-bounded; session-start logs are
+  capped so Git, SQLite, or slow diff-driver failures cannot break startup.
+- Claude settings reconciliation now removes duplicate DiffOwl entries and
+  writes `.claude/settings.json` atomically.
+
+### Experimental
+
+- Opt-in Claude Code SessionStart integration via
+  `diffowl agent-hook install --client claude` surfaces aggregate findings
+  summaries on startup and resume. This is an install-only preview; check and
+  uninstall commands are not yet available.
 
 ## [0.3.3] - 2026-07-15
 
@@ -126,6 +149,7 @@ reviewer prompt; the measurement machinery itself is internal tooling.
 
 See the Git history and release notes for versions at and before `v0.3.1`.
 
+[0.4.0]: https://github.com/gutierrezje/diffowl/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/gutierrezje/diffowl/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/gutierrezje/diffowl/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/gutierrezje/diffowl/releases/tag/v0.3.1
