@@ -9,6 +9,7 @@ import {
 } from "./json.js";
 import type { PersistReviewRunResult } from "../state/persist.js";
 import type { PersistedObservation, ReviewRecord } from "../state/types.js";
+import type { ReviewFinding } from "../review/types.js";
 
 const review: ReviewRecord = {
   id: "rev_test",
@@ -94,6 +95,15 @@ const persisted: PersistReviewRunResult = {
   },
 };
 
+const untrackedFinding: ReviewFinding = {
+  severity: "warning",
+  file: "src/auth.ts",
+  line: 12,
+  confidence: "high",
+  title: "Missing null check",
+  body: "The handler does not validate the payload.",
+};
+
 const reviewStatusCases: Array<{
   expected: "open" | "advisory" | "resolved" | "skipped";
   review: ReviewRecord;
@@ -151,23 +161,34 @@ describe("reviewStatusFromPersisted", () => {
   it.each(reviewStatusCases)(
     "agrees with the JSON document for $expected reviews",
     ({ expected, review: caseReview, observations }) => {
+      const casePersisted: PersistReviewRunResult = {
+        ...persisted,
+        reconcile: {
+          observations,
+          suppressedCounts: { dismissed: 0, deferred: 0 },
+        },
+      };
       const document = buildReviewJsonDocument({
         review: caseReview,
-        persisted: {
-          ...persisted,
-          reconcile: {
-            observations,
-            suppressedCounts: { dismissed: 0, deferred: 0 },
-          },
-        },
+        persisted: casePersisted,
         occurrenceCounts: new Map(),
         suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
       });
 
-      expect(reviewStatusFromPersisted(caseReview, observations)).toBe(document.review.status);
+      expect(reviewStatusFromPersisted(caseReview, casePersisted)).toBe(document.review.status);
       expect(document.review.status).toBe(expected);
     },
   );
+
+  it("treats untracked warning findings as open", () => {
+    const casePersisted: PersistReviewRunResult = {
+      ...persisted,
+      actionableFindings: [untrackedFinding],
+      reconcile: { observations: [], suppressedCounts: { dismissed: 0, deferred: 0 } },
+    };
+
+    expect(reviewStatusFromPersisted(review, casePersisted)).toBe("open");
+  });
 });
 
 describe("buildReviewJsonDocument", () => {
@@ -304,6 +325,58 @@ describe("buildReviewJsonDocument", () => {
     expect(document.review.status).toBe("advisory");
     expect(document.findings).toHaveLength(1);
     expect(document.findings[0]?.severity).toBe("info");
+  });
+
+  it("includes untracked findings in the document and keeps status open", () => {
+    const document = buildReviewJsonDocument({
+      review,
+      persisted: {
+        ...persisted,
+        actionableFindings: [untrackedFinding],
+        reconcile: { observations: [], suppressedCounts: { dismissed: 0, deferred: 0 } },
+      },
+      occurrenceCounts: new Map(),
+      suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+    });
+
+    expect(document.review.status).toBe("open");
+    expect(document.findings).toEqual([
+      {
+        id: null,
+        fingerprint: null,
+        status: "open",
+        classification: "untracked",
+        suppressed: false,
+        location: { file: "src/auth.ts", line: 12 },
+        content: {
+          title: "Missing null check",
+          body: "The handler does not validate the payload.",
+          evidence: null,
+        },
+        severity: "warning",
+        confidence: "high",
+        created_at: review.createdAt,
+        updated_at: review.createdAt,
+        occurrence_count: 1,
+      },
+    ]);
+  });
+
+  it("marks advisory reviews when only untracked info findings remain", () => {
+    const document = buildReviewJsonDocument({
+      review,
+      persisted: {
+        ...persisted,
+        actionableFindings: [{ ...untrackedFinding, severity: "info" }],
+        reconcile: { observations: [], suppressedCounts: { dismissed: 0, deferred: 0 } },
+      },
+      occurrenceCounts: new Map(),
+      suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+    });
+
+    expect(document.review.status).toBe("advisory");
+    expect(document.findings).toHaveLength(1);
+    expect(document.findings[0]?.classification).toBe("untracked");
   });
 
   it("keeps open status when info findings mix with errors", () => {

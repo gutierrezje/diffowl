@@ -1,5 +1,6 @@
-import type { ReviewTiming, ReviewUsage } from "../review/types.js";
-import type { PersistReviewRunResult } from "../state/persist.js";
+import type { ReviewFinding, ReviewTiming, ReviewUsage } from "../review/types.js";
+import { computeFindingFingerprint } from "../state/fingerprint.js";
+import { toFindingCandidate, type PersistReviewRunResult } from "../state/persist.js";
 import type {
   FindingStatus,
   ObservationClassification,
@@ -23,11 +24,13 @@ export interface ReviewJsonErrorDocument {
   };
 }
 
+export type ReviewJsonClassification = ObservationClassification | "untracked";
+
 export interface ReviewJsonFindingV1 {
-  id: string;
-  fingerprint: string;
+  id: string | null;
+  fingerprint: string | null;
   status: FindingStatus;
-  classification: ObservationClassification;
+  classification: ReviewJsonClassification;
   suppressed: boolean;
   location: {
     file: string;
@@ -106,6 +109,7 @@ export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJson
     input.persisted.reconcile.observations,
     input.verbose,
   );
+  const untracked = untrackedActionableFindings(input.persisted.actionableFindings);
 
   return {
     schema_version: JSON_OUTPUT_SCHEMA_VERSION,
@@ -122,11 +126,14 @@ export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJson
       depth: input.review.depth,
       session_id: input.review.sessionId,
       summary: input.review.summary,
-      status: reviewStatusFromPersisted(input.review, input.persisted.reconcile.observations),
+      status: reviewStatusFromPersisted(input.review, input.persisted),
       report_path: input.review.reportPath,
       skipped_reason: input.review.skippedReason,
     },
-    findings: observations.map((item) => mapJsonFinding(item, input.occurrenceCounts)),
+    findings: [
+      ...observations.map((item) => mapJsonFinding(item, input.occurrenceCounts)),
+      ...untracked.map((finding) => mapUntrackedJsonFinding(finding, input.review.createdAt)),
+    ],
     suppressed: {
       lifecycle: input.persisted.reconcile.suppressedCounts,
       outside_changed_files: input.suppressed.outsideChangedFiles,
@@ -199,14 +206,23 @@ export function resolveReviewJsonStatus(
 
 export function reviewStatusFromPersisted(
   review: Pick<ReviewRecord, "skippedReason">,
-  observations: readonly PersistedObservation[],
+  persisted: Pick<PersistReviewRunResult, "reconcile" | "actionableFindings">,
 ): ReviewJsonStatus {
-  const unsuppressed = observations.filter((item) => !item.suppressed);
-  const actionableCount = unsuppressed.filter(
-    (item) => item.observation.severity !== "info",
-  ).length;
-  const advisoryCount = unsuppressed.filter((item) => item.observation.severity === "info").length;
+  const unsuppressed = persisted.reconcile.observations.filter((item) => !item.suppressed);
+  const untracked = untrackedActionableFindings(persisted.actionableFindings);
+  const actionableCount =
+    unsuppressed.filter((item) => item.observation.severity !== "info").length +
+    untracked.filter((finding) => finding.severity !== "info").length;
+  const advisoryCount =
+    unsuppressed.filter((item) => item.observation.severity === "info").length +
+    untracked.filter((finding) => finding.severity === "info").length;
   return resolveReviewJsonStatus(review, actionableCount, advisoryCount);
+}
+
+function untrackedActionableFindings(findings: readonly ReviewFinding[]): ReviewFinding[] {
+  return findings.filter(
+    (finding) => computeFindingFingerprint(toFindingCandidate(finding)) === null,
+  );
 }
 
 function mapJsonFinding(
@@ -234,5 +250,29 @@ function mapJsonFinding(
     created_at: finding.createdAt,
     updated_at: finding.updatedAt,
     occurrence_count: occurrenceCounts.get(finding.id) ?? 1,
+  };
+}
+
+function mapUntrackedJsonFinding(finding: ReviewFinding, createdAt: string): ReviewJsonFindingV1 {
+  return {
+    id: null,
+    fingerprint: null,
+    status: "open",
+    classification: "untracked",
+    suppressed: false,
+    location: {
+      file: finding.file,
+      line: finding.line,
+    },
+    content: {
+      title: finding.title,
+      body: finding.body,
+      evidence: finding.evidence ?? null,
+    },
+    severity: finding.severity,
+    confidence: finding.confidence,
+    created_at: createdAt,
+    updated_at: createdAt,
+    occurrence_count: 1,
   };
 }

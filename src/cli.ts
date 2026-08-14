@@ -368,7 +368,7 @@ program
       }
       const status = reviewStatusFromPersisted(
         { skippedReason: null },
-        outcome.persisted.reconcile.observations,
+        outcome.persisted,
       );
       const { exitCode, announceFailure } = resolveCompletedReviewExit({
         status,

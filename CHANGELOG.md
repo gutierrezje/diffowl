@@ -21,6 +21,8 @@ All notable changes to DiffOwl are documented here. This project adheres to
 
 ### Fixed
 
+- Untracked (no-quote) findings now appear in `--format json` and count toward
+  review status / `--fail-on-findings`, matching the markdown report.
 - Completed `--format json` reviews wait for stdout to flush before exiting, so a
   gate failure cannot truncate a piped JSON document.
 
