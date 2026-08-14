@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run DiffOwl Review"
+  short_description: "Delegate and await a completed DiffOwl review"
+  default_prompt: "Use $run-diffowl-review to run DiffOwl on this branch or pull request, then summarize the completed result."
