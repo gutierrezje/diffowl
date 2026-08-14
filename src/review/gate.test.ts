@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideGateExit, resolveGateEnabled } from "./gate.js";
+import { decideGateExit, resolveCompletedReviewExit, resolveGateEnabled } from "./gate.js";
 import type { ReviewJsonStatus } from "../output/json.js";
 
 const exitCases: Array<{
@@ -45,6 +45,88 @@ describe("decideGateExit", () => {
     "returns $expected for status=$status enabled=$enabled hook=$hook",
     ({ status, enabled, hook, expected }) => {
       expect(decideGateExit(status, enabled, hook)).toBe(expected);
+    },
+  );
+});
+
+const completedExitCases: Array<{
+  status: ReviewJsonStatus;
+  cliFlag: boolean;
+  configEnabled: boolean;
+  hook: boolean;
+  jsonMode: boolean;
+  exitCode: 0 | 1;
+  announceFailure: boolean;
+}> = [
+  {
+    status: "open",
+    cliFlag: true,
+    configEnabled: false,
+    hook: false,
+    jsonMode: false,
+    exitCode: 1,
+    announceFailure: true,
+  },
+  {
+    status: "open",
+    cliFlag: true,
+    configEnabled: false,
+    hook: false,
+    jsonMode: true,
+    exitCode: 1,
+    announceFailure: false,
+  },
+  {
+    status: "open",
+    cliFlag: false,
+    configEnabled: true,
+    hook: false,
+    jsonMode: false,
+    exitCode: 1,
+    announceFailure: true,
+  },
+  {
+    status: "open",
+    cliFlag: true,
+    configEnabled: true,
+    hook: true,
+    jsonMode: false,
+    exitCode: 0,
+    announceFailure: false,
+  },
+  {
+    status: "open",
+    cliFlag: false,
+    configEnabled: false,
+    hook: false,
+    jsonMode: false,
+    exitCode: 0,
+    announceFailure: false,
+  },
+  {
+    status: "advisory",
+    cliFlag: true,
+    configEnabled: true,
+    hook: false,
+    jsonMode: false,
+    exitCode: 0,
+    announceFailure: false,
+  },
+];
+
+describe("resolveCompletedReviewExit", () => {
+  it.each(completedExitCases)(
+    "returns exitCode=$exitCode announceFailure=$announceFailure for status=$status cli=$cliFlag config=$configEnabled hook=$hook json=$jsonMode",
+    (input) => {
+      expect(
+        resolveCompletedReviewExit({
+          status: input.status,
+          cliFlag: input.cliFlag,
+          configEnabled: input.configEnabled,
+          hook: input.hook,
+          jsonMode: input.jsonMode,
+        }),
+      ).toEqual({ exitCode: input.exitCode, announceFailure: input.announceFailure });
     },
   );
 });

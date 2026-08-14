@@ -100,7 +100,7 @@ import {
 import { InvalidFindingTransitionError } from "./state/db.js";
 import type { SqliteDatabase } from "./state/sqlite.js";
 import type { FindingActor } from "./state/types.js";
-import { decideGateExit, resolveGateEnabled } from "./review/gate.js";
+import { resolveCompletedReviewExit } from "./review/gate.js";
 import { runReviewPipeline } from "./review/run.js";
 
 import { readFile } from "node:fs/promises";
@@ -370,16 +370,17 @@ program
         { skippedReason: null },
         outcome.persisted.reconcile.observations,
       );
-      const enabled = resolveGateEnabled(
-        Boolean(options.failOnFindings),
-        config.gate.fail_on_findings,
-      );
-      const exitCode = decideGateExit(status, enabled, Boolean(options.hook));
+      const { exitCode, announceFailure } = resolveCompletedReviewExit({
+        status,
+        cliFlag: Boolean(options.failOnFindings),
+        configEnabled: config.gate.fail_on_findings,
+        hook: Boolean(options.hook),
+        jsonMode,
+      });
       if (options.hook) {
         await writeHookStatus(0, hookCommit);
-        process.exit(0);
       }
-      if (exitCode === 1 && !jsonMode) {
+      if (announceFailure) {
         console.error(chalk.red("Review gate failed: open findings remain."));
       }
       process.exit(exitCode);
@@ -1332,5 +1333,5 @@ async function emitReviewJsonSuccess(input: {
     ...(input.timings ? { timings: input.timings } : {}),
     ...(input.usage !== undefined ? { usage: input.usage } : {}),
   });
-  writeReviewJsonSuccess(document);
+  await writeReviewJsonSuccess(document);
 }

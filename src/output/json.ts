@@ -150,8 +150,20 @@ export function renderJsonErrorDocument(message: string): string {
   return `${JSON.stringify(document)}\n`;
 }
 
-export function writeReviewJsonSuccess(document: ReviewJsonDocumentV1): void {
-  process.stdout.write(renderReviewJsonDocument(document));
+export async function writeReviewJsonSuccess(document: ReviewJsonDocumentV1): Promise<void> {
+  await writeFully(process.stdout, renderReviewJsonDocument(document));
+}
+
+function writeFully(stream: NodeJS.WritableStream, chunk: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    stream.write(chunk, (error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
 }
 
 export function writeJsonError(message: string): void {

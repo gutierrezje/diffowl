@@ -5,6 +5,7 @@ import {
   renderJsonErrorDocument,
   renderReviewJsonDocument,
   reviewStatusFromPersisted,
+  writeReviewJsonSuccess,
 } from "./json.js";
 import type { PersistReviewRunResult } from "../state/persist.js";
 import type { PersistedObservation, ReviewRecord } from "../state/types.js";
@@ -428,5 +429,42 @@ describe("renderJsonErrorDocument", () => {
       schema_version: 1,
       error: { message: "Review failed." },
     });
+  });
+});
+
+describe("writeReviewJsonSuccess", () => {
+  it("resolves only after stdout reports the document was written", async () => {
+    const document = buildReviewJsonDocument({
+      review,
+      persisted,
+      occurrenceCounts: new Map([["fnd_test", 1]]),
+      suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+    });
+    const originalWrite = process.stdout.write;
+    let writeCallback: ((error?: Error | null) => void) | undefined;
+    process.stdout.write = ((
+      _chunk: string | Uint8Array,
+      encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+      maybeCallback?: (error?: Error | null) => void,
+    ) => {
+      writeCallback =
+        typeof encodingOrCallback === "function" ? encodingOrCallback : maybeCallback;
+      return false;
+    }) as typeof process.stdout.write;
+
+    try {
+      let resolved = false;
+      const pending = writeReviewJsonSuccess(document).then(() => {
+        resolved = true;
+      });
+      await Promise.resolve();
+      expect(resolved).toBe(false);
+      expect(writeCallback).toEqual(expect.any(Function));
+      writeCallback?.();
+      await pending;
+      expect(resolved).toBe(true);
+    } finally {
+      process.stdout.write = originalWrite;
+    }
   });
 });
