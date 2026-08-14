@@ -26,7 +26,7 @@ Manages the OpenCode server lifecycle, SSE session streaming, and the review age
 
 ## Anti-Patterns
 
-- `parseStructuredReview` tolerates marker-less JSON as fallback, but `looksLikeCompleteStructuredReview` (used by settlement) does NOT — it requires the marker.
+- `inspectReviewText` is the single review-document contract. Streaming stays `open` until the `FINAL_REVIEW_JSON` marker plus a closed JSON object; `looksLikeCompleteStructuredReview` is `inspect.kind !== "open"`. Finished views (`parseStructuredReview`, idle `ifFinished`) treat a missing marker as invalid. Invalid documents retry up to `SCHEMA_VALIDATION_MAX_ATTEMPTS` then throw; there is no drop-and-succeed path. Change prompt, parser, and detector together.
 - Never increase tool permissions beyond `glob`, `grep`, `read` for default depth. Deeper tool access is rejected via `replyToPermissionRequest`.
 - `resolveReasoningVariant` queries provider metadata but silently ignores failures (advisory only). Do not rely on it for correctness.
 - `extractSessionId` / `extractSessionError` do deep defensive type narrowing on OpenCode payloads. Missing a new payload shape causes opaque failures.

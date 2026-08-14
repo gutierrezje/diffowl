@@ -1,12 +1,23 @@
 import { looksLikeCompleteStructuredReview } from "./review-parser.js";
 
 export interface ReviewSettlementCoordinator {
-  acceptAssistantMessage(result: { text: string | undefined; error: Error | undefined }): boolean;
-  acceptText(text: string): boolean;
+  acceptAssistantMessage(result: {
+    text: string | undefined;
+    error: Error | undefined;
+    messageId?: string;
+  }): boolean;
+  acceptText(text: string, source?: { messageId?: string }): boolean;
   finish(): void;
   isSettled(): boolean;
+  hasResponse(): boolean;
   reject(error: Error): void;
   resolve(text: string): void;
+  /**
+   * Stop timers and ignore further events without resolve/reject.
+   * Used when the driver already consumed this attempt and is replacing
+   * the coordinator. No-op if already settled.
+   */
+  release(): void;
 }
 
 export type ReconciliationResult =
@@ -28,6 +39,7 @@ export function createReviewSettlementCoordinator(options: {
 }): ReviewSettlementCoordinator {
   let settled = false;
   let fullResponse = "";
+  let currentMessageId: string | undefined;
   let lastCheckedLength = 0;
   let reconciliationRunning = false;
   let timeoutRequested = false;
@@ -38,18 +50,25 @@ export function createReviewSettlementCoordinator(options: {
     settled = true;
     clearTimeout(safetyTimeout);
     clearInterval(reconciliationInterval);
-    options.onAbort();
     if (outcome.kind === "resolve") {
       options.resolve(outcome.text);
-    } else {
-      options.reject(outcome.error);
+      return;
     }
+    options.onAbort();
+    options.reject(outcome.error);
   };
 
-  const acceptText = (text: string) => {
+  const acceptText = (text: string, source?: { messageId?: string }) => {
     if (settled) return false;
 
-    if (text.length > fullResponse.length) {
+    const incomingId = source?.messageId;
+    const isNewMessage = incomingId !== undefined && incomingId !== currentMessageId;
+    if (isNewMessage) {
+      currentMessageId = incomingId;
+      fullResponse = text;
+      lastCheckedLength = 0;
+      options.onText?.(fullResponse);
+    } else if (text.length > fullResponse.length) {
       fullResponse = text;
       options.onText?.(fullResponse);
     }
@@ -114,23 +133,34 @@ export function createReviewSettlementCoordinator(options: {
   );
 
   return {
-    acceptAssistantMessage: ({ text, error }) => {
+    acceptAssistantMessage: ({ text, error, messageId }) => {
       if (error) {
         settle({ kind: "reject", error });
         return false;
       }
-      return text ? acceptText(text) : false;
+      return text ? acceptText(text, messageId !== undefined ? { messageId } : undefined) : false;
     },
     acceptText,
     finish: () => {
-      if (settled || acceptText(fullResponse)) return;
+      if (settled) return;
+      if (fullResponse.length > 0) {
+        settle({ kind: "resolve", text: fullResponse });
+        return;
+      }
       settle({
         kind: "reject",
         error: new Error("OpenCode event stream ended before a complete review was received."),
       });
     },
     isSettled: () => settled,
+    hasResponse: () => fullResponse.length > 0,
     reject: (error) => settle({ kind: "reject", error }),
     resolve: (text) => settle({ kind: "resolve", text }),
+    release: () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(safetyTimeout);
+      clearInterval(reconciliationInterval);
+    },
   };
 }

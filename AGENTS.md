@@ -82,7 +82,7 @@ DiffOwl uses a single-context domain-doc layout. See `docs/agents/domain.md`.
 
 ## Anti-Patterns
 
-- `REVIEW_AGENT_PROMPT` and `review-parser.ts` share a contract: `FINAL_REVIEW_JSON` marker + single JSON object. `parseStructuredReview` tolerates a missing marker; the streaming detector `looksLikeCompleteStructuredReview` (settlement) does NOT. Change prompt, parser, and detector together.
+- `inspectReviewText` is the single review-document contract. Streaming stays `open` until the `FINAL_REVIEW_JSON` marker plus a closed JSON object; `looksLikeCompleteStructuredReview` is `inspect.kind !== "open"`. Finished views (`parseStructuredReview`, idle `ifFinished`) treat a missing marker as invalid. Invalid documents retry up to `SCHEMA_VALIDATION_MAX_ATTEMPTS` then throw; there is no drop-and-succeed path. Change prompt, parser, and detector together.
 - `parseDiff` is regex-based and brittle. Test against real `git diff` output when touching.
 - `runReview` SSE loop timeout is `config.timeout` (default 300s). The `settled` flag logic is complex; race conditions easy.
 - `spawnServer` writes PID to `.diffowl/server.pid`; `stopServer` reads it. PID reuse edge case unhandled.

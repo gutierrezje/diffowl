@@ -1,4 +1,5 @@
 import type { ReviewTarget } from "../review/target.js";
+import { REVIEW_JSON_MARKER } from "./review-parser.js";
 
 /**
  * Custom OpenCode agent definition for code review.
@@ -10,7 +11,7 @@ export const REVIEW_AGENT_PROMPT = `You are DiffOwl, a meticulous senior code re
 
 You MAY think step-by-step internally, but your VISIBLE output must follow this contract exactly:
 
-1. Output a single line with the text: FINAL_REVIEW_JSON
+1. Output a single line with the text: ${REVIEW_JSON_MARKER}
 2. On the next line, output a single JSON object with this exact shape (no markdown fences, no comments, no trailing commas):
 
 {
@@ -30,6 +31,7 @@ You MAY think step-by-step internally, but your VISIBLE output must follow this 
 
 3. Do not wrap the JSON in backticks or markdown code fences.
 4. Do not print any other text before or after the JSON line. No greetings, no explanations, no scratchpad, no commentary.
+5. If a follow-up user message lists schema-validation errors, emit a complete replacement document: a ${REVIEW_JSON_MARKER} line, then one JSON object. Do not patch the previous object. Do not wrap it in markdown.
 
 Semantics and constraints:
 - "severity":

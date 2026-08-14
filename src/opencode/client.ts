@@ -1,7 +1,10 @@
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import { isServerRunning } from "./server.js";
 import { REVIEW_AGENT_PROMPT, buildReviewPrompt } from "./agent.js";
-import { parseStructuredReview } from "./review-parser.js";
+import {
+  resolveReviewDocument,
+  SCHEMA_VALIDATION_MAX_ATTEMPTS,
+} from "./review-parser.js";
 import { createReviewSettlementCoordinator, type ReconciliationResult } from "./settlement.js";
 import {
   buildToolPolicy,
@@ -308,7 +311,6 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
     config.reasoning.effort,
   );
 
-  // Set up SSE event listener to capture the final structured response
   let fullResponse = "";
   const eventsController = new AbortController();
   const cancelReview = () => {
@@ -324,132 +326,156 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
   );
   recordTiming(timings, onProgress, "event-stream", "OpenCode event stream connection", eventStart);
   const usageByMessageId = new Map<string, ReviewUsage>();
-  const responsePromise = handledAwaitable(
-    new Promise<string>((resolve, reject) => {
-      const assistantMessageIds = new Set<string>();
-      const textPartsByMessageId = new Map<string, string>();
-      const settlement = createReviewSettlementCoordinator({
-        timeoutMs: config.timeout * 1000,
-        reconcile: () => reconcileSessionMessages(client, directoryOptions, sessionId),
-        onAbort: () => eventsController.abort(),
-        onText: (text) => {
-          fullResponse = text;
-          onProgress?.({
-            type: "output",
-            message: `Review response received (${fullResponse.length} chars).`,
-            characters: fullResponse.length,
-          });
-        },
-        resolve,
-        reject,
-      });
+  const assistantMessageIds = new Set<string>();
+  const textPartsByMessageId = new Map<string, string>();
+  const consumedMessageIds = new Set<string>();
+  const ignoreRawTexts = new Set<string>();
+  const attemptMessageIds = new Set<string>();
+  const sessionTimeoutBudgetMs = config.timeout * 1000;
+  const sessionTimeoutStartedAt = performance.now();
 
-      (async () => {
-        try {
-          for await (const event of sseResult.stream) {
-            if (settlement.isSettled()) break;
+  const remainingTimeoutMs = () =>
+    Math.max(1, sessionTimeoutBudgetMs - (performance.now() - sessionTimeoutStartedAt));
 
-            const normalized = normalizeOpenCodeEvent(event, sessionId);
-            if (!normalized) continue;
+  const createAttempt = () => {
+    let resolveCandidate!: (text: string) => void;
+    let rejectCandidate!: (error: Error) => void;
+    const promise = handledAwaitable(
+      new Promise<string>((resolve, reject) => {
+        resolveCandidate = resolve;
+        rejectCandidate = reject;
+      }),
+    );
+    const settlement = createReviewSettlementCoordinator({
+      timeoutMs: remainingTimeoutMs(),
+      reconcile: () =>
+        reconcileSessionMessages(client, directoryOptions, sessionId, {
+          ignoreMessageIds: consumedMessageIds,
+          ignoreRawTexts,
+        }),
+      onAbort: () => undefined,
+      onText: (text) => {
+        fullResponse = text;
+        onProgress?.({
+          type: "output",
+          message: `Review response received (${fullResponse.length} chars).`,
+          characters: fullResponse.length,
+        });
+      },
+      resolve: resolveCandidate,
+      reject: rejectCandidate,
+    });
+    return { promise, settlement };
+  };
 
-            switch (normalized.type) {
-              case "permission":
-                void replyToPermissionRequest(client, normalized.request, onProgress).catch(
-                  (err) => {
-                    onProgress?.({
-                      type: "session",
-                      message: `OpenCode permission reply failed: ${
-                        err instanceof Error ? err.message : String(err)
-                      }`,
-                      sessionId,
-                    });
-                  },
-                );
-                break;
-              case "session-error":
-                settlement.reject(normalized.error);
-                break;
-              case "tool-part":
-                onProgress?.({
-                  type: "tool",
-                  message: `${normalized.title} (${normalized.status})`,
-                  tool: normalized.tool,
-                  status: normalized.status,
-                });
-                break;
-              case "text-part":
-                textPartsByMessageId.set(normalized.messageId, normalized.text);
-                if (
-                  assistantMessageIds.has(normalized.messageId) &&
-                  settlement.acceptText(normalized.text)
-                ) {
-                  break;
-                }
-                break;
-              case "assistant-message": {
-                assistantMessageIds.add(normalized.messageId);
-                if (normalized.usage) {
-                  usageByMessageId.set(normalized.messageId, normalized.usage);
-                }
-                const text = textPartsByMessageId.get(normalized.messageId);
-                settlement.acceptAssistantMessage({ text, error: normalized.error });
-                break;
-              }
-              case "session-status": {
-                if (normalized.status === "retry") {
-                  const retryMessage = normalized.message ?? "unknown error";
-                  onProgress?.({
-                    type: "session",
-                    message: `OpenCode retrying: ${retryMessage}`,
-                    sessionId,
-                  });
-                  if (isQuotaOrRateLimitError(retryMessage)) {
-                    settlement.reject(
-                      new Error(`Provider quota or rate limit reached: ${retryMessage}`),
-                    );
-                  }
-                } else {
-                  onProgress?.({
-                    type: "session",
-                    message: `OpenCode session ${normalized.status}.`,
-                    sessionId,
-                  });
-                }
-                break;
-              }
-              case "session-idle":
-                if (fullResponse.length === 0) break;
-                onProgress?.({ type: "idle", message: "OpenCode session is idle." });
-                settlement.finish();
-                break;
+  let attempt = createAttempt();
+
+  (async () => {
+    try {
+      for await (const event of sseResult.stream) {
+        if (attempt.settlement.isSettled()) continue;
+
+        const normalized = normalizeOpenCodeEvent(event, sessionId);
+        if (!normalized) continue;
+
+        switch (normalized.type) {
+          case "permission":
+            void replyToPermissionRequest(client, normalized.request, onProgress).catch((err) => {
+              onProgress?.({
+                type: "session",
+                message: `OpenCode permission reply failed: ${
+                  err instanceof Error ? err.message : String(err)
+                }`,
+                sessionId,
+              });
+            });
+            break;
+          case "session-error":
+            attempt.settlement.reject(normalized.error);
+            break;
+          case "tool-part":
+            onProgress?.({
+              type: "tool",
+              message: `${normalized.title} (${normalized.status})`,
+              tool: normalized.tool,
+              status: normalized.status,
+            });
+            break;
+          case "text-part":
+            if (consumedMessageIds.has(normalized.messageId)) break;
+            attemptMessageIds.add(normalized.messageId);
+            textPartsByMessageId.set(normalized.messageId, normalized.text);
+            if (assistantMessageIds.has(normalized.messageId)) {
+              attempt.settlement.acceptText(normalized.text, { messageId: normalized.messageId });
             }
-
-            if (settlement.isSettled()) break;
+            break;
+          case "assistant-message": {
+            if (consumedMessageIds.has(normalized.messageId)) break;
+            attemptMessageIds.add(normalized.messageId);
+            assistantMessageIds.add(normalized.messageId);
+            if (normalized.usage) {
+              usageByMessageId.set(normalized.messageId, normalized.usage);
+            }
+            const text = textPartsByMessageId.get(normalized.messageId);
+            attempt.settlement.acceptAssistantMessage({
+              text,
+              error: normalized.error,
+              messageId: normalized.messageId,
+            });
+            break;
           }
-
-          // If the stream ends without throwing and without emitting `session.idle`,
-          // we must still settle. Otherwise the caller can hang indefinitely.
-          if (!settlement.isSettled()) {
-            settlement.finish();
+          case "session-status": {
+            if (normalized.status === "retry") {
+              const retryMessage = normalized.message ?? "unknown error";
+              onProgress?.({
+                type: "session",
+                message: `OpenCode retrying: ${retryMessage}`,
+                sessionId,
+              });
+              if (isQuotaOrRateLimitError(retryMessage)) {
+                attempt.settlement.reject(
+                  new Error(`Provider quota or rate limit reached: ${retryMessage}`),
+                );
+              }
+            } else {
+              onProgress?.({
+                type: "session",
+                message: `OpenCode session ${normalized.status}.`,
+                sessionId,
+              });
+            }
+            break;
           }
-        } catch (streamErr) {
-          if (settlement.isSettled()) {
-            return;
+          case "session-idle":
+            if (!attempt.settlement.hasResponse()) break;
+            onProgress?.({ type: "idle", message: "OpenCode session is idle." });
+            attempt.settlement.finish();
+            break;
+          default: {
+            const _exhaustive: never = normalized;
+            throw new Error(`unexpected OpenCode event: ${String(_exhaustive)}`);
           }
-          if (eventsController.signal.aborted) {
-            settlement.reject(new ReviewCancelledError("Review cancelled by user."));
-            return;
-          }
-          settlement.reject(
-            describeOpenCodeError(streamErr, "event-stream-read", { port, sessionId }),
-          );
         }
-      })();
-    }),
-  );
+      }
+
+      if (!attempt.settlement.isSettled()) {
+        attempt.settlement.finish();
+      }
+    } catch (streamErr) {
+      if (attempt.settlement.isSettled()) {
+        return;
+      }
+      if (eventsController.signal.aborted) {
+        attempt.settlement.reject(new ReviewCancelledError("Review cancelled by user."));
+        return;
+      }
+      attempt.settlement.reject(
+        describeOpenCodeError(streamErr, "event-stream-read", { port, sessionId }),
+      );
+    }
+  })();
 
   try {
-    // Send the review prompt
     onProgress?.({ type: "session", message: "Sending review prompt.", sessionId });
     const promptSendStart = performance.now();
     await withOpenCodeDiagnostics("prompt-send", { port, sessionId }, () =>
@@ -468,34 +494,77 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
     recordTiming(timings, onProgress, "prompt-send", "OpenCode prompt request", promptSendStart);
 
     const agentWaitStart = performance.now();
-    const raw = await withOpenCodeDiagnostics(
-      "agent-wait",
-      { port, sessionId },
-      () => responsePromise,
-    );
+    let schemaAttempt = 1;
+    const resolved = await resolveReviewDocument({
+      waitForCandidate: () =>
+        withOpenCodeDiagnostics("agent-wait", { port, sessionId }, () => attempt.promise),
+      sendRetry: async (userMessage) => {
+        schemaAttempt += 1;
+        onProgress?.({
+          type: "session",
+          message: `Review JSON failed schema validation; retrying (${schemaAttempt}/${SCHEMA_VALIDATION_MAX_ATTEMPTS}).`,
+          sessionId,
+        });
+        for (const messageId of attemptMessageIds) {
+          consumedMessageIds.add(messageId);
+        }
+        attemptMessageIds.clear();
+        if (fullResponse.length > 0) {
+          ignoreRawTexts.add(fullResponse);
+        }
+        attempt.settlement.release();
+        fullResponse = "";
+        attempt = createAttempt();
+        await withOpenCodeDiagnostics("schema-retry-send", { port, sessionId }, () =>
+          client.session.promptAsync({
+            path: { id: sessionId },
+            ...directoryOptions,
+            body: {
+              model: { providerID, modelID },
+              tools,
+              ...(reasoning.variant ? { variant: reasoning.variant } : {}),
+              parts: [{ type: "text", text: userMessage }],
+            },
+          }),
+        );
+      },
+    });
     recordTiming(timings, onProgress, "agent-wait", "OpenCode review generation", agentWaitStart);
 
-    const parseStart = performance.now();
-    const report = parseStructuredReview(raw);
-    recordTiming(timings, onProgress, "parse-review", "Review JSON parsing", parseStart);
-    const diagnostics = [...(report.diagnostics ?? []), ...reasoning.diagnostics];
+    eventsController.abort();
+    const diagnostics = [
+      ...(resolved.report.diagnostics ?? []),
+      ...reasoning.diagnostics,
+      ...(resolved.attempt > 1
+        ? [`Schema validation succeeded on attempt ${resolved.attempt}.`]
+        : []),
+    ];
     const usage = aggregateReviewUsage([...usageByMessageId.values()]);
 
     return {
       report: {
-        ...report,
+        ...resolved.report,
         ...(diagnostics.length > 0 ? { diagnostics } : {}),
         timings,
       },
       sessionId,
       ...(usage ? { usage } : {}),
     };
+  } catch (err) {
+    eventsController.abort();
+    throw err;
   } finally {
     signal?.removeEventListener("abort", cancelReview);
   }
 }
 
-export function extractSessionMessageResult(response: unknown): ReconciliationResult {
+export function extractSessionMessageResult(
+  response: unknown,
+  options?: {
+    ignoreMessageIds?: ReadonlySet<string>;
+    ignoreRawTexts?: ReadonlySet<string>;
+  },
+): ReconciliationResult {
   if (!response || typeof response !== "object") return { kind: "empty" };
   const data = (response as { data?: unknown }).data;
   if (!Array.isArray(data)) return { kind: "empty" };
@@ -506,6 +575,11 @@ export function extractSessionMessageResult(response: unknown): ReconciliationRe
 
     const info = (message as { info?: unknown }).info;
     if (!info || typeof info !== "object" || (info as { role?: unknown }).role !== "assistant") {
+      continue;
+    }
+
+    const messageId = (info as { id?: unknown }).id;
+    if (typeof messageId === "string" && options?.ignoreMessageIds?.has(messageId)) {
       continue;
     }
 
@@ -530,6 +604,7 @@ export function extractSessionMessageResult(response: unknown): ReconciliationRe
       )
       .map((part) => part.text)
       .join("");
+    if (text && options?.ignoreRawTexts?.has(text)) continue;
     if (text) return { kind: "text", text };
   }
 
@@ -540,6 +615,10 @@ async function reconcileSessionMessages(
   client: OpenCodeClient,
   directoryOptions: OpencodeDirectoryOptions,
   sessionId: string,
+  ignore?: {
+    ignoreMessageIds?: ReadonlySet<string>;
+    ignoreRawTexts?: ReadonlySet<string>;
+  },
 ): Promise<ReconciliationResult> {
   try {
     const response = await Promise.race([
@@ -552,7 +631,7 @@ async function reconcileSessionMessages(
         setTimeout(() => reject(new Error("Session reconciliation timed out.")), 2000);
       }),
     ]);
-    return extractSessionMessageResult(response);
+    return extractSessionMessageResult(response, ignore);
   } catch (error) {
     return {
       kind: "transport-error",
