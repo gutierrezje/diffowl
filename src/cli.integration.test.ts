@@ -119,6 +119,7 @@ describe("diffowl CLI", () => {
     const { stdout } = await execa("node", [cliPath, "review", "--help"]);
 
     expect(stdout).toContain("--base [ref]");
+    expect(stdout).toContain("--fail-on-findings");
   });
 
   it.each([

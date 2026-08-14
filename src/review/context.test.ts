@@ -35,6 +35,9 @@ const config: DiffOwlConfig = {
   retention: {
     hook_log_kb: 1024,
   },
+  gate: {
+    fail_on_findings: false,
+  },
   timeout: 300,
   min_confidence: "medium",
   include: ["**/*"],

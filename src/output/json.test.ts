@@ -4,9 +4,11 @@ import {
   parseReviewOutputFormat,
   renderJsonErrorDocument,
   renderReviewJsonDocument,
+  reviewStatusFromPersisted,
+  writeReviewJsonSuccess,
 } from "./json.js";
 import type { PersistReviewRunResult } from "../state/persist.js";
-import type { ReviewRecord } from "../state/types.js";
+import type { PersistedObservation, ReviewRecord } from "../state/types.js";
 
 const review: ReviewRecord = {
   id: "rev_test",
@@ -91,6 +93,44 @@ const persisted: PersistReviewRunResult = {
   },
 };
 
+const reviewStatusCases: Array<{
+  expected: "open" | "advisory" | "resolved" | "skipped";
+  review: ReviewRecord;
+  observations: PersistedObservation[];
+}> = [
+  {
+    expected: "open",
+    review,
+    observations: persisted.reconcile.observations,
+  },
+  {
+    expected: "advisory",
+    review,
+    observations: [
+      {
+        ...persisted.reconcile.observations[1]!,
+        suppressed: false,
+      },
+    ],
+  },
+  {
+    expected: "resolved",
+    review,
+    observations: persisted.reconcile.observations.map((item) => ({
+      ...item,
+      suppressed: true,
+    })),
+  },
+  {
+    expected: "skipped",
+    review: {
+      ...review,
+      skippedReason: "documentation-only",
+    },
+    observations: [],
+  },
+];
+
 describe("parseReviewOutputFormat", () => {
   it("defaults to text", () => {
     expect(parseReviewOutputFormat(undefined)).toBe("text");
@@ -104,6 +144,29 @@ describe("parseReviewOutputFormat", () => {
   it("rejects unknown formats", () => {
     expect(() => parseReviewOutputFormat("yaml")).toThrow(/Invalid output format/);
   });
+});
+
+describe("reviewStatusFromPersisted", () => {
+  it.each(reviewStatusCases)(
+    "agrees with the JSON document for $expected reviews",
+    ({ expected, review: caseReview, observations }) => {
+      const document = buildReviewJsonDocument({
+        review: caseReview,
+        persisted: {
+          ...persisted,
+          reconcile: {
+            observations,
+            suppressedCounts: { dismissed: 0, deferred: 0 },
+          },
+        },
+        occurrenceCounts: new Map(),
+        suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+      });
+
+      expect(reviewStatusFromPersisted(caseReview, observations)).toBe(document.review.status);
+      expect(document.review.status).toBe(expected);
+    },
+  );
 });
 
 describe("buildReviewJsonDocument", () => {
@@ -366,5 +429,42 @@ describe("renderJsonErrorDocument", () => {
       schema_version: 1,
       error: { message: "Review failed." },
     });
+  });
+});
+
+describe("writeReviewJsonSuccess", () => {
+  it("resolves only after stdout reports the document was written", async () => {
+    const document = buildReviewJsonDocument({
+      review,
+      persisted,
+      occurrenceCounts: new Map([["fnd_test", 1]]),
+      suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+    });
+    const originalWrite = process.stdout.write;
+    let writeCallback: ((error?: Error | null) => void) | undefined;
+    process.stdout.write = ((
+      _chunk: string | Uint8Array,
+      encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+      maybeCallback?: (error?: Error | null) => void,
+    ) => {
+      writeCallback =
+        typeof encodingOrCallback === "function" ? encodingOrCallback : maybeCallback;
+      return false;
+    }) as typeof process.stdout.write;
+
+    try {
+      let resolved = false;
+      const pending = writeReviewJsonSuccess(document).then(() => {
+        resolved = true;
+      });
+      await Promise.resolve();
+      expect(resolved).toBe(false);
+      expect(writeCallback).toEqual(expect.any(Function));
+      writeCallback?.();
+      await pending;
+      expect(resolved).toBe(true);
+    } finally {
+      process.stdout.write = originalWrite;
+    }
   });
 });

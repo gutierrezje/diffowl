@@ -41,6 +41,9 @@ const DEFAULT_CONFIG = {
   retention: {
     hook_log_kb: 1024,
   },
+  gate: {
+    fail_on_findings: false,
+  },
   timeout: 300, // 5 minutes
   min_confidence: ReviewConfidenceSchema.enum.medium,
   include: ["**/*"],
@@ -90,6 +93,12 @@ export const DiffOwlConfigSchema = z
       })
       .strict()
       .default(DEFAULT_CONFIG.retention),
+    gate: z
+      .object({
+        fail_on_findings: z.boolean().default(DEFAULT_CONFIG.gate.fail_on_findings),
+      })
+      .strict()
+      .default(DEFAULT_CONFIG.gate),
     timeout: z.number().int().positive().default(DEFAULT_CONFIG.timeout),
     min_confidence: ReviewConfidenceSchema.default(DEFAULT_CONFIG.min_confidence),
     include: stringArraySchema.default(DEFAULT_CONFIG.include),

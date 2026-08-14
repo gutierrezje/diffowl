@@ -26,6 +26,7 @@ describe("resolveReviewPrompts", () => {
     context: { depth: "default" as const },
     reasoning: { effort: "auto" as const },
     retention: { hook_log_kb: 1024 },
+    gate: { fail_on_findings: false },
     timeout: 300,
     min_confidence: "medium" as const,
     include: ["**/*"],
