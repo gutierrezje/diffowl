@@ -270,6 +270,9 @@ describe("runEvalCaseTrial", () => {
     // same finding — otherwise identity fixtures measure a mechanism no review
     // ever runs.
     const productionFingerprint = computeFindingFingerprint(toFindingCandidate(finding));
+    if (!productionFingerprint) {
+      throw new Error("expected fingerprint");
+    }
     expect(steps![0]?.fingerprints[0]).toBe(productionFingerprint);
     expect(steps![1]?.fingerprints[0]).toBe(productionFingerprint);
 

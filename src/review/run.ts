@@ -150,6 +150,10 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
     diagnostics.push(lifecycleSummary);
     report.diagnostics = diagnostics;
   }
+  diagnostics.push(...persisted.identityDiagnostics);
+  if (persisted.identityDiagnostics.length > 0) {
+    report.diagnostics = diagnostics;
+  }
   if (input.verbose && persisted.lifecycleSuppressedFindings.length > 0) {
     report.suppressedFindings = [
       ...(report.suppressedFindings ?? []),

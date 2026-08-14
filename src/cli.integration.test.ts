@@ -359,6 +359,7 @@ describe("diffowl findings summary", () => {
         confidence: "high" as const,
         title: `Finding ${index}`,
         body: `Body describing finding ${index}.`,
+        evidence: "seed();",
       })),
     );
 
@@ -755,6 +756,7 @@ async function seedOpenFinding(
       confidence: "high",
       title: overrides.title ?? "Example finding",
       body: overrides.body ?? "Example body",
+      evidence: "seed();",
     };
     const result = reconcileReviewFindings(state.db, review.id, [candidate]);
     return { findingId: result.observations[0]!.finding.id };

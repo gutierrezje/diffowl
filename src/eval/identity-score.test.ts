@@ -30,6 +30,7 @@ const baseFinding: ReviewFinding = {
   confidence: "high",
   title: "Missing validation",
   body: "Input is not validated.",
+  evidence: "validate(input);",
 };
 
 const otherFinding: ReviewFinding = {
@@ -39,6 +40,7 @@ const otherFinding: ReviewFinding = {
   confidence: "high",
   title: "Unhandled edge case",
   body: "Branch is unreachable.",
+  evidence: "handleEdge();",
 };
 
 // Matches neither keep-distinct anchor (src/a.ts, src/b.ts).
@@ -49,6 +51,7 @@ const unrelatedFinding: ReviewFinding = {
   confidence: "high",
   title: "Noisy log line",
   body: "Debug logging left in place.",
+  evidence: "console.log(debug);",
 };
 
 const twoStepExpected = [
@@ -560,13 +563,15 @@ describe("scoreEvalIdentity integration", () => {
     const evalCase = await loadEvalCase(join(corpusDir, "keep-distinct-in-same-symbol"));
     const kind = resolveEvalIdentityKind(evalCase)!;
     // Two defects the model reports separately but that share one fingerprint —
-    // the over-collapse this gate exists to detect.
+    // the over-collapse this gate exists to detect. Same file and quote collide
+    // under v2 even when the lines differ.
     const collided = {
       severity: "warning" as const,
       file: "src/profile.ts",
       confidence: "high" as const,
       title: "Defect in syncProfile",
       body: "Something is wrong in this symbol.",
+      evidence: "if (!id) return;",
     };
     const runReview = async (): Promise<ReviewResult> => ({
       sessionId: "session-collapse",
@@ -617,6 +622,7 @@ describe("scoreEvalIdentity integration", () => {
                   confidence: "high",
                   title: "Missing empty-id validation",
                   body: "The profile id is used without validation.",
+                  evidence: "if (!id) return;",
                 },
                 {
                   severity: "warning",
@@ -625,6 +631,7 @@ describe("scoreEvalIdentity integration", () => {
                   confidence: "high",
                   title: "Fire-and-forget profile fetch",
                   body: "The profile fetch is not awaited.",
+                  evidence: "void fetchProfile();",
                 },
               ],
             },
@@ -674,6 +681,7 @@ describe("scoreEvalIdentity integration", () => {
           confidence: "high",
           title: "Fire-and-forget async call",
           body: "The fetch response is discarded without awaiting.",
+          evidence: "void fetchUser(id);",
           durable: {
             id: "fnd_recognize_same",
             classification: stepIndex === 0 ? "new" : "existing",

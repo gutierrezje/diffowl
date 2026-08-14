@@ -15,6 +15,7 @@ import {
   updatePersistedReview,
 } from "./persist.js";
 import { computeFindingFingerprint } from "./fingerprint.js";
+import { listAllFindings } from "./repositories/findings.js";
 import { getReviewById } from "./repositories/reviews.js";
 import { removeTempStateDir } from "./test-helpers.js";
 import type { ReviewFinding } from "../review/types.js";
@@ -66,6 +67,7 @@ describe("persistReviewRun", () => {
       expect(result.reconcile?.observations).toHaveLength(1);
       expect(result.actionableFindings).toHaveLength(1);
       expect(result.lifecycleSuppressedFindings).toHaveLength(0);
+      expect(result.identityDiagnostics).toEqual([]);
     } finally {
       closeStateDatabase(state);
     }
@@ -96,6 +98,7 @@ describe("persistReviewRun", () => {
       expect(review?.skippedReason).toBe("documentation-only");
       expect(review?.targetCommit).toBe("abc123def");
       expect(result.reconcile?.observations).toHaveLength(0);
+      expect(result.identityDiagnostics).toEqual([]);
     } finally {
       closeStateDatabase(state);
     }
@@ -130,6 +133,110 @@ describe("persistReviewRun", () => {
     expect(second.actionableFindings).toHaveLength(0);
     expect(second.reconcile?.suppressedCounts).toEqual({ dismissed: 1, deferred: 0 });
   });
+
+  it("stores one row when two reviews share file and evidence with different titles", async () => {
+    const dir = await createTempDir();
+    const retitled: ReviewFinding = {
+      ...sampleFinding,
+      title: "Handler skips payload validation",
+      line: 40,
+    };
+
+    const first = await persistReviewRun(dir, basePersistInput([sampleFinding]));
+    const second = await persistReviewRun(dir, {
+      ...basePersistInput([retitled]),
+      sessionId: "session-2",
+      diffHash: computeDiffHash("second review"),
+    });
+
+    const state = await openStateDatabase(dir);
+    try {
+      expect(listAllFindings(state.db)).toHaveLength(1);
+    } finally {
+      closeStateDatabase(state);
+    }
+    expect(second.reconcile.observations).toHaveLength(1);
+    expect(second.reconcile.observations[0]?.observation.classification).toBe("existing");
+    expect(second.reconcile.observations[0]?.finding.id).toBe(
+      first.reconcile.observations[0]?.finding.id,
+    );
+  });
+
+  it("stores two rows when findings in the same file quote different evidence", async () => {
+    const dir = await createTempDir();
+    const otherEvidence: ReviewFinding = {
+      ...sampleFinding,
+      title: "Different issue",
+      evidence: "return null;",
+    };
+
+    const result = await persistReviewRun(dir, basePersistInput([sampleFinding, otherEvidence]));
+
+    const state = await openStateDatabase(dir);
+    try {
+      expect(listAllFindings(state.db)).toHaveLength(2);
+    } finally {
+      closeStateDatabase(state);
+    }
+    expect(result.reconcile.observations).toHaveLength(2);
+    expect(result.identityDiagnostics).toEqual([]);
+  });
+
+  it("keeps findings with no evidence in the report without tracking them", async () => {
+    const dir = await createTempDir();
+    const unquoted: ReviewFinding = {
+      severity: "warning",
+      file: "src/auth.ts",
+      line: 12,
+      confidence: "high",
+      title: "Missing null check",
+      body: "The handler does not validate the payload.",
+    };
+
+    const result = await persistReviewRun(dir, basePersistInput([unquoted]));
+
+    expect(result.actionableFindings).toEqual([unquoted]);
+    expect(result.reconcile.observations).toHaveLength(0);
+    expect(result.identityDiagnostics).toEqual([
+      "1 finding(s) quoted no code and were not tracked.",
+    ]);
+
+    const state = await openStateDatabase(dir);
+    try {
+      expect(listAllFindings(state.db)).toHaveLength(0);
+    } finally {
+      closeStateDatabase(state);
+    }
+
+    const enriched = enrichReviewFindingsWithDurableMetadata(
+      result.actionableFindings,
+      result.reconcile,
+    );
+    expect(enriched[0]?.durable).toBeUndefined();
+  });
+
+  it("reports a merge diagnostic when reported findings share a code anchor", async () => {
+    const dir = await createTempDir();
+    const retitled: ReviewFinding = {
+      ...sampleFinding,
+      title: "Handler skips payload validation",
+      line: 40,
+    };
+
+    const result = await persistReviewRun(dir, basePersistInput([sampleFinding, retitled]));
+
+    const state = await openStateDatabase(dir);
+    try {
+      expect(listAllFindings(state.db)).toHaveLength(1);
+    } finally {
+      closeStateDatabase(state);
+    }
+    expect(result.reconcile.observations).toHaveLength(1);
+    expect(result.actionableFindings).toHaveLength(1);
+    expect(result.identityDiagnostics).toEqual([
+      "1 reported finding(s) shared a code anchor and were merged into one.",
+    ]);
+  });
 });
 
 describe("persist helpers", () => {
@@ -160,6 +267,11 @@ describe("persist helpers", () => {
   });
 
   it("splits findings by lifecycle suppression from reconciliation", () => {
+    const fingerprint = computeFindingFingerprint(toFindingCandidate(sampleFinding));
+    if (!fingerprint) {
+      throw new Error("expected fingerprint");
+    }
+
     expect(
       splitFindingsByLifecycleSuppression([sampleFinding], {
         observations: [
@@ -180,14 +292,14 @@ describe("persist helpers", () => {
             },
             finding: {
               id: "fnd_test",
-              fingerprint: computeFindingFingerprint(toFindingCandidate(sampleFinding)),
+              fingerprint,
               status: "dismissed",
               firstReviewId: "rev_test",
               lastReviewId: "rev_test",
               createdAt: "2026-01-01T00:00:00.000Z",
               updatedAt: "2026-01-01T00:00:00.000Z",
             },
-            fingerprint: computeFindingFingerprint(toFindingCandidate(sampleFinding)),
+            fingerprint,
             suppressed: true,
           },
         ],
@@ -208,6 +320,11 @@ describe("persist helpers", () => {
       evidence: "doThing();",
     };
 
+    const fingerprint = computeFindingFingerprint(toFindingCandidate(sampleFinding));
+    if (!fingerprint) {
+      throw new Error("expected fingerprint");
+    }
+
     const result = splitFindingsByLifecycleSuppression([otherFinding, sampleFinding], {
       observations: [
         {
@@ -227,14 +344,14 @@ describe("persist helpers", () => {
           },
           finding: {
             id: "fnd_test",
-            fingerprint: computeFindingFingerprint(toFindingCandidate(sampleFinding)),
+            fingerprint,
             status: "dismissed",
             firstReviewId: "rev_test",
             lastReviewId: "rev_test",
             createdAt: "2026-01-01T00:00:00.000Z",
             updatedAt: "2026-01-01T00:00:00.000Z",
           },
-          fingerprint: computeFindingFingerprint(toFindingCandidate(sampleFinding)),
+          fingerprint,
           suppressed: true,
         },
       ],

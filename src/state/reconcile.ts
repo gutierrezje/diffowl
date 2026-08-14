@@ -21,6 +21,9 @@ export function reconcileReviewFindings(
 
   for (const [index, candidate] of uniqueCandidates.entries()) {
     const fingerprint = computeFindingFingerprint(candidate);
+    if (fingerprint === null) {
+      continue;
+    }
     const existing = getFindingByFingerprint(db, fingerprint);
     const timestamp = new Date().toISOString();
 

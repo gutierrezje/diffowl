@@ -11,6 +11,14 @@ All notable changes to DiffOwl are documented here. This project adheres to
 - Opt-in review gate: `--fail-on-findings` or `gate.fail_on_findings` exits 1 when
   the review status is `open`. Default reviews and `--hook` still exit 0.
 
+### Changed
+
+- Finding identity is file plus quoted evidence. Title and body no longer enter
+  the hash, so two reviews of the same quote share an id even when the model
+  rewrites the prose. Findings with no quote still appear in the report but are
+  not stored, dismissed, or merged. Local `.diffowl/state.db` identities reset;
+  dismissed v1 findings can reappear.
+
 ### Fixed
 
 - Completed `--format json` reviews wait for stdout to flush before exiting, so a

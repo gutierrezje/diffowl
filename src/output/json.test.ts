@@ -32,6 +32,7 @@ const persisted: PersistReviewRunResult = {
   reviewId: "rev_test",
   actionableFindings: [],
   lifecycleSuppressedFindings: [],
+  identityDiagnostics: [],
   reconcile: {
     observations: [
       {
@@ -244,6 +245,7 @@ describe("buildReviewJsonDocument", () => {
         reviewId: "rev_skip",
         actionableFindings: [],
         lifecycleSuppressedFindings: [],
+        identityDiagnostics: [],
         reconcile: { observations: [], suppressedCounts: { dismissed: 0, deferred: 0 } },
       },
       occurrenceCounts: new Map(),

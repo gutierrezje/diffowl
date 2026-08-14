@@ -1,4 +1,5 @@
 import { computeFindingFingerprint } from "../state/fingerprint.js";
+import { toFindingCandidate } from "../state/persist.js";
 import type { ReviewFinding, ReviewSeverity } from "../review/types.js";
 import type { EvalExpectedFinding } from "./case-types.js";
 import type { EvalCaseRunResult } from "./runner-types.js";
@@ -201,17 +202,8 @@ export function scoreEvalTrial(
   };
 }
 
-function fingerprintFinding(finding: ReviewFinding): string {
-  return computeFindingFingerprint(
-    finding.evidence === undefined
-      ? { file: finding.file, title: finding.title, body: finding.body }
-      : {
-          file: finding.file,
-          title: finding.title,
-          body: finding.body,
-          evidence: finding.evidence,
-        },
-  );
+function fingerprintFinding(finding: ReviewFinding): string | null {
+  return computeFindingFingerprint(toFindingCandidate(finding));
 }
 
 function detectRepeatedFalsePositives(
@@ -225,7 +217,7 @@ function detectRepeatedFalsePositives(
 
     for (const finding of trial.falsePositives) {
       const fingerprint = fingerprintFinding(finding);
-      if (seenInTrial.has(fingerprint)) {
+      if (fingerprint === null || seenInTrial.has(fingerprint)) {
         continue;
       }
       seenInTrial.add(fingerprint);
