@@ -5,7 +5,7 @@ import type { ReviewFinding, ReviewReport } from "../review/types.js";
 /** Wire marker. Single source of truth for prompt, parser, and detector. */
 export const REVIEW_JSON_MARKER = "FINAL_REVIEW_JSON" as const;
 
-/** First emit plus this many retries. Not a config knob. */
+/** Maximum total attempts, including the first emit. Not a config knob. */
 export const SCHEMA_VALIDATION_MAX_ATTEMPTS = 3;
 
 export type SchemaIssue = {
@@ -86,6 +86,7 @@ const ReviewFindingSchema = z.object({
   confidence: ReviewConfidenceSchema,
 });
 
+/** One invalid finding fails the document. Drop-and-succeed hid holes from the gate. */
 const ReviewDocumentSchema = z.object({
   summary: z.string(),
   findings: z.array(ReviewFindingSchema),
@@ -211,7 +212,7 @@ export function formatSchemaRetryPrompt(issues: readonly SchemaIssue[]): string 
 }
 
 function extractJsonCandidate(text: string): ExtractedCandidate {
-  const markerIndex = text.lastIndexOf(REVIEW_JSON_MARKER);
+  const markerIndex = lastStandaloneMarkerIndex(text);
   const hasMarker = markerIndex !== -1;
   const searchIn = hasMarker ? text.slice(markerIndex + REVIEW_JSON_MARKER.length) : text;
   const extracted = extractBalancedJson(searchIn);
@@ -245,6 +246,23 @@ function extractJsonCandidate(text: string): ExtractedCandidate {
 
   if (hasMarker) return { kind: "marked-object", value };
   return { kind: "no-marker-object", issues: [MARKER_ISSUE], value };
+}
+
+function lastStandaloneMarkerIndex(text: string): number {
+  const marker = REVIEW_JSON_MARKER;
+  let from = text.length;
+  while (from > 0) {
+    const index = text.lastIndexOf(marker, from - 1);
+    if (index === -1) return -1;
+    const before = index === 0 ? "\n" : text[index - 1];
+    const afterIndex = index + marker.length;
+    const after = afterIndex >= text.length ? "\n" : text[afterIndex];
+    if ((before === "\n" || before === "\r") && (after === "\n" || after === "\r")) {
+      return index;
+    }
+    from = index;
+  }
+  return -1;
 }
 
 function extractBalancedJson(text: string): { jsonText: string; complete: boolean } | undefined {

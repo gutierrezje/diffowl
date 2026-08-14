@@ -572,6 +572,17 @@ describe("parseStructuredReview", () => {
 
     expect(parseStructuredReview(raw).summary).toBe("second");
   });
+
+  it("ignores FINAL_REVIEW_JSON when it appears inside JSON string values", () => {
+    const report = parseStructuredReview(
+      markedDocument({
+        summary: `Mention ${REVIEW_JSON_MARKER} in the contract`,
+        findings: [],
+      }),
+    );
+
+    expect(report.summary).toContain(REVIEW_JSON_MARKER);
+  });
 });
 
 describe("looksLikeCompleteStructuredReview", () => {
