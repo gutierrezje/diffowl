@@ -192,7 +192,7 @@ describe("reviewStatusFromPersisted", () => {
 });
 
 describe("buildReviewJsonDocument", () => {
-  it("renders a base target in schema version 1 without changing its shape", () => {
+  it("renders a base target in schema version 2 without changing its shape", () => {
     const document = buildReviewJsonDocument({
       review: {
         ...review,
@@ -205,7 +205,7 @@ describe("buildReviewJsonDocument", () => {
       suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
     });
 
-    expect(document.schema_version).toBe(1);
+    expect(document.schema_version).toBe(2);
     expect(document.review.target).toEqual({
       kind: "base",
       ref: "origin/main",
@@ -213,7 +213,7 @@ describe("buildReviewJsonDocument", () => {
     });
   });
 
-  it("renders schema version 1 with review metadata and findings", () => {
+  it("renders schema version 2 with review metadata and findings", () => {
     const document = buildReviewJsonDocument({
       review,
       persisted,
@@ -227,7 +227,7 @@ describe("buildReviewJsonDocument", () => {
       },
     });
 
-    expect(document.schema_version).toBe(1);
+    expect(document.schema_version).toBe(2);
     expect(document.review.id).toBe("rev_test");
     expect(document.review.status).toBe("open");
     expect(document.findings).toHaveLength(1);
@@ -491,7 +491,7 @@ describe("renderReviewJsonDocument", () => {
 
     expect(rendered.endsWith("\n")).toBe(true);
     expect(JSON.parse(rendered.trim())).toMatchObject({
-      schema_version: 1,
+      schema_version: 2,
       review: { id: "rev_test" },
     });
   });
@@ -501,7 +501,7 @@ describe("renderJsonErrorDocument", () => {
   it("renders a versioned error envelope", () => {
     const rendered = renderJsonErrorDocument("Review failed.");
     expect(JSON.parse(rendered.trim())).toEqual({
-      schema_version: 1,
+      schema_version: 2,
       error: { message: "Review failed." },
     });
   });

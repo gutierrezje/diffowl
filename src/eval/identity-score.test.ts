@@ -441,6 +441,41 @@ describe("scoreEvalIdentity keep-distinct", () => {
     expect(score.detail.anchors.some((anchor) => anchor.status === "fail")).toBe(false);
   });
 
+  it("does not treat unquoted findings as a keep-distinct collapse", () => {
+    const unquotedA: ReviewFinding = {
+      severity: "warning",
+      file: "src/a.ts",
+      line: 4,
+      confidence: "high",
+      title: "Missing validation",
+      body: "Input is not validated.",
+    };
+    const unquotedB: ReviewFinding = {
+      severity: "warning",
+      file: "src/b.ts",
+      line: 6,
+      confidence: "high",
+      title: "Unhandled edge case",
+      body: "Branch is unreachable.",
+    };
+    const score = scoreEvalIdentity({
+      kind: "keep-distinct",
+      evalCase: keepDistinctCase,
+      trial: {
+        identitySteps: [
+          step(0, ["", ""], ["", ""], ["new", "new"], [unquotedA, unquotedB], [
+            unquotedA,
+            unquotedB,
+          ]),
+        ],
+      },
+    });
+
+    expect(score.passed).toBe(true);
+    expect(score.naReason).toBe("untracked anchors");
+    expect(score.detail.anchors.some((anchor) => anchor.status === "fail")).toBe(false);
+  });
+
   it("still reports a genuine detection miss as n/a when nothing collapsed", () => {
     const score = scoreEvalIdentity({
       kind: "keep-distinct",

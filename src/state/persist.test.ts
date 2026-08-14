@@ -6,6 +6,7 @@ import { closeStateDatabase, openStateDatabase } from "./db.js";
 import { dismissFinding } from "./lifecycle.js";
 import {
   computeDiffHash,
+  deduplicateReviewFindings,
   enrichReviewFindingsWithDurableMetadata,
   formatLifecycleSuppressedSummary,
   mapReviewTarget,
@@ -257,6 +258,32 @@ describe("persist helpers", () => {
       body: "The handler does not validate the payload.",
       evidence: "if (!payload) return;",
     });
+  });
+
+  it("keeps unquoted findings while merging quoted duplicates", () => {
+    const unquoted: ReviewFinding = {
+      severity: "warning",
+      file: "src/auth.ts",
+      line: 12,
+      confidence: "high",
+      title: "Missing null check",
+      body: "The handler does not validate the payload.",
+    };
+    const otherUnquoted: ReviewFinding = {
+      ...unquoted,
+      line: 40,
+      title: "Different prose",
+    };
+    const retitled: ReviewFinding = {
+      ...sampleFinding,
+      title: "Handler skips payload validation",
+    };
+
+    expect(deduplicateReviewFindings([sampleFinding, retitled, unquoted, otherUnquoted])).toEqual([
+      sampleFinding,
+      unquoted,
+      otherUnquoted,
+    ]);
   });
 
   it("formats lifecycle suppression diagnostics", () => {

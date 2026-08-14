@@ -18,11 +18,16 @@ All notable changes to DiffOwl are documented here. This project adheres to
   rewrites the prose. Findings with no quote still appear in the report but are
   not stored, dismissed, or merged. Local `.diffowl/state.db` identities reset;
   dismissed v1 findings can reappear.
+- `--format json` review documents are schema version 2. Untracked findings may
+  have null `id`/`fingerprint` and `classification: "untracked"`. Findings-list
+  JSON stays at schema version 1.
 
 ### Fixed
 
 - Untracked (no-quote) findings now appear in `--format json` and count toward
   review status / `--fail-on-findings`, matching the markdown report.
+- Keep-distinct scoring no longer treats unquoted findings as a fingerprint
+  collapse. Dedup replay keeps them without merging.
 - Completed `--format json` reviews wait for stdout to flush before exiting, so a
   gate failure cannot truncate a piped JSON document.
 

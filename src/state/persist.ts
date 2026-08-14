@@ -51,7 +51,11 @@ export function deduplicateReviewFindings(findings: ReviewFinding[]): ReviewFind
 
   for (const finding of findings) {
     const fingerprint = computeFindingFingerprint(toFindingCandidate(finding));
-    if (fingerprint === null || seen.has(fingerprint)) {
+    if (fingerprint === null) {
+      deduped.push(finding);
+      continue;
+    }
+    if (seen.has(fingerprint)) {
       continue;
     }
     seen.add(fingerprint);
@@ -74,6 +78,10 @@ export function toFindingCandidate(finding: ReviewFinding): FindingCandidate {
     candidate.evidence = finding.evidence;
   }
   return candidate;
+}
+
+export function isUntrackedFinding(finding: ReviewFinding): boolean {
+  return computeFindingFingerprint(toFindingCandidate(finding)) === null;
 }
 
 export function formatLifecycleSuppressedSummary(counts: {
