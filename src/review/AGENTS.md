@@ -13,7 +13,7 @@ Builds the review context from diffs, AST, and cross-references, then renders an
 | Build review context (diff + files + refs) | `context.ts`                          |
 | Render context into prompt markdown        | `context-render.ts`                   |
 | TypeScript AST symbol extraction           | `ast/index.ts`, `ast/typescript.ts`   |
-| Persistent TypeScript impact index         | `impact.ts`, `ast/module-bindings.ts` |
+| Persistent TypeScript import index         | `impact.ts`, `ast/module-bindings.ts` |
 | Hook log trimming                          | `retention.ts`                        |
 | Review data types                          | `types.ts`                            |
 
@@ -21,7 +21,7 @@ Builds the review context from diffs, AST, and cross-references, then renders an
 
 - Context respects `include`/`exclude` globs and skips lockfiles.
 - Changed file context truncated at 12K chars; related files at 6K; diff at 40K.
-- The impact index stores content-addressed module bindings under `.diffowl/impact` and caps reference matches at 200.
+- The import index stores content-addressed module bindings under `.diffowl/impact` and caps reference matches at 200.
 - Reports written to `.diffowl/reviews/review-{ISO}-{uuid8}.md` (no `latest.md` copy).
 - Report timestamps: `ISOString().replace(/[:.]/g, "-")`.
 
@@ -29,5 +29,5 @@ Builds the review context from diffs, AST, and cross-references, then renders an
 
 - `renderReviewContext` embeds full file contents. Watch truncation flags to avoid prompt bloat.
 - `buildReferenceContexts` resolves only relative TypeScript imports. It does not follow `require()`, dynamic `import()`, or `tsconfig` path aliases.
-- TypeScript parsing is best-effort. If the parser is unavailable, reviews keep diff and file context but omit impact references.
+- TypeScript parsing is best-effort. If the parser is unavailable, reviews keep diff and file context but omit import references.
 - Changing `MAX_*` limits without testing against real diffs can break prompt token budgets.

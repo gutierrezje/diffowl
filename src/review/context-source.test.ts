@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
 import { afterEach, describe, expect, it } from "vitest";
-import { createFilesystemContextSource, createGitContextSource } from "./context-source.js";
+import { createFilesystemContextSource, createGitContextSource, toPosixGitPath } from "./context-source.js";
 
 const tempDirs: string[] = [];
 
@@ -60,5 +60,12 @@ describe("ReviewContextSource.listModules", () => {
     expect([...commitModules]).toEqual([["src/example.ts", commitOid.trim()]]);
     expect([...indexModules]).toEqual([["src/example.ts", indexOid.trim()]]);
     expect([...worktreeModules]).toEqual([["src/example.ts", worktreeOid.trim()]]);
+  });
+});
+
+describe("toPosixGitPath", () => {
+  it("converts Windows separators to git paths", () => {
+    expect(toPosixGitPath("src\\example.test.ts")).toBe("src/example.test.ts");
+    expect(toPosixGitPath("src/example.test.ts")).toBe("src/example.test.ts");
   });
 });

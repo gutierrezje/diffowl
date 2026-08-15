@@ -134,9 +134,9 @@ export function renderReviewContext(
   }
 
   if (!shallow && context.references.length > 0) {
-    lines.push("### Potential Call Flow");
+    lines.push("### Import references");
     lines.push(
-      "These bounded snippets show where changed filenames or symbols are referenced. Use them to reason about callers, output paths, config wiring, tests, and user-visible behavior.",
+      "These snippets show TypeScript modules that import a changed file or symbol.",
     );
     for (const reference of context.references) {
       lines.push(`#### Term: ${reference.term}`);

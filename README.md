@@ -26,7 +26,7 @@ DiffOwl adds an independent pass between writing code and shipping it:
 - Reopen the review session when a finding needs more investigation.
 - Run reviews automatically after commits without blocking them.
 
-TypeScript reviews include changed AST symbols, related tests, file excerpts, and bounded call-flow context. Other languages still get diff-centered review with targeted repository exploration.
+TypeScript reviews include changed AST symbols, related tests, file excerpts, and bounded import references. Other languages still get diff-centered review with targeted repository exploration.
 
 ## How it works
 

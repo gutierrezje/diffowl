@@ -94,7 +94,7 @@ export async function buildReferenceContexts(
       diagnostics,
     );
   } catch (error) {
-    addDiagnostic(diagnostics, `Impact index failed: ${formatError(error)}.`);
+    addDiagnostic(diagnostics, `TypeScript import index failed: ${formatError(error)}.`);
     return [];
   }
 }
@@ -110,7 +110,7 @@ async function openImpactGraph(
     try {
       files.set(path, asBlobOid(oid));
     } catch {
-      addDiagnostic(diagnostics, `Impact index ignored ${path}: invalid git blob oid.`);
+      addDiagnostic(diagnostics, `TypeScript import index ignored ${path}: invalid git blob oid.`);
     }
   }
 
@@ -136,7 +136,7 @@ async function openImpactGraph(
 
     const result = await snapshot.source.read(path, MAX_PARSE_FILE_BYTES);
     if (result.status === "skipped") {
-      addDiagnostic(diagnostics, `Impact index skipped ${path}: ${result.reason}.`);
+      addDiagnostic(diagnostics, `TypeScript import index skipped ${path}: ${result.reason}.`);
       continue;
     }
 
@@ -237,7 +237,7 @@ async function referencesFromGraph(
   if (pending.length > MAX_BATCH_REFERENCE_MATCHES) {
     addDiagnostic(
       diagnostics,
-      `Impact index found ${pending.length} matches; only the first ${MAX_BATCH_REFERENCE_MATCHES} are included.`,
+      `TypeScript import index found ${pending.length} matches; only the first ${MAX_BATCH_REFERENCE_MATCHES} are included.`,
     );
   }
 

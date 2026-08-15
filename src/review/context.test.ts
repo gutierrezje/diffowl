@@ -210,8 +210,10 @@ describe("buildReviewContext", () => {
       );
 
       process.chdir(root);
-      const rendered = renderReviewContext(await buildReviewContext({ kind: "staged" }, config));
+      const context = await buildReviewContext({ kind: "staged" }, config);
+      const rendered = renderReviewContext(context);
 
+      expect(context.relatedFiles.map((file) => file.path)).toEqual(["src/example.test.ts"]);
       expect(rendered).toContain("staged related marker");
       expect(rendered).not.toContain("unstaged related marker");
       expect(rendered).toContain("staged reference marker");
@@ -288,13 +290,13 @@ describe("buildReviewContext", () => {
     expect(rendered).toContain("src/example.test.ts");
     expect(rendered).toContain("src/consumer.ts");
     expect(context.changedFiles[0]!.file.path).toBe("src/example.ts");
-    expect(rendered).toContain("### Potential Call Flow");
+    expect(rendered).toContain("### Import references");
     expect(rendered).toContain("Term: calculateTotal");
     expect(rendered).toContain("console.log(calculateTotal(1));");
     expect(rendered).toContain("return value + 2");
   });
 
-  it("builds call-flow from the import index without git grep", async () => {
+  it("builds import references from the TypeScript index without git grep", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
     tempDirs.push(root);
     process.chdir(root);
@@ -337,7 +339,7 @@ describe("buildReviewContext", () => {
     const rendered = renderReviewContext(context);
 
     expect(rendered).toContain("src/consumer.ts");
-    expect(rendered).toContain("### Potential Call Flow");
+    expect(rendered).toContain("### Import references");
     expect(context.diagnostics).toEqual([]);
     expect(rendered).not.toContain("Context diagnostics");
   });
@@ -944,7 +946,7 @@ describe("buildReviewContext", () => {
     expect(rendered).toContain("Review depth: shallow");
     expect(rendered).toContain("Changed AST symbols");
     expect(rendered).not.toContain("Related Test Files");
-    expect(rendered).not.toContain("Potential Call Flow");
+    expect(rendered).not.toContain("Import references");
   });
 
   it("summarizes consecutive changed lines as ranges for added files", async () => {

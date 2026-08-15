@@ -131,7 +131,7 @@ async function listTrackedPaths(root: string): Promise<string[]> {
     cwd: root,
     stripFinalNewline: false,
   });
-  return stdout.split("\0").filter(Boolean);
+  return stdout.split("\0").filter(Boolean).map(toPosixGitPath);
 }
 
 async function listIndexModules(root: string): Promise<ReadonlyMap<string, string>> {
@@ -142,8 +142,10 @@ async function listIndexModules(root: string): Promise<ReadonlyMap<string, strin
   const modules = new Map<string, string>();
   for (const entry of stdout.split("\0")) {
     const match = entry.match(/^\d+ ([0-9a-f]{40}) 0\t(.*)$/s);
-    if (!match || !isTsModulePath(match[2]!)) continue;
-    modules.set(match[2]!, match[1]!);
+    if (!match) continue;
+    const path = toPosixGitPath(match[2]!);
+    if (!isTsModulePath(path)) continue;
+    modules.set(path, match[1]!);
   }
   return modules;
 }
@@ -156,10 +158,16 @@ async function listCommitModules(root: string, sha: string): Promise<ReadonlyMap
   const modules = new Map<string, string>();
   for (const entry of stdout.split("\0")) {
     const match = entry.match(/^\d+ blob ([0-9a-f]{40})\t(.*)$/s);
-    if (!match || !isTsModulePath(match[2]!)) continue;
-    modules.set(match[2]!, match[1]!);
+    if (!match) continue;
+    const path = toPosixGitPath(match[2]!);
+    if (!isTsModulePath(path)) continue;
+    modules.set(path, match[1]!);
   }
   return modules;
+}
+
+export function toPosixGitPath(path: string): string {
+  return path.replaceAll("\\", "/");
 }
 
 function gitBlobOid(content: Uint8Array): string {
