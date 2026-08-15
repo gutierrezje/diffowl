@@ -68,7 +68,10 @@ export function createReviewSettlementCoordinator(options: {
       fullResponse = text;
       lastCheckedLength = 0;
       options.onText?.(fullResponse);
-    } else if ((source?.reconciled && text !== fullResponse) || text.length > fullResponse.length) {
+    } else if (
+      text.length > fullResponse.length ||
+      (source?.reconciled && text.length === fullResponse.length && text !== fullResponse)
+    ) {
       fullResponse = text;
       options.onText?.(fullResponse);
     }

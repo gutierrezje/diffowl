@@ -129,6 +129,23 @@ describe("createReviewSettlementCoordinator", () => {
     coordinator.release();
   });
 
+  it("keeps a longer SSE buffer over a shorter reconciled snapshot", async () => {
+    vi.useFakeTimers();
+    const outcome = deferred<string>();
+    const sseText = 'FINAL_REVIEW_JSON\n{"summary":"longer incomplete';
+    const reconciledText = 'FINAL_REVIEW_JSON\n{"summary":';
+    const coordinator = createCoordinator(outcome, {
+      reconcile: async () => ({ kind: "text", text: reconciledText }),
+    });
+
+    coordinator.acceptText(sseText, { messageId: "message-1" });
+    await vi.advanceTimersByTimeAsync(1000);
+
+    coordinator.finish();
+
+    await expect(outcome.promise).resolves.toBe(sseText);
+  });
+
   it("prefers same-length canonical reconciled text over provisional SSE text", async () => {
     vi.useFakeTimers();
     const outcome = deferred<string>();
