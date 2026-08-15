@@ -13,13 +13,13 @@ import {
   type DiffResult,
 } from "../git/diff.js";
 import { extractAstSymbols } from "./ast/index.js";
-import { buildReferenceContexts } from "./context-references.js";
 import {
   createFilesystemContextSource,
   createGitContextSource,
   type ReviewContextSource,
 } from "./context-source.js";
 import type { ChangedFileContext, RelatedFileContext, ReviewContext } from "./context-types.js";
+import { buildReferenceContexts } from "./impact.js";
 import type { ReviewTarget } from "./target.js";
 
 export { renderReviewContext } from "./context-render.js";
@@ -144,7 +144,12 @@ export async function buildReviewContextFromDiff(
   const references =
     depth === "shallow"
       ? []
-      : await buildReferenceContexts(source, changedFiles, skippedFiles, diagnostics);
+      : await buildReferenceContexts(
+          { root, target, diff: diffResult, source },
+          changedFiles,
+          skippedFiles,
+          diagnostics,
+        );
   return {
     target,
     depth,
