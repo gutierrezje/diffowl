@@ -6,6 +6,10 @@ All notable changes to DiffOwl are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `diffowl init` writes a managed DiffOwl section to `AGENTS.md` and, when Claude Code is detected, installs the session-start findings hook.
+
 ## [0.4.0] - 2026-08-14
 
 The **Reliable Review Automation** release. DiffOwl now carries findings across

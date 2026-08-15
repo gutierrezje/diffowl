@@ -49,6 +49,7 @@ import {
   writeHookStatus,
 } from "./git/hooks.js";
 import { isGitRepo, hasCommits } from "./git/diff.js";
+import { enableAgentPath, type AgentPathResult } from "./integrations/agent-path.js";
 import { installClaudeCodeHook } from "./integrations/claude-code.js";
 import { getSharedDiffOwlDir } from "./git/state-root.js";
 import { printHeader, printFooter, parseReviewMetadata } from "./review/formatter.js";
@@ -596,6 +597,51 @@ async function runInit() {
   const config = await loadProjectConfigOrExit();
   await selectModelInteractively(config, { allowKeepCurrent: false });
   console.log(chalk.green(`✓ Config saved to ${await saveConfig(config)}`));
+  await enableAgentPathFromCli();
+}
+
+async function enableAgentPathFromCli(): Promise<void> {
+  try {
+    printAgentPathResult(
+      await enableAgentPath({
+        projectRoot: getProjectRoot(),
+        env: process.env,
+      }),
+    );
+  } catch (err) {
+    console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+    process.exit(1);
+  }
+}
+
+function printAgentPathResult(result: AgentPathResult): void {
+  switch (result.instruction.kind) {
+    case "created":
+      console.log(chalk.green(`✓ Agent instructions written to ${result.instruction.path}`));
+      break;
+    case "updated":
+      console.log(chalk.green(`✓ Agent instructions updated in ${result.instruction.path}`));
+      break;
+    default: {
+      const _exhaustive: never = result.instruction;
+      return _exhaustive;
+    }
+  }
+
+  switch (result.hook.kind) {
+    case "claude":
+      console.log(chalk.green(`✓ Claude Code session hook ${result.hook.action}`));
+      console.log(chalk.dim(`Settings: ${result.hook.settingsPath}`));
+      return;
+    case "skipped":
+      console.log(chalk.dim("Skipped Claude session hook (no Claude Code project detected)."));
+      console.log(chalk.dim("Install later with `diffowl agent-hook install --client claude`."));
+      return;
+    default: {
+      const _exhaustive: never = result.hook;
+      return _exhaustive;
+    }
+  }
 }
 
 // Model command
