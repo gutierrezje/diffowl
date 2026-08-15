@@ -100,7 +100,13 @@ type OpenCodeEvent =
       status: string;
       title: string;
     }
-  | { type: "text-part"; sessionId: string; messageId: string; text: string }
+  | {
+      type: "text-part";
+      sessionId: string;
+      messageId: string;
+      partId: string;
+      text: string;
+    }
   | {
       type: "assistant-message";
       sessionId: string;
@@ -110,6 +116,25 @@ type OpenCodeEvent =
     }
   | { type: "session-status"; sessionId: string; status: string; message?: string }
   | { type: "session-idle"; sessionId: string };
+
+export interface TextPartUpdate {
+  messageId: string;
+  partId: string;
+  text: string;
+}
+
+export function updateTextPart(
+  textPartsByMessageId: Map<string, Map<string, string>>,
+  update: TextPartUpdate,
+): string {
+  let parts = textPartsByMessageId.get(update.messageId);
+  if (!parts) {
+    parts = new Map();
+    textPartsByMessageId.set(update.messageId, parts);
+  }
+  parts.set(update.partId, update.text);
+  return [...parts.values()].join("");
+}
 
 export function normalizeOpenCodeEvent(
   event: unknown,
@@ -205,6 +230,7 @@ function normalizeMessagePart(
 
   if (
     value["type"] === "text" &&
+    typeof value["id"] === "string" &&
     typeof value["messageID"] === "string" &&
     typeof value["text"] === "string" &&
     value["text"] !== ""
@@ -213,6 +239,7 @@ function normalizeMessagePart(
       type: "text-part",
       sessionId,
       messageId: value["messageID"],
+      partId: value["id"],
       text: value["text"],
     };
   }
@@ -327,7 +354,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
   recordTiming(timings, onProgress, "event-stream", "OpenCode event stream connection", eventStart);
   const usageByMessageId = new Map<string, ReviewUsage>();
   const assistantMessageIds = new Set<string>();
-  const textPartsByMessageId = new Map<string, string>();
+  const textPartsByMessageId = new Map<string, Map<string, string>>();
   const consumedMessageIds = new Set<string>();
   const ignoreRawTexts = new Set<string>();
   const attemptMessageIds = new Set<string>();
@@ -401,14 +428,15 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
               status: normalized.status,
             });
             break;
-          case "text-part":
+          case "text-part": {
             if (consumedMessageIds.has(normalized.messageId)) break;
             attemptMessageIds.add(normalized.messageId);
-            textPartsByMessageId.set(normalized.messageId, normalized.text);
+            const text = updateTextPart(textPartsByMessageId, normalized);
             if (assistantMessageIds.has(normalized.messageId)) {
-              attempt.settlement.acceptText(normalized.text, { messageId: normalized.messageId });
+              attempt.settlement.acceptText(text, { messageId: normalized.messageId });
             }
             break;
+          }
           case "assistant-message": {
             if (consumedMessageIds.has(normalized.messageId)) break;
             attemptMessageIds.add(normalized.messageId);
@@ -416,7 +444,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
             if (normalized.usage) {
               usageByMessageId.set(normalized.messageId, normalized.usage);
             }
-            const text = textPartsByMessageId.get(normalized.messageId);
+            const parts = textPartsByMessageId.get(normalized.messageId);
+            const text = parts ? [...parts.values()].join("") : undefined;
             attempt.settlement.acceptAssistantMessage({
               text,
               error: normalized.error,

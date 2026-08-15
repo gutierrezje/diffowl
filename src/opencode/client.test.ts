@@ -8,6 +8,7 @@ import {
   extractSessionId,
   extractSessionMessageResult,
   normalizeOpenCodeEvent,
+  updateTextPart,
   handledAwaitable,
   opencodeDirectoryOptions,
   parseStructuredReview,
@@ -94,6 +95,7 @@ describe("normalizeOpenCodeEvent", () => {
           properties: {
             part: {
               type: "text",
+              id: "part-1",
               sessionID: "session-1",
               messageID: "message-1",
               text: "review text",
@@ -105,6 +107,7 @@ describe("normalizeOpenCodeEvent", () => {
       type: "text-part",
       sessionId: "session-1",
       messageId: "message-1",
+      partId: "part-1",
       text: "review text",
     });
 
@@ -272,6 +275,34 @@ describe("normalizeOpenCodeEvent", () => {
         "session-1",
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("updateTextPart", () => {
+  it("replaces repeated part updates and preserves distinct-part order", () => {
+    const partsByMessageId = new Map<string, Map<string, string>>();
+
+    expect(
+      updateTextPart(partsByMessageId, {
+        messageId: "message-1",
+        partId: "part-a",
+        text: "one",
+      }),
+    ).toBe("one");
+    expect(
+      updateTextPart(partsByMessageId, {
+        messageId: "message-1",
+        partId: "part-b",
+        text: "two",
+      }),
+    ).toBe("onetwo");
+    expect(
+      updateTextPart(partsByMessageId, {
+        messageId: "message-1",
+        partId: "part-a",
+        text: "updated",
+      }),
+    ).toBe("updatedtwo");
   });
 });
 

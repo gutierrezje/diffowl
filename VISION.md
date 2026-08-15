@@ -132,16 +132,16 @@ harness is usable end-to-end:
 - Record the exact review input and configuration needed to reproduce results.
 - Use evaluation results to guide context and prompt changes.
 
-The eval harness is internal tooling until `diffowl eval` lands as an
-incremental release. Quality claims should not be made until
-the harness produces repeatable results on a stabilized corpus.
+The `diffowl eval` command has landed as internal tooling, but it is not yet a
+supported public surface. Quality claims should not be made until the harness
+produces repeatable results on a stabilized corpus.
 
 Corpus stabilization includes a single expectation contract: every case scores
 under the same rules (line tolerance, severity floors, category requirements
 decided once, enforced by a schema-conformance gate), so aggregate metrics
 reflect model quality rather than per-case authoring drift.
 
-### Branch Review (shipped) and the Pre-PR Gate (in progress)
+### Branch Review and the Pre-PR Gate (shipped)
 
 Meet agentic workflows at their natural unit: the branch, not the commit.
 
@@ -158,14 +158,19 @@ Meet agentic workflows at their natural unit: the branch, not the commit.
   own the pipeline outcome.
 - Validate model output against the finding schema at the session boundary and
   retry with error feedback on invalid output instead of failing the review.
-- Spike a Codex-subprocess backend behind the existing backend seam. Rationale:
-  it is the one backend that can unlock a subscription users already pay for
+
+### Alternate Review Backends
+
+- Extract a review-backend interface around the current OpenCode execution
+  path while keeping review progress and results backend-neutral.
+- Spike a Codex-subprocess implementation behind that interface. Rationale: it
+  is the one backend that can unlock a subscription users already pay for
   (Anthropic's terms keep Claude subscriptions out of reach for any third-party
   path, so for Claude a direct backend buys nothing over OpenCode). Adoption
-  should weigh review quality, reliability, latency, and operating cost —
-  with eval comparisons as supporting input once the suite is mature enough
-  to be trusted, not as an automatic pass/fail. Subscription economics alone
-  are not a sufficient reason.
+  should weigh review quality, reliability, latency, and operating cost — with
+  eval comparisons as supporting input once the suite is mature enough to be
+  trusted, not as an automatic pass/fail. Subscription economics alone are not
+  a sufficient reason.
 
 ### Incremental Impact Graph
 
@@ -217,10 +222,10 @@ Team state is three different needs, served in order and mostly through git:
    an explicit, human-approved change. This is where most dismissals should
    terminate; it drains the backlog instead of accumulating open records.
 
-Prerequisite for any shared identity: a more code-anchored fingerprint
-(anchor on file plus quoted evidence; drop model-phrased prose from the hash),
-since independently generated reviews will not phrase the same issue
-identically.
+Shared identity is anchored on file plus quoted evidence, not model-phrased
+prose. Findings without quoted evidence remain visible but intentionally stay
+untracked, so independently generated reviews do not acquire a false shared
+identity from coincidentally similar prose.
 
 Learned preferences live in three layers, strongest first: deterministic
 suppression at the reporting layer (model-independent by construction),
