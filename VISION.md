@@ -11,8 +11,8 @@ independent review loop that runs on developer-controlled infrastructure, uses
 the model provider they choose, and produces durable, actionable findings.
 
 DiffOwl should become more than a scheduled prompt over a Git diff. Its value
-comes from understanding change impact, remembering review outcomes, reducing
-repeated noise, and verifying that confirmed problems were actually resolved.
+comes from understanding the change's neighborhood, remembering claims and
+human decisions, and independently verifying those claims and later fixes.
 
 ## Product Position
 
@@ -40,6 +40,31 @@ DiffOwl is:
 DiffOwl is not intended to become another general-purpose coding agent. Its
 role is to independently inspect, challenge, and verify changes.
 
+## Verification Layer
+
+Three capabilities share one review. That combination is the product.
+
+1. **Impact context.** The wired neighborhood of the change. Modules that
+   import or export the touched symbols, and later callers, tests,
+   configuration, and schema consumers when those edges are reliable.
+2. **Claim ledger.** Durable findings and human dispositions, joined by file
+   plus quoted evidence.
+3. **Independent verification.** A role that challenges new claims and checks
+   that fixes actually landed. The implementer does not occupy this role.
+
+The intended pipeline is a Git snapshot, bounded evidence, a reviewer that
+proposes claims, the ledger, then (when enabled) a verifier that confirms or
+refutes those claims, then one canonical review output. Later reviews read the
+ledger instead of starting from a blank page.
+
+The first slice of impact context is a TypeScript import and export index
+queried from the changed files. That is a module-dependency graph. Call it a
+module-impact index until it contains symbol-level calls, tests, configuration,
+and schema consumers. Review callers should not learn how context is stored or
+parsed. One small interface builds context from a snapshot and the changed
+files. Keep the index disposable and rebuildable without affecting durable
+finding state; its lifecycle is separate from the finding store.
+
 ## Product Goals
 
 ### Trustworthy Reviews
@@ -60,18 +85,54 @@ reading it; memory is what keeps the review worth reading. Reopening a finding
 when a regression reoccurs is the same identity-and-history machinery applied to
 a rarer case — a consequence of the lifecycle, not the primary reason it exists.
 
+Persisting findings is not incremental review. The store already deduplicates
+by fingerprint and classifies observations as `new`, `existing`, or
+`regressed`. The model still reads the full review input. Skipping a model
+call requires an invalidation rule over the diff, the impact neighborhood, the
+prompt and configuration, and the reviewer identity.
+
 ### Change-Impact Understanding
 
-Build a bounded, incrementally maintained understanding of symbols,
-dependencies, callers, tests, configuration, and schemas affected by a change.
-Review depth should come from relevant context, not indiscriminate repository
-scanning.
+Review depth comes from the change's neighborhood, not from scanning the whole
+repository into a prompt or an embedding store.
+
+A cold start walks the repository; later updates should be incremental. The
+initial scan cannot be removed: unchanged importers cannot be discovered from
+the diff alone.
+
+Build the smallest credible context source and prove its mechanics with
+deterministic unit tests. Use the harness for prompt and context comparisons,
+including one or two targeted graph-context comparisons after the index exists,
+to see whether it improves finding usefulness. Edge precision and recall, along
+with context-build latency, are module acceptance and diagnostic metrics;
+finding usefulness is the product outcome. Eval cases belong where a bug is
+only visible through an importer or similar consumer.
+
+Do not add local vectors until evaluations show misses that exact dependency
+edges cannot explain. Vectors answer resemblance. The graph answers wiring.
+Extra languages follow demonstrated demand after the TypeScript slice improves
+findings.
 
 ### Independent Verification
 
-Integrate with coding-agent workflows so an agent can submit a patch, receive
-structured findings, make corrections, and ask DiffOwl to verify the result.
-The reviewer and implementer should remain separate roles.
+The implementer and the reviewer stay separate roles. An agent can submit a
+patch, read structured findings, fix them, and ask DiffOwl to verify the
+result.
+
+A later high-assurance mode can split the reviewer into a proposer and a
+checker. The proposer writes fingerprintable claims. The checker receives
+those claims, the quoted evidence, and the impact neighborhood, and returns
+`confirmed`, `refuted`, or `uncertain`. Deterministic checks run first. The
+quote is still in the file, the export still exists, and the importer still
+binds that symbol. Two models agreeing is not truth.
+
+Checker stages belong inside one canonical review. Its canonical output labels
+claims as `confirmed` or `uncertain`; a user-selected publication policy may
+restrict published findings to `confirmed` claims. Refuted claims stay recorded
+locally. They are not extra comment streams. Eval dual-runs compare DiffOwl to a
+baseline prompt. That is measurement, not this product mode. Fingerprint
+existence must not skip the checker. Incremental skip applies to the same
+canonical reviewer on an unchanged invalidation key.
 
 ### Local and Team Workflows
 
@@ -79,14 +140,36 @@ Keep local usage simple while exposing structured output for CI and repository
 hosting platforms. Teams should be able to share policy without being required
 to upload private source code to a DiffOwl service.
 
+Discoverability stays a smaller parallel track. `diffowl init` should put a
+short instruction where coding agents already look, and make optional hooks
+visible. Starting DiffOwl should not require reading the rest of this
+document.
+
+### Continuous Quality Analytics
+
+Keep a lightweight, local quality view over disposition events. This is not an
+OLAP or remote-telemetry project now. For cohorts of adjudicated findings
+(non-open findings with a recorded human disposition), report:
+
+- noise rate (`dismissed / adjudicated`), useful yield, and decision coverage;
+- time to disposition, regression rate, and model cost/latency per useful
+  finding;
+- local slices by model, prompt/configuration, and context strategy.
+
+`dismissed / created` is only a smoke alarm: open findings and decision lag make
+it misleading. Offline corpus evals measure reproducible known cases;
+disposition analytics measure observed workflow outcomes. Keep them distinct.
+
 ## Product Model
 
 DiffOwl should separate three kinds of state:
 
 1. **Repository policy**: committed configuration, path-scoped rules, severity
    thresholds, and intentional suppressions.
-2. **Local intelligence**: a gitignored finding store, code index, review
-   sessions, and model execution data.
+2. **Local intelligence**: a gitignored finding store, a disposable/rebuildable
+   code index, review sessions, and model execution data. The index lifecycle is
+   separate from durable finding state; discarding or rebuilding it must not
+   erase findings or dispositions.
 3. **Team surfaces**: GitHub Checks, SARIF, CI artifacts, and an optional future
    synchronization service.
 
@@ -99,9 +182,9 @@ must review and accept it.
 
 ## Roadmap
 
-Milestones are ordered by dependency, not pinned to version numbers. Releases
-ship in small increments; a milestone spans however many releases it takes,
-and version numbers are assigned when work actually ships.
+Milestones are grouped by dependency and status, not pinned to version
+numbers. Releases ship in small increments; a milestone spans however many
+releases it takes, and version numbers are assigned when work actually ships.
 
 ### Reliable Review Runner (shipped)
 
@@ -120,14 +203,14 @@ and version numbers are assigned when work actually ships.
 - Add CLI commands to list, inspect, dismiss, defer, and resolve findings.
 - Keep Markdown as an export generated from structured state.
 
-### Measured Review Quality (in progress)
+### Measured Review Quality (supporting evidence)
 
-Ship incrementally in small releases, developed on a feature branch until the
-harness is usable end-to-end:
+Maintain a replayable evaluation harness as supporting infrastructure, not the
+next product milestone:
 
-- Add a replayable evaluation harness using known bug-introducing and clean
-  changes.
-- Compare DiffOwl with a plain agent review prompt.
+- Use known bug-introducing and clean changes.
+- Use the harness for prompt and context comparisons; after the module-impact
+  index exists, add one or two targeted graph-context comparisons.
 - Track precision, recall, repeated false positives, latency, and model cost.
 - Record the exact review input and configuration needed to reproduce results.
 - Use evaluation results to guide context and prompt changes.
@@ -141,6 +224,11 @@ under the same rules (line tolerance, severity floors, category requirements
 decided once, enforced by a schema-conformance gate), so aggregate metrics
 reflect model quality rather than per-case authoring drift.
 
+Do not grow the corpus as a substitute for index unit tests. Graph failure
+modes (substring collisions, barrels, type-only imports, renamed modules)
+belong next to the index. Review eval cases belong where the defect is only
+visible through that neighborhood.
+
 ### Branch Review and the Pre-PR Gate (shipped)
 
 Meet agentic workflows at their natural unit: the branch, not the commit.
@@ -149,9 +237,9 @@ Meet agentic workflows at their natural unit: the branch, not the commit.
   the given ref (three-dot semantics, the same diff a PR shows), defaulting to
   the auto-detected default branch. Committed state only; the working tree and
   index stay out of branch reviews so results are reproducible.
-- Make repeat branch reviews delta-aware: as a branch grows, re-reviews lean on
-  durable findings to report `new`, `existing`, and `regressed` rather than
-  re-litigating the whole diff.
+- Repeat branch reviews classify findings as `new`, `existing`, and
+  `regressed` using durable fingerprints. Classification is not a skipped
+  model call. True incremental review is a later milestone.
 - Add a blocking gate mode with meaningful exit codes so DiffOwl can serve as
   a pre-push or CI quality gate. DiffOwl emits structured findings and a
   verdict; the user composes the policy. DiffOwl produces data, it does not
@@ -172,16 +260,46 @@ Meet agentic workflows at their natural unit: the branch, not the commit.
   trusted, not as an automatic pass/fail. Subscription economics alone are not
   a sufficient reason.
 
-### Incremental Impact Graph
+### TypeScript Module-Impact Index
 
-- Index supported-language symbols, imports, calls, and likely tests.
-- Update the index incrementally from changed files.
-- Query the smallest relevant subgraph for each changed symbol.
-- Include configuration and schema consumers where relationships can be
-  determined reliably.
-- Start with TypeScript; expand to other languages when there is good reason
-  to believe the approach carries over, using evaluation as one input rather
-  than a prerequisite.
+Build the smallest useful graph slice before expanding the review context.
+
+- Define the module-impact slice behind one context-building interface.
+- Query the neighborhood of changed files without embedding the whole tree.
+- Keep the index gitignored and deletable, with a lifecycle independent of
+  findings state.
+- Ship deterministic unit tests for the graph failure modes the index is meant
+  to address.
+- Use the harness to measure whether the extra context improves finding
+  usefulness, including one or two targeted graph-context comparisons after the
+  index exists.
+
+Expand to callers, tests, configuration, and schema consumers after the module
+index improves findings. Expand to other languages when that TypeScript
+approach carries over.
+
+### Incremental Review
+
+- Define invalidation over the diff, the impact neighborhood, prompt and
+  configuration, and reviewer identity.
+- Skip proposing when that key is unchanged and the ledger already holds the
+  claims.
+- Treat post-commit hooks as precomputation. They can warm the ledger. They
+  are not incremental review by themselves.
+- Follow stable invalidation semantics with coalesced background warming or an
+  opt-in checker. Warm the latest branch delta after idle time, a push, or an
+  agent checkpoint; do not make one model call per commit the design.
+
+### High-Assurance Proposer and Checker
+
+Opt-in. A second model checks claims. It does not publish a second review.
+
+- Preserve proposer and checker identity on observations.
+- Preserve one canonical output with `confirmed` and `uncertain` labels. Allow a
+  user-selected policy to publish only `confirmed` claims; keep `refuted` claims
+  recorded locally.
+- Run deterministic evidence checks before a second model call.
+- Do not default post-commit or CI to several full reviews.
 
 ### Agent and CI Verification Loop
 
@@ -210,8 +328,9 @@ Team state is three different needs, served in order and mostly through git:
    verification-loop team surfaces (PR comments, SARIF, CI artifacts) under a
    canonical-reviewer-per-change model: one review run (CI or the author's
    machine) is the reviewer of record for a branch, and its output travels
-   with the PR. Other checkouts' local state stays a personal cache; there is
-   no multi-master database sync.
+   with the PR. A proposer and a checker are stages of that one review, not
+   extra reviewers of record. Other checkouts' local state stays a personal
+   cache; there is no multi-master database sync.
 2. **Decisions** — dispositions that should not be re-litigated. Served by an
    append-only disposition log committed to the repo (git as the transport,
    conflict-free by construction), attached to the canonical review's finding
@@ -236,7 +355,7 @@ in local state and evaporate when the model changes — never fossilize one
 model's quirks into policy that would suppress a better model's findings.
 
 - Add linked-repository context where users opt in.
-- Provide review-quality and acceptance analytics.
+- Provide review-quality and acceptance analytics from local dispositions.
 - Consider an optional hosted synchronization layer only after the git-based
   tiers above prove insufficient; a server adds cross-repo aggregation and
   dashboards, nothing the tiers require.
@@ -251,10 +370,12 @@ DiffOwl should be judged by outcomes:
 - Regressions reopened correctly.
 - Review latency and model cost by depth profile.
 - Percentage of findings resolved and independently verified.
+- Useful finding yield, adjudicated noise, and decision coverage.
 - Setup time from installation to the first useful review.
 
 Raw finding count is not a success metric. More comments can make a reviewer
-less useful.
+less useful. Edge precision and recall, plus context-build latency, are module
+acceptance and diagnostic metrics; the product outcome is useful findings.
 
 ## Product Principles
 
@@ -267,6 +388,10 @@ less useful.
 - Add abstractions when a product capability requires them, not to polish the
   architecture in isolation.
 - Favor one coherent milestone over many disconnected features.
+- Name the graph by what it actually contains.
+- Track edge quality and context latency as diagnostics; judge context by
+  whether it produces useful findings.
+- Keep the impact index behind one interface and out of the finding store.
 
 ## Non-Goals
 
@@ -274,10 +399,18 @@ Until the core review loop is demonstrably strong, DiffOwl will not prioritize:
 
 - Becoming a general coding or autonomous implementation agent.
 - Building a hosted dashboard before durable local state exists.
-- Adding multiple reviewer agents for marketing value.
+- Adding multi-model ensembles or multiple reviewer agents for marketing value,
+  or publishing competing comment streams from several models.
 - Automatically modifying code without a separate verification step.
 - Supporting every programming language before supported languages are
   evaluated well.
+- Replacing TypeScript analysis with a generic parser to gain shallow
+  multi-language coverage.
+- Embedding the repository in a vector store, local or hosted, before the
+  module-impact index has measured misses.
+- Shipping remote eval telemetry. The harness already writes local metrics and
+  baselines.
+- Treating a per-commit hook as the incremental-review design.
 - Competing feature-for-feature with hosted pull-request review platforms.
 - Competing on generality with agent-orchestration bridges (Pullfrog and
   similar): arbitrary prompts, arbitrary triggers, implementation tasks. A
@@ -286,14 +419,26 @@ Until the core review loop is demonstrably strong, DiffOwl will not prioritize:
 
 ## Near-Term Decision
 
-Durable structured findings, JSON output, and reproducible branch review have
-shipped, and the eval harness is merged. The next milestones are finishing
-measured review quality and building the pre-PR gate on the branch-review
-primitive. Branch review is the single largest workflow unlock for agent-driven
-development: agents produce many commits per session, and the reviewable unit
-users care about before a PR is the branch delta, not each intermediate
-commit. Quality changes (prompt, contract, backends) should be checked against
-the eval harness where it can meaningfully measure them, but the current
-corpus is too small and too noisy to serve as a hard merge gate — treat eval
-results as evidence to weigh, and judgment as the final call, until the corpus
-earns more authority.
+Durable structured findings, JSON output, reproducible branch review, and an
+opt-in findings gate have shipped. The eval harness is merged as internal
+tooling. The corpus is still too small and too noisy to be a hard merge gate.
+
+The next product milestone is a small graph-slice design and a TypeScript
+module-impact index behind one context-building interface, with deterministic
+unit tests. Once that shape exists, add one or two targeted graph-context
+comparisons to measure whether it improves findings. Then define
+incremental-review invalidation, followed by coalesced warming or an opt-in
+checker as an operational choice. Evals are evidence after the shape exists,
+not a reason to delay building it.
+
+High-assurance proposer and checker, local vectors, more languages, remote
+telemetry, and multi-model ensembles wait on those results. Lightweight local
+disposition analytics may observe the workflow in parallel, but remain distinct
+from offline corpus evals and are not an OLAP project.
+
+Quality changes should still be checked against the eval harness where it can
+measure them. Judgment remains the final call until the corpus earns more
+authority.
+
+Discoverability work (init instructions, optional hooks) stays parallel and
+small.
