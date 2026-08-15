@@ -612,9 +612,11 @@ async function runInit() {
 async function enableAgentPathFromCli(): Promise<void> {
   const projectRoot = getProjectRoot();
   if (!canSelectModelInteractively(process.stdin.isTTY, process.stdout.isTTY)) {
-    console.log(chalk.dim("Skipped agent-path prompts (no terminal)."));
+    console.log(chalk.dim("Skipped setup prompts (no terminal)."));
     console.log(
-      chalk.dim("Add AGENTS.md later, or run `diffowl agent-hook install --client claude`."),
+      chalk.dim(
+        "Later: add AGENTS.md, `diffowl agent-hook install --client claude`, or `diffowl hook install`.",
+      ),
     );
     return;
   }
@@ -634,19 +636,35 @@ async function enableAgentPathFromCli(): Promise<void> {
       `Add DiffOwl instructions to AGENTS.md? ${yesNoPromptSuffix(writeDefault)} `,
       writeDefault,
     );
-    const installHook = await promptYesNo(
+    const installClaudeHook = await promptYesNo(
       rl,
       `Install Claude Code session-start findings hook? ${yesNoPromptSuffix(hookDefault)} `,
       hookDefault,
     );
+    const inGitRepo = await isGitRepo();
+    const postCommitDefault = inGitRepo ? await isHookInstalled() : false;
+    const installPostCommitHook = inGitRepo
+      ? await promptYesNo(
+          rl,
+          `Install post-commit hook (review each commit in the background)? ${yesNoPromptSuffix(postCommitDefault)} `,
+          postCommitDefault,
+        )
+      : false;
     printAgentPathResult(
       await enableAgentPath({
         projectRoot,
         env: process.env,
         writeInstruction,
-        installHook,
+        installHook: installClaudeHook,
       }),
     );
+    if (installPostCommitHook) {
+      await installPostCommitHookFromCli();
+    } else if (inGitRepo) {
+      console.log(chalk.dim("Skipped post-commit hook."));
+    } else {
+      console.log(chalk.dim("Skipped post-commit hook (not a git repository)."));
+    }
   } catch (err) {
     console.error(chalk.red(err instanceof Error ? err.message : String(err)));
     process.exit(1);
@@ -676,6 +694,18 @@ async function promptYesNo(
       }
     }
   }
+}
+
+async function installPostCommitHookFromCli(): Promise<void> {
+  const alreadyInstalled = await isHookInstalled();
+  const hookPath = await installHook();
+  const command = await getHookCommand();
+  const action = alreadyInstalled ? "updated" : "installed";
+  console.log(chalk.green(`✓ Post-commit hook ${action}: ${hookPath}`));
+  console.log(chalk.dim(`Hook Node: ${await describeNodeRuntime(command.node)}`));
+  console.log(chalk.dim(`Hook Entrypoint: ${command.cli}`));
+  console.log(chalk.dim("Reviews will run automatically after each commit (non-blocking)"));
+  console.log(chalk.dim("Hook output: .diffowl/hook.log; reports: .diffowl/reviews/"));
 }
 
 function printAgentPathResult(result: AgentPathResult): void {
@@ -863,15 +893,7 @@ hookCmd
       process.exit(1);
     }
 
-    const alreadyInstalled = await isHookInstalled();
-    const hookPath = await installHook();
-    const command = await getHookCommand();
-    const action = alreadyInstalled ? "updated" : "installed";
-    console.log(chalk.green(`✓ Post-commit hook ${action}: ${hookPath}`));
-    console.log(chalk.dim(`Hook Node: ${await describeNodeRuntime(command.node)}`));
-    console.log(chalk.dim(`Hook Entrypoint: ${command.cli}`));
-    console.log(chalk.dim("Reviews will run automatically after each commit (non-blocking)"));
-    console.log(chalk.dim("Hook output: .diffowl/hook.log; reports: .diffowl/reviews/"));
+    await installPostCommitHookFromCli();
   });
 
 hookCmd

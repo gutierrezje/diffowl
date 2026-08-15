@@ -55,7 +55,7 @@ cd your-repository
 diffowl init
 ```
 
-`diffowl init` finds your available OpenCode models, lets you choose one, and writes `.diffowl.yml`. It then asks whether to add a short DiffOwl section to `AGENTS.md` (`diffowl review --base` and `diffowl findings`) and whether to install the Claude Code session-start findings hook.
+`diffowl init` finds your available OpenCode models, lets you choose one, and writes `.diffowl.yml`. It then asks whether to add a short DiffOwl section to `AGENTS.md` (`diffowl review --base` and `diffowl findings`), whether to install the Claude Code session-start findings hook, and whether to install the post-commit hook.
 
 Review the last commit:
 
