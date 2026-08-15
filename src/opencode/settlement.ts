@@ -6,7 +6,7 @@ export interface ReviewSettlementCoordinator {
     error: Error | undefined;
     messageId?: string;
   }): boolean;
-  acceptText(text: string, source?: { messageId?: string }): boolean;
+  acceptText(text: string, source?: { messageId?: string; reconciled?: boolean }): boolean;
   finish(): void;
   isSettled(): boolean;
   hasResponse(): boolean;
@@ -58,7 +58,7 @@ export function createReviewSettlementCoordinator(options: {
     options.reject(outcome.error);
   };
 
-  const acceptText = (text: string, source?: { messageId?: string }) => {
+  const acceptText = (text: string, source?: { messageId?: string; reconciled?: boolean }) => {
     if (settled) return false;
 
     const incomingId = source?.messageId;
@@ -68,7 +68,10 @@ export function createReviewSettlementCoordinator(options: {
       fullResponse = text;
       lastCheckedLength = 0;
       options.onText?.(fullResponse);
-    } else if (text.length > fullResponse.length) {
+    } else if (
+      text.length > fullResponse.length ||
+      (source?.reconciled && text.length === fullResponse.length && text !== fullResponse)
+    ) {
       fullResponse = text;
       options.onText?.(fullResponse);
     }
@@ -100,7 +103,7 @@ export function createReviewSettlementCoordinator(options: {
           break;
         case "text":
           lastReconciliationError = undefined;
-          if (acceptText(result.text)) return;
+          if (acceptText(result.text, { reconciled: true })) return;
           break;
         case "empty":
           lastReconciliationError = undefined;

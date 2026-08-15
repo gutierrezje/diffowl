@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -20,6 +20,17 @@ describe("trimHookLog", () => {
     await trimHookLog(logFile, 4);
 
     expect(await readFile(logFile, "utf-8")).toBe("6789");
+  });
+
+  it("keeps complete UTF-8 characters and leaves no temporary sibling", async () => {
+    const dir = await createTempDir();
+    const logFile = join(dir, "hook.log");
+    await writeFile(logFile, "prefix🙂世界", "utf-8");
+
+    await trimHookLog(logFile, 7);
+
+    expect(await readFile(logFile, "utf-8")).toBe("世界");
+    expect(await readdir(dir)).toEqual(["hook.log"]);
   });
 
   it("treats zero as unlimited and ignores missing logs", async () => {

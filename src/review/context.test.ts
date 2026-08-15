@@ -1007,6 +1007,95 @@ describe("buildReviewContext", () => {
     );
   });
 
+  it("extracts changed AST symbols beyond the stored file-content limit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
+    tempDirs.push(root);
+    process.chdir(root);
+    await mkdir("src");
+    const filler = Array.from(
+      { length: 150 },
+      (_, index) => `const filler${index} = "${"x".repeat(90)}";`,
+    );
+    const functionLine = filler.length + 1;
+    await writeFile(
+      "src/large.ts",
+      [...filler, "export function afterContextLimit() {", "  return 2;", "}", ""].join("\n"),
+      "utf-8",
+    );
+    const context = await buildReviewContextFromDiff(
+      {
+        root,
+        target: { kind: "staged" },
+        diff: {
+          raw: `diff --git a/src/large.ts b/src/large.ts\n--- a/src/large.ts\n+++ b/src/large.ts\n@@ -${functionLine},3 +${functionLine},3 @@\n export function afterContextLimit() {\n-  return 1;\n+  return 2;\n }`,
+          summary: "~ src/large.ts (+1/-1)",
+          files: [{ path: "src/large.ts", status: "modified", additions: 1, deletions: 1 }],
+        },
+      },
+      config,
+      "shallow",
+    );
+
+    expect(context.changedFiles[0]!.content).toMatchObject({
+      status: "loaded",
+      truncated: true,
+      text: expect.not.stringContaining("afterContextLimit"),
+    });
+    expect(context.changedFiles[0]!.astSymbols).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "afterContextLimit", startLine: functionLine }),
+      ]),
+    );
+  });
+
+  it("extracts AST symbols from JavaScript-family files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
+    tempDirs.push(root);
+    process.chdir(root);
+    const files = [
+      ["js", "jsFunction", "export function"],
+      ["jsx", "jsxFunction", "export function"],
+      ["mjs", "mjsFunction", "export function"],
+      ["cjs", "cjsFunction", "function"],
+    ] as const;
+    await mkdir("src");
+    for (const [extension, name, declaration] of files) {
+      await writeFile(
+        `src/example.${extension}`,
+        `${declaration} ${name}() {\n  return 2;\n}\n`,
+        "utf-8",
+      );
+    }
+    const context = await buildReviewContextFromDiff(
+      {
+        root,
+        target: { kind: "staged" },
+        diff: {
+          raw: files
+            .map(
+              ([extension, name, declaration]) =>
+                `diff --git a/src/example.${extension} b/src/example.${extension}\n--- a/src/example.${extension}\n+++ b/src/example.${extension}\n@@ -1,3 +1,3 @@\n ${declaration} ${name}() {\n-  return 1;\n+  return 2;\n }`,
+            )
+            .join("\n"),
+          summary: files.map(([extension]) => `~ src/example.${extension} (+1/-1)`).join("\n"),
+          files: files.map(([extension]) => ({
+            path: `src/example.${extension}`,
+            status: "modified" as const,
+            additions: 1,
+            deletions: 1,
+          })),
+        },
+      },
+      config,
+      "shallow",
+    );
+
+    expect(context.diagnostics).toEqual([]);
+    expect(
+      context.changedFiles.flatMap((file) => file.astSymbols.map((symbol) => symbol.name)),
+    ).toEqual(expect.arrayContaining(files.map(([, name]) => name)));
+  });
+
   it("diagnoses unsupported code ASTs without warning for documentation files", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
     tempDirs.push(root);

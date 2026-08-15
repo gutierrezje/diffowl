@@ -20,7 +20,11 @@ export const typescriptAstParser: AstParser = {
       path.endsWith(".ts") ||
       path.endsWith(".tsx") ||
       path.endsWith(".mts") ||
-      path.endsWith(".cts")
+      path.endsWith(".cts") ||
+      path.endsWith(".js") ||
+      path.endsWith(".jsx") ||
+      path.endsWith(".mjs") ||
+      path.endsWith(".cjs")
     );
   },
   extract(input) {

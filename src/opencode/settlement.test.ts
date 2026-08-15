@@ -112,6 +112,64 @@ describe("createReviewSettlementCoordinator", () => {
     await expect(outcome.promise).resolves.toBe(text);
   });
 
+  it("does not re-notify for unchanged reconciled text", async () => {
+    vi.useFakeTimers();
+    const outcome = deferred<string>();
+    const onText = vi.fn();
+    const text = 'FINAL_REVIEW_JSON\n{"summary":';
+    const coordinator = createCoordinator(outcome, {
+      onText,
+      reconcile: async () => ({ kind: "text", text }),
+    });
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(onText).toHaveBeenCalledTimes(1);
+    coordinator.release();
+  });
+
+  it("keeps a longer SSE buffer over a shorter reconciled snapshot", async () => {
+    vi.useFakeTimers();
+    const outcome = deferred<string>();
+    const sseText = 'FINAL_REVIEW_JSON\n{"summary":"longer incomplete';
+    const reconciledText = 'FINAL_REVIEW_JSON\n{"summary":';
+    const coordinator = createCoordinator(outcome, {
+      reconcile: async () => ({ kind: "text", text: reconciledText }),
+    });
+
+    coordinator.acceptText(sseText, { messageId: "message-1" });
+    await vi.advanceTimersByTimeAsync(1000);
+
+    coordinator.finish();
+
+    await expect(outcome.promise).resolves.toBe(sseText);
+  });
+
+  it("prefers same-length canonical reconciled text over provisional SSE text", async () => {
+    vi.useFakeTimers();
+    const outcome = deferred<string>();
+    const provisional = 'FINAL_REVIEW_JSON\n{"summary":"bad","findings":[]';
+    const canonical = 'FINAL_REVIEW_JSON\n{"summary":"ok","findings":[]}';
+    const resolveSpy = vi.fn(outcome.resolve);
+    const coordinator = createReviewSettlementCoordinator({
+      timeoutMs: 5000,
+      reconciliationIntervalMs: 1000,
+      reconcile: async () => ({ kind: "text", text: canonical }),
+      onAbort: vi.fn(),
+      resolve: resolveSpy,
+      reject: outcome.reject,
+    });
+
+    expect(provisional).toHaveLength(canonical.length);
+    coordinator.acceptText(provisional, { messageId: "message-1" });
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(resolveSpy).toHaveBeenCalledWith(canonical);
+    await expect(outcome.promise).resolves.toBe(canonical);
+  });
+
   it("rejects partial reconciled text as a timeout", async () => {
     vi.useFakeTimers();
     const outcome = deferred<string>();

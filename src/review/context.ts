@@ -49,7 +49,7 @@ const LOCKFILE_EXCLUDES = new Set([
 ]);
 
 type TextFileResult =
-  | { status: "loaded"; content: string; truncated: boolean }
+  | { status: "loaded"; content: string; fullContent: string; truncated: boolean }
   | { status: "skipped"; reason: string };
 
 export interface LoadedReviewSnapshot {
@@ -191,13 +191,14 @@ async function buildChangedFileContext(
     };
   }
 
-  const astResult = extractAstSymbols(file.path, contentResult.content, changedLines);
+  const analysisContent = contentResult.fullContent;
+  const astResult = extractAstSymbols(file.path, analysisContent, changedLines);
   return {
     fileContext: {
       file,
-      imports: extractImports(contentResult.content),
+      imports: extractImports(analysisContent),
       symbols: mergeSymbols(
-        extractSymbols(contentResult.content),
+        extractSymbols(analysisContent),
         astResult.symbols.map((symbol) => symbol.name),
       ),
       changedLines,
@@ -209,7 +210,7 @@ async function buildChangedFileContext(
         render:
           astResult.symbols.length > 0
             ? "ast-symbols"
-            : shouldRenderFullFileContent(file, contentResult.content)
+            : shouldRenderFullFileContent(file, analysisContent)
               ? "full"
               : "diff-only",
       },
@@ -268,7 +269,12 @@ async function readTextFile(
   if (raw.content.includes("\0")) return { status: "skipped", reason: "binary file" };
 
   const result = truncateText(raw.content, maxChars);
-  return { status: "loaded", content: result.text, truncated: result.truncated };
+  return {
+    status: "loaded",
+    content: result.text,
+    fullContent: raw.content,
+    truncated: result.truncated,
+  };
 }
 
 function extractImports(content: string): string[] {
