@@ -24,13 +24,16 @@ export type AgentPathHookResult =
 
 export type AgentPathInstructionResult =
   | { kind: "created"; path: string }
-  | { kind: "updated"; path: string };
+  | { kind: "updated"; path: string }
+  | { kind: "skipped" };
 
 export type AgentPathResult = {
   clients: DetectedAgentClients;
   hook: AgentPathHookResult;
   instruction: AgentPathInstructionResult;
 };
+
+export type YesNoChoice = { kind: "yes" } | { kind: "no" } | { kind: "invalid" };
 
 export function detectAgentClients(input: {
   projectRoot: string;
@@ -49,13 +52,18 @@ export function detectAgentClients(input: {
 export async function enableAgentPath(input: {
   projectRoot: string;
   env?: NodeJS.Dict<string | undefined>;
+  writeInstruction: boolean;
+  installHook: boolean;
 }): Promise<AgentPathResult> {
   const clients = detectAgentClients({
     projectRoot: input.projectRoot,
     env: input.env ?? {},
   });
-  const instruction = await upsertAgentInstruction(input.projectRoot);
-  if (!clients.claude) {
+  const skippedInstruction: AgentPathInstructionResult = { kind: "skipped" };
+  const instruction = input.writeInstruction
+    ? await upsertAgentInstruction(input.projectRoot)
+    : skippedInstruction;
+  if (!input.installHook) {
     return { clients, hook: { kind: "skipped" }, instruction };
   }
 
@@ -69,6 +77,30 @@ export async function enableAgentPath(input: {
 
 export function agentsMarkdownPath(projectRoot: string): string {
   return join(projectRoot, "AGENTS.md");
+}
+
+export function agentInstructionExists(projectRoot: string): boolean {
+  return existsSync(agentsMarkdownPath(projectRoot));
+}
+
+export function defaultWriteInstruction(agentsMarkdownExists: boolean): boolean {
+  return !agentsMarkdownExists;
+}
+
+export function defaultInstallHook(claudeDetected: boolean): boolean {
+  return claudeDetected;
+}
+
+export function parseYesNo(answer: string, defaultYes: boolean): YesNoChoice {
+  const trimmed = answer.trim().toLowerCase();
+  if (trimmed === "") return defaultYes ? { kind: "yes" } : { kind: "no" };
+  if (trimmed === "y" || trimmed === "yes") return { kind: "yes" };
+  if (trimmed === "n" || trimmed === "no") return { kind: "no" };
+  return { kind: "invalid" };
+}
+
+export function yesNoPromptSuffix(defaultYes: boolean): "[Y/n]" | "[y/N]" {
+  return defaultYes ? "[Y/n]" : "[y/N]";
 }
 
 function envFlagEnabled(value: string | undefined): boolean {
@@ -87,7 +119,7 @@ async function upsertAgentInstruction(projectRoot: string): Promise<AgentPathIns
 
 function mergeAgentInstruction(existing: string | null): {
   content: string;
-  kind: AgentPathInstructionResult["kind"];
+  kind: "created" | "updated";
 } {
   const block = renderInstructionBlock();
   if (existing === null) {

@@ -49,7 +49,16 @@ import {
   writeHookStatus,
 } from "./git/hooks.js";
 import { isGitRepo, hasCommits } from "./git/diff.js";
-import { enableAgentPath, type AgentPathResult } from "./integrations/agent-path.js";
+import {
+  agentInstructionExists,
+  defaultInstallHook,
+  defaultWriteInstruction,
+  detectAgentClients,
+  enableAgentPath,
+  parseYesNo,
+  yesNoPromptSuffix,
+  type AgentPathResult,
+} from "./integrations/agent-path.js";
 import { installClaudeCodeHook } from "./integrations/claude-code.js";
 import { getSharedDiffOwlDir } from "./git/state-root.js";
 import { printHeader, printFooter, parseReviewMetadata } from "./review/formatter.js";
@@ -601,16 +610,71 @@ async function runInit() {
 }
 
 async function enableAgentPathFromCli(): Promise<void> {
+  const projectRoot = getProjectRoot();
+  if (!canSelectModelInteractively(process.stdin.isTTY, process.stdout.isTTY)) {
+    console.log(chalk.dim("Skipped agent-path prompts (no terminal)."));
+    console.log(
+      chalk.dim("Add AGENTS.md later, or run `diffowl agent-hook install --client claude`."),
+    );
+    return;
+  }
+
+  const clients = detectAgentClients({ projectRoot, env: process.env });
+  const writeDefault = defaultWriteInstruction(agentInstructionExists(projectRoot));
+  const hookDefault = defaultInstallHook(clients.claude);
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
   try {
+    console.log();
+    const writeInstruction = await promptYesNo(
+      rl,
+      `Add DiffOwl instructions to AGENTS.md? ${yesNoPromptSuffix(writeDefault)} `,
+      writeDefault,
+    );
+    const installHook = await promptYesNo(
+      rl,
+      `Install Claude Code session-start findings hook? ${yesNoPromptSuffix(hookDefault)} `,
+      hookDefault,
+    );
     printAgentPathResult(
       await enableAgentPath({
-        projectRoot: getProjectRoot(),
+        projectRoot,
         env: process.env,
+        writeInstruction,
+        installHook,
       }),
     );
   } catch (err) {
     console.error(chalk.red(err instanceof Error ? err.message : String(err)));
     process.exit(1);
+  } finally {
+    rl.close();
+  }
+}
+
+async function promptYesNo(
+  rl: { question: (query: string) => Promise<string> },
+  prompt: string,
+  defaultYes: boolean,
+): Promise<boolean> {
+  while (true) {
+    const choice = parseYesNo(await rl.question(chalk.yellow(prompt)), defaultYes);
+    switch (choice.kind) {
+      case "yes":
+        return true;
+      case "no":
+        return false;
+      case "invalid":
+        console.log(chalk.red("Please answer y or n."));
+        break;
+      default: {
+        const _exhaustive: never = choice;
+        return _exhaustive;
+      }
+    }
   }
 }
 
@@ -621,6 +685,9 @@ function printAgentPathResult(result: AgentPathResult): void {
       break;
     case "updated":
       console.log(chalk.green(`✓ Agent instructions updated in ${result.instruction.path}`));
+      break;
+    case "skipped":
+      console.log(chalk.dim("Skipped AGENTS.md instructions."));
       break;
     default: {
       const _exhaustive: never = result.instruction;
@@ -634,8 +701,7 @@ function printAgentPathResult(result: AgentPathResult): void {
       console.log(chalk.dim(`Settings: ${result.hook.settingsPath}`));
       return;
     case "skipped":
-      console.log(chalk.dim("Skipped Claude session hook (no Claude Code project detected)."));
-      console.log(chalk.dim("Install later with `diffowl agent-hook install --client claude`."));
+      console.log(chalk.dim("Skipped Claude session hook."));
       return;
     default: {
       const _exhaustive: never = result.hook;

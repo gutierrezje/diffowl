@@ -8,7 +8,7 @@ All notable changes to DiffOwl are documented here. This project adheres to
 
 ### Added
 
-- `diffowl init` writes a managed DiffOwl section to `AGENTS.md` and, when Claude Code is detected, installs the session-start findings hook.
+- `diffowl init` prompts whether to add a managed DiffOwl section to `AGENTS.md` and whether to install the Claude Code session-start findings hook.
 
 ## [0.4.0] - 2026-08-14
 

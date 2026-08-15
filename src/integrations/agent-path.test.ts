@@ -7,9 +7,14 @@ import {
   AGENT_PATH_INSTRUCTION,
   AGENT_PATH_INSTRUCTION_END,
   AGENT_PATH_INSTRUCTION_START,
+  agentInstructionExists,
   agentsMarkdownPath,
+  defaultInstallHook,
+  defaultWriteInstruction,
   detectAgentClients,
   enableAgentPath,
+  parseYesNo,
+  yesNoPromptSuffix,
 } from "./agent-path.js";
 import { CLAUDE_HOOK_ARGS_SIGNATURE } from "./claude-code.js";
 
@@ -59,11 +64,49 @@ describe("detectAgentClients", () => {
   });
 });
 
+describe("parseYesNo", () => {
+  it("treats empty input as the default", () => {
+    expect(parseYesNo("", true)).toEqual({ kind: "yes" });
+    expect(parseYesNo("  ", false)).toEqual({ kind: "no" });
+  });
+
+  it("accepts y/yes and n/no", () => {
+    expect(parseYesNo("Y", false)).toEqual({ kind: "yes" });
+    expect(parseYesNo("yes", false)).toEqual({ kind: "yes" });
+    expect(parseYesNo("N", true)).toEqual({ kind: "no" });
+    expect(parseYesNo("no", true)).toEqual({ kind: "no" });
+  });
+
+  it("rejects other answers", () => {
+    expect(parseYesNo("maybe", true)).toEqual({ kind: "invalid" });
+    expect(parseYesNo("1", false)).toEqual({ kind: "invalid" });
+  });
+});
+
+describe("agent path prompt defaults", () => {
+  it("defaults to writing instructions only when AGENTS.md is missing", () => {
+    expect(defaultWriteInstruction(false)).toBe(true);
+    expect(defaultWriteInstruction(true)).toBe(false);
+    expect(yesNoPromptSuffix(true)).toBe("[Y/n]");
+    expect(yesNoPromptSuffix(false)).toBe("[y/N]");
+  });
+
+  it("defaults to installing the hook only when Claude Code is detected", () => {
+    expect(defaultInstallHook(true)).toBe(true);
+    expect(defaultInstallHook(false)).toBe(false);
+  });
+});
+
 describe("enableAgentPath", () => {
-  it("writes AGENTS.md and skips the Claude hook when no client is detected", async () => {
+  it("writes AGENTS.md and skips the Claude hook when only instructions are accepted", async () => {
     const projectRoot = await makeProject();
 
-    const result = await enableAgentPath({ projectRoot, env: {} });
+    const result = await enableAgentPath({
+      projectRoot,
+      env: {},
+      writeInstruction: true,
+      installHook: false,
+    });
 
     expect(result.clients).toEqual({ claude: false, cursor: false });
     expect(result.hook).toEqual({ kind: "skipped" });
@@ -71,12 +114,30 @@ describe("enableAgentPath", () => {
       kind: "created",
       path: agentsMarkdownPath(projectRoot),
     });
-    const markdown = await readFile(result.instruction.path, "utf-8");
+    const markdown = await readFile(agentsMarkdownPath(projectRoot), "utf-8");
     expect(markdown).toContain(AGENT_PATH_INSTRUCTION_START);
     expect(markdown).toContain("`diffowl review --base`");
     expect(markdown).toContain("`diffowl findings`");
     expect(markdown).toContain(AGENT_PATH_INSTRUCTION_END);
-    expect(markdown).not.toContain(AGENT_PATH_INSTRUCTION_START + AGENT_PATH_INSTRUCTION_START);
+    await expect(readFile(join(projectRoot, ".claude", "settings.json"), "utf-8")).rejects.toMatchObject(
+      { code: "ENOENT" },
+    );
+  });
+
+  it("writes nothing when both prompts are declined", async () => {
+    const projectRoot = await makeProject();
+    await writeFile(join(projectRoot, "CLAUDE.md"), "# Claude\n", "utf-8");
+
+    const result = await enableAgentPath({
+      projectRoot,
+      env: {},
+      writeInstruction: false,
+      installHook: false,
+    });
+
+    expect(result.instruction).toEqual({ kind: "skipped" });
+    expect(result.hook).toEqual({ kind: "skipped" });
+    expect(agentInstructionExists(projectRoot)).toBe(false);
     await expect(readFile(join(projectRoot, ".claude", "settings.json"), "utf-8")).rejects.toMatchObject(
       { code: "ENOENT" },
     );
@@ -87,7 +148,12 @@ describe("enableAgentPath", () => {
     const path = agentsMarkdownPath(projectRoot);
     await writeFile(path, "# House rules\n\nDo not skip tests.\n", "utf-8");
 
-    const result = await enableAgentPath({ projectRoot, env: {} });
+    const result = await enableAgentPath({
+      projectRoot,
+      env: {},
+      writeInstruction: true,
+      installHook: false,
+    });
 
     expect(result.instruction.kind).toBe("updated");
     const markdown = await readFile(path, "utf-8");
@@ -115,9 +181,19 @@ describe("enableAgentPath", () => {
       "utf-8",
     );
 
-    await enableAgentPath({ projectRoot, env: {} });
+    await enableAgentPath({
+      projectRoot,
+      env: {},
+      writeInstruction: true,
+      installHook: false,
+    });
     const first = await readFile(path, "utf-8");
-    await enableAgentPath({ projectRoot, env: {} });
+    await enableAgentPath({
+      projectRoot,
+      env: {},
+      writeInstruction: true,
+      installHook: false,
+    });
     const second = await readFile(path, "utf-8");
 
     expect(first).toBe(second);
@@ -127,13 +203,19 @@ describe("enableAgentPath", () => {
     expect(first).not.toContain("stale pointer");
   });
 
-  it("installs the Claude session hook when Claude Code is detected", async () => {
+  it("installs the Claude session hook when accepted, even without Claude markers", async () => {
     const projectRoot = await makeProject();
-    await writeFile(join(projectRoot, "CLAUDE.md"), "# Claude\n", "utf-8");
 
-    const result = await enableAgentPath({ projectRoot, env: {} });
+    const result = await enableAgentPath({
+      projectRoot,
+      env: {},
+      writeInstruction: false,
+      installHook: true,
+    });
 
+    expect(result.instruction).toEqual({ kind: "skipped" });
     expect(result.hook).toMatchObject({ kind: "claude", action: "installed" });
+    expect(agentInstructionExists(projectRoot)).toBe(false);
     const settingsPath = join(projectRoot, ".claude", "settings.json");
     const settings = JSON.parse(await readFile(settingsPath, "utf-8")) as {
       hooks: { SessionStart: { hooks: { args: string[] }[] }[] };
@@ -142,13 +224,19 @@ describe("enableAgentPath", () => {
     expect(args.slice(-CLAUDE_HOOK_ARGS_SIGNATURE.length)).toEqual([...CLAUDE_HOOK_ARGS_SIGNATURE]);
   });
 
-  it("skips the Claude hook for a Cursor-only project", async () => {
+  it("skips the Claude hook when declined even if Claude Code is detected", async () => {
     const projectRoot = await makeProject();
     await mkdir(join(projectRoot, ".cursor"));
+    await writeFile(join(projectRoot, "CLAUDE.md"), "# Claude\n", "utf-8");
 
-    const result = await enableAgentPath({ projectRoot, env: {} });
+    const result = await enableAgentPath({
+      projectRoot,
+      env: {},
+      writeInstruction: true,
+      installHook: false,
+    });
 
-    expect(result.clients.cursor).toBe(true);
+    expect(result.clients).toEqual({ claude: true, cursor: true });
     expect(result.hook).toEqual({ kind: "skipped" });
     await expect(readFile(join(projectRoot, ".claude", "settings.json"), "utf-8")).rejects.toMatchObject(
       { code: "ENOENT" },
@@ -160,7 +248,14 @@ describe("enableAgentPath", () => {
     await mkdir(join(projectRoot, ".claude"));
     await writeFile(join(projectRoot, ".claude", "settings.json"), "{not json", "utf-8");
 
-    await expect(enableAgentPath({ projectRoot, env: {} })).rejects.toThrow(/parse/);
+    await expect(
+      enableAgentPath({
+        projectRoot,
+        env: {},
+        writeInstruction: true,
+        installHook: true,
+      }),
+    ).rejects.toThrow(/parse/);
     const markdown = await readFile(agentsMarkdownPath(projectRoot), "utf-8");
     expect(markdown).toContain("`diffowl review --base`");
   });
