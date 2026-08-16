@@ -3,6 +3,7 @@ import type tsType from "typescript";
 import { loadTypescript } from "./load-typescript.js";
 
 const TS_MODULE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts"] as const;
+const TS_DECLARATION_EXTENSION_RE = /\.d\.(ts|mts|cts)$/;
 const ESM_EXTENSION_REWRITES = new Map([
   [".js", ".ts"],
   [".jsx", ".tsx"],
@@ -44,6 +45,7 @@ export function asBlobOid(value: string): BlobOid {
 }
 
 export function isTsModulePath(path: string): boolean {
+  if (TS_DECLARATION_EXTENSION_RE.test(path)) return false;
   return TS_MODULE_EXTENSIONS.some((extension) => path.endsWith(extension));
 }
 

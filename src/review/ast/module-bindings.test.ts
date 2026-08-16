@@ -1,7 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { asBlobOid, parseModuleBindings, resolveSpecifier } from "./module-bindings.js";
+import {
+  asBlobOid,
+  isTsModulePath,
+  parseModuleBindings,
+  resolveSpecifier,
+} from "./module-bindings.js";
 
 const oid = asBlobOid("a".repeat(40));
+
+describe("isTsModulePath", () => {
+  it("includes TypeScript modules and excludes declaration files", () => {
+    expect(isTsModulePath("src/example.ts")).toBe(true);
+    expect(isTsModulePath("src/example.tsx")).toBe(true);
+    expect(isTsModulePath("src/example.mts")).toBe(true);
+    expect(isTsModulePath("src/example.cts")).toBe(true);
+    expect(isTsModulePath("src/types.d.ts")).toBe(false);
+    expect(isTsModulePath("src/types.d.mts")).toBe(false);
+    expect(isTsModulePath("src/types.d.cts")).toBe(false);
+    expect(isTsModulePath("src/example.js")).toBe(false);
+  });
+});
 
 describe("parseModuleBindings", () => {
   it("records TypeScript import and export syntax", () => {
@@ -67,5 +85,10 @@ describe("resolveSpecifier", () => {
     expect(resolveSpecifier("src/consumer.ts", "./Username", files)).toBe("src/Username.ts");
     expect(resolveSpecifier("src/consumer.ts", "./models", files)).toBe("src/models/index.ts");
     expect(resolveSpecifier("src/consumer.ts", "package", files)).toBeUndefined();
+  });
+
+  it("does not resolve ambient .d.ts modules that are outside the graph", () => {
+    const files = new Set(["src/types.d.ts"]);
+    expect(resolveSpecifier("src/consumer.ts", "./types", files)).toBeUndefined();
   });
 });
