@@ -14,6 +14,8 @@ import {
   StateDatabaseError,
 } from "./db.js";
 import { MIGRATION_001_INITIAL_SCHEMA } from "./migrations/001-initial-schema.js";
+import { MIGRATION_002_BASE_REVIEW_TARGET } from "./migrations/002-base-review-target.js";
+import { MIGRATION_003_POSSIBLE_DUPLICATES } from "./migrations/003-possible-duplicates.js";
 import { openSqliteDatabase } from "./sqlite.js";
 import { dismissFinding } from "./lifecycle.js";
 import { listFindingEvents } from "./repositories/events.js";
@@ -68,6 +70,7 @@ describe("openStateDatabase", () => {
       expect(migrations).toEqual([
         { version: 1 },
         { version: 2 },
+        { version: 3 },
         { version: CURRENT_SCHEMA_VERSION },
       ]);
     } finally {
@@ -88,6 +91,7 @@ describe("openStateDatabase", () => {
       expect(migrations).toEqual([
         { version: 1 },
         { version: 2 },
+        { version: 3 },
         { version: CURRENT_SCHEMA_VERSION },
       ]);
     } finally {
@@ -276,6 +280,215 @@ describe("openStateDatabase", () => {
     }
   });
 
+  it("migrates schema 3 by discarding only unpinned duplicate rows", async () => {
+    const dir = await createTempDir();
+    const db = await openSqliteDatabase(getStateDbPath(dir));
+    applyMigrations(db, 3, {
+      1: MIGRATION_001_INITIAL_SCHEMA,
+      2: MIGRATION_002_BASE_REVIEW_TARGET,
+      3: MIGRATION_003_POSSIBLE_DUPLICATES,
+    });
+
+    const createdAt = "2026-08-17T00:00:00.000Z";
+    db.prepare(
+      `INSERT INTO reviews (
+        id, created_at, target_kind, target_ref, target_commit, diff_hash, model, reasoning,
+        depth, session_id, summary, diagnostics_json, timings_json
+      ) VALUES (?, ?, 'commit', ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]')`,
+    ).run(
+      "rev_legacy_source",
+      createdAt,
+      "HEAD~1",
+      "abc123",
+      "hash-source",
+      "model",
+      "medium",
+      "default",
+      "source",
+      "Source review",
+    );
+    db.prepare(
+      `INSERT INTO reviews (
+        id, created_at, target_kind, target_ref, target_commit, diff_hash, model, reasoning,
+        depth, session_id, summary, diagnostics_json, timings_json
+      ) VALUES (?, ?, 'commit', ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]')`,
+    ).run(
+      "rev_legacy_candidate",
+      createdAt,
+      "HEAD",
+      "def456",
+      "hash-candidate",
+      "model",
+      "medium",
+      "default",
+      "candidate",
+      "Candidate review",
+    );
+    db.prepare(
+      `INSERT INTO findings (
+        id, fingerprint, status, first_review_id, last_review_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      "fnd_legacy_source",
+      "fp-legacy-source",
+      "dismissed",
+      "rev_legacy_source",
+      "rev_legacy_source",
+      createdAt,
+      createdAt,
+    );
+    db.prepare(
+      `INSERT INTO findings (
+        id, fingerprint, status, first_review_id, last_review_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      "fnd_legacy_candidate",
+      "fp-legacy-candidate",
+      "open",
+      "rev_legacy_candidate",
+      "rev_legacy_candidate",
+      createdAt,
+      createdAt,
+    );
+    const insertObservation = db.prepare(`
+      INSERT INTO finding_observations (
+        review_id, finding_id, file, line, severity, confidence, title, body, evidence,
+        symbol_key, ordinal, classification
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertObservation.run(
+      "rev_legacy_source",
+      "fnd_legacy_source",
+      "src/legacy.ts",
+      10,
+      "warning",
+      "high",
+      "Legacy source",
+      "Source body",
+      "source();",
+      null,
+      1,
+      "new",
+    );
+    insertObservation.run(
+      "rev_legacy_candidate",
+      "fnd_legacy_candidate",
+      "src/legacy.ts",
+      12,
+      "warning",
+      "high",
+      "Legacy candidate",
+      "Candidate body",
+      "candidate();",
+      null,
+      1,
+      "new",
+    );
+    db.prepare(
+      `INSERT INTO finding_events (
+        finding_id, review_id, event_type, actor, reason, verification_json, created_at
+      ) VALUES (?, ?, 'dismissed', 'user', ?, '[]', ?)`,
+    ).run("fnd_legacy_source", "rev_legacy_source", "legacy source resolved", createdAt);
+    db.prepare(
+      `INSERT INTO finding_possible_duplicates (
+        id, suggested_review_id, candidate_finding_id, matched_finding_id,
+        status, matcher_version, score, signals_json, created_at
+      ) VALUES (?, ?, ?, ?, 'suggested', 1, 0.8, ?, ?)`,
+    ).run(
+      "dup_legacy_unpinned",
+      "rev_legacy_candidate",
+      "fnd_legacy_candidate",
+      "fnd_legacy_source",
+      JSON.stringify({ textSimilarity: 0.8 }),
+      createdAt,
+    );
+
+    const findingsBefore = db
+      .prepare("SELECT id, fingerprint, status, first_review_id, last_review_id FROM findings ORDER BY id")
+      .all();
+    const reviewsBefore = db.prepare("SELECT * FROM reviews ORDER BY id").all();
+    const observationsBefore = db
+      .prepare("SELECT id, review_id, finding_id, file, line, symbol_key FROM finding_observations ORDER BY id")
+      .all() as Array<{ id: number }>;
+    const eventsBefore = db
+      .prepare("SELECT id, finding_id, event_type, actor, reason FROM finding_events ORDER BY id")
+      .all() as Array<{ id: number }>;
+    closeDatabaseConnection(db);
+
+    const state = await openStateDatabase(dir);
+    try {
+      expect(state.db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
+        version: 4,
+      });
+      expect(
+        state.db
+          .prepare("SELECT id FROM finding_possible_duplicates WHERE id = ?")
+          .get("dup_legacy_unpinned"),
+      ).toBeUndefined();
+      expect(
+        state.db
+          .prepare("SELECT id, fingerprint, status, first_review_id, last_review_id FROM findings ORDER BY id")
+          .all(),
+      ).toEqual(findingsBefore);
+      expect(state.db.prepare("SELECT * FROM reviews ORDER BY id").all()).toEqual(reviewsBefore);
+      expect(
+        state.db
+          .prepare("SELECT id, review_id, finding_id, file, line, symbol_key FROM finding_observations ORDER BY id")
+          .all(),
+      ).toEqual(observationsBefore);
+      expect(
+        state.db
+          .prepare("SELECT id, finding_id, event_type, actor, reason FROM finding_events ORDER BY id")
+          .all(),
+      ).toEqual(eventsBefore);
+
+      const columns = state.db
+        .prepare("PRAGMA table_info(finding_possible_duplicates)")
+        .all()
+        .map((column) => (column as { name: string }).name);
+      expect(columns).toEqual(
+        expect.arrayContaining([
+          "candidate_observation_id",
+          "matched_observation_id",
+          "source_disposition_event_id",
+          "locator_version",
+          "inherited_disposition_event_id",
+          "expired_at",
+          "expired_reason",
+        ]),
+      );
+
+      const strictInsert = state.db.prepare(`
+        INSERT INTO finding_possible_duplicates (
+          id, suggested_review_id, candidate_finding_id, matched_finding_id,
+          candidate_observation_id, matched_observation_id, source_disposition_event_id,
+          suggested_source_status, locator_version, status, matcher_version, score, signals_json,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      expect(() =>
+        strictInsert.run(
+          "dup_invalid_migration_state",
+          "rev_legacy_candidate",
+          "fnd_legacy_candidate",
+          "fnd_legacy_source",
+          observationsBefore[0]!.id,
+          observationsBefore[0]!.id,
+          eventsBefore[0]!.id,
+          "dismissed",
+          1,
+          "suggested",
+          1,
+          0.8,
+          JSON.stringify({ lexicalSimilarity: 0.8 }),
+          createdAt,
+        ),
+      ).toThrow();
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
   it("rejects databases with a newer schema version", async () => {
     const dir = await createTempDir();
     const state = await openStateDatabase(dir);
@@ -320,6 +533,7 @@ describe("openStateDatabase", () => {
       expect(versions).toEqual([
         { version: 1 },
         { version: 2 },
+        { version: 3 },
         { version: CURRENT_SCHEMA_VERSION },
       ]);
     } finally {
