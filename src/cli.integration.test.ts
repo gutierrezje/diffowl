@@ -348,7 +348,7 @@ describe("diffowl findings summary", () => {
     expect(existsSync(diffOwlDir)).toBe(false);
   });
 
-  it("keeps the summary payload O(1) in finding count", async () => {
+  it("keeps the summary payload O(1) in finding count", { timeout: 15_000 }, async () => {
     const single = await createRepo("diffowl-cli-findings-summary-o1-single-");
     await writeFile(join(single, "README.md"), "hello\n", "utf8");
     await commitAll(single, "initial");

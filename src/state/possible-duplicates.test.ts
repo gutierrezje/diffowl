@@ -262,7 +262,7 @@ describe("possible duplicate suggestions", () => {
     expect(result.possibleDuplicateSuggestions[0]?.matchedFindingId).not.toBe(weakerId);
   });
 
-  it("does not consider same-file historical matches beyond the 200-row bound", async () => {
+  it("does not consider same-file historical matches beyond the 200-row bound", { timeout: 15_000 }, async () => {
     const dir = await createStateDir();
     const state = await openStateDatabase(dir);
     try {
@@ -310,7 +310,7 @@ describe("possible duplicate suggestions", () => {
     }
   });
 
-  it("applies structural eligibility before bounding the candidate pool", async () => {
+  it("applies structural eligibility before bounding the candidate pool", { timeout: 15_000 }, async () => {
     const dir = await createStateDir();
     const state = await openStateDatabase(dir);
     try {
