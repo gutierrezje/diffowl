@@ -354,14 +354,14 @@ function validatePinnedSignals(
   candidateObservation: FindingObservationRecord,
   matchedObservation: FindingObservationRecord,
 ): void {
-  const lexicalSimilarity = tokenDice(
-    `${candidateObservation.title} ${candidateObservation.body}`,
-    `${matchedObservation.title} ${matchedObservation.body}`,
-  );
   if (
     link.score !== link.signals.lexicalSimilarity ||
-    link.score !== lexicalSimilarity ||
-    link.signals.lexicalSimilarity !== lexicalSimilarity
+    (link.matcherVersion === POSSIBLE_DUPLICATE_MATCHER_VERSION &&
+      link.score !==
+        tokenDice(
+          `${candidateObservation.title} ${candidateObservation.body}`,
+          `${matchedObservation.title} ${matchedObservation.body}`,
+        ))
   ) {
     throw new StateDatabaseError(
       `Possible duplicate ${link.id} has a score that disagrees with pinned lexical similarity.`,

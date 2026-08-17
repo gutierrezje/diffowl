@@ -8,6 +8,7 @@ import { deferFinding, dismissFinding, fixFinding } from "./lifecycle.js";
 import {
   confirmPossibleDuplicate,
   listPossibleDuplicates,
+  POSSIBLE_DUPLICATE_MATCHER_VERSION,
   rejectPossibleDuplicate,
   suggestPossibleDuplicates,
 } from "./possible-duplicates.js";
@@ -476,8 +477,9 @@ describe("possible duplicate suggestions", () => {
       },
     },
     {
-      name: "stored lexical similarity disagrees with pinned observations",
+      name: "current matcher rejects mutually consistent but wrong score and signals",
       mutate: (db: SqliteDatabase, link: PersistReviewRunResult["possibleDuplicateSuggestions"][number]) => {
+        expect(link.matcherVersion).toBe(POSSIBLE_DUPLICATE_MATCHER_VERSION);
         const wrongScore = link.score === 0 ? 1 : 0;
         db.prepare("UPDATE finding_possible_duplicates SET score = ?, signals_json = ? WHERE id = ?").run(
           wrongScore,
@@ -540,6 +542,35 @@ describe("possible duplicate suggestions", () => {
     try {
       mutate(state.db, link);
       expect(() => listPossibleDuplicates(state.db, "suggested")).toThrow(StateDatabaseError);
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
+  it("keeps a non-current matcher link readable with its persisted score and signals", async () => {
+    const dir = await createStateDir();
+    await seedResolvedFinding(dir, makeFinding(), "ts-v1|function:handle");
+    const result = await persistQuoteDrift(dir);
+    const link = result.possibleDuplicateSuggestions[0]!;
+    expect(link.score).not.toBe(1);
+    const state = await openStateDatabase(dir);
+    try {
+      const persistedScore = 1;
+      state.db
+        .prepare("UPDATE finding_possible_duplicates SET matcher_version = ?, score = ?, signals_json = ? WHERE id = ?")
+        .run(
+          POSSIBLE_DUPLICATE_MATCHER_VERSION + 1,
+          persistedScore,
+          JSON.stringify({ ...link.signals, lexicalSimilarity: persistedScore }),
+          link.id,
+        );
+
+      expect(listPossibleDuplicates(state.db, "suggested")[0]).toMatchObject({
+        id: link.id,
+        matcherVersion: POSSIBLE_DUPLICATE_MATCHER_VERSION + 1,
+        score: persistedScore,
+        signals: { lexicalSimilarity: persistedScore },
+      });
     } finally {
       closeStateDatabase(state);
     }
