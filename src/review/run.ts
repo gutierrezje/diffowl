@@ -141,6 +141,7 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
     diagnostics,
     timings: [...timings, ...(report.timings ?? [])],
     findings: report.findings,
+    symbolKeys: report.findings.map((finding) => findEnclosingSymbolKey(reviewContext, finding)),
   });
   recordReviewTiming(timings, "persist-state", "Persist review state", persistStart);
 
@@ -152,6 +153,13 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
   }
   diagnostics.push(...persisted.identityDiagnostics);
   if (persisted.identityDiagnostics.length > 0) {
+    report.diagnostics = diagnostics;
+  }
+  const possibleDuplicateSuggestions = persisted.possibleDuplicateSuggestions;
+  if (possibleDuplicateSuggestions.length > 0) {
+    diagnostics.push(
+      `${possibleDuplicateSuggestions.length} possible duplicate suggestion(s) recorded; run \`diffowl findings duplicates list\`.`,
+    );
     report.diagnostics = diagnostics;
   }
   if (input.verbose && persisted.lifecycleSuppressedFindings.length > 0) {
@@ -324,4 +332,39 @@ function recordReviewTiming(
   start: number,
 ): void {
   timings.push({ phase, label, ms: Math.max(0, Math.round(performance.now() - start)) });
+}
+
+function findEnclosingSymbolKey(
+  context: Awaited<ReturnType<typeof buildReviewContextFromDiff>>,
+  finding: ReviewReport["findings"][number],
+): string | null {
+  const fileContext = context.changedFiles.find((file) => file.file.path === finding.file);
+  if (!fileContext || fileContext.astSymbols.length === 0) {
+    return null;
+  }
+
+  const enclosing = fileContext.astSymbols
+    .filter((symbol) => symbol.startLine <= finding.line && finding.line <= symbol.endLine)
+    .sort((left, right) => {
+      const leftSpan = left.endLine - left.startLine;
+      const rightSpan = right.endLine - right.startLine;
+      return (
+        rightSpan - leftSpan ||
+        left.startLine - right.startLine ||
+        right.endLine - left.endLine ||
+        left.kind.localeCompare(right.kind) ||
+        left.name.localeCompare(right.name)
+      );
+    });
+  const segments: string[] = [];
+  const seen = new Set<string>();
+  for (const symbol of enclosing) {
+    const segment = `${symbol.kind}:${symbol.name}`;
+    if (seen.has(segment)) {
+      continue;
+    }
+    seen.add(segment);
+    segments.push(segment);
+  }
+  return segments.length > 0 ? segments.join("/") : null;
 }

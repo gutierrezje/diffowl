@@ -1,6 +1,7 @@
 import chalk from "chalk";
 import type { FindingDetail, FindingListItem } from "../state/findings-query.js";
 import type { FindingSummary } from "../state/findings-summary.js";
+import type { PossibleDuplicateDetail } from "../state/possible-duplicates.js";
 
 const ID_WIDTH = 12;
 const STATUS_WIDTH = 10;
@@ -128,6 +129,90 @@ export function renderFindingListJson(items: FindingListItem[]): string {
     null,
     2,
   )}\n`;
+}
+
+export function formatPossibleDuplicateList(items: PossibleDuplicateDetail[]): string {
+  if (items.length === 0) return "No possible duplicate suggestions.";
+  const lines = ["Possible duplicate suggestions:"];
+  for (const item of items) {
+    const candidate = formatDuplicateFinding(
+      item.candidateFinding.id,
+      item.candidateFinding.status,
+      item.candidateObservation,
+    );
+    const matched = formatDuplicateFinding(
+      item.matchedFinding.id,
+      item.matchedFinding.status,
+      item.matchedObservation,
+    );
+    lines.push(
+      `- ${item.id} (${item.status}, score ${item.score.toFixed(2)}, ${item.signals.matchKind})`,
+      `  candidate ${candidate}`,
+      `  matched  ${matched}`,
+    );
+    if (item.status === "suggested") {
+      lines.push(
+        `  Confirm: diffowl findings duplicates confirm ${item.id} --reason <text>`,
+        `  Reject:  diffowl findings duplicates reject ${item.id} --reason <text>`,
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
+export function renderPossibleDuplicateListJson(items: PossibleDuplicateDetail[]): string {
+  return `${JSON.stringify(
+    {
+      schema_version: 1,
+      count: items.length,
+      duplicates: items.map((item) => ({
+        id: item.id,
+        status: item.status,
+        score: item.score,
+        matcher_version: item.matcherVersion,
+        signals: item.signals,
+        suggested_review_id: item.suggestedReviewId,
+        candidate: duplicateFindingJson(
+          item.candidateFinding.id,
+          item.candidateFinding.status,
+          item.candidateObservation,
+        ),
+        matched: duplicateFindingJson(
+          item.matchedFinding.id,
+          item.matchedFinding.status,
+          item.matchedObservation,
+        ),
+        created_at: item.createdAt,
+        decided_at: item.decidedAt,
+        decided_actor: item.decidedActor,
+        decided_reason: item.decidedReason,
+        inherited_status: item.inheritedStatus,
+      })),
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+function formatDuplicateFinding(
+  id: string,
+  status: string,
+  observation: PossibleDuplicateDetail["candidateObservation"],
+): string {
+  const location = observation ? `${observation.file}:${observation.line}` : "unknown";
+  return `${shortenFindingId(id)} [${status}] ${location}`;
+}
+
+function duplicateFindingJson(
+  id: string,
+  status: string,
+  observation: PossibleDuplicateDetail["candidateObservation"],
+): { id: string; status: string; location: { file: string; line: number } | null } {
+  return {
+    id,
+    status,
+    location: observation ? { file: observation.file, line: observation.line } : null,
+  };
 }
 
 /**

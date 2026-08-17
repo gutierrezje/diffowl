@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 export type ReviewTargetKind = "staged" | "commit" | "last-commit" | "base";
 export type FindingStatus = "open" | "deferred" | "dismissed" | "fixed" | "regressed";
@@ -15,6 +15,8 @@ export type FindingEventType =
 export type FindingActor = "user" | "agent";
 export type ReviewSeverity = "error" | "warning" | "info";
 export type ReviewConfidence = "low" | "medium" | "high";
+export type PossibleDuplicateStatus = "suggested" | "confirmed" | "rejected";
+export type PossibleDuplicateInheritedStatus = "dismissed" | "deferred";
 
 export function createReviewId(): string {
   return `rev_${randomUUID()}`;
@@ -94,6 +96,8 @@ export interface FindingCandidate {
   title: string;
   body: string;
   evidence?: string;
+  /** Persistence-only context; never participates in fingerprint identity. */
+  symbolKey?: string | null;
 }
 
 export interface FindingObservationRecord {
@@ -107,6 +111,7 @@ export interface FindingObservationRecord {
   title: string;
   body: string;
   evidence: string | null;
+  symbolKey?: string | null;
   ordinal: number;
   classification: ObservationClassification;
 }
@@ -121,6 +126,7 @@ export interface InsertObservationInput {
   title: string;
   body: string;
   evidence?: string | null;
+  symbolKey?: string | null;
   ordinal: number;
   classification: ObservationClassification;
 }
@@ -161,6 +167,30 @@ export interface ReconcileReviewFindingsResult {
     dismissed: number;
     deferred: number;
   };
+}
+
+export interface PossibleDuplicateRecord {
+  id: string;
+  suggestedReviewId: string;
+  candidateFindingId: string;
+  matchedFindingId: string;
+  status: PossibleDuplicateStatus;
+  matcherVersion: number;
+  score: number;
+  signals: PossibleDuplicateSignals;
+  createdAt: string;
+  decidedAt: string | null;
+  decidedActor: FindingActor | null;
+  decidedReason: string | null;
+  inheritedStatus: PossibleDuplicateInheritedStatus | null;
+}
+
+export interface PossibleDuplicateSignals {
+  textSimilarity: number;
+  candidateSymbol: string | null;
+  matchedSymbol: string | null;
+  lineDistance: number;
+  matchKind: "symbol" | "line-distance";
 }
 
 export interface LifecycleMutationInput {

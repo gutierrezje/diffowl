@@ -7,10 +7,11 @@ import { execa } from "execa";
 import { removeTempDir } from "./test/helpers.js";
 import { closeStateDatabase, openStateDatabase } from "./state/db.js";
 import { dismissFinding } from "./state/lifecycle.js";
+import { suggestPossibleDuplicates } from "./state/possible-duplicates.js";
 import { reconcileReviewFindings } from "./state/reconcile.js";
 import { insertReview } from "./state/repositories/reviews.js";
 import { getFindingSummary } from "./state/findings-summary.js";
-import type { FindingCandidate, ReviewSeverity } from "./state/types.js";
+import type { FindingCandidate, PossibleDuplicateRecord, ReviewSeverity } from "./state/types.js";
 
 const projectRoot = join(import.meta.dirname, "..");
 const cliPath = join(projectRoot, "dist/cli.js");
@@ -651,6 +652,79 @@ describe("diffowl findings summary", () => {
   });
 });
 
+describe("diffowl findings duplicates", () => {
+  it("lists suggested links by default and records confirm/reject decisions", async () => {
+    const repo = await createRepo("diffowl-cli-findings-duplicates-");
+    await writeFile(join(repo, "README.md"), "hello\n", "utf8");
+    await commitAll(repo, "initial");
+    const { links } = await seedPossibleDuplicateLinks(repo);
+
+    const suggestedText = await execa("node", [cliPath, "findings", "duplicates", "list"], {
+      cwd: repo,
+    });
+    expect(suggestedText.stdout).toContain(links[0]!.id);
+    expect(suggestedText.stdout).toContain("Confirm:");
+    expect(suggestedText.stdout).toContain("Reject:");
+
+    const suggestedJson = await execa(
+      "node",
+      [cliPath, "findings", "duplicates", "list", "--format", "json"],
+      { cwd: repo },
+    );
+    const suggestedDocument = JSON.parse(suggestedJson.stdout) as {
+      schema_version: number;
+      count: number;
+      duplicates: { id: string }[];
+    };
+    expect(suggestedDocument).toMatchObject({ schema_version: 1, count: 2 });
+    expect(suggestedDocument.duplicates).toHaveLength(2);
+    expect(suggestedDocument.duplicates.map((duplicate) => duplicate.id)).toEqual(
+      expect.arrayContaining([links[0]!.id, links[1]!.id]),
+    );
+
+    await execa("node", [
+      cliPath,
+      "findings",
+      "duplicates",
+      "confirm",
+      links[0]!.id,
+      "--reason",
+      "same issue",
+    ], { cwd: repo });
+    await execa("node", [
+      cliPath,
+      "findings",
+      "duplicates",
+      "reject",
+      links[1]!.id,
+      "--reason",
+      "different issue",
+    ], { cwd: repo });
+
+    const defaultAfterDecisions = await execa("node", [cliPath, "findings", "duplicates", "list"], {
+      cwd: repo,
+    });
+    expect(defaultAfterDecisions.stdout).toContain("No possible duplicate suggestions.");
+
+    for (const status of ["confirmed", "rejected"] as const) {
+      const text = await execa(
+        "node",
+        [cliPath, "findings", "duplicates", "list", "--status", status],
+        { cwd: repo },
+      );
+      expect(text.stdout).toContain(status);
+      expect(text.stdout).not.toContain("Confirm:");
+      expect(text.stdout).not.toContain("Reject:");
+      const json = await execa(
+        "node",
+        [cliPath, "findings", "duplicates", "list", "--status", status, "--format", "json"],
+        { cwd: repo },
+      );
+      expect(JSON.parse(json.stdout)).toMatchObject({ schema_version: 1, count: 1 });
+    }
+  });
+});
+
 describe("diffowl agent-hook install", () => {
   it("installs a direct-exec Claude SessionStart hook for --client claude", async () => {
     const repo = await createRepo("diffowl-cli-agent-hook-claude-");
@@ -787,6 +861,76 @@ async function seedOpenFindings(
       summary: "seed",
     });
     reconcileReviewFindings(state.db, review.id, candidates);
+  } finally {
+    closeStateDatabase(state);
+  }
+}
+
+async function seedPossibleDuplicateLinks(
+  repo: string,
+): Promise<{ links: PossibleDuplicateRecord[] }> {
+  const state = await openStateDatabase(join(repo, ".diffowl"));
+  try {
+    const historicalReview = insertReview(state.db, {
+      targetKind: "commit",
+      targetCommit: "seed-historical",
+      diffHash: "duplicate-historical",
+      model: "provider/model",
+      reasoning: "auto",
+      depth: "default",
+      sessionId: "duplicate-historical",
+      summary: "seed",
+    });
+    const historical = reconcileReviewFindings(state.db, historicalReview.id, [
+      {
+        file: "src/example.ts",
+        line: 10,
+        severity: "warning",
+        confidence: "high",
+        title: "Missing null check",
+        body: "The handler does not validate the payload.",
+        evidence: "if (!payload) return;",
+        symbolKey: "function:handle",
+      },
+    ]);
+    dismissFinding(state.db, historical.observations[0]!.finding.id, {
+      actor: "user",
+      reason: "seed historical dismissal",
+    });
+
+    const candidateReview = insertReview(state.db, {
+      targetKind: "commit",
+      targetCommit: "seed-candidates",
+      diffHash: "duplicate-candidates",
+      model: "provider/model",
+      reasoning: "auto",
+      depth: "default",
+      sessionId: "duplicate-candidates",
+      summary: "seed",
+    });
+    const reconciled = reconcileReviewFindings(state.db, candidateReview.id, [
+      {
+        file: "src/example.ts",
+        line: 12,
+        severity: "warning",
+        confidence: "high",
+        title: "Payload null check missing",
+        body: "This handler does not validate payload input.",
+        evidence: "if (payload == null) return;",
+        symbolKey: "function:handle",
+      },
+      {
+        file: "src/example.ts",
+        line: 14,
+        severity: "warning",
+        confidence: "high",
+        title: "Payload validation is missing",
+        body: "The handler does not validate payload input.",
+        evidence: "if (payload === null) return;",
+        symbolKey: "function:handle",
+      },
+    ]);
+    return { links: suggestPossibleDuplicates(state.db, candidateReview.id, reconciled.observations) };
   } finally {
     closeStateDatabase(state);
   }

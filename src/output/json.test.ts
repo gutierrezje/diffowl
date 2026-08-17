@@ -31,6 +31,7 @@ const review: ReviewRecord = {
 
 const persisted: PersistReviewRunResult = {
   reviewId: "rev_test",
+  possibleDuplicateSuggestions: [],
   actionableFindings: [],
   lifecycleSuppressedFindings: [],
   identityDiagnostics: [],
@@ -264,6 +265,7 @@ describe("buildReviewJsonDocument", () => {
       },
       persisted: {
         reviewId: "rev_skip",
+        possibleDuplicateSuggestions: [],
         actionableFindings: [],
         lifecycleSuppressedFindings: [],
         identityDiagnostics: [],

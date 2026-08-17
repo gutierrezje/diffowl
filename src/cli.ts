@@ -85,9 +85,11 @@ import {
   formatFindingDetail,
   formatFindingList,
   formatFindingSummaryLine,
+  formatPossibleDuplicateList,
   renderFindingDetailJson,
   renderFindingListJson,
   renderFindingSummaryJson,
+  renderPossibleDuplicateListJson,
 } from "./output/findings.js";
 import {
   deferFindingByLocator,
@@ -109,7 +111,12 @@ import {
 } from "./state/findings-summary.js";
 import { InvalidFindingTransitionError } from "./state/db.js";
 import type { SqliteDatabase } from "./state/sqlite.js";
-import type { FindingActor } from "./state/types.js";
+import type { FindingActor, PossibleDuplicateStatus } from "./state/types.js";
+import {
+  confirmPossibleDuplicate,
+  listPossibleDuplicates,
+  rejectPossibleDuplicate,
+} from "./state/possible-duplicates.js";
 import { resolveCompletedReviewExit } from "./review/gate.js";
 import { runReviewPipeline } from "./review/run.js";
 
@@ -1128,6 +1135,54 @@ findingsCmd
     }
   });
 
+const duplicateCmd = findingsCmd
+  .command("duplicates")
+  .description("Review possible duplicate finding links");
+
+duplicateCmd
+  .command("list")
+  .description("List possible duplicate suggestions")
+  .option("--status <status>", "Filter: suggested, confirmed, or rejected")
+  .option("--format <format>", "Output format: text or json", "text")
+  .action(async (options: { status?: string; format?: string }) => {
+    await loadConfigOrExit();
+    const format = resolveReviewOutputFormat(options.format);
+    const status = parsePossibleDuplicateStatus(options.status ?? "suggested", format);
+    try {
+      const items = await withFindingDatabase(await getSharedDiffOwlDir(), (db) =>
+        listPossibleDuplicates(db, status),
+      );
+      if (format === "json") {
+        process.stdout.write(renderPossibleDuplicateListJson(items));
+      } else {
+        console.log(formatPossibleDuplicateList(items));
+      }
+    } catch (err) {
+      failFindingsCommand(format, err);
+    }
+  });
+
+for (const decision of ["confirm", "reject"] as const) {
+  duplicateCmd
+    .command(decision)
+    .description(`${decision === "confirm" ? "Confirm" : "Reject"} a possible duplicate link`)
+    .argument("<duplicate-id>", "Possible duplicate link id")
+    .requiredOption("--reason <text>", "Decision reason")
+    .action(async (duplicateId: string, options: { reason: string }) => {
+      await loadConfigOrExit();
+      try {
+        const updated = await withFindingDatabase(await getSharedDiffOwlDir(), (db) =>
+          decision === "confirm"
+            ? confirmPossibleDuplicate(db, duplicateId, { actor: "user", reason: options.reason })
+            : rejectPossibleDuplicate(db, duplicateId, { actor: "user", reason: options.reason }),
+        );
+        console.log(`${updated.id} ${updated.status}.`);
+      } catch (err) {
+        failFindingsCommand("text", err);
+      }
+    });
+}
+
 /**
  * The two projections of one getFindingSummary result (D-18). Neither recomputes counts,
  * reachability, or severity; both read the same value.
@@ -1343,6 +1398,18 @@ function parseFindingActor(value: string | undefined): FindingActor {
     return "agent";
   }
   throw new Error(`Invalid actor: ${value}. Expected user or agent.`);
+}
+
+function parsePossibleDuplicateStatus(
+  value: string | undefined,
+  format: ReviewOutputFormat,
+): PossibleDuplicateStatus | undefined {
+  if (value === undefined) return undefined;
+  if (value === "suggested" || value === "confirmed" || value === "rejected") return value;
+  failFindingsCommand(
+    format,
+    new Error(`Invalid duplicate status: ${value}. Expected suggested, confirmed, or rejected.`),
+  );
 }
 
 function collectValues(value: string, previous: string[]): string[] {

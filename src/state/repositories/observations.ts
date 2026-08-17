@@ -13,6 +13,7 @@ const insertObservationStatement = (db: SqliteDatabase) =>
       title,
       body,
       evidence,
+      symbol_key,
       ordinal,
       classification
     ) VALUES (
@@ -25,6 +26,7 @@ const insertObservationStatement = (db: SqliteDatabase) =>
       @title,
       @body,
       @evidence,
+      @symbolKey,
       @ordinal,
       @classification
     )
@@ -43,6 +45,7 @@ const getObservationStatement = (db: SqliteDatabase) =>
       title,
       body,
       evidence,
+      symbol_key AS symbolKey,
       ordinal,
       classification
     FROM finding_observations
@@ -65,6 +68,7 @@ export function insertObservation(
     title: input.title,
     body: input.body,
     evidence: input.evidence ?? null,
+    symbolKey: input.symbolKey ?? null,
     ordinal: input.ordinal,
     classification: input.classification,
   });
@@ -96,6 +100,7 @@ export function listObservationsForReview(
         title,
         body,
         evidence,
+        symbol_key AS symbolKey,
         ordinal,
         classification
       FROM finding_observations
@@ -147,6 +152,7 @@ export function getLatestObservationForFinding(
         title,
         body,
         evidence,
+        symbol_key AS symbolKey,
         ordinal,
         classification
       FROM finding_observations

@@ -25,6 +25,7 @@ const EXPECTED_TABLES = [
   "findings",
   "finding_observations",
   "finding_events",
+  "finding_possible_duplicates",
 ];
 
 let tempDirs: string[] = [];
@@ -51,11 +52,21 @@ describe("openStateDatabase", () => {
           .get(tableName);
         expect(table).toEqual({ name: tableName });
       }
+      expect(
+        state.db
+          .prepare("PRAGMA table_info(finding_observations)")
+          .all()
+          .some((column) => typeof column === "object" && column !== null && "name" in column && column.name === "symbol_key"),
+      ).toBe(true);
 
       const migrations = state.db
         .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
         .all() as Array<{ version: number }>;
-      expect(migrations).toEqual([{ version: 1 }, { version: CURRENT_SCHEMA_VERSION }]);
+      expect(migrations).toEqual([
+        { version: 1 },
+        { version: 2 },
+        { version: CURRENT_SCHEMA_VERSION },
+      ]);
     } finally {
       closeStateDatabase(state);
     }
@@ -71,7 +82,11 @@ describe("openStateDatabase", () => {
       const migrations = second.db
         .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
         .all() as Array<{ version: number }>;
-      expect(migrations).toEqual([{ version: 1 }, { version: CURRENT_SCHEMA_VERSION }]);
+      expect(migrations).toEqual([
+        { version: 1 },
+        { version: 2 },
+        { version: CURRENT_SCHEMA_VERSION },
+      ]);
     } finally {
       closeStateDatabase(second);
     }
@@ -191,7 +206,11 @@ describe("openStateDatabase", () => {
       const versions = db
         .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
         .all() as Array<{ version: number }>;
-      expect(versions).toEqual([{ version: 1 }, { version: CURRENT_SCHEMA_VERSION }]);
+      expect(versions).toEqual([
+        { version: 1 },
+        { version: 2 },
+        { version: CURRENT_SCHEMA_VERSION },
+      ]);
     } finally {
       closeDatabaseConnection(db);
     }
