@@ -665,6 +665,17 @@ describe("diffowl findings duplicates", () => {
     expect(suggestedText.stdout).toContain(links[0]!.id);
     expect(suggestedText.stdout).toContain("Confirm:");
     expect(suggestedText.stdout).toContain("Reject:");
+    expect(suggestedText.stdout).toContain("Missing null check");
+    expect(suggestedText.stdout).toContain("if (!payload) return;");
+    expect(suggestedText.stdout).toContain("severity: warning");
+    expect(suggestedText.stdout).toContain("seed historical dismissal");
+    expect(suggestedText.stdout).toContain("Confirming will dismiss candidate");
+
+    const shown = await execa("node", [cliPath, "findings", "duplicates", "show", links[0]!.id], {
+      cwd: repo,
+    });
+    expect(shown.stdout).toContain(links[0]!.id);
+    expect(shown.stdout).toContain("Source disposition: dismissed");
 
     const suggestedJson = await execa(
       "node",
@@ -682,7 +693,7 @@ describe("diffowl findings duplicates", () => {
       expect.arrayContaining([links[0]!.id, links[1]!.id]),
     );
 
-    await execa("node", [
+    const confirmed = await execa("node", [
       cliPath,
       "findings",
       "duplicates",
@@ -690,8 +701,33 @@ describe("diffowl findings duplicates", () => {
       links[0]!.id,
       "--reason",
       "same issue",
+      "--actor",
+      "agent",
+      "--format",
+      "json",
     ], { cwd: repo });
-    await execa("node", [
+    expect(JSON.parse(confirmed.stdout)).toMatchObject({
+      schema_version: 1,
+      status: "confirmed",
+      decided_actor: "agent",
+      inherited_status: "dismissed",
+    });
+
+    const blankReject = await execa("node", [
+      cliPath,
+      "findings",
+      "duplicates",
+      "reject",
+      links[1]!.id,
+      "--reason",
+      "   ",
+      "--format",
+      "json",
+    ], { cwd: repo, reject: false });
+    expect(blankReject.exitCode).toBe(1);
+    expect(blankReject.stderr).toContain("Decision reason must not be blank");
+
+    const rejected = await execa("node", [
       cliPath,
       "findings",
       "duplicates",
@@ -699,7 +735,16 @@ describe("diffowl findings duplicates", () => {
       links[1]!.id,
       "--reason",
       "different issue",
+      "--actor",
+      "agent",
+      "--format",
+      "json",
     ], { cwd: repo });
+    expect(JSON.parse(rejected.stdout)).toMatchObject({
+      schema_version: 1,
+      status: "rejected",
+      decided_actor: "agent",
+    });
 
     const defaultAfterDecisions = await execa("node", [cliPath, "findings", "duplicates", "list"], {
       cwd: repo,
@@ -890,7 +935,7 @@ async function seedPossibleDuplicateLinks(
         title: "Missing null check",
         body: "The handler does not validate the payload.",
         evidence: "if (!payload) return;",
-        symbolKey: "function:handle",
+        symbolKey: "ts-v1|function:handle",
       },
     ]);
     dismissFinding(state.db, historical.observations[0]!.finding.id, {
@@ -917,7 +962,7 @@ async function seedPossibleDuplicateLinks(
         title: "Payload null check missing",
         body: "This handler does not validate payload input.",
         evidence: "if (payload == null) return;",
-        symbolKey: "function:handle",
+        symbolKey: "ts-v1|function:handle",
       },
       {
         file: "src/example.ts",
@@ -927,7 +972,7 @@ async function seedPossibleDuplicateLinks(
         title: "Payload validation is missing",
         body: "The handler does not validate payload input.",
         evidence: "if (payload === null) return;",
-        symbolKey: "function:handle",
+        symbolKey: "ts-v1|function:handle",
       },
     ]);
     return { links: suggestPossibleDuplicates(state.db, candidateReview.id, reconciled.observations) };

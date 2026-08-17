@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ReviewFinding } from "../review/types.js";
-import { closeStateDatabase, openStateDatabase } from "./db.js";
+import { closeStateDatabase, openStateDatabase, StateDatabaseError } from "./db.js";
 import { deferFinding, dismissFinding, fixFinding } from "./lifecycle.js";
 import {
   confirmPossibleDuplicate,
@@ -16,6 +16,7 @@ import { getFindingById } from "./repositories/findings.js";
 import { listFindingEvents } from "./repositories/events.js";
 import { insertReview } from "./repositories/reviews.js";
 import { reconcileReviewFindings } from "./reconcile.js";
+import type { SqliteDatabase } from "./sqlite.js";
 import type { FindingCandidate } from "./types.js";
 import { removeTempStateDir } from "./test-helpers.js";
 
@@ -110,7 +111,7 @@ async function seedResolvedFinding(
 async function persistQuoteDrift(
   dir: string,
   overrides: Partial<ReviewFinding> = {},
-  symbolKey: string | null = "function:handle",
+  symbolKey: string | null = "ts-v1|function:handle",
 ): Promise<PersistReviewRunResult> {
   return persistFinding(
     dir,
@@ -125,10 +126,26 @@ async function persistQuoteDrift(
   );
 }
 
+function markHistoricalFindingsDismissed(
+  db: SqliteDatabase,
+  reviewId: string,
+  reason: string,
+): void {
+  db.prepare("UPDATE findings SET status = 'dismissed' WHERE last_review_id = ?").run(reviewId);
+  db.prepare(`
+    INSERT INTO finding_events (
+      finding_id, review_id, event_type, actor, reason, verification_json, created_at
+    )
+    SELECT id, ?, 'dismissed', 'user', ?, '[]', ?
+    FROM findings
+    WHERE last_review_id = ?
+  `).run(reviewId, reason, new Date().toISOString(), reviewId);
+}
+
 describe("possible duplicate suggestions", () => {
   it("links quote drift to a dismissed same-symbol finding while staying actionable", async () => {
     const dir = await createStateDir();
-    const matchedId = await seedResolvedFinding(dir, makeFinding(), "function:handle");
+    const matchedId = await seedResolvedFinding(dir, makeFinding(), "ts-v1|function:handle");
     const result = await persistQuoteDrift(dir);
 
     expect(result.reconcile.observations[0]?.finding.id).not.toBe(matchedId);
@@ -143,15 +160,15 @@ describe("possible duplicate suggestions", () => {
       name: "different file",
       historical: makeFinding(),
       candidate: makeFinding({ file: "src/other.ts", evidence: "if (payload == null) return;" }),
-      historicalSymbol: "function:handle",
-      candidateSymbol: "function:handle",
+      historicalSymbol: "ts-v1|function:handle",
+      candidateSymbol: "ts-v1|function:handle",
     },
     {
       name: "known symbol mismatch",
       historical: makeFinding(),
       candidate: makeFinding({ evidence: "if (payload == null) return;" }),
-      historicalSymbol: "function:handle",
-      candidateSymbol: "function:other",
+      historicalSymbol: "ts-v1|function:handle",
+      candidateSymbol: "ts-v1|function:other",
     },
     {
       name: "weak text",
@@ -161,8 +178,8 @@ describe("possible duplicate suggestions", () => {
         body: "The cache invalidation path is incorrect.",
         evidence: "cache.invalidate();",
       }),
-      historicalSymbol: "function:handle",
-      candidateSymbol: "function:handle",
+      historicalSymbol: "ts-v1|function:handle",
+      candidateSymbol: "ts-v1|function:handle",
     },
     {
       name: "distant missing-symbol fallback",
@@ -175,7 +192,7 @@ describe("possible duplicate suggestions", () => {
       name: "untracked finding",
       historical: makeFinding(),
       candidate: makeFinding({ evidence: undefined }),
-      historicalSymbol: "function:handle",
+      historicalSymbol: "ts-v1|function:handle",
       candidateSymbol: undefined,
     },
   ])("does not suggest for $name", async ({ historical, candidate, historicalSymbol, candidateSymbol }) => {
@@ -191,7 +208,7 @@ describe("possible duplicate suggestions", () => {
     const weakerId = await seedResolvedFinding(
       dir,
       makeFinding({ title: "Request check", body: "Inspect request." }),
-      "function:handle",
+      "ts-v1|function:handle",
     );
     const strongerId = await seedResolvedFinding(
       dir,
@@ -200,7 +217,7 @@ describe("possible duplicate suggestions", () => {
         body: "Validate request before using it.",
         evidence: "validateRequest(request);",
       }),
-      "function:handle",
+      "ts-v1|function:handle",
     );
     const result = await persistQuoteDrift(dir, {
       title: "Request validation missing",
@@ -234,13 +251,11 @@ describe("possible duplicate suggestions", () => {
             title: index === 0 ? "Missing null check" : `Filler ${index}`,
             body: index === 0 ? "The handler does not validate the payload." : "Unrelated filler.",
             evidence: `evidence-${index}();`,
-            symbolKey: "function:handle",
+            symbolKey: "ts-v1|function:handle",
           }),
         ),
       );
-      state.db
-        .prepare("UPDATE findings SET status = 'dismissed' WHERE last_review_id = ?")
-        .run(historicalReview.id);
+      markHistoricalFindingsDismissed(state.db, historicalReview.id, "bound fixture");
       const targetId = history.observations[0]!.finding.id;
       state.db.prepare("UPDATE findings SET updated_at = ? WHERE id = ?").run("2000-01-01", targetId);
 
@@ -254,7 +269,7 @@ describe("possible duplicate suggestions", () => {
         summary: "candidate",
       });
       const candidate = reconcileReviewFindings(state.db, candidateReview.id, [
-        makeCandidate({ evidence: "new-quote();", symbolKey: "function:handle" }),
+        makeCandidate({ evidence: "new-quote();", symbolKey: "ts-v1|function:handle" }),
       ]);
 
       expect(suggestPossibleDuplicates(state.db, candidateReview.id, candidate.observations)).toEqual([]);
@@ -277,19 +292,17 @@ describe("possible duplicate suggestions", () => {
         summary: "history",
       });
       const history = reconcileReviewFindings(state.db, historicalReview.id, [
-        makeCandidate({ evidence: "eligible-old-quote();", symbolKey: "function:handle" }),
+        makeCandidate({ evidence: "eligible-old-quote();", symbolKey: "ts-v1|function:handle" }),
         ...Array.from({ length: 200 }, (_, index) =>
           makeCandidate({
             title: `Filler ${index}`,
             body: "Unrelated filler.",
             evidence: `ineligible-${index}();`,
-            symbolKey: `function:other${index}`,
+            symbolKey: `ts-v1|function:other${index}`,
           }),
         ),
       ]);
-      state.db
-        .prepare("UPDATE findings SET status = 'dismissed' WHERE last_review_id = ?")
-        .run(historicalReview.id);
+      markHistoricalFindingsDismissed(state.db, historicalReview.id, "prefilter fixture");
       const targetId = history.observations[0]!.finding.id;
       state.db.prepare("UPDATE findings SET updated_at = ? WHERE id = ?").run("2000-01-01", targetId);
 
@@ -303,7 +316,7 @@ describe("possible duplicate suggestions", () => {
         summary: "candidate",
       });
       const candidate = reconcileReviewFindings(state.db, candidateReview.id, [
-        makeCandidate({ evidence: "eligible-new-quote();", symbolKey: "function:handle" }),
+        makeCandidate({ evidence: "eligible-new-quote();", symbolKey: "ts-v1|function:handle" }),
       ]);
 
       expect(suggestPossibleDuplicates(state.db, candidateReview.id, candidate.observations)).toMatchObject([
@@ -313,12 +326,135 @@ describe("possible duplicate suggestions", () => {
       closeStateDatabase(state);
     }
   });
+
+  it("displays and scores pinned observations after later source observations", async () => {
+    const dir = await createStateDir();
+    const matchedId = await seedResolvedFinding(dir, makeFinding(), "ts-v1|function:handle");
+    const result = await persistQuoteDrift(dir);
+    const state = await openStateDatabase(dir);
+    try {
+      const initial = listPossibleDuplicates(state.db, "suggested")[0]!;
+      const laterReview = insertReview(state.db, {
+        targetKind: "staged",
+        diffHash: "later-source-observation",
+        model: "model",
+        reasoning: "medium",
+        depth: "default",
+        sessionId: "later-source-observation",
+        summary: "later source observation",
+      });
+      reconcileReviewFindings(state.db, laterReview.id, [
+        makeCandidate({
+          title: "Later source title",
+          body: "Later source body.",
+          evidence: "if (!payload) return;",
+          symbolKey: "ts-v1|function:handle",
+        }),
+      ]);
+
+      const displayed = listPossibleDuplicates(state.db, "suggested")[0]!;
+      expect(displayed.matchedFinding.id).toBe(matchedId);
+      expect(displayed.matchedObservation.id).toBe(initial.matchedObservation.id);
+      expect(displayed.matchedObservation.title).toBe(initial.matchedObservation.title);
+      expect(displayed.matchedObservation.evidence).toBe(initial.matchedObservation.evidence);
+      expect(displayed.score).toBe(initial.score);
+      expect(displayed.sourceDispositionEvent.id).toBe(initial.sourceDispositionEvent.id);
+    } finally {
+      closeStateDatabase(state);
+    }
+    expect(result.possibleDuplicateSuggestions).toHaveLength(1);
+  });
+
+  it("rejects invalid stored signal JSON at the state boundary", async () => {
+    const dir = await createStateDir();
+    await seedResolvedFinding(dir, makeFinding(), "ts-v1|function:handle");
+    const result = await persistQuoteDrift(dir);
+    const state = await openStateDatabase(dir);
+    try {
+      const link = result.possibleDuplicateSuggestions[0]!;
+      state.db
+        .prepare("UPDATE finding_possible_duplicates SET signals_json = ? WHERE id = ?")
+        .run("{not-json", link.id);
+      expect(() => listPossibleDuplicates(state.db, "suggested")).toThrow(/signals JSON/);
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
+  it.each([
+    {
+      name: "score and lexical similarity disagree",
+      mutate: (db: SqliteDatabase, link: PersistReviewRunResult["possibleDuplicateSuggestions"][number]) => {
+        db.prepare("UPDATE finding_possible_duplicates SET score = ? WHERE id = ?").run(
+          link.score === 0 ? 1 : 0,
+          link.id,
+        );
+      },
+    },
+    {
+      name: "line distance disagrees with pinned observations",
+      mutate: (db: SqliteDatabase, link: PersistReviewRunResult["possibleDuplicateSuggestions"][number]) => {
+        db.prepare("UPDATE finding_possible_duplicates SET signals_json = ? WHERE id = ?").run(
+          JSON.stringify({ ...link.signals, lineDistance: link.signals.lineDistance + 1 }),
+          link.id,
+        );
+      },
+    },
+    {
+      name: "candidate symbol disagrees with the pinned observation",
+      mutate: (db: SqliteDatabase, link: PersistReviewRunResult["possibleDuplicateSuggestions"][number]) => {
+        db.prepare("UPDATE finding_possible_duplicates SET signals_json = ? WHERE id = ?").run(
+          JSON.stringify({ ...link.signals, candidateSymbol: "ts-v1|function:other" }),
+          link.id,
+        );
+      },
+    },
+    {
+      name: "matched symbol disagrees with the pinned observation",
+      mutate: (db: SqliteDatabase, link: PersistReviewRunResult["possibleDuplicateSuggestions"][number]) => {
+        db.prepare("UPDATE finding_possible_duplicates SET signals_json = ? WHERE id = ?").run(
+          JSON.stringify({ ...link.signals, matchedSymbol: "ts-v1|function:other" }),
+          link.id,
+        );
+      },
+    },
+    {
+      name: "symbol match lacks two equal symbols",
+      mutate: (db: SqliteDatabase, link: PersistReviewRunResult["possibleDuplicateSuggestions"][number]) => {
+        db.prepare("UPDATE finding_possible_duplicates SET signals_json = ? WHERE id = ?").run(
+          JSON.stringify({ ...link.signals, matchKind: "symbol", matchedSymbol: null }),
+          link.id,
+        );
+      },
+    },
+    {
+      name: "locator version disagrees with the persisted symbol prefix",
+      mutate: (db: SqliteDatabase, link: PersistReviewRunResult["possibleDuplicateSuggestions"][number]) => {
+        db.prepare("UPDATE finding_possible_duplicates SET locator_version = ? WHERE id = ?").run(
+          link.locatorVersion + 1,
+          link.id,
+        );
+      },
+    },
+  ])("rejects $name when loading a detail", async ({ mutate }) => {
+    const dir = await createStateDir();
+    await seedResolvedFinding(dir, makeFinding(), "ts-v1|function:handle");
+    const result = await persistQuoteDrift(dir);
+    const link = result.possibleDuplicateSuggestions[0]!;
+    const state = await openStateDatabase(dir);
+    try {
+      mutate(state.db, link);
+      expect(() => listPossibleDuplicates(state.db, "suggested")).toThrow(StateDatabaseError);
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
 });
 
 describe("possible duplicate decisions", () => {
   it("does not re-propose or decide a rejected pair", async () => {
     const dir = await createStateDir();
-    await seedResolvedFinding(dir, makeFinding(), "function:handle");
+    await seedResolvedFinding(dir, makeFinding(), "ts-v1|function:handle");
     const result = await persistQuoteDrift(dir);
     const link = result.possibleDuplicateSuggestions[0]!;
     const state = await openStateDatabase(dir);
@@ -335,13 +471,23 @@ describe("possible duplicate decisions", () => {
 
   it.each(["dismissed", "deferred"] as const)("inherits %s with an audited lifecycle event", async (status) => {
     const dir = await createStateDir();
-    const matchedId = await seedResolvedFinding(dir, makeFinding(), "function:handle", status);
+    const matchedId = await seedResolvedFinding(dir, makeFinding(), "ts-v1|function:handle", status);
     const result = await persistQuoteDrift(dir);
     const link = result.possibleDuplicateSuggestions[0]!;
     const candidateId = result.reconcile.observations[0]!.finding.id;
     const state = await openStateDatabase(dir);
     try {
-      expect(confirmPossibleDuplicate(state.db, link.id, { actor: "user", reason: "confirmed" }).status).toBe("confirmed");
+      const beforeCandidate = getFindingById(state.db, candidateId)!;
+      const beforeMatched = getFindingById(state.db, matchedId)!;
+      const confirmed = confirmPossibleDuplicate(state.db, link.id, {
+        actor: "user",
+        reason: "confirmed",
+      });
+      expect(confirmed.status).toBe("confirmed");
+      expect(confirmed.sourceDispositionEvent.id).toBe(link.sourceDispositionEventId);
+      expect(confirmed.inheritedDispositionEvent?.id).toBe(confirmed.inheritedDispositionEventId);
+      expect(getFindingById(state.db, candidateId)?.fingerprint).toBe(beforeCandidate.fingerprint);
+      expect(getFindingById(state.db, matchedId)?.fingerprint).toBe(beforeMatched.fingerprint);
       expect(getFindingById(state.db, candidateId)?.status).toBe(status);
       const event = listFindingEvents(state.db, candidateId).at(-1)!;
       expect(event.eventType).toBe(status);
@@ -354,10 +500,10 @@ describe("possible duplicate decisions", () => {
   });
 
   it.each(["dismissed", "deferred", "fixed"] as const)(
-    "automatically rejects suggested links when the candidate is %s",
+    "automatically expires suggested links when the candidate is %s",
     async (status) => {
       const dir = await createStateDir();
-      await seedResolvedFinding(dir, makeFinding(), "function:handle");
+      await seedResolvedFinding(dir, makeFinding(), "ts-v1|function:handle");
       const result = await persistQuoteDrift(dir);
       const link = result.possibleDuplicateSuggestions[0]!;
       const candidateId = result.reconcile.observations[0]!.finding.id;
@@ -382,24 +528,24 @@ describe("possible duplicate decisions", () => {
         }
 
         expect(listPossibleDuplicates(state.db, "suggested")).toEqual([]);
-        const rejected = listPossibleDuplicates(state.db, "rejected")[0];
-        expect(rejected).toMatchObject({
+        const expired = listPossibleDuplicates(state.db, "expired")[0];
+        expect(expired).toMatchObject({
           id: link.id,
-          status: "rejected",
-          decidedActor: "user",
+          status: "expired",
+          decidedActor: null,
         });
-        expect(rejected?.decidedReason).toContain("Automatically rejected");
-        expect(rejected?.decidedReason).toContain(candidateId);
-        expect(rejected?.decidedReason).toContain(status);
+        expect(expired?.expiredReason).toContain("Automatically expired");
+        expect(expired?.expiredReason).toContain(candidateId);
+        expect(expired?.expiredReason).toContain(status);
       } finally {
         closeStateDatabase(state);
       }
     },
   );
 
-  it("automatically rejects a stale candidate before confirmation", async () => {
+  it("automatically expires a stale candidate before confirmation", async () => {
     const dir = await createStateDir();
-    await seedResolvedFinding(dir, makeFinding(), "function:handle");
+    await seedResolvedFinding(dir, makeFinding(), "ts-v1|function:handle");
     const result = await persistQuoteDrift(dir);
     const link = result.possibleDuplicateSuggestions[0]!;
     const candidateId = result.reconcile.observations[0]!.finding.id;
@@ -409,7 +555,7 @@ describe("possible duplicate decisions", () => {
       const eventCount = listFindingEvents(state.db, candidateId).length;
       expect(() => confirmPossibleDuplicate(state.db, link.id, { actor: "user", reason: "stale" })).toThrow();
       expect(listPossibleDuplicates(state.db, "suggested")).toEqual([]);
-      expect(listPossibleDuplicates(state.db, "rejected")[0]?.id).toBe(link.id);
+      expect(listPossibleDuplicates(state.db, "expired")[0]?.id).toBe(link.id);
       expect(listFindingEvents(state.db, candidateId)).toHaveLength(eventCount);
     } finally {
       closeStateDatabase(state);
@@ -418,7 +564,7 @@ describe("possible duplicate decisions", () => {
 
   it("rolls back lifecycle inheritance when the suggested link changes concurrently", async () => {
     const dir = await createStateDir();
-    await seedResolvedFinding(dir, makeFinding(), "function:handle");
+    await seedResolvedFinding(dir, makeFinding(), "ts-v1|function:handle");
     const result = await persistQuoteDrift(dir);
     const link = result.possibleDuplicateSuggestions[0]!;
     const candidateId = result.reconcile.observations[0]!.finding.id;
@@ -428,7 +574,9 @@ describe("possible duplicate decisions", () => {
         CREATE TRIGGER possible_duplicate_race AFTER INSERT ON finding_events
         WHEN NEW.finding_id = '${candidateId}' AND NEW.event_type = 'dismissed'
         BEGIN
-          UPDATE finding_possible_duplicates SET status = 'rejected' WHERE id = '${link.id}';
+          UPDATE finding_possible_duplicates
+          SET status = 'expired', expired_at = '2026-08-17T00:00:00.000Z', expired_reason = 'race'
+          WHERE id = '${link.id}';
         END;
       `);
       expect(() => confirmPossibleDuplicate(state.db, link.id, { actor: "user", reason: "race" })).toThrow(

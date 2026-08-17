@@ -366,5 +366,5 @@ function findEnclosingSymbolKey(
     seen.add(segment);
     segments.push(segment);
   }
-  return segments.length > 0 ? segments.join("/") : null;
+  return segments.length > 0 ? `ts-v1|${segments.join("/")}` : null;
 }

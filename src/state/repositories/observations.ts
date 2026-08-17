@@ -68,7 +68,7 @@ export function insertObservation(
     title: input.title,
     body: input.body,
     evidence: input.evidence ?? null,
-    symbolKey: input.symbolKey ?? null,
+    symbolKey: input.symbolKey,
     ordinal: input.ordinal,
     classification: input.classification,
   });
@@ -108,6 +108,32 @@ export function listObservationsForReview(
       ORDER BY ordinal ASC
     `)
     .all(reviewId) as FindingObservationRecord[];
+}
+
+export function getObservationById(
+  db: SqliteDatabase,
+  observationId: number,
+): FindingObservationRecord | undefined {
+  return db
+    .prepare(`
+      SELECT
+        id,
+        review_id AS reviewId,
+        finding_id AS findingId,
+        file,
+        line,
+        severity,
+        confidence,
+        title,
+        body,
+        evidence,
+        symbol_key AS symbolKey,
+        ordinal,
+        classification
+      FROM finding_observations
+      WHERE id = ?
+    `)
+    .get(observationId) as FindingObservationRecord | undefined;
 }
 
 export function countObservationsByFindingIds(

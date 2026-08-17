@@ -335,7 +335,7 @@ describe("runReviewPipeline", () => {
 
     const persistInput = vi.mocked(deps.persistReviewRun).mock.calls.at(-1)?.[1];
     expect(persistInput).toEqual(expect.objectContaining({
-      symbolKeys: ["class:A/method:handle", "class:B/method:handle"],
+      symbolKeys: ["ts-v1|class:A/method:handle", "ts-v1|class:B/method:handle"],
     }));
   });
 });

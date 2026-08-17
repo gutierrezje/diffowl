@@ -2,14 +2,32 @@ import type { SqliteDatabase } from "./sqlite.js";
 import { InvalidFindingTransitionError, runInTransaction } from "./db.js";
 import { insertFindingEvent } from "./repositories/events.js";
 import { getFindingById, updateFinding } from "./repositories/findings.js";
-import { rejectSuggestedPossibleDuplicatesForCandidate } from "./repositories/possible-duplicates.js";
-import type { FindingRecord, FixFindingInput, LifecycleMutationInput } from "./types.js";
+import { expireSuggestedPossibleDuplicatesForCandidate } from "./repositories/possible-duplicates.js";
+import type {
+  FindingEventRecord,
+  FindingRecord,
+  FixFindingInput,
+  LifecycleMutationInput,
+} from "./types.js";
+
+export interface FindingTransitionResult {
+  finding: FindingRecord;
+  event: FindingEventRecord;
+}
 
 export function dismissFinding(
   db: SqliteDatabase,
   findingId: string,
   input: LifecycleMutationInput & { reason: string },
 ): FindingRecord {
+  return dismissFindingWithEvent(db, findingId, input).finding;
+}
+
+export function dismissFindingWithEvent(
+  db: SqliteDatabase,
+  findingId: string,
+  input: LifecycleMutationInput & { reason: string },
+): FindingTransitionResult {
   return runInTransaction(db, () =>
     transitionFinding(db, findingId, {
       allowedFrom: ["open", "regressed"],
@@ -17,6 +35,24 @@ export function dismissFinding(
       eventType: "dismissed",
       actor: input.actor,
       reason: input.reason,
+      expireSuggestedDuplicates: true,
+    }),
+  );
+}
+
+export function dismissFindingWithoutDuplicateExpiry(
+  db: SqliteDatabase,
+  findingId: string,
+  input: LifecycleMutationInput & { reason: string },
+): FindingTransitionResult {
+  return runInTransaction(db, () =>
+    transitionFinding(db, findingId, {
+      allowedFrom: ["open", "regressed"],
+      to: "dismissed",
+      eventType: "dismissed",
+      actor: input.actor,
+      reason: input.reason,
+      expireSuggestedDuplicates: false,
     }),
   );
 }
@@ -26,6 +62,14 @@ export function deferFinding(
   findingId: string,
   input: LifecycleMutationInput & { reason: string },
 ): FindingRecord {
+  return deferFindingWithEvent(db, findingId, input).finding;
+}
+
+export function deferFindingWithEvent(
+  db: SqliteDatabase,
+  findingId: string,
+  input: LifecycleMutationInput & { reason: string },
+): FindingTransitionResult {
   return runInTransaction(db, () =>
     transitionFinding(db, findingId, {
       allowedFrom: ["open", "regressed"],
@@ -33,6 +77,24 @@ export function deferFinding(
       eventType: "deferred",
       actor: input.actor,
       reason: input.reason,
+      expireSuggestedDuplicates: true,
+    }),
+  );
+}
+
+export function deferFindingWithoutDuplicateExpiry(
+  db: SqliteDatabase,
+  findingId: string,
+  input: LifecycleMutationInput & { reason: string },
+): FindingTransitionResult {
+  return runInTransaction(db, () =>
+    transitionFinding(db, findingId, {
+      allowedFrom: ["open", "regressed"],
+      to: "deferred",
+      eventType: "deferred",
+      actor: input.actor,
+      reason: input.reason,
+      expireSuggestedDuplicates: false,
     }),
   );
 }
@@ -42,6 +104,14 @@ export function fixFinding(
   findingId: string,
   input: FixFindingInput,
 ): FindingRecord {
+  return fixFindingWithEvent(db, findingId, input).finding;
+}
+
+export function fixFindingWithEvent(
+  db: SqliteDatabase,
+  findingId: string,
+  input: FixFindingInput,
+): FindingTransitionResult {
   return runInTransaction(db, () => {
     const finding = requireFinding(db, findingId);
     assertTransition(finding.status, ["open", "regressed"], "fixed");
@@ -51,7 +121,7 @@ export function fixFinding(
       lastReviewId: finding.lastReviewId,
     });
 
-    insertFindingEvent(db, {
+    const event = insertFindingEvent(db, {
       findingId,
       eventType: "fixed",
       actor: input.actor,
@@ -60,8 +130,8 @@ export function fixFinding(
       verification: input.verifiedBy,
     });
 
-    rejectSuggestedDuplicateLinks(db, findingId, "fixed", input.actor, input.note);
-    return updated;
+    expireSuggestedDuplicates(db, findingId, "fixed", input.note);
+    return { finding: updated, event };
   });
 }
 
@@ -76,7 +146,8 @@ export function reopenFinding(
     eventType: "reopened",
     actor: input.actor,
     reason: input.reason,
-  });
+    expireSuggestedDuplicates: false,
+  }).finding;
 }
 
 function transitionFinding(
@@ -88,8 +159,9 @@ function transitionFinding(
     eventType: "dismissed" | "deferred" | "reopened";
     actor: LifecycleMutationInput["actor"];
     reason: string;
+    expireSuggestedDuplicates: boolean;
   },
-): FindingRecord {
+): FindingTransitionResult {
   const finding = requireFinding(db, findingId);
   assertTransition(finding.status, options.allowedFrom, options.to);
 
@@ -98,33 +170,31 @@ function transitionFinding(
     lastReviewId: finding.lastReviewId,
   });
 
-  insertFindingEvent(db, {
+  const event = insertFindingEvent(db, {
     findingId,
     eventType: options.eventType,
     actor: options.actor,
     reason: options.reason,
   });
 
-  if (options.to === "dismissed" || options.to === "deferred") {
-    rejectSuggestedDuplicateLinks(db, findingId, options.to, options.actor, options.reason);
+  if (options.expireSuggestedDuplicates && (options.to === "dismissed" || options.to === "deferred")) {
+    expireSuggestedDuplicates(db, findingId, options.to, options.reason);
   }
 
-  return updated;
+  return { finding: updated, event };
 }
 
-function rejectSuggestedDuplicateLinks(
+function expireSuggestedDuplicates(
   db: SqliteDatabase,
   findingId: string,
   status: "dismissed" | "deferred" | "fixed",
-  actor: LifecycleMutationInput["actor"],
   reason: string,
 ): void {
-  rejectSuggestedPossibleDuplicatesForCandidate(db, {
+  expireSuggestedPossibleDuplicatesForCandidate(db, {
     candidateFindingId: findingId,
-    decidedAt: new Date().toISOString(),
-    decidedActor: actor,
-    decidedReason:
-      `Automatically rejected possible duplicate link(s) because candidate finding ${findingId} was ${status}. ` +
+    expiredAt: new Date().toISOString(),
+    expiredReason:
+      `Automatically expired possible duplicate link(s) because candidate finding ${findingId} was ${status}. ` +
       reason,
   });
 }
