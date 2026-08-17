@@ -1,6 +1,5 @@
 name: Feature or improvement
 description: Propose a focused product, integration, or engineering outcome.
-title: ""
 labels:
   - enhancement
   - needs-triage
