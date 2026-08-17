@@ -16,7 +16,7 @@ import {
   type ModuleBindings,
 } from "./ast/module-bindings.js";
 import { loadTypescript } from "./ast/load-typescript.js";
-import type { ReviewContextSource } from "./context-source.js";
+import type { ContextSourceModuleRead, ReviewContextSource } from "./context-source.js";
 import type { ChangedFileContext, ReferenceContext, ReferenceMatch } from "./context-types.js";
 import type { ReviewTarget } from "./target.js";
 
@@ -84,8 +84,23 @@ export async function buildReferenceContexts(
     return [];
   }
 
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort(new Error("TypeScript import index deadline exceeded."));
+  }, 10_000);
+  timer.unref();
+
   try {
-    const graph = await openImpactGraph(snapshot, diagnostics, typescript.version);
+    const graph = await openImpactGraph(
+      snapshot,
+      diagnostics,
+      typescript.version,
+      controller.signal,
+    );
+    controller.signal.throwIfAborted();
+    clearTimeout(timer);
     return await referencesFromGraph(
       graph,
       overlayFromDiff(snapshot.diff),
@@ -95,8 +110,15 @@ export async function buildReferenceContexts(
       diagnostics,
     );
   } catch (error) {
-    addDiagnostic(diagnostics, `TypeScript import index failed: ${formatError(error)}.`);
+    addDiagnostic(
+      diagnostics,
+      timedOut
+        ? "TypeScript import index timed out after 10 seconds; review continued without reference context."
+        : `TypeScript import index failed: ${formatError(error)}.`,
+    );
     return [];
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -104,10 +126,12 @@ async function openImpactGraph(
   snapshot: ImpactSnapshot,
   diagnostics: string[],
   parserVersion: string,
+  signal: AbortSignal,
 ): Promise<ImpactGraph> {
-  const listed = await snapshot.source.listModules();
+  const listed = await snapshot.source.listModules(signal);
   const files = new Map<string, BlobOid>();
   for (const [path, oid] of listed) {
+    signal.throwIfAborted();
     if (!isTsModulePath(path)) continue;
     try {
       files.set(path, asBlobOid(oid));
@@ -116,48 +140,67 @@ async function openImpactGraph(
     }
   }
 
-  const key = await snapshotKey(snapshot, files);
+  const key = await snapshotKey(snapshot, files, signal);
   const impactDir = join(await getSharedDiffOwlDir(), "impact");
+  signal.throwIfAborted();
   const cachedTree = await readTreeFile(impactDir, key);
+  signal.throwIfAborted();
   if (!cachedTree || !mapsEqual(cachedTree, files)) {
     await writeTreeFile(impactDir, key, files);
   }
 
   const bindings = new Map<BlobOid, ModuleBindings>();
-  const pathsByOid = new Map<BlobOid, string>();
+  const checkedOids = new Set<BlobOid>();
+  const uncached = new Map<string, BlobOid>();
   for (const [path, oid] of files) {
-    if (!pathsByOid.has(oid)) pathsByOid.set(oid, path);
-  }
-
-  for (const [oid, path] of pathsByOid) {
+    if (checkedOids.has(oid)) continue;
+    checkedOids.add(oid);
+    signal.throwIfAborted();
     const cached = await readBlobFile(impactDir, oid, parserVersion);
     if (cached) {
       bindings.set(oid, cached);
       continue;
     }
+    uncached.set(path, oid);
+  }
 
-    const result = await snapshot.source.read(path, MAX_PARSE_FILE_BYTES);
+  if (uncached.size === 0) return { files, bindings };
+
+  const processRead = async (result: ContextSourceModuleRead, oid: BlobOid): Promise<void> => {
+    signal.throwIfAborted();
     if (result.status === "skipped") {
-      addDiagnostic(diagnostics, `TypeScript import index skipped ${path}: ${result.reason}.`);
-      continue;
+      addDiagnostic(
+        diagnostics,
+        `TypeScript import index skipped ${result.path}: ${result.reason}.`,
+      );
+      return;
     }
 
     let parsed: ModuleBindings | undefined;
     try {
-      parsed = parseModuleBindings({ path, content: result.content, oid });
+      parsed = parseModuleBindings({ path: result.path, content: result.content, oid });
     } catch (error) {
-      addDiagnostic(diagnostics, `TypeScript import index skipped ${path}: ${formatError(error)}.`);
-      continue;
+      addDiagnostic(
+        diagnostics,
+        `TypeScript import index skipped ${result.path}: ${formatError(error)}.`,
+      );
+      return;
     }
+    signal.throwIfAborted();
     if (!parsed) {
       addDiagnostic(
         diagnostics,
-        `TypeScript import index skipped ${path}: parser returned no bindings.`,
+        `TypeScript import index skipped ${result.path}: parser returned no bindings.`,
       );
-      continue;
+      return;
     }
     bindings.set(oid, parsed);
     await writeBlobFile(impactDir, parsed, parserVersion);
+  };
+
+  for await (const result of snapshot.source.readModules(uncached, MAX_PARSE_FILE_BYTES, signal)) {
+    const oid = uncached.get(result.path);
+    if (oid) await processRead(result, oid);
   }
 
   return { files, bindings };
@@ -404,12 +447,16 @@ function truncateSnippet(snippet: string): string {
 async function snapshotKey(
   snapshot: ImpactSnapshot,
   files: ReadonlyMap<string, BlobOid>,
+  signal: AbortSignal,
 ): Promise<SnapshotKey> {
+  signal.throwIfAborted();
   switch (snapshot.source.kind) {
     case "git-commit": {
       const { stdout } = await execa("git", ["rev-parse", `${snapshot.source.sha}^{tree}`], {
         cwd: snapshot.root,
+        cancelSignal: signal,
       });
+      signal.throwIfAborted();
       const tree = stdout.trim();
       if (!/^[0-9a-f]{40}$/.test(tree)) {
         throw new Error(`Invalid git tree oid: ${tree}`);
