@@ -6,7 +6,12 @@ import {
   resolveFindingIdFromCandidates,
   resolveLatestOrdinalFindingId,
 } from "../output/locator.js";
-import { closeStateDatabase, openStateDatabase, runInTransaction } from "./db.js";
+import {
+  closeStateDatabase,
+  openStateDatabase,
+  openStateDatabaseForRead,
+  runInTransaction,
+} from "./db.js";
 import { deferFinding, dismissFinding, fixFinding, reopenFinding } from "./lifecycle.js";
 import { countObservationsByFindingIds } from "./repositories/observations.js";
 import { listFindingEvents } from "./repositories/events.js";
@@ -51,6 +56,18 @@ export async function withFindingDatabase<T>(
     return fn(state.db);
   } finally {
     closeStateDatabase(state);
+  }
+}
+
+export async function withFindingDatabaseForRead<T>(
+  diffOwlDir: string,
+  fn: (db: SqliteDatabase) => T,
+): Promise<T> {
+  const state = await openStateDatabaseForRead(diffOwlDir);
+  try {
+    return fn(state.db);
+  } finally {
+    closeStateDatabase(state, { checkpoint: false });
   }
 }
 

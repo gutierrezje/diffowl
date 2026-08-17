@@ -5,11 +5,20 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { execa } from "execa";
 import { removeTempDir } from "./test/helpers.js";
-import { closeStateDatabase, openStateDatabase } from "./state/db.js";
+import {
+  applyMigrations,
+  closeDatabaseConnection,
+  closeStateDatabase,
+  getStateDbPath,
+  openStateDatabase,
+} from "./state/db.js";
 import { dismissFinding } from "./state/lifecycle.js";
+import { MIGRATION_001_INITIAL_SCHEMA } from "./state/migrations/001-initial-schema.js";
+import { MIGRATION_002_BASE_REVIEW_TARGET } from "./state/migrations/002-base-review-target.js";
 import { suggestPossibleDuplicates } from "./state/possible-duplicates.js";
 import { reconcileReviewFindings } from "./state/reconcile.js";
 import { insertReview } from "./state/repositories/reviews.js";
+import { openSqliteDatabase } from "./state/sqlite.js";
 import { getFindingSummary } from "./state/findings-summary.js";
 import type { FindingCandidate, PossibleDuplicateRecord, ReviewSeverity } from "./state/types.js";
 
@@ -653,6 +662,53 @@ describe("diffowl findings summary", () => {
 });
 
 describe("diffowl findings duplicates", () => {
+  it("reads duplicate state without creating absent databases or migrating older ones", async () => {
+    const readCommands = [
+      ["list", "--format", "json"],
+      ["show", "dup_missing", "--format", "json"],
+    ];
+    const absentRepo = await createRepo("diffowl-cli-findings-duplicates-absent-");
+    for (const command of readCommands) {
+      const absentResult = await execa(
+        "node",
+        [cliPath, "findings", "duplicates", ...command],
+        { cwd: absentRepo, reject: false },
+      );
+      expect(absentResult.exitCode).toBe(1);
+      expect(JSON.parse(absentResult.stderr)).toMatchObject({
+        error: { message: expect.stringContaining("No state database") },
+      });
+      expect(existsSync(join(absentRepo, ".diffowl", "state.db"))).toBe(false);
+    }
+
+    const olderRepo = await createRepo("diffowl-cli-findings-duplicates-older-");
+    const olderDb = await openSqliteDatabase(getStateDbPath(join(olderRepo, ".diffowl")));
+    applyMigrations(olderDb, 2, {
+      1: MIGRATION_001_INITIAL_SCHEMA,
+      2: MIGRATION_002_BASE_REVIEW_TARGET,
+    });
+    closeDatabaseConnection(olderDb);
+
+    for (const command of readCommands) {
+      const olderResult = await execa(
+        "node",
+        [cliPath, "findings", "duplicates", ...command],
+        { cwd: olderRepo, reject: false },
+      );
+      expect(olderResult.exitCode).toBe(1);
+      expect(JSON.parse(olderResult.stderr)).toMatchObject({
+        error: { message: expect.stringContaining("older than supported") },
+      });
+    }
+
+    const verifyDb = await openSqliteDatabase(getStateDbPath(join(olderRepo, ".diffowl")));
+    try {
+      expect(verifyDb.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 2 });
+    } finally {
+      closeDatabaseConnection(verifyDb, { checkpoint: false });
+    }
+  });
+
   it("lists suggested links by default and records confirm/reject decisions", async () => {
     const repo = await createRepo("diffowl-cli-findings-duplicates-");
     await writeFile(join(repo, "README.md"), "hello\n", "utf8");

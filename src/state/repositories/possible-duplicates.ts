@@ -40,8 +40,10 @@ export interface PossibleDuplicateMatchCandidate {
 export interface ListPossibleDuplicateMatchesInput {
   candidateFindingId: string;
   candidateFile: string;
+  candidateFileRaw: string;
   candidateLine: number;
   candidateSymbolKey: string | null;
+  candidateSymbolKeyRaw: string | null;
   knownSymbolPrefix: string;
   maxLineDistance: number;
 }
@@ -240,12 +242,18 @@ export function listPossibleDuplicateMatches(
       )
       WHERE f.id <> @candidateFindingId
         AND f.status IN ('dismissed', 'deferred')
-        AND LOWER(TRIM(o.file)) = @candidateFile
+        AND (
+          LOWER(TRIM(o.file)) = @candidateFile
+          OR TRIM(o.file) = @candidateFileRaw
+        )
         AND (
           (
             @candidateSymbolKey IS NOT NULL
             AND NULLIF(TRIM(o.symbol_key), '') IS NOT NULL
-            AND LOWER(TRIM(o.symbol_key)) = @candidateSymbolKey
+            AND (
+              LOWER(TRIM(o.symbol_key)) = @candidateSymbolKey
+              OR TRIM(o.symbol_key) = @candidateSymbolKeyRaw
+            )
           )
           OR (
             (
@@ -271,8 +279,10 @@ export function listPossibleDuplicateMatches(
     .all({
       candidateFindingId: input.candidateFindingId,
       candidateFile: input.candidateFile,
+      candidateFileRaw: input.candidateFileRaw,
       candidateLine: input.candidateLine,
       candidateSymbolKey: input.candidateSymbolKey,
+      candidateSymbolKeyRaw: input.candidateSymbolKeyRaw,
       knownSymbolPrefix: input.knownSymbolPrefix,
       maxLineDistance: input.maxLineDistance,
     }) as MatchRow[];

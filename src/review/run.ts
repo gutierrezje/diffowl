@@ -357,13 +357,8 @@ function findEnclosingSymbolKey(
       );
     });
   const segments: string[] = [];
-  const seen = new Set<string>();
   for (const symbol of enclosing) {
     const segment = `${symbol.kind}:${symbol.name}`;
-    if (seen.has(segment)) {
-      continue;
-    }
-    seen.add(segment);
     segments.push(segment);
   }
   return segments.length > 0 ? `ts-v1|${segments.join("/")}` : null;

@@ -16,6 +16,7 @@ import {
   updatePersistedReview,
 } from "./persist.js";
 import { computeFindingFingerprint } from "./fingerprint.js";
+import { listFindingEvents } from "./repositories/events.js";
 import { listAllFindings } from "./repositories/findings.js";
 import { getReviewById } from "./repositories/reviews.js";
 import { removeTempStateDir } from "./test-helpers.js";
@@ -71,6 +72,80 @@ describe("persistReviewRun", () => {
       expect(result.identityDiagnostics).toEqual([]);
     } finally {
       closeStateDatabase(state);
+    }
+  });
+
+  it("commits the review when possible duplicate scanning fails", async () => {
+    const dir = await createTempDir();
+    const historicalA = await persistReviewRun(dir, basePersistInput([{
+      ...sampleFinding,
+      file: "src/a.ts",
+      evidence: "if (!payload) return;",
+    }]));
+    const historicalB = await persistReviewRun(dir, basePersistInput([{
+      ...sampleFinding,
+      file: "src/b.ts",
+      evidence: "if (!request) return;",
+    }]));
+    const historicalAId = historicalA.reconcile.observations[0]!.finding.id;
+    const historicalBId = historicalB.reconcile.observations[0]!.finding.id;
+
+    const state = await openStateDatabase(dir);
+    try {
+      dismissFinding(state.db, historicalAId, {
+        actor: "user",
+        reason: "seed historical dismissal",
+      });
+      dismissFinding(state.db, historicalBId, {
+        actor: "user",
+        reason: "seed historical dismissal",
+      });
+      const dismissal = listFindingEvents(state.db, historicalBId).find(
+        (event) => event.eventType === "dismissed",
+      );
+      if (!dismissal) {
+        throw new Error("Expected a historical dismissal event.");
+      }
+      state.db
+        .prepare("UPDATE finding_events SET verification_json = ? WHERE id = ?")
+        .run("{not-json", dismissal.id);
+    } finally {
+      closeStateDatabase(state);
+    }
+
+    const result = await persistReviewRun(dir, {
+      ...basePersistInput([
+        {
+          ...sampleFinding,
+          file: "src/a.ts",
+          line: 13,
+          evidence: "if (payload == null) return;",
+        },
+        {
+          ...sampleFinding,
+          file: "src/b.ts",
+          line: 13,
+          evidence: "if (request == null) return;",
+        },
+      ]),
+      diffHash: computeDiffHash("matcher-failure-review"),
+      sessionId: "matcher-failure-review",
+    });
+
+    expect(result.possibleDuplicateSuggestions).toEqual([]);
+    expect(result.identityDiagnostics).toContain(
+      "Possible duplicate scan failed: Finding event contains invalid verification JSON.",
+    );
+
+    const after = await openStateDatabase(dir);
+    try {
+      expect(getReviewById(after.db, result.reviewId)).toBeDefined();
+      expect(listAllFindings(after.db)).toHaveLength(4);
+      expect(after.db.prepare("SELECT COUNT(*) AS count FROM finding_possible_duplicates").get()).toEqual({
+        count: 0,
+      });
+    } finally {
+      closeStateDatabase(after);
     }
   });
 

@@ -155,6 +155,38 @@ describe("possible duplicate suggestions", () => {
     expect(result.reconcile.observations[0]?.finding.status).toBe("open");
   });
 
+  it("does not treat two punctuation-only observations as lexically similar", async () => {
+    const dir = await createStateDir();
+    await seedResolvedFinding(
+      dir,
+      makeFinding({ title: "!!!", body: "???" }),
+      null,
+    );
+    const result = await persistQuoteDrift(dir, {
+      title: "@@@",
+      body: "###",
+      evidence: "if (payload === undefined) return;",
+    }, null);
+
+    expect(result.possibleDuplicateSuggestions).toEqual([]);
+  });
+
+  it("matches Unicode paths and symbols with the same raw spelling", async () => {
+    const dir = await createStateDir();
+    const unicodeFile = "src/Éxample.ts";
+    const unicodeSymbol = "ts-v1|function:Éxample";
+    const matchedId = await seedResolvedFinding(
+      dir,
+      makeFinding({ file: unicodeFile }),
+      unicodeSymbol,
+    );
+    const result = await persistQuoteDrift(dir, { file: unicodeFile }, unicodeSymbol);
+
+    expect(result.possibleDuplicateSuggestions).toMatchObject([
+      { matchedFindingId: matchedId, signals: { matchKind: "symbol" } },
+    ]);
+  });
+
   it.each([
     {
       name: "different file",
@@ -411,10 +443,45 @@ describe("possible duplicate suggestions", () => {
 
   it.each([
     {
+      historicalSymbol: "function:handle",
+      candidateSymbol: "ts-v1|function:handle",
+    },
+    {
+      historicalSymbol: "ts-v1|function:handle",
+      candidateSymbol: "function:handle",
+    },
+  ])("uses line-distance fallback when exactly one symbol is known", async ({ historicalSymbol, candidateSymbol }) => {
+    const dir = await createStateDir();
+    const matchedId = await seedResolvedFinding(dir, makeFinding(), historicalSymbol);
+    const result = await persistQuoteDrift(dir, {}, candidateSymbol);
+
+    expect(result.possibleDuplicateSuggestions).toMatchObject([
+      {
+        matchedFindingId: matchedId,
+        signals: {
+          matchKind: "line-distance",
+        },
+      },
+    ]);
+  });
+
+  it.each([
+    {
       name: "score and lexical similarity disagree",
       mutate: (db: SqliteDatabase, link: PersistReviewRunResult["possibleDuplicateSuggestions"][number]) => {
         db.prepare("UPDATE finding_possible_duplicates SET score = ? WHERE id = ?").run(
           link.score === 0 ? 1 : 0,
+          link.id,
+        );
+      },
+    },
+    {
+      name: "stored lexical similarity disagrees with pinned observations",
+      mutate: (db: SqliteDatabase, link: PersistReviewRunResult["possibleDuplicateSuggestions"][number]) => {
+        const wrongScore = link.score === 0 ? 1 : 0;
+        db.prepare("UPDATE finding_possible_duplicates SET score = ?, signals_json = ? WHERE id = ?").run(
+          wrongScore,
+          JSON.stringify({ ...link.signals, lexicalSimilarity: wrongScore }),
           link.id,
         );
       },

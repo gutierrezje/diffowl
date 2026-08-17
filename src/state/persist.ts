@@ -249,15 +249,23 @@ export async function persistReviewRun(
           );
         }),
       );
-      const possibleDuplicateSuggestions = suggestPossibleDuplicates(
-        state.db,
-        review.id,
-        reconcile.observations,
-      );
+      const identityDiagnostics: string[] = [];
+      let possibleDuplicateSuggestions: ReturnType<typeof suggestPossibleDuplicates> = [];
+      try {
+        possibleDuplicateSuggestions = runInTransaction(state.db, () =>
+          suggestPossibleDuplicates(
+            state.db,
+            review.id,
+            reconcile.observations,
+          ),
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        identityDiagnostics.push(`Possible duplicate scan failed: ${message}`);
+      }
       const { actionableFindings, lifecycleSuppressedFindings } =
         splitFindingsByLifecycleSuppression(uniqueIdentifiable, reconcile);
 
-      const identityDiagnostics: string[] = [];
       if (untracked.length > 0) {
         identityDiagnostics.push(
           `${untracked.length} finding(s) quoted no code and were not tracked.`,

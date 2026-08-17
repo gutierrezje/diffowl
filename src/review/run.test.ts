@@ -338,6 +338,33 @@ describe("runReviewPipeline", () => {
       symbolKeys: ["ts-v1|class:A/method:handle", "ts-v1|class:B/method:handle"],
     }));
   });
+
+  it("preserves repeated nested symbol segments in persistence context", async () => {
+    const snapshot = makeSnapshot([codeFile()]);
+    const deps = makeDeps(snapshot);
+    const finding = { ...makeFinding("src/app.ts"), line: 10 };
+    vi.mocked(deps.runReview).mockResolvedValue({
+      report: { summary: "summary", findings: [finding] },
+      sessionId: "session-nested-symbols",
+    });
+    vi.mocked(deps.buildReviewContextFromDiff).mockResolvedValue({
+      ...makeReviewContext(snapshot),
+      changedFiles: [{
+        ...makeReviewContext(snapshot).changedFiles[0]!,
+        astSymbols: [
+          { name: "handle", kind: "method", startLine: 1, endLine: 20, text: "", truncated: false },
+          { name: "handle", kind: "method", startLine: 5, endLine: 15, text: "", truncated: false },
+        ],
+      }],
+    });
+
+    await runReviewPipeline(skipInput(), deps);
+
+    const persistInput = vi.mocked(deps.persistReviewRun).mock.calls.at(-1)?.[1];
+    expect(persistInput).toEqual(expect.objectContaining({
+      symbolKeys: ["ts-v1|method:handle/method:handle"],
+    }));
+  });
 });
 
 function skipInput(overrides: Partial<Parameters<typeof runReviewSkipChecks>[0]> = {}) {

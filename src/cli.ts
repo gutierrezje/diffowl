@@ -103,6 +103,7 @@ import {
   reopenFindingByLocator,
   requireFindingDetail,
   withFindingDatabase,
+  withFindingDatabaseForRead,
 } from "./state/findings-query.js";
 import {
   EMPTY_FINDING_SUMMARY,
@@ -1151,7 +1152,7 @@ duplicateCmd
     await loadConfigOrExit();
     const format = resolveReviewOutputFormat(options.format);
     try {
-      const detail = await withFindingDatabase(await getSharedDiffOwlDir(), (db) => {
+      const detail = await withFindingDatabaseForRead(await getSharedDiffOwlDir(), (db) => {
         const item = getPossibleDuplicateDetailById(db, duplicateId);
         if (!item) {
           throw new InvalidFindingTransitionError(`Possible duplicate ${duplicateId} was not found.`);
@@ -1178,7 +1179,7 @@ duplicateCmd
     const format = resolveReviewOutputFormat(options.format);
     const status = parsePossibleDuplicateStatus(options.status ?? "suggested", format);
     try {
-      const items = await withFindingDatabase(await getSharedDiffOwlDir(), (db) =>
+      const items = await withFindingDatabaseForRead(await getSharedDiffOwlDir(), (db) =>
         listPossibleDuplicates(db, status),
       );
       if (format === "json") {

@@ -204,11 +204,14 @@ function findBestMatch(
   if (hasSuggestedPossibleDuplicateForCandidate(db, candidateFinding.id)) {
     return null;
   }
+  const candidateSymbolKey = normalizeSymbol(candidateObservation.symbolKey);
   const matches = listPossibleDuplicateMatches(db, {
     candidateFindingId: candidateFinding.id,
     candidateFile: normalizeFingerprintText(candidateObservation.file),
+    candidateFileRaw: candidateObservation.file,
     candidateLine: candidateObservation.line,
-    candidateSymbolKey: normalizeSymbol(candidateObservation.symbolKey),
+    candidateSymbolKey,
+    candidateSymbolKeyRaw: candidateSymbolKey === null ? null : candidateObservation.symbolKey,
     knownSymbolPrefix: SYMBOL_KEY_PREFIX,
     maxLineDistance: MAX_LINE_DISTANCE,
   });
@@ -271,7 +274,7 @@ function tokenDice(left: string, right: string): number {
   const leftTokens = new Set(tokenize(left));
   const rightTokens = new Set(tokenize(right));
   if (leftTokens.size === 0 && rightTokens.size === 0) {
-    return 1;
+    return 0;
   }
   if (leftTokens.size === 0 || rightTokens.size === 0) {
     return 0;
@@ -351,9 +354,17 @@ function validatePinnedSignals(
   candidateObservation: FindingObservationRecord,
   matchedObservation: FindingObservationRecord,
 ): void {
-  if (link.score !== link.signals.lexicalSimilarity) {
+  const lexicalSimilarity = tokenDice(
+    `${candidateObservation.title} ${candidateObservation.body}`,
+    `${matchedObservation.title} ${matchedObservation.body}`,
+  );
+  if (
+    link.score !== link.signals.lexicalSimilarity ||
+    link.score !== lexicalSimilarity ||
+    link.signals.lexicalSimilarity !== lexicalSimilarity
+  ) {
     throw new StateDatabaseError(
-      `Possible duplicate ${link.id} has a score that disagrees with lexical similarity.`,
+      `Possible duplicate ${link.id} has a score that disagrees with pinned lexical similarity.`,
     );
   }
 
