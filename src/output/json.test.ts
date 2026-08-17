@@ -31,6 +31,7 @@ const review: ReviewRecord = {
 
 const persisted: PersistReviewRunResult = {
   reviewId: "rev_test",
+  possibleDuplicateSuggestions: [],
   actionableFindings: [],
   lifecycleSuppressedFindings: [],
   identityDiagnostics: [],
@@ -48,6 +49,7 @@ const persisted: PersistReviewRunResult = {
           title: "Missing null check",
           body: "Validate the payload.",
           evidence: "if (!payload) return;",
+          symbolKey: null,
           ordinal: 1,
           classification: "new",
         },
@@ -75,6 +77,7 @@ const persisted: PersistReviewRunResult = {
           title: "Unused import",
           body: "Remove the import.",
           evidence: null,
+          symbolKey: null,
           ordinal: 2,
           classification: "existing",
         },
@@ -264,6 +267,7 @@ describe("buildReviewJsonDocument", () => {
       },
       persisted: {
         reviewId: "rev_skip",
+        possibleDuplicateSuggestions: [],
         actionableFindings: [],
         lifecycleSuppressedFindings: [],
         identityDiagnostics: [],

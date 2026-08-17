@@ -15,7 +15,10 @@ import {
 } from "./db.js";
 import { MIGRATION_001_INITIAL_SCHEMA } from "./migrations/001-initial-schema.js";
 import { openSqliteDatabase } from "./sqlite.js";
+import { dismissFinding } from "./lifecycle.js";
+import { listFindingEvents } from "./repositories/events.js";
 import { getReviewById, insertReview } from "./repositories/reviews.js";
+import { reconcileReviewFindings } from "./reconcile.js";
 import { removeTempStateDir } from "./test-helpers.js";
 import { CURRENT_SCHEMA_VERSION } from "./types.js";
 
@@ -25,6 +28,7 @@ const EXPECTED_TABLES = [
   "findings",
   "finding_observations",
   "finding_events",
+  "finding_possible_duplicates",
 ];
 
 let tempDirs: string[] = [];
@@ -51,11 +55,21 @@ describe("openStateDatabase", () => {
           .get(tableName);
         expect(table).toEqual({ name: tableName });
       }
+      expect(
+        state.db
+          .prepare("PRAGMA table_info(finding_observations)")
+          .all()
+          .some((column) => typeof column === "object" && column !== null && "name" in column && column.name === "symbol_key"),
+      ).toBe(true);
 
       const migrations = state.db
         .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
         .all() as Array<{ version: number }>;
-      expect(migrations).toEqual([{ version: 1 }, { version: CURRENT_SCHEMA_VERSION }]);
+      expect(migrations).toEqual([
+        { version: 1 },
+        { version: 2 },
+        { version: CURRENT_SCHEMA_VERSION },
+      ]);
     } finally {
       closeStateDatabase(state);
     }
@@ -71,9 +85,121 @@ describe("openStateDatabase", () => {
       const migrations = second.db
         .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
         .all() as Array<{ version: number }>;
-      expect(migrations).toEqual([{ version: 1 }, { version: CURRENT_SCHEMA_VERSION }]);
+      expect(migrations).toEqual([
+        { version: 1 },
+        { version: 2 },
+        { version: CURRENT_SCHEMA_VERSION },
+      ]);
     } finally {
       closeStateDatabase(second);
+    }
+  });
+
+  it("enforces possible duplicate provenance ownership and state checks", async () => {
+    const dir = await createTempDir();
+    const state = await openStateDatabase(dir);
+
+    try {
+      const sourceReview = insertReview(state.db, reviewInput("duplicate-source"));
+      const source = reconcileReviewFindings(state.db, sourceReview.id, [
+        {
+          file: "src/source.ts",
+          line: 10,
+          severity: "warning",
+          confidence: "high",
+          title: "Source finding",
+          body: "Source body.",
+          evidence: "source();",
+        },
+      ]);
+      const candidateReview = insertReview(state.db, reviewInput("duplicate-candidate"));
+      const candidate = reconcileReviewFindings(state.db, candidateReview.id, [
+        {
+          file: "src/candidate.ts",
+          line: 20,
+          severity: "warning",
+          confidence: "high",
+          title: "Candidate finding",
+          body: "Candidate body.",
+          evidence: "candidate();",
+        },
+      ]);
+      const sourceFindingId = source.observations[0]!.finding.id;
+      const candidateFindingId = candidate.observations[0]!.finding.id;
+      dismissFinding(state.db, sourceFindingId, { actor: "user", reason: "source resolved" });
+      const sourceObservationId = source.observations[0]!.observation.id;
+      const candidateObservationId = candidate.observations[0]!.observation.id;
+      const sourceDispositionEvent = listFindingEvents(state.db, sourceFindingId).find(
+        (event) => event.eventType === "dismissed",
+      );
+      if (!sourceDispositionEvent) {
+        throw new Error("Expected a source dismissal event.");
+      }
+
+      const insert = state.db.prepare(`
+        INSERT INTO finding_possible_duplicates (
+          id, suggested_review_id, candidate_finding_id, matched_finding_id,
+          candidate_observation_id, matched_observation_id, source_disposition_event_id,
+          suggested_source_status, locator_version, status, matcher_version, score, signals_json,
+          created_at, decided_at, decided_actor, decided_reason, inherited_status,
+          inherited_disposition_event_id, expired_at, expired_reason
+        ) VALUES (
+          @id, @suggestedReviewId, @candidateFindingId, @matchedFindingId,
+          @candidateObservationId, @matchedObservationId, @sourceDispositionEventId,
+          @suggestedSourceStatus, @locatorVersion, @status, @matcherVersion, @score, @signalsJson,
+          @createdAt, @decidedAt, @decidedActor, @decidedReason, @inheritedStatus,
+          @inheritedDispositionEventId, @expiredAt, @expiredReason
+        )
+      `);
+      const valid = {
+        id: "dup_migration_valid",
+        suggestedReviewId: candidateReview.id,
+        candidateFindingId,
+        matchedFindingId: sourceFindingId,
+        candidateObservationId,
+        matchedObservationId: sourceObservationId,
+        sourceDispositionEventId: sourceDispositionEvent.id,
+        suggestedSourceStatus: "dismissed",
+        locatorVersion: 1,
+        status: "suggested",
+        matcherVersion: 1,
+        score: 0.8,
+        signalsJson: JSON.stringify({
+          lexicalSimilarity: 0.8,
+          candidateSymbol: null,
+          matchedSymbol: null,
+          lineDistance: 10,
+          matchKind: "line-distance",
+        }),
+        createdAt: new Date().toISOString(),
+        decidedAt: null,
+        decidedActor: null,
+        decidedReason: null,
+        inheritedStatus: null,
+        inheritedDispositionEventId: null,
+        expiredAt: null,
+        expiredReason: null,
+      };
+
+      expect(() => insert.run({ ...valid, decidedAt: valid.createdAt })).toThrow();
+      expect(() =>
+        insert.run({
+          ...valid,
+          id: "dup_migration_bad_observation_owner",
+          candidateObservationId: sourceObservationId,
+        }),
+      ).toThrow();
+      expect(() =>
+        insert.run({
+          ...valid,
+          id: "dup_migration_bad_event_owner",
+          sourceDispositionEventId: listFindingEvents(state.db, sourceFindingId).find(
+            (event) => event.eventType === "observed",
+          )!.id,
+        }),
+      ).toThrow();
+    } finally {
+      closeStateDatabase(state);
     }
   });
 
@@ -191,7 +317,11 @@ describe("openStateDatabase", () => {
       const versions = db
         .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
         .all() as Array<{ version: number }>;
-      expect(versions).toEqual([{ version: 1 }, { version: CURRENT_SCHEMA_VERSION }]);
+      expect(versions).toEqual([
+        { version: 1 },
+        { version: 2 },
+        { version: CURRENT_SCHEMA_VERSION },
+      ]);
     } finally {
       closeDatabaseConnection(db);
     }

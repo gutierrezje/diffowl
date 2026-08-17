@@ -3,6 +3,7 @@ import type { ReviewFinding, ReviewTiming } from "../review/types.js";
 import { closeStateDatabase, openStateDatabase, runInTransaction } from "./db.js";
 import { computeFindingFingerprint } from "./fingerprint.js";
 import { reconcileReviewFindings } from "./reconcile.js";
+import { suggestPossibleDuplicates } from "./possible-duplicates.js";
 import { getReviewById, insertReview, updateReview } from "./repositories/reviews.js";
 import { countObservationsByFindingIds } from "./repositories/observations.js";
 import type {
@@ -25,6 +26,8 @@ export interface PersistReviewRunInput {
   diagnostics: string[];
   timings: ReviewTiming[];
   findings: ReviewFinding[];
+  /** Symbol keys aligned with `findings`; persistence-only context, never review model data. */
+  symbolKeys?: Array<string | null>;
   skippedReason?: string | null;
 }
 
@@ -34,6 +37,7 @@ export interface PersistReviewRunResult {
   actionableFindings: ReviewFinding[];
   lifecycleSuppressedFindings: ReviewFinding[];
   identityDiagnostics: string[];
+  possibleDuplicateSuggestions: ReturnType<typeof suggestPossibleDuplicates>;
 }
 
 export interface UpdatePersistedReviewInput {
@@ -65,7 +69,10 @@ export function deduplicateReviewFindings(findings: ReviewFinding[]): ReviewFind
   return deduped;
 }
 
-export function toFindingCandidate(finding: ReviewFinding): FindingCandidate {
+export function toFindingCandidate(
+  finding: ReviewFinding,
+  symbolKey?: string | null,
+): FindingCandidate {
   const candidate: FindingCandidate = {
     file: finding.file,
     line: finding.line,
@@ -76,6 +83,9 @@ export function toFindingCandidate(finding: ReviewFinding): FindingCandidate {
   };
   if (finding.evidence !== undefined) {
     candidate.evidence = finding.evidence;
+  }
+  if (symbolKey !== undefined) {
+    candidate.symbolKey = symbolKey;
   }
   return candidate;
 }
@@ -213,11 +223,16 @@ export async function persistReviewRun(
 
       const identifiable: ReviewFinding[] = [];
       const untracked: ReviewFinding[] = [];
-      for (const finding of input.findings) {
+      const symbolsByFingerprint = new Map<string, string | null>();
+      for (const [index, finding] of input.findings.entries()) {
         if (computeFindingFingerprint(toFindingCandidate(finding)) === null) {
           untracked.push(finding);
         } else {
           identifiable.push(finding);
+          const fingerprint = computeFindingFingerprint(toFindingCandidate(finding));
+          if (fingerprint && !symbolsByFingerprint.has(fingerprint)) {
+            symbolsByFingerprint.set(fingerprint, input.symbolKeys?.[index] ?? null);
+          }
         }
       }
 
@@ -226,12 +241,31 @@ export async function persistReviewRun(
       const reconcile = reconcileReviewFindings(
         state.db,
         review.id,
-        uniqueIdentifiable.map(toFindingCandidate),
+        uniqueIdentifiable.map((finding) => {
+          const fingerprint = computeFindingFingerprint(toFindingCandidate(finding));
+          return toFindingCandidate(
+            finding,
+            fingerprint ? (symbolsByFingerprint.get(fingerprint) ?? null) : null,
+          );
+        }),
       );
+      const identityDiagnostics: string[] = [];
+      let possibleDuplicateSuggestions: ReturnType<typeof suggestPossibleDuplicates> = [];
+      try {
+        possibleDuplicateSuggestions = runInTransaction(state.db, () =>
+          suggestPossibleDuplicates(
+            state.db,
+            review.id,
+            reconcile.observations,
+          ),
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        identityDiagnostics.push(`Possible duplicate scan failed: ${message}`);
+      }
       const { actionableFindings, lifecycleSuppressedFindings } =
         splitFindingsByLifecycleSuppression(uniqueIdentifiable, reconcile);
 
-      const identityDiagnostics: string[] = [];
       if (untracked.length > 0) {
         identityDiagnostics.push(
           `${untracked.length} finding(s) quoted no code and were not tracked.`,
@@ -249,6 +283,7 @@ export async function persistReviewRun(
         actionableFindings: [...actionableFindings, ...untracked],
         lifecycleSuppressedFindings,
         identityDiagnostics,
+        possibleDuplicateSuggestions,
       };
     });
   } finally {

@@ -30,6 +30,7 @@ const baseObservation: FindingObservationRecord = {
   title: "Missing null check",
   body: "The handler does not validate the payload.",
   evidence: null,
+  symbolKey: null,
   ordinal: 1,
   classification: "new",
 };

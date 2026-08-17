@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { MIGRATION_001_INITIAL_SCHEMA } from "./migrations/001-initial-schema.js";
 import { MIGRATION_002_BASE_REVIEW_TARGET } from "./migrations/002-base-review-target.js";
+import { MIGRATION_003_POSSIBLE_DUPLICATES } from "./migrations/003-possible-duplicates.js";
 import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.js";
 import { CURRENT_SCHEMA_VERSION } from "./types.js";
 
@@ -11,6 +12,7 @@ const BUSY_TIMEOUT_MS = 5000;
 const MIGRATIONS: Record<number, string> = {
   1: MIGRATION_001_INITIAL_SCHEMA,
   2: MIGRATION_002_BASE_REVIEW_TARGET,
+  3: MIGRATION_003_POSSIBLE_DUPLICATES,
 };
 
 export class StateDatabaseError extends Error {

@@ -98,6 +98,40 @@ export function listFindingEvents(db: SqliteDatabase, findingId: string): Findin
   return rows.map(mapEventRow);
 }
 
+export function getFindingEventById(
+  db: SqliteDatabase,
+  eventId: number,
+): FindingEventRecord | undefined {
+  const row = getEventStatement(db).get(eventId) as EventRow | undefined;
+  return row ? mapEventRow(row) : undefined;
+}
+
+export function getLatestDispositionEvent(
+  db: SqliteDatabase,
+  findingId: string,
+  status: "dismissed" | "deferred",
+): FindingEventRecord | undefined {
+  const row = db
+    .prepare(`
+      SELECT
+        id,
+        finding_id AS findingId,
+        review_id AS reviewId,
+        event_type AS eventType,
+        actor,
+        reason,
+        commit_ref AS commitRef,
+        verification_json AS verificationJson,
+        created_at AS createdAt
+      FROM finding_events
+      WHERE finding_id = ? AND event_type = ?
+      ORDER BY id DESC
+      LIMIT 1
+    `)
+    .get(findingId, status) as EventRow | undefined;
+  return row ? mapEventRow(row) : undefined;
+}
+
 function mapEventRow(row: EventRow): FindingEventRecord {
   return {
     id: row.id,

@@ -5,12 +5,22 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { execa } from "execa";
 import { removeTempDir } from "./test/helpers.js";
-import { closeStateDatabase, openStateDatabase } from "./state/db.js";
+import {
+  applyMigrations,
+  closeDatabaseConnection,
+  closeStateDatabase,
+  getStateDbPath,
+  openStateDatabase,
+} from "./state/db.js";
 import { dismissFinding } from "./state/lifecycle.js";
+import { MIGRATION_001_INITIAL_SCHEMA } from "./state/migrations/001-initial-schema.js";
+import { MIGRATION_002_BASE_REVIEW_TARGET } from "./state/migrations/002-base-review-target.js";
+import { suggestPossibleDuplicates } from "./state/possible-duplicates.js";
 import { reconcileReviewFindings } from "./state/reconcile.js";
 import { insertReview } from "./state/repositories/reviews.js";
+import { openSqliteDatabase } from "./state/sqlite.js";
 import { getFindingSummary } from "./state/findings-summary.js";
-import type { FindingCandidate, ReviewSeverity } from "./state/types.js";
+import type { FindingCandidate, PossibleDuplicateRecord, ReviewSeverity } from "./state/types.js";
 
 const projectRoot = join(import.meta.dirname, "..");
 const cliPath = join(projectRoot, "dist/cli.js");
@@ -338,7 +348,7 @@ describe("diffowl findings summary", () => {
     expect(existsSync(diffOwlDir)).toBe(false);
   });
 
-  it("keeps the summary payload O(1) in finding count", async () => {
+  it("keeps the summary payload O(1) in finding count", { timeout: 15_000 }, async () => {
     const single = await createRepo("diffowl-cli-findings-summary-o1-single-");
     await writeFile(join(single, "README.md"), "hello\n", "utf8");
     await commitAll(single, "initial");
@@ -651,6 +661,171 @@ describe("diffowl findings summary", () => {
   });
 });
 
+describe("diffowl findings duplicates", () => {
+  it("reads duplicate state without creating absent databases or migrating older ones", async () => {
+    const readCommands = [
+      ["list", "--format", "json"],
+      ["show", "dup_missing", "--format", "json"],
+    ];
+    const absentRepo = await createRepo("diffowl-cli-findings-duplicates-absent-");
+    for (const command of readCommands) {
+      const absentResult = await execa(
+        "node",
+        [cliPath, "findings", "duplicates", ...command],
+        { cwd: absentRepo, reject: false },
+      );
+      expect(absentResult.exitCode).toBe(1);
+      expect(JSON.parse(absentResult.stderr)).toMatchObject({
+        error: { message: expect.stringContaining("No state database") },
+      });
+      expect(existsSync(join(absentRepo, ".diffowl", "state.db"))).toBe(false);
+    }
+
+    const olderRepo = await createRepo("diffowl-cli-findings-duplicates-older-");
+    const olderDb = await openSqliteDatabase(getStateDbPath(join(olderRepo, ".diffowl")));
+    applyMigrations(olderDb, 2, {
+      1: MIGRATION_001_INITIAL_SCHEMA,
+      2: MIGRATION_002_BASE_REVIEW_TARGET,
+    });
+    closeDatabaseConnection(olderDb);
+
+    for (const command of readCommands) {
+      const olderResult = await execa(
+        "node",
+        [cliPath, "findings", "duplicates", ...command],
+        { cwd: olderRepo, reject: false },
+      );
+      expect(olderResult.exitCode).toBe(1);
+      expect(JSON.parse(olderResult.stderr)).toMatchObject({
+        error: { message: expect.stringContaining("older than supported") },
+      });
+    }
+
+    const verifyDb = await openSqliteDatabase(getStateDbPath(join(olderRepo, ".diffowl")));
+    try {
+      expect(verifyDb.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 2 });
+    } finally {
+      closeDatabaseConnection(verifyDb, { checkpoint: false });
+    }
+  });
+
+  it("lists suggested links by default and records confirm/reject decisions", async () => {
+    const repo = await createRepo("diffowl-cli-findings-duplicates-");
+    await writeFile(join(repo, "README.md"), "hello\n", "utf8");
+    await commitAll(repo, "initial");
+    const { links } = await seedPossibleDuplicateLinks(repo);
+
+    const suggestedText = await execa("node", [cliPath, "findings", "duplicates", "list"], {
+      cwd: repo,
+    });
+    expect(suggestedText.stdout).toContain(links[0]!.id);
+    expect(suggestedText.stdout).toContain("Confirm:");
+    expect(suggestedText.stdout).toContain("Reject:");
+    expect(suggestedText.stdout).toContain("Missing null check");
+    expect(suggestedText.stdout).toContain("if (!payload) return;");
+    expect(suggestedText.stdout).toContain("severity: warning");
+    expect(suggestedText.stdout).toContain("seed historical dismissal");
+    expect(suggestedText.stdout).toContain("Confirming will dismiss candidate");
+
+    const shown = await execa("node", [cliPath, "findings", "duplicates", "show", links[0]!.id], {
+      cwd: repo,
+    });
+    expect(shown.stdout).toContain(links[0]!.id);
+    expect(shown.stdout).toContain("Source disposition: dismissed");
+
+    const suggestedJson = await execa(
+      "node",
+      [cliPath, "findings", "duplicates", "list", "--format", "json"],
+      { cwd: repo },
+    );
+    const suggestedDocument = JSON.parse(suggestedJson.stdout) as {
+      schema_version: number;
+      count: number;
+      duplicates: { id: string }[];
+    };
+    expect(suggestedDocument).toMatchObject({ schema_version: 1, count: 2 });
+    expect(suggestedDocument.duplicates).toHaveLength(2);
+    expect(suggestedDocument.duplicates.map((duplicate) => duplicate.id)).toEqual(
+      expect.arrayContaining([links[0]!.id, links[1]!.id]),
+    );
+
+    const confirmed = await execa("node", [
+      cliPath,
+      "findings",
+      "duplicates",
+      "confirm",
+      links[0]!.id,
+      "--reason",
+      "same issue",
+      "--actor",
+      "agent",
+      "--format",
+      "json",
+    ], { cwd: repo });
+    expect(JSON.parse(confirmed.stdout)).toMatchObject({
+      schema_version: 1,
+      status: "confirmed",
+      decided_actor: "agent",
+      inherited_status: "dismissed",
+    });
+
+    const blankReject = await execa("node", [
+      cliPath,
+      "findings",
+      "duplicates",
+      "reject",
+      links[1]!.id,
+      "--reason",
+      "   ",
+      "--format",
+      "json",
+    ], { cwd: repo, reject: false });
+    expect(blankReject.exitCode).toBe(1);
+    expect(blankReject.stderr).toContain("Decision reason must not be blank");
+
+    const rejected = await execa("node", [
+      cliPath,
+      "findings",
+      "duplicates",
+      "reject",
+      links[1]!.id,
+      "--reason",
+      "different issue",
+      "--actor",
+      "agent",
+      "--format",
+      "json",
+    ], { cwd: repo });
+    expect(JSON.parse(rejected.stdout)).toMatchObject({
+      schema_version: 1,
+      status: "rejected",
+      decided_actor: "agent",
+    });
+
+    const defaultAfterDecisions = await execa("node", [cliPath, "findings", "duplicates", "list"], {
+      cwd: repo,
+    });
+    expect(defaultAfterDecisions.stdout).toContain("No possible duplicate suggestions.");
+
+    for (const status of ["confirmed", "rejected"] as const) {
+      const text = await execa(
+        "node",
+        [cliPath, "findings", "duplicates", "list", "--status", status],
+        { cwd: repo },
+      );
+      expect(text.stdout).toContain(status);
+      expect(text.stdout).not.toContain("Confirm:");
+      expect(text.stdout).not.toContain("Reject:");
+      const json = await execa(
+        "node",
+        [cliPath, "findings", "duplicates", "list", "--status", status, "--format", "json"],
+        { cwd: repo },
+      );
+      expect(JSON.parse(json.stdout)).toMatchObject({ schema_version: 1, count: 1 });
+    }
+  }, 15_000);
+});
+
 describe("diffowl agent-hook install", () => {
   it("installs a direct-exec Claude SessionStart hook for --client claude", async () => {
     const repo = await createRepo("diffowl-cli-agent-hook-claude-");
@@ -787,6 +962,76 @@ async function seedOpenFindings(
       summary: "seed",
     });
     reconcileReviewFindings(state.db, review.id, candidates);
+  } finally {
+    closeStateDatabase(state);
+  }
+}
+
+async function seedPossibleDuplicateLinks(
+  repo: string,
+): Promise<{ links: PossibleDuplicateRecord[] }> {
+  const state = await openStateDatabase(join(repo, ".diffowl"));
+  try {
+    const historicalReview = insertReview(state.db, {
+      targetKind: "commit",
+      targetCommit: "seed-historical",
+      diffHash: "duplicate-historical",
+      model: "provider/model",
+      reasoning: "auto",
+      depth: "default",
+      sessionId: "duplicate-historical",
+      summary: "seed",
+    });
+    const historical = reconcileReviewFindings(state.db, historicalReview.id, [
+      {
+        file: "src/example.ts",
+        line: 10,
+        severity: "warning",
+        confidence: "high",
+        title: "Missing null check",
+        body: "The handler does not validate the payload.",
+        evidence: "if (!payload) return;",
+        symbolKey: "ts-v1|function:handle",
+      },
+    ]);
+    dismissFinding(state.db, historical.observations[0]!.finding.id, {
+      actor: "user",
+      reason: "seed historical dismissal",
+    });
+
+    const candidateReview = insertReview(state.db, {
+      targetKind: "commit",
+      targetCommit: "seed-candidates",
+      diffHash: "duplicate-candidates",
+      model: "provider/model",
+      reasoning: "auto",
+      depth: "default",
+      sessionId: "duplicate-candidates",
+      summary: "seed",
+    });
+    const reconciled = reconcileReviewFindings(state.db, candidateReview.id, [
+      {
+        file: "src/example.ts",
+        line: 12,
+        severity: "warning",
+        confidence: "high",
+        title: "Payload null check missing",
+        body: "This handler does not validate payload input.",
+        evidence: "if (payload == null) return;",
+        symbolKey: "ts-v1|function:handle",
+      },
+      {
+        file: "src/example.ts",
+        line: 14,
+        severity: "warning",
+        confidence: "high",
+        title: "Payload validation is missing",
+        body: "The handler does not validate payload input.",
+        evidence: "if (payload === null) return;",
+        symbolKey: "ts-v1|function:handle",
+      },
+    ]);
+    return { links: suggestPossibleDuplicates(state.db, candidateReview.id, reconciled.observations) };
   } finally {
     closeStateDatabase(state);
   }

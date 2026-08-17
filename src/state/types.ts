@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 export type ReviewTargetKind = "staged" | "commit" | "last-commit" | "base";
 export type FindingStatus = "open" | "deferred" | "dismissed" | "fixed" | "regressed";
@@ -15,6 +15,8 @@ export type FindingEventType =
 export type FindingActor = "user" | "agent";
 export type ReviewSeverity = "error" | "warning" | "info";
 export type ReviewConfidence = "low" | "medium" | "high";
+export type PossibleDuplicateStatus = "suggested" | "confirmed" | "rejected" | "expired";
+export type PossibleDuplicateInheritedStatus = "dismissed" | "deferred";
 
 export function createReviewId(): string {
   return `rev_${randomUUID()}`;
@@ -94,6 +96,8 @@ export interface FindingCandidate {
   title: string;
   body: string;
   evidence?: string;
+  /** Persistence-only context; never participates in fingerprint identity. */
+  symbolKey?: string | null;
 }
 
 export interface FindingObservationRecord {
@@ -107,6 +111,7 @@ export interface FindingObservationRecord {
   title: string;
   body: string;
   evidence: string | null;
+  symbolKey: string | null;
   ordinal: number;
   classification: ObservationClassification;
 }
@@ -121,6 +126,7 @@ export interface InsertObservationInput {
   title: string;
   body: string;
   evidence?: string | null;
+  symbolKey: string | null;
   ordinal: number;
   classification: ObservationClassification;
 }
@@ -161,6 +167,80 @@ export interface ReconcileReviewFindingsResult {
     dismissed: number;
     deferred: number;
   };
+}
+
+export interface PossibleDuplicateCommon {
+  id: string;
+  suggestedReviewId: string;
+  candidateFindingId: string;
+  matchedFindingId: string;
+  candidateObservationId: number;
+  matchedObservationId: number;
+  sourceDispositionEventId: number;
+  suggestedSourceStatus: PossibleDuplicateInheritedStatus;
+  locatorVersion: number;
+  matcherVersion: number;
+  score: number;
+  signals: PossibleDuplicateSignals;
+  createdAt: string;
+}
+
+export interface PossibleDuplicateSuggestedRecord extends PossibleDuplicateCommon {
+  status: "suggested";
+  decidedAt: null;
+  decidedActor: null;
+  decidedReason: null;
+  inheritedStatus: null;
+  inheritedDispositionEventId: null;
+  expiredAt: null;
+  expiredReason: null;
+}
+
+export interface PossibleDuplicateConfirmedRecord extends PossibleDuplicateCommon {
+  status: "confirmed";
+  decidedAt: string;
+  decidedActor: FindingActor;
+  decidedReason: string;
+  inheritedStatus: PossibleDuplicateInheritedStatus;
+  inheritedDispositionEventId: number;
+  expiredAt: null;
+  expiredReason: null;
+}
+
+export interface PossibleDuplicateRejectedRecord extends PossibleDuplicateCommon {
+  status: "rejected";
+  decidedAt: string;
+  decidedActor: FindingActor;
+  decidedReason: string;
+  inheritedStatus: null;
+  inheritedDispositionEventId: null;
+  expiredAt: null;
+  expiredReason: null;
+}
+
+export interface PossibleDuplicateExpiredRecord extends PossibleDuplicateCommon {
+  status: "expired";
+  decidedAt: null;
+  decidedActor: null;
+  decidedReason: null;
+  inheritedStatus: null;
+  inheritedDispositionEventId: null;
+  expiredAt: string;
+  expiredReason: string;
+}
+
+export type PossibleDuplicateRecord =
+  | PossibleDuplicateSuggestedRecord
+  | PossibleDuplicateConfirmedRecord
+  | PossibleDuplicateRejectedRecord
+  | PossibleDuplicateExpiredRecord;
+
+export interface PossibleDuplicateSignals {
+  lexicalSimilarity: number;
+  candidateSymbol: string | null;
+  matchedSymbol: string | null;
+  lineDistance: number;
+  matchKind: "symbol" | "line-distance";
 }
 
 export interface LifecycleMutationInput {

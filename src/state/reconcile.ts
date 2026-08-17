@@ -94,6 +94,7 @@ export function reconcileReviewFindings(
       title: candidate.title,
       body: candidate.body,
       evidence: candidate.evidence ?? null,
+      symbolKey: candidate.symbolKey ?? null,
       ordinal: index + 1,
       classification,
     });

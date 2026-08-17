@@ -1,6 +1,7 @@
 import chalk from "chalk";
 import type { FindingDetail, FindingListItem } from "../state/findings-query.js";
 import type { FindingSummary } from "../state/findings-summary.js";
+import type { PossibleDuplicateDetail } from "../state/possible-duplicates.js";
 
 const ID_WIDTH = 12;
 const STATUS_WIDTH = 10;
@@ -128,6 +129,151 @@ export function renderFindingListJson(items: FindingListItem[]): string {
     null,
     2,
   )}\n`;
+}
+
+export function formatPossibleDuplicateList(items: PossibleDuplicateDetail[]): string {
+  if (items.length === 0) return "No possible duplicate suggestions.";
+  const lines = ["Possible duplicate suggestions:"];
+  for (const item of items) {
+    lines.push(...formatPossibleDuplicateLines(item));
+  }
+  return lines.join("\n");
+}
+
+export function formatPossibleDuplicateDetail(item: PossibleDuplicateDetail): string {
+  return formatPossibleDuplicateLines(item).join("\n");
+}
+
+export function renderPossibleDuplicateListJson(items: PossibleDuplicateDetail[]): string {
+  return `${JSON.stringify(
+    {
+      schema_version: 1,
+      count: items.length,
+      duplicates: items.map((item) => ({
+        ...possibleDuplicateJson(item),
+      })),
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+export function renderPossibleDuplicateDetailJson(item: PossibleDuplicateDetail): string {
+  return `${JSON.stringify({ schema_version: 1, ...possibleDuplicateJson(item) }, null, 2)}\n`;
+}
+
+function formatPossibleDuplicateLines(item: PossibleDuplicateDetail): string[] {
+  const candidate = formatDuplicateFinding(item.candidateFinding.id, item.candidateFinding.status, item.candidateObservation);
+  const matched = formatDuplicateFinding(item.matchedFinding.id, item.matchedFinding.status, item.matchedObservation);
+  const lines = [
+    `- ${item.id} (${item.status}, lexical score ${item.score.toFixed(2)}, ${item.signals.matchKind})`,
+    `  candidate ${candidate}`,
+    `    title: ${item.candidateObservation.title}`,
+    `    severity: ${item.candidateObservation.severity}`,
+    `    evidence: ${item.candidateObservation.evidence ?? "none"}`,
+    `  matched  ${matched}`,
+    `    title: ${item.matchedObservation.title}`,
+    `    severity: ${item.matchedObservation.severity}`,
+    `    evidence: ${item.matchedObservation.evidence ?? "none"}`,
+    `  Source disposition: ${item.sourceDispositionEvent.eventType} (${item.sourceDispositionEvent.actor})${item.sourceDispositionEvent.reason ? ` — ${item.sourceDispositionEvent.reason}` : ""}`,
+  ];
+  if (item.status === "suggested") {
+    lines.push(
+      `  Consequence: Confirming will ${item.suggestedSourceStatus === "dismissed" ? "dismiss" : "defer"} candidate ${item.candidateFinding.id}.`,
+      `  Confirm: diffowl findings duplicates confirm ${item.id} --reason <text> --actor user --format json`,
+      `  Reject:  diffowl findings duplicates reject ${item.id} --reason <text> --actor user --format json`,
+    );
+  }
+  if (item.status === "expired") {
+    lines.push(`  Expired: ${item.expiredReason}`);
+  }
+  if (item.status === "confirmed" || item.status === "rejected") {
+    lines.push(`  Decision: ${item.decidedReason} (${item.decidedActor})`);
+  }
+  return lines;
+}
+
+function possibleDuplicateJson(item: PossibleDuplicateDetail): Record<string, unknown> {
+  return {
+    id: item.id,
+    status: item.status,
+    score: item.score,
+    matcher_version: item.matcherVersion,
+    locator_version: item.locatorVersion,
+    signals: item.signals,
+    suggested_review_id: item.suggestedReviewId,
+    candidate_finding_id: item.candidateFindingId,
+    matched_finding_id: item.matchedFindingId,
+    candidate_observation_id: item.candidateObservationId,
+    matched_observation_id: item.matchedObservationId,
+    source_disposition_event_id: item.sourceDispositionEventId,
+    suggested_source_status: item.suggestedSourceStatus,
+    candidate: duplicateFindingJson(item.candidateFinding.id, item.candidateFinding.status, item.candidateObservation),
+    matched: duplicateFindingJson(item.matchedFinding.id, item.matchedFinding.status, item.matchedObservation),
+    source_disposition_event: duplicateEventJson(item.sourceDispositionEvent),
+    inherited_disposition_event_id: item.inheritedDispositionEventId,
+    inherited_disposition_event: item.inheritedDispositionEvent
+      ? duplicateEventJson(item.inheritedDispositionEvent)
+      : null,
+    created_at: item.createdAt,
+    decided_at: item.decidedAt,
+    decided_actor: item.decidedActor,
+    decided_reason: item.decidedReason,
+    inherited_status: item.inheritedStatus,
+    expired_at: item.expiredAt,
+    expired_reason: item.expiredReason,
+  };
+}
+
+function duplicateEventJson(event: PossibleDuplicateDetail["sourceDispositionEvent"]): Record<string, unknown> {
+  return {
+    id: event.id,
+    finding_id: event.findingId,
+    review_id: event.reviewId,
+    event_type: event.eventType,
+    actor: event.actor,
+    reason: event.reason,
+    commit_ref: event.commitRef,
+    verification: event.verification,
+    created_at: event.createdAt,
+  };
+}
+
+function formatDuplicateFinding(
+  id: string,
+  status: string,
+  observation: PossibleDuplicateDetail["candidateObservation"],
+): string {
+  const location = observation ? `${observation.file}:${observation.line}` : "unknown";
+  return `${shortenFindingId(id)} [${status}] ${location}`;
+}
+
+function duplicateFindingJson(
+  id: string,
+  status: string,
+  observation: PossibleDuplicateDetail["candidateObservation"],
+): {
+  id: string;
+  status: string;
+  observation_id: number;
+  location: { file: string; line: number };
+  title: string;
+  body: string;
+  severity: string;
+  confidence: string;
+  evidence: string | null;
+} {
+  return {
+    id,
+    status,
+    observation_id: observation.id,
+    location: { file: observation.file, line: observation.line },
+    title: observation.title,
+    body: observation.body,
+    severity: observation.severity,
+    confidence: observation.confidence,
+    evidence: observation.evidence,
+  };
 }
 
 /**
