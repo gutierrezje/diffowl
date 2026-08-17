@@ -4,11 +4,11 @@ import { loadTypescript } from "./load-typescript.js";
 
 const TS_MODULE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts"] as const;
 const TS_DECLARATION_EXTENSION_RE = /\.d\.(ts|mts|cts)$/;
-const ESM_EXTENSION_REWRITES = new Map([
-  [".js", ".ts"],
-  [".jsx", ".tsx"],
-  [".mjs", ".mts"],
-  [".cjs", ".cts"],
+const ESM_EXTENSION_REWRITES = new Map<string, readonly string[]>([
+  [".js", [".ts", ".tsx"]],
+  [".jsx", [".tsx"]],
+  [".mjs", [".mts"]],
+  [".cjs", [".cts"]],
 ]);
 
 export type BlobOid = string & { readonly __brand: "BlobOid" };
@@ -117,11 +117,14 @@ export function resolveSpecifier(
 
   const resolved = posix.normalize(posix.join(posix.dirname(from), specifier));
   const extension = posix.extname(resolved);
-  const rewrittenExtension = ESM_EXTENSION_REWRITES.get(extension);
+  const rewrittenExtensions = ESM_EXTENSION_REWRITES.get(extension);
   const candidates: string[] = [];
 
-  if (rewrittenExtension) {
-    candidates.push(`${resolved.slice(0, -extension.length)}${rewrittenExtension}`);
+  if (rewrittenExtensions) {
+    const stem = resolved.slice(0, -extension.length);
+    for (const rewrittenExtension of rewrittenExtensions) {
+      candidates.push(`${stem}${rewrittenExtension}`);
+    }
   }
   candidates.push(resolved);
 

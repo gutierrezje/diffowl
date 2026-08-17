@@ -76,6 +76,16 @@ describe("resolveSpecifier", () => {
     expect(resolveSpecifier("src/consumer.ts", "./example.js", new Set(["src/example.ts"]))).toBe(
       "src/example.ts",
     );
+    expect(resolveSpecifier("src/consumer.ts", "./button.js", new Set(["src/button.tsx"]))).toBe(
+      "src/button.tsx",
+    );
+    expect(
+      resolveSpecifier(
+        "src/consumer.ts",
+        "./button.js",
+        new Set(["src/button.ts", "src/button.tsx"]),
+      ),
+    ).toBe("src/button.ts");
   });
 
   it("resolves extension and index candidates against exact paths", () => {

@@ -140,11 +140,17 @@ async function openImpactGraph(
       continue;
     }
 
-    const parsed = parseModuleBindings({ path, content: result.content, oid });
+    let parsed: ModuleBindings | undefined;
+    try {
+      parsed = parseModuleBindings({ path, content: result.content, oid });
+    } catch (error) {
+      addDiagnostic(diagnostics, `TypeScript import index skipped ${path}: ${formatError(error)}.`);
+      continue;
+    }
     if (!parsed) {
       addDiagnostic(
         diagnostics,
-        "TypeScript import index unavailable; reviewing without reference context.",
+        `TypeScript import index skipped ${path}: parser returned no bindings.`,
       );
       continue;
     }
@@ -220,6 +226,7 @@ async function referencesFromGraph(
   const inverted = invertImports(graph, overlay);
   const pending: PendingReference[] = [];
   const seen = new Set<string>();
+  const pendingByTerm = new Map<string, number>();
 
   for (const query of queries) {
     for (const hit of inverted.get(query.target) ?? []) {
@@ -230,21 +237,24 @@ async function referencesFromGraph(
       );
       if (seen.has(key)) continue;
       seen.add(key);
+      const termCount = pendingByTerm.get(query.term) ?? 0;
+      if (termCount >= MAX_REFERENCES_PER_TERM) continue;
+      if (pending.length >= MAX_BATCH_REFERENCE_MATCHES) continue;
+      pendingByTerm.set(query.term, termCount + 1);
       pending.push({ term: query.term, hit });
     }
   }
 
-  if (pending.length > MAX_BATCH_REFERENCE_MATCHES) {
+  if (seen.size > pending.length) {
     addDiagnostic(
       diagnostics,
-      `TypeScript import index found ${pending.length} matches; only the first ${MAX_BATCH_REFERENCE_MATCHES} are included.`,
+      `TypeScript import index found ${seen.size} matches; only ${pending.length} are included.`,
     );
   }
 
-  const limited = pending.slice(0, MAX_BATCH_REFERENCE_MATCHES);
-  const matches = await addReferenceSnippets(source, limited);
+  const matches = await addReferenceSnippets(source, pending);
   const byTerm = new Map<string, ReferenceMatch[]>();
-  for (const [index, reference] of limited.entries()) {
+  for (const [index, reference] of pending.entries()) {
     const termMatches = byTerm.get(reference.term) ?? [];
     if (termMatches.length >= MAX_REFERENCES_PER_TERM) continue;
     const match = matches[index];
@@ -312,11 +322,12 @@ function clauseMatchesSymbol(clause: ImportClause, symbol: string): boolean {
   switch (clause.kind) {
     case "named":
       return clause.names.includes(symbol);
+    case "default":
+      return clause.local === symbol;
     case "namespace":
-    case "side-effect":
     case "export-star":
       return true;
-    case "default":
+    case "side-effect":
       return false;
     default: {
       const _exhaustive: never = clause;

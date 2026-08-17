@@ -2,8 +2,9 @@ import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { execa } from "execa";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetSharedDiffOwlDirForTests } from "../git/state-root.js";
+import * as moduleBindings from "./ast/module-bindings.js";
 import {
   buildReviewContext,
   buildReviewContextFromDiff,
@@ -372,6 +373,192 @@ describe("buildReviewContext", () => {
     expect(
       context.references.find((reference) => reference.term === "Username")?.matches,
     ).toContainEqual(expect.objectContaining({ path: "src/b.ts" }));
+  });
+
+  it("resolves ESM .js specifiers to changed .tsx modules", async () => {
+    const root = await createGitRepository();
+    await mkdir(join(root, "src"));
+    await writeFile(
+      join(root, "src/button.tsx"),
+      "export function Button() { return null; }\n",
+      "utf-8",
+    );
+    await writeFile(
+      join(root, "src/consumer.ts"),
+      "import { Button } from './button.js';\nconsole.log(Button());\n",
+      "utf-8",
+    );
+    await commitAll(root, "initial");
+    await writeFile(
+      join(root, "src/button.tsx"),
+      "export function Button() { return 'ok'; }\n",
+      "utf-8",
+    );
+    await execa("git", ["add", "src/button.tsx"], { cwd: root });
+
+    process.chdir(root);
+    const context = await buildReviewContext({ kind: "staged" }, config);
+
+    expect(
+      context.references.find((reference) => reference.term === "Button")?.matches,
+    ).toContainEqual(expect.objectContaining({ path: "src/consumer.ts" }));
+  });
+
+  it("does not attach side-effect importers to symbol terms", async () => {
+    const root = await createGitRepository();
+    await mkdir(join(root, "src"));
+    await writeFile(
+      join(root, "src/example.ts"),
+      "export function calculateTotal() { return 1; }\n",
+      "utf-8",
+    );
+    await writeFile(join(root, "src/side-effect.ts"), "import './example.js';\n", "utf-8");
+    await writeFile(
+      join(root, "src/named.ts"),
+      "import { calculateTotal } from './example.js';\nconsole.log(calculateTotal());\n",
+      "utf-8",
+    );
+    await commitAll(root, "initial");
+    await writeFile(
+      join(root, "src/example.ts"),
+      "export function calculateTotal() { return 2; }\n",
+      "utf-8",
+    );
+    await execa("git", ["add", "src/example.ts"], { cwd: root });
+
+    process.chdir(root);
+    const context = await buildReviewContext({ kind: "staged" }, config);
+
+    expect(
+      context.references.find((reference) => reference.term === "calculateTotal")?.matches,
+    ).toEqual([expect.objectContaining({ path: "src/named.ts" })]);
+    expect(context.references.find((reference) => reference.term === "example")?.matches).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "src/side-effect.ts" }),
+        expect.objectContaining({ path: "src/named.ts" }),
+      ]),
+    );
+  });
+
+  it("includes default-import sites for a named default export", async () => {
+    const root = await createGitRepository();
+    await mkdir(join(root, "src"));
+    await writeFile(
+      join(root, "src/example.ts"),
+      "export default function createTotal() { return 1; }\n",
+      "utf-8",
+    );
+    await writeFile(
+      join(root, "src/consumer.ts"),
+      "import createTotal from './example.js';\nconsole.log(createTotal());\n",
+      "utf-8",
+    );
+    await commitAll(root, "initial");
+    await writeFile(
+      join(root, "src/example.ts"),
+      "export default function createTotal() { return 2; }\n",
+      "utf-8",
+    );
+    await execa("git", ["add", "src/example.ts"], { cwd: root });
+
+    process.chdir(root);
+    const context = await buildReviewContext({ kind: "staged" }, config);
+
+    expect(
+      context.references.find((reference) => reference.term === "createTotal")?.matches,
+    ).toContainEqual(expect.objectContaining({ path: "src/consumer.ts" }));
+  });
+
+  it("keeps later changed files when an earlier module has hundreds of importers", async () => {
+    const root = await createGitRepository();
+    await mkdir(join(root, "src/importers"), { recursive: true });
+    await writeFile(
+      join(root, "src/popular.ts"),
+      "export function popularFn() { return 1; }\n",
+      "utf-8",
+    );
+    await writeFile(join(root, "src/rare.ts"), "export function rareFn() { return 1; }\n", "utf-8");
+    await writeFile(
+      join(root, "src/rare-consumer.ts"),
+      "import { rareFn } from './rare.js';\nconsole.log(rareFn());\n",
+      "utf-8",
+    );
+    await Promise.all(
+      Array.from({ length: 201 }, (_, index) =>
+        writeFile(
+          join(root, `src/importers/c${String(index).padStart(3, "0")}.ts`),
+          `import { popularFn } from '../popular.js';\nexport const n${String(index)} = popularFn;\n`,
+          "utf-8",
+        ),
+      ),
+    );
+    await commitAll(root, "initial");
+    await writeFile(
+      join(root, "src/popular.ts"),
+      "export function popularFn() { return 2; }\n",
+      "utf-8",
+    );
+    await writeFile(join(root, "src/rare.ts"), "export function rareFn() { return 2; }\n", "utf-8");
+    await execa("git", ["add", "src/popular.ts", "src/rare.ts"], { cwd: root });
+
+    process.chdir(root);
+    const context = await buildReviewContext({ kind: "staged" }, config);
+
+    expect(
+      context.references.find((reference) => reference.term === "rare")?.matches,
+    ).toContainEqual(expect.objectContaining({ path: "src/rare-consumer.ts" }));
+    expect(
+      context.references.find((reference) => reference.term === "popular")?.matches.length,
+    ).toBeGreaterThan(0);
+  }, 20_000);
+
+  it("keeps import references when one module fails to parse", async () => {
+    const root = await createGitRepository();
+    await mkdir(join(root, "src"));
+    await writeFile(
+      join(root, "src/example.ts"),
+      "export function calculateTotal() { return 1; }\n",
+      "utf-8",
+    );
+    await writeFile(
+      join(root, "src/consumer.ts"),
+      "import { calculateTotal } from './example.js';\nconsole.log(calculateTotal());\n",
+      "utf-8",
+    );
+    await writeFile(join(root, "src/broken.ts"), "export const broken = true;\n", "utf-8");
+    await commitAll(root, "initial");
+    await writeFile(
+      join(root, "src/example.ts"),
+      "export function calculateTotal() { return 2; }\n",
+      "utf-8",
+    );
+    await execa("git", ["add", "src/example.ts"], { cwd: root });
+
+    const originalParse = moduleBindings.parseModuleBindings;
+    const spy = vi.spyOn(moduleBindings, "parseModuleBindings").mockImplementation((input) => {
+      if (input.path === "src/broken.ts") {
+        throw new Error("unexpected parser failure");
+      }
+      return originalParse(input);
+    });
+
+    try {
+      process.chdir(root);
+      const context = await buildReviewContext({ kind: "staged" }, config);
+
+      expect(context.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("src/broken.ts"),
+          expect.stringContaining("unexpected parser failure"),
+        ]),
+      );
+      expect(context.diagnostics.join("\n")).not.toContain("TypeScript import index failed");
+      expect(
+        context.references.find((reference) => reference.term === "calculateTotal")?.matches,
+      ).toContainEqual(expect.objectContaining({ path: "src/consumer.ts" }));
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("keeps stale importers connected across a rename", async () => {
