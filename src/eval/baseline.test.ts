@@ -4,11 +4,13 @@ import type { LoadedReviewSnapshot } from "../review/context.js";
 import { BASELINE_AGENT_PROMPT, buildBaselinePrompt, renderBaselineDiff } from "./baseline.js";
 
 const snapshotSource: LoadedReviewSnapshot["source"] = {
+  kind: "git-commit",
+  sha: "abc123",
   async read() {
     return { status: "skipped", reason: "test" };
   },
-  async search() {
-    return "";
+  async listModules() {
+    return new Map();
   },
 };
 
@@ -41,11 +43,11 @@ describe("renderBaselineDiff", () => {
 describe("buildBaselinePrompt", () => {
   it("includes the diff context and target instruction without DiffOwl context framing", () => {
     const diffContext = renderBaselineDiff(makeSnapshot());
-    const prompt = buildBaselinePrompt(
-      { kind: "commit", ref: "HEAD" },
-      diffContext,
-      { include: ["**/*"], exclude: [], rules: ["Reject empty ids."] },
-    );
+    const prompt = buildBaselinePrompt({ kind: "commit", ref: "HEAD" }, diffContext, {
+      include: ["**/*"],
+      exclude: [],
+      rules: ["Reject empty ids."],
+    });
 
     expect(prompt).toContain("Review the selected commit.");
     expect(prompt).toContain("diff --git a/src/user.ts");

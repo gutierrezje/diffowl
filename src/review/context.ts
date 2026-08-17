@@ -1,4 +1,4 @@
-import { basename, dirname, extname, join } from "node:path";
+import { basename, posix } from "node:path";
 import picomatch from "picomatch";
 import { getProjectRoot, type DiffOwlConfig, type ReviewContextDepth } from "../config.js";
 import {
@@ -13,13 +13,14 @@ import {
   type DiffResult,
 } from "../git/diff.js";
 import { extractAstSymbols } from "./ast/index.js";
-import { buildReferenceContexts } from "./context-references.js";
 import {
   createFilesystemContextSource,
   createGitContextSource,
+  toPosixGitPath,
   type ReviewContextSource,
 } from "./context-source.js";
 import type { ChangedFileContext, RelatedFileContext, ReviewContext } from "./context-types.js";
+import { buildReferenceContexts } from "./impact.js";
 import type { ReviewTarget } from "./target.js";
 
 export { renderReviewContext } from "./context-render.js";
@@ -144,7 +145,12 @@ export async function buildReviewContextFromDiff(
   const references =
     depth === "shallow"
       ? []
-      : await buildReferenceContexts(source, changedFiles, skippedFiles, diagnostics);
+      : await buildReferenceContexts(
+          { root, target, diff: diffResult, source },
+          changedFiles,
+          skippedFiles,
+          diagnostics,
+        );
   return {
     target,
     depth,
@@ -407,14 +413,15 @@ function getChangedLinesByFile(rawDiff: string): Map<string, number[]> {
 }
 
 function testCandidates(path: string): string[] {
-  const dir = dirname(path);
-  const ext = extname(path);
-  const base = basename(path, ext);
+  const normalized = toPosixGitPath(path);
+  const dir = posix.dirname(normalized);
+  const ext = posix.extname(normalized);
+  const base = posix.basename(normalized, ext);
   return [
-    join(dir, `${base}.test${ext}`),
-    join(dir, `${base}.spec${ext}`),
-    join(dir, "__tests__", `${base}.test${ext}`),
-    join(dir, "__tests__", `${base}.spec${ext}`),
+    posix.join(dir, `${base}.test${ext}`),
+    posix.join(dir, `${base}.spec${ext}`),
+    posix.join(dir, "__tests__", `${base}.test${ext}`),
+    posix.join(dir, "__tests__", `${base}.spec${ext}`),
   ];
 }
 

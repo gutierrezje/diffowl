@@ -1,16 +1,12 @@
-import { createRequire } from "node:module";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import type tsType from "typescript";
 import type { AstSymbolContext } from "../context-types.js";
+import { loadTypescript } from "./load-typescript.js";
 import type { AstParser, AstParserInput, AstParserResult } from "./types.js";
 
 type tsNode = tsType.Node;
 type tsIdentifier = tsType.Identifier;
 
 const MAX_AST_SYMBOL_CHARS = 8_000;
-
-let cachedTs: typeof tsType | undefined | null = null;
 
 export const typescriptAstParser: AstParser = {
   id: "typescript",
@@ -32,28 +28,12 @@ export const typescriptAstParser: AstParser = {
   },
 };
 
-function tryLoadUserTypescript(): typeof tsType | undefined {
-  if (cachedTs !== null) return cachedTs;
-  try {
-    const require = createRequire(pathToFileURL(join(process.cwd(), "package.json")));
-    cachedTs = require("typescript") as typeof tsType;
-  } catch {
-    try {
-      const fallbackRequire = createRequire(import.meta.url);
-      cachedTs = fallbackRequire("typescript") as typeof tsType;
-    } catch {
-      cachedTs = undefined;
-    }
-  }
-  return cachedTs;
-}
-
 function extractTypeScriptAstSymbols(input: AstParserInput): AstParserResult {
   if (input.changedLines.length === 0) {
     return { symbols: [] };
   }
 
-  const activeTs = tryLoadUserTypescript();
+  const activeTs = loadTypescript();
   if (!activeTs) {
     return {
       symbols: [],

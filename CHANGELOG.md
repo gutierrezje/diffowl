@@ -10,6 +10,10 @@ All notable changes to DiffOwl are documented here. This project adheres to
 
 - `diffowl init` prompts whether to add a managed DiffOwl section to `AGENTS.md`, install the Claude Code session-start findings hook, and install the post-commit hook.
 
+### Changed
+
+- TypeScript reviews resolve import references from a gitignored module index instead of `git grep`.
+
 ## [0.4.0] - 2026-08-14
 
 The **Reliable Review Automation** release. DiffOwl now carries findings across
