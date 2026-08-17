@@ -42,6 +42,7 @@ export interface ListPossibleDuplicateMatchesInput {
   candidateFile: string;
   candidateLine: number;
   candidateSymbolKey: string | null;
+  knownSymbolPrefix: string;
   maxLineDistance: number;
 }
 
@@ -247,7 +248,14 @@ export function listPossibleDuplicateMatches(
             AND LOWER(TRIM(o.symbol_key)) = @candidateSymbolKey
           )
           OR (
-            (@candidateSymbolKey IS NULL OR NULLIF(TRIM(o.symbol_key), '') IS NULL)
+            (
+              @candidateSymbolKey IS NULL
+              OR NULLIF(TRIM(o.symbol_key), '') IS NULL
+              OR NOT (
+                LOWER(TRIM(o.symbol_key)) LIKE LOWER(@knownSymbolPrefix) || '%'
+                AND LENGTH(TRIM(o.symbol_key)) > LENGTH(@knownSymbolPrefix)
+              )
+            )
             AND ABS(o.line - @candidateLine) <= @maxLineDistance
           )
         )
@@ -265,6 +273,7 @@ export function listPossibleDuplicateMatches(
       candidateFile: input.candidateFile,
       candidateLine: input.candidateLine,
       candidateSymbolKey: input.candidateSymbolKey,
+      knownSymbolPrefix: input.knownSymbolPrefix,
       maxLineDistance: input.maxLineDistance,
     }) as MatchRow[];
   return rows.map((row) => ({

@@ -85,8 +85,8 @@ export function suggestPossibleDuplicates(
         score: best.lexicalSimilarity,
         signals: {
           lexicalSimilarity: best.lexicalSimilarity,
-          candidateSymbol: persisted.observation.symbolKey,
-          matchedSymbol: best.observation.symbolKey,
+          candidateSymbol: normalizeSymbol(persisted.observation.symbolKey),
+          matchedSymbol: normalizeSymbol(best.observation.symbolKey),
           lineDistance: best.lineDistance,
           matchKind: best.matchKind,
         },
@@ -209,6 +209,7 @@ function findBestMatch(
     candidateFile: normalizeFingerprintText(candidateObservation.file),
     candidateLine: candidateObservation.line,
     candidateSymbolKey: normalizeSymbol(candidateObservation.symbolKey),
+    knownSymbolPrefix: SYMBOL_KEY_PREFIX,
     maxLineDistance: MAX_LINE_DISTANCE,
   });
   const eligible: MatchResult[] = [];
@@ -408,7 +409,10 @@ function normalizePinnedSymbol(
   }
   const normalized = normalizeFingerprintText(symbol);
   const prefix = /^ts-v(\d+)\|/.exec(normalized);
-  if (!prefix || normalized.length === prefix[0].length || Number(prefix[1]) !== locatorVersion) {
+  if (!prefix) {
+    return null;
+  }
+  if (normalized.length === prefix[0].length || Number(prefix[1]) !== locatorVersion) {
     throw new StateDatabaseError(
       `Possible duplicate ${linkId} has a ${side} symbol inconsistent with locator version ${locatorVersion}.`,
     );
@@ -426,7 +430,10 @@ function normalizeSignalSymbol(
   }
   const normalized = normalizeFingerprintText(symbol);
   const prefix = /^ts-v(\d+)\|/.exec(normalized);
-  if (!prefix || normalized.length === prefix[0].length) {
+  if (!prefix) {
+    return null;
+  }
+  if (normalized.length === prefix[0].length) {
     throw new StateDatabaseError(`Possible duplicate ${linkId} has an invalid ${side} signal symbol.`);
   }
   return normalized;

@@ -381,6 +381,34 @@ describe("possible duplicate suggestions", () => {
     }
   });
 
+  it("treats unprefixed legacy symbols as missing for line-distance suggestions", async () => {
+    const dir = await createStateDir();
+    const matchedId = await seedResolvedFinding(dir, makeFinding(), "function:handle");
+    const result = await persistQuoteDrift(dir, {}, "function:handle");
+
+    expect(result.possibleDuplicateSuggestions).toHaveLength(1);
+    expect(result.possibleDuplicateSuggestions[0]).toMatchObject({
+      matchedFindingId: matchedId,
+      signals: {
+        candidateSymbol: null,
+        matchedSymbol: null,
+        matchKind: "line-distance",
+      },
+    });
+
+    const state = await openStateDatabase(dir);
+    try {
+      const detail = listPossibleDuplicates(state.db, "suggested")[0]!;
+      expect(detail.candidateObservation.symbolKey).toBe("function:handle");
+      expect(detail.matchedObservation.symbolKey).toBe("function:handle");
+      expect(detail.signals.candidateSymbol).toBeNull();
+      expect(detail.signals.matchedSymbol).toBeNull();
+      expect(detail.signals.matchKind).toBe("line-distance");
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
   it.each([
     {
       name: "score and lexical similarity disagree",
