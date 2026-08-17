@@ -1,0 +1,57 @@
+name: Bug
+description: Report a reproducible behavior that differs from the intended contract.
+title: "fix: "
+labels:
+  - bug
+  - needs-triage
+body:
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      description: What happened? Include the exact error or incorrect output when possible.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Give the smallest reliable sequence that triggers the problem.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Add logs, screenshots, versions, repositories, or other useful artifacts.
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: State the regression proof and any other observable completion conditions.
+      placeholder: |
+        - [ ] A focused regression test fails before the fix and passes after it.
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: Name adjacent cleanup or redesign that should remain separate.

@@ -9,11 +9,13 @@ Local AI code review CLI. Orchestrates a headless OpenCode server and delegates 
 
 ### Issue tracker
 
-Issues and Wayfinder maps live in the Linear `DiffOwl` project under the `Creator` team. See `docs/agents/issue-tracker.md`.
+GitHub Issues are the canonical tracker for non-trivial work and follow-ups. See
+`CONTRIBUTING.md` for issue shape, parallel-work rules, and the pull request
+quality bar.
 
 ### Triage labels
 
-Use the canonical triage labels configured in Linear. See `docs/agents/triage-labels.md`.
+Use the GitHub workflow labels defined in `CONTRIBUTING.md`.
 
 ### Domain docs
 

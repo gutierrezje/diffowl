@@ -1,0 +1,39 @@
+name: Feature or improvement
+description: Propose a focused product, integration, or engineering outcome.
+labels:
+  - enhancement
+  - needs-triage
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: What should be true when this work is complete?
+      placeholder: A user or agent can...
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What problem does this solve, and why is it worth doing now?
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List observable conditions that prove the outcome.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: Name adjacent work this issue should not absorb.
