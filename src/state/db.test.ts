@@ -288,6 +288,12 @@ describe("openStateDatabase", () => {
       2: MIGRATION_002_BASE_REVIEW_TARGET,
       3: MIGRATION_003_POSSIBLE_DUPLICATES,
     });
+    db.exec(`
+      CREATE UNIQUE INDEX idx_finding_observations_id_finding_id
+        ON finding_observations(id, finding_id);
+      CREATE UNIQUE INDEX idx_finding_events_id_finding_id_type
+        ON finding_events(id, finding_id, event_type);
+    `);
 
     const createdAt = "2026-08-17T00:00:00.000Z";
     db.prepare(

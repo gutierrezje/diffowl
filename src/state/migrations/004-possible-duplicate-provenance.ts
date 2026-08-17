@@ -9,6 +9,8 @@ DROP INDEX IF EXISTS idx_possible_duplicates_status;
 DROP INDEX IF EXISTS idx_possible_duplicates_candidate;
 DROP INDEX IF EXISTS idx_possible_duplicates_matched;
 DROP TABLE finding_possible_duplicates;
+DROP INDEX IF EXISTS idx_finding_observations_id_finding_id;
+DROP INDEX IF EXISTS idx_finding_events_id_finding_id_type;
 
 CREATE UNIQUE INDEX idx_finding_observations_id_finding_id
   ON finding_observations(id, finding_id);
