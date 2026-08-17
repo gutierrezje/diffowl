@@ -9,11 +9,11 @@ export function loadTypescript(): typeof tsType | undefined {
   if (cachedTypescript !== null) return cachedTypescript;
 
   try {
-    const require = createRequire(pathToFileURL(join(process.cwd(), "package.json")));
+    const require = createRequire(import.meta.url);
     cachedTypescript = require("typescript") as typeof tsType;
   } catch {
     try {
-      const require = createRequire(import.meta.url);
+      const require = createRequire(pathToFileURL(join(process.cwd(), "package.json")));
       cachedTypescript = require("typescript") as typeof tsType;
     } catch {
       cachedTypescript = undefined;

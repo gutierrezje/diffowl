@@ -1,7 +1,8 @@
-import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { execa } from "execa";
+import typescript from "typescript";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetSharedDiffOwlDirForTests } from "../git/state-root.js";
 import * as moduleBindings from "./ast/module-bindings.js";
@@ -49,6 +50,31 @@ const config: DiffOwlConfig = {
   skip_doc_only: false,
   verbose: false,
 };
+
+describe("loadTypescript", () => {
+  it("loads DiffOwl's TypeScript dependency before a reviewed project's package", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
+    tempDirs.push(root);
+    await mkdir(join(root, "node_modules", "typescript"), { recursive: true });
+    await writeFile(join(root, "package.json"), "{}\n", "utf-8");
+    await writeFile(
+      join(root, "node_modules", "typescript", "package.json"),
+      JSON.stringify({ name: "typescript", version: "0.0.0-fake", main: "index.js" }),
+      "utf-8",
+    );
+    await writeFile(
+      join(root, "node_modules", "typescript", "index.js"),
+      "module.exports = { version: '0.0.0-fake' };\n",
+      "utf-8",
+    );
+    process.chdir(root);
+    vi.resetModules();
+
+    const { loadTypescript } = await import("./ast/load-typescript.js");
+
+    expect(loadTypescript()?.version).toBe(typescript.version);
+  });
+});
 
 describe("buildReviewContext", () => {
   it("renders merge diffs and maps resolved result lines", async () => {
@@ -622,6 +648,48 @@ describe("buildReviewContext", () => {
     const oid = stdout.match(/^\d+ ([0-9a-f]{40}) 0\t/)?.[1];
     expect(oid).toBeDefined();
     await writeFile(join(root, ".diffowl", "impact", "blobs", `${oid}.json`), "{", "utf-8");
+
+    const second = await buildReviewContext({ kind: "staged" }, config);
+
+    expect(
+      second.references.find((reference) => reference.term === "calculateTotal")?.matches,
+    ).toContainEqual(expect.objectContaining({ path: "src/consumer.ts" }));
+  });
+
+  it("rebuilds a blob cache entry produced by a different TypeScript parser", async () => {
+    const root = await createGitRepository();
+    await mkdir(join(root, "src"));
+    await writeFile(
+      join(root, "src/example.ts"),
+      "export function calculateTotal() { return 1; }\n",
+      "utf-8",
+    );
+    await writeFile(
+      join(root, "src/consumer.ts"),
+      "import { calculateTotal } from './example.js';\nconsole.log(calculateTotal());\n",
+      "utf-8",
+    );
+    await commitAll(root, "initial");
+    await writeFile(
+      join(root, "src/example.ts"),
+      "export function calculateTotal() { return 2; }\n",
+      "utf-8",
+    );
+    await execa("git", ["add", "src/example.ts"], { cwd: root });
+    process.chdir(root);
+
+    const first = await buildReviewContext({ kind: "staged" }, config);
+    expect(first.references.some((reference) => reference.term === "calculateTotal")).toBe(true);
+    const { stdout } = await execa("git", ["ls-files", "-s", "--cached", "--", "src/consumer.ts"], {
+      cwd: root,
+    });
+    const oid = stdout.match(/^\d+ ([0-9a-f]{40}) 0\t/)?.[1];
+    expect(oid).toBeDefined();
+    const blobPath = join(root, ".diffowl", "impact", "blobs", `${oid}.json`);
+    const cached = JSON.parse(await readFile(blobPath, "utf-8")) as Record<string, unknown>;
+    cached["parserVersion"] = "0.0.0-mismatch";
+    cached["imports"] = [];
+    await writeFile(blobPath, `${JSON.stringify(cached)}\n`, "utf-8");
 
     const second = await buildReviewContext({ kind: "staged" }, config);
 

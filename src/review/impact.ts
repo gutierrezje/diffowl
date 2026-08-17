@@ -28,7 +28,7 @@ const REFERENCE_SNIPPET_RADIUS = 2;
 const MAX_REFERENCE_SNIPPET_CHARS = 1_200;
 const MAX_REFERENCE_SNIPPET_FILE_BYTES = 256 * 1024;
 const MAX_PARSE_FILE_BYTES = 512 * 1024;
-const IMPACT_SCHEMA_VERSION = 1;
+const IMPACT_SCHEMA_VERSION = 2;
 
 type ImpactSnapshot = {
   root: string;
@@ -75,7 +75,8 @@ export async function buildReferenceContexts(
   skippedFiles: DiffFile[],
   diagnostics: string[],
 ): Promise<ReferenceContext[]> {
-  if (!loadTypescript()) {
+  const typescript = loadTypescript();
+  if (!typescript) {
     addDiagnostic(
       diagnostics,
       "TypeScript import index unavailable; reviewing without reference context.",
@@ -84,7 +85,7 @@ export async function buildReferenceContexts(
   }
 
   try {
-    const graph = await openImpactGraph(snapshot, diagnostics);
+    const graph = await openImpactGraph(snapshot, diagnostics, typescript.version);
     return await referencesFromGraph(
       graph,
       overlayFromDiff(snapshot.diff),
@@ -102,6 +103,7 @@ export async function buildReferenceContexts(
 async function openImpactGraph(
   snapshot: ImpactSnapshot,
   diagnostics: string[],
+  parserVersion: string,
 ): Promise<ImpactGraph> {
   const listed = await snapshot.source.listModules();
   const files = new Map<string, BlobOid>();
@@ -128,7 +130,7 @@ async function openImpactGraph(
   }
 
   for (const [oid, path] of pathsByOid) {
-    const cached = await readBlobFile(impactDir, oid);
+    const cached = await readBlobFile(impactDir, oid, parserVersion);
     if (cached) {
       bindings.set(oid, cached);
       continue;
@@ -155,7 +157,7 @@ async function openImpactGraph(
       continue;
     }
     bindings.set(oid, parsed);
-    await writeBlobFile(impactDir, parsed);
+    await writeBlobFile(impactDir, parsed, parserVersion);
   }
 
   return { files, bindings };
@@ -455,14 +457,23 @@ function snapshotKeyFileName(key: SnapshotKey): string {
   return `${snapshotKeyValue(key).replace(":", "-")}.json`;
 }
 
-async function readBlobFile(impactDir: string, oid: BlobOid): Promise<ModuleBindings | undefined> {
+async function readBlobFile(
+  impactDir: string,
+  oid: BlobOid,
+  parserVersion: string,
+): Promise<ModuleBindings | undefined> {
   const raw = await readJson(join(impactDir, "blobs", `${oid}.json`));
-  return parseBlobRecord(raw, oid);
+  return parseBlobRecord(raw, oid, parserVersion);
 }
 
-async function writeBlobFile(impactDir: string, bindings: ModuleBindings): Promise<void> {
+async function writeBlobFile(
+  impactDir: string,
+  bindings: ModuleBindings,
+  parserVersion: string,
+): Promise<void> {
   await writeJsonAtomic(join(impactDir, "blobs", `${bindings.oid}.json`), {
     version: IMPACT_SCHEMA_VERSION,
+    parserVersion,
     oid: bindings.oid,
     exports: bindings.exports,
     imports: bindings.imports,
@@ -489,10 +500,15 @@ async function writeTreeFile(
   });
 }
 
-function parseBlobRecord(raw: unknown, expectedOid: BlobOid): ModuleBindings | undefined {
+function parseBlobRecord(
+  raw: unknown,
+  expectedOid: BlobOid,
+  parserVersion: string,
+): ModuleBindings | undefined {
   if (
     !isRecord(raw) ||
     raw["version"] !== IMPACT_SCHEMA_VERSION ||
+    raw["parserVersion"] !== parserVersion ||
     raw["oid"] !== expectedOid ||
     !Array.isArray(raw["exports"]) ||
     !Array.isArray(raw["imports"])
