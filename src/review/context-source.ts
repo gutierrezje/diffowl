@@ -224,6 +224,7 @@ async function* readGitModules(
     cancelSignal: signal,
     input: [...entries.values()].map((oid) => `${oid}\n`).join(""),
   });
+  void subprocess.catch(() => {});
   const stdout = subprocess.stdout;
   if (!stdout) throw new Error("Git bulk object reader did not expose stdout.");
   const reader = new GitBatchReader(stdout);
@@ -269,6 +270,7 @@ async function* readGitModules(
     }
     await subprocess;
   } finally {
+    stdout.destroy();
     if (subprocess.exitCode === null && subprocess.signalCode === null) subprocess.kill();
     await subprocess.catch(() => undefined);
   }

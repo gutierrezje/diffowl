@@ -129,6 +129,45 @@ describe("ReviewContextSource.readModules", () => {
       },
     ]);
   });
+
+  it("does not emit an unhandled rejection when aborted while a read is paused", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-context-source-"));
+    tempDirs.push(root);
+    await execa("git", ["init"], { cwd: root });
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src/first.ts"), "export const first = true;\n", "utf8");
+    await writeFile(join(root, "src/second.ts"), "x".repeat(1024 * 1024), "utf8");
+    await execa("git", ["add", "."], { cwd: root });
+    const oid = async (path: string) =>
+      (await execa("git", ["rev-parse", `:${path}`], { cwd: root })).stdout.trim();
+    const entries = new Map([
+      ["src/first.ts", await oid("src/first.ts")],
+      ["src/second.ts", await oid("src/second.ts")],
+    ]);
+    const controller = new AbortController();
+    const iterator = createGitContextSource(root, { kind: "staged" })
+      .readModules(entries, 128, controller.signal)
+      [Symbol.asyncIterator]();
+    const first = await iterator.next();
+    expect(first.value).toEqual({
+      path: "src/first.ts",
+      status: "loaded",
+      content: "export const first = true;\n",
+    });
+
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      controller.abort();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      await expect(iterator.next()).rejects.toMatchObject({ name: "AbortError" });
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+
+    expect(unhandled).toEqual([]);
+  });
 });
 
 describe("toPosixGitPath", () => {
