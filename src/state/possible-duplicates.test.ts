@@ -238,9 +238,9 @@ describe("possible duplicate suggestions", () => {
           }),
         ),
       );
-      for (const item of history.observations) {
-        dismissFinding(state.db, item.finding.id, { actor: "user", reason: "bound fixture" });
-      }
+      state.db
+        .prepare("UPDATE findings SET status = 'dismissed' WHERE last_review_id = ?")
+        .run(historicalReview.id);
       const targetId = history.observations[0]!.finding.id;
       state.db.prepare("UPDATE findings SET updated_at = ? WHERE id = ?").run("2000-01-01", targetId);
 
@@ -287,9 +287,9 @@ describe("possible duplicate suggestions", () => {
           }),
         ),
       ]);
-      for (const item of history.observations) {
-        dismissFinding(state.db, item.finding.id, { actor: "user", reason: "prefilter fixture" });
-      }
+      state.db
+        .prepare("UPDATE findings SET status = 'dismissed' WHERE last_review_id = ?")
+        .run(historicalReview.id);
       const targetId = history.observations[0]!.finding.id;
       state.db.prepare("UPDATE findings SET updated_at = ? WHERE id = ?").run("2000-01-01", targetId);
 

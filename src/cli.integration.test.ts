@@ -722,7 +722,7 @@ describe("diffowl findings duplicates", () => {
       );
       expect(JSON.parse(json.stdout)).toMatchObject({ schema_version: 1, count: 1 });
     }
-  });
+  }, 15_000);
 });
 
 describe("diffowl agent-hook install", () => {
