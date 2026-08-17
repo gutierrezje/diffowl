@@ -487,7 +487,7 @@ describe("buildReviewContext", () => {
       Array.from({ length: 201 }, (_, index) =>
         writeFile(
           join(root, `src/importers/c${String(index).padStart(3, "0")}.ts`),
-          `import { popularFn } from '../popular.js';\nexport const n${String(index)} = popularFn;\n`,
+          "import { popularFn } from '../popular.js';\nexport const n = popularFn;\n",
           "utf-8",
         ),
       ),
