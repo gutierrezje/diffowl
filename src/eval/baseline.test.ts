@@ -9,6 +9,7 @@ const snapshotSource: LoadedReviewSnapshot["source"] = {
   async read() {
     return { status: "skipped", reason: "test" };
   },
+  async *readModules() {},
   async listModules() {
     return new Map();
   },

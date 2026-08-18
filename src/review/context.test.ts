@@ -12,6 +12,7 @@ import {
   loadReviewSnapshot,
   renderReviewContext,
 } from "./context.js";
+import type { ReviewContextSource } from "./context-source.js";
 import type { DiffOwlConfig } from "../config.js";
 
 const originalCwd = process.cwd();
@@ -77,6 +78,63 @@ describe("loadTypescript", () => {
 });
 
 describe("buildReviewContext", () => {
+  it("aborts a stalled import index after ten seconds and records a timeout diagnostic", async () => {
+    const root = await createGitRepository();
+    vi.useFakeTimers();
+    process.chdir(root);
+
+    let unblock!: () => void;
+    const blockedRead = new Promise<void>((resolve) => (unblock = resolve));
+    let observedSignal: AbortSignal | undefined;
+    const content = "export const value = 1;\n";
+    const source: ReviewContextSource = {
+      kind: "git-index",
+      async read() {
+        return { status: "loaded", content };
+      },
+      async listModules(signal) {
+        observedSignal = signal;
+        return new Map([["src/value.ts", "a".repeat(40)]]);
+      },
+      readModules(_entries, _maxBytes, _signal) {
+        return (async function* () {
+          await blockedRead;
+          yield { path: "src/value.ts", status: "loaded", content };
+        })();
+      },
+    };
+
+    const contextPromise = buildReviewContextFromDiff(
+      {
+        root,
+        target: { kind: "staged" },
+        source,
+        diff: {
+          raw: "",
+          summary: "~ src/value.ts (+1/-1)",
+          files: [{ path: "src/value.ts", status: "modified", additions: 1, deletions: 1 }],
+        },
+      },
+      config,
+    );
+
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(observedSignal?.aborted).toBe(true);
+      unblock();
+      const context = await contextPromise;
+
+      expect(context.references).toEqual([]);
+      expect(context.diagnostics).toContain(
+        "TypeScript import index timed out after 10 seconds; review continued without reference context.",
+      );
+    } finally {
+      unblock();
+      vi.useRealTimers();
+    }
+  });
+
   it("renders merge diffs and maps resolved result lines", async () => {
     const root = await createGitRepository();
     await writeFile(join(root, "example.ts"), 'export const value = "base";\n', "utf-8");
