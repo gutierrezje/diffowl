@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import { execa } from "execa";
 import { createInterface } from "node:readline";
 
@@ -93,7 +94,6 @@ type NotificationWaiter = {
   reject(reason: unknown): void;
 };
 type Exit = { code: number | null; signal: NodeJS.Signals | null };
-type SpawnState = "pending" | "spawned" | "failed";
 
 export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer {
   const stderrMaxBytes = options.stderrMaxBytes ?? DEFAULT_STDERR_MAX_BYTES;
@@ -126,7 +126,6 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
   let stderr = Buffer.alloc(0);
   let terminalError: AppServerPeerError | undefined;
   let exit: Exit | undefined;
-  let spawnState: SpawnState = "pending";
   let exitedBeforeClose = false;
   let stdoutEndedBeforeClose = false;
   let closing = false;
@@ -154,10 +153,6 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
     const stdin = child.stdin;
     if (stdin === null) throw new AppServerPeerError("process", "App Server stdin is unavailable.");
     stdin.write(`${JSON.stringify(message)}\n`);
-  };
-  const failPrematureEof = (message: string): void => {
-    if (spawnState === "pending" || closing || terminalError !== undefined) return;
-    fail(new AppServerPeerError("premature-eof", message), false);
   };
   const parse = (raw: unknown): AppServerMessage => {
     if (!isRecord(raw)) {
@@ -235,7 +230,10 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
     if (!closing) exitedBeforeClose = true;
     for (const resolve of exitWaiters.splice(0)) resolve(exit);
     if (!closing && terminalError === undefined) {
-      failPrematureEof("App Server process ended before close.");
+      fail(
+        new AppServerPeerError("premature-eof", "App Server process ended before close."),
+        false,
+      );
     } else if (closing && pending.size > 0) {
       fail(new AppServerPeerError("process", "App Server process ended with pending requests."));
     }
@@ -244,23 +242,12 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
     }
   };
   child.once("close", onExit);
-  child.once("spawn", () => {
-    spawnState = "spawned";
-    if (exit !== undefined || stdoutEndedBeforeClose)
-      failPrematureEof(
-        stdoutEndedBeforeClose
-          ? "App Server stdout ended before close."
-          : "App Server process ended before close.",
-      );
-  });
   child.once("error", (error: NodeJS.ErrnoException) => {
-    spawnState = "failed";
+    const missing = hasErrorCode(error, "ENOENT") && hasUsableCwd(options.cwd);
     fail(
       new AppServerPeerError(
-        error.code === "ENOENT" ? "executable-missing" : "process",
-        error.code === "ENOENT"
-          ? "App Server executable was not found."
-          : "App Server process failed.",
+        missing ? "executable-missing" : "process",
+        missing ? "App Server executable was not found." : "App Server process failed.",
       ),
     );
   });
@@ -289,12 +276,26 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
         }
       }
       if (!closing) stdoutEndedBeforeClose = true;
-      if (!closing && exit === undefined) failPrematureEof("App Server stdout ended before close.");
     } catch {
       fail(new AppServerPeerError("process", "App Server stdout could not be read."));
     }
   })();
-  void child.catch(() => undefined);
+  void child.then(
+    (result) => {
+      if (!result.failed || terminalError !== undefined || exit !== undefined) return;
+      const missing = hasErrorCode(result, "ENOENT") && hasUsableCwd(options.cwd);
+      fail(
+        new AppServerPeerError(
+          missing ? "executable-missing" : "process",
+          missing ? "App Server executable was not found." : "App Server process failed.",
+        ),
+      );
+    },
+    () => {
+      if (terminalError === undefined && exit === undefined)
+        fail(new AppServerPeerError("process", "App Server process failed."));
+    },
+  );
 
   const waitForExit = (timeoutMs: number): Promise<Exit | undefined> => {
     if (exit !== undefined) return Promise.resolve(exit);
@@ -398,4 +399,25 @@ function redact(value: string, secrets: readonly string[]): string {
     if (secret !== "") result = result.replaceAll(secret, "[REDACTED]");
   }
   return result;
+}
+
+function hasUsableCwd(cwd: string | undefined): boolean {
+  if (cwd === undefined) return true;
+  try {
+    return statSync(cwd).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function hasErrorCode(value: unknown, code: string): boolean {
+  let current: unknown = value;
+  const seen = new Set<object>();
+  while (isRecord(current)) {
+    if (seen.has(current)) return false;
+    seen.add(current);
+    if (current["code"] === code) return true;
+    current = current["cause"];
+  }
+  return false;
 }

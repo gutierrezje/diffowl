@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { delimiter, extname, isAbsolute, join, relative } from "node:path";
 import { execa } from "execa";
 import { buildExperimentEnvironment } from "./environment.js";
 
@@ -251,12 +251,15 @@ async function runCodex(
   const remaining = deadline - performance.now();
   if (remaining <= 0) throw new ProtocolTimeoutError(phase);
   const childEnv = buildExperimentEnvironment(options.env);
+  await ensureExecutableAvailable(options.executable, childEnv, deadline, phase);
+  const commandRemaining = deadline - performance.now();
+  if (commandRemaining <= 0) throw new ProtocolTimeoutError(phase);
   try {
     const result = await execa(options.executable, args, {
       env: childEnv,
       extendEnv: false,
       reject: true,
-      timeout: remaining,
+      timeout: commandRemaining,
       killSignal: "SIGTERM",
       forceKillAfterDelay: 100,
     });
@@ -272,6 +275,66 @@ async function runCodex(
     );
     throw new ProtocolGenerationError(phase, stderr);
   }
+}
+
+async function ensureExecutableAvailable(
+  executable: string,
+  env: NodeJS.ProcessEnv,
+  deadline: number,
+  phase: string,
+): Promise<void> {
+  for (const candidate of executableCandidates(executable, env)) {
+    if (await isFile(candidate, deadline, phase)) return;
+  }
+  throw new ProtocolEvidenceError("executable-missing", "Codex CLI executable was not found.");
+}
+
+function executableCandidates(executable: string, env: NodeJS.ProcessEnv): string[] {
+  const suffixes = executableSuffixes(executable, env);
+  const names = suffixes.map((suffix) => `${executable}${suffix}`);
+  if (isPathLike(executable)) return names;
+  const pathValue = environmentValue(env, "PATH");
+  if (pathValue === undefined) return [];
+  return pathValue
+    .split(delimiter)
+    .flatMap((directory) => names.map((name) => join(directory === "" ? "." : directory, name)));
+}
+
+function executableSuffixes(executable: string, env: NodeJS.ProcessEnv): string[] {
+  if (process.platform !== "win32" || extname(executable) !== "") return [""];
+  const pathExt = environmentValue(env, "PATHEXT");
+  const extensions = pathExt?.split(delimiter).filter((extension) => extension !== "") ?? [
+    ".COM",
+    ".EXE",
+    ".BAT",
+    ".CMD",
+  ];
+  return [
+    "",
+    ...extensions.map((extension) => (extension.startsWith(".") ? extension : `.${extension}`)),
+  ];
+}
+
+function isPathLike(executable: string): boolean {
+  return isAbsolute(executable) || executable.includes("/") || executable.includes("\\");
+}
+
+async function isFile(candidate: string, deadline: number, phase: string): Promise<boolean> {
+  try {
+    return (await withDeadline(stat(candidate), deadline, phase)).isFile();
+  } catch (error) {
+    if (error instanceof ProtocolTimeoutError) throw error;
+    return !isMissingPathError(error);
+  }
+}
+
+function environmentValue(env: NodeJS.ProcessEnv, key: string): string | undefined {
+  let value: string | undefined;
+  const normalizedKey = key.toUpperCase();
+  for (const [name, entry] of Object.entries(env)) {
+    if (name.toUpperCase() === normalizedKey && entry !== undefined) value = entry;
+  }
+  return value;
 }
 
 async function inspectTree(
@@ -364,4 +427,9 @@ function isMissingExecutableError(error: unknown): boolean {
     current = current["cause"];
   }
   return false;
+}
+
+function isMissingPathError(error: unknown): boolean {
+  if (!isRecord(error)) return false;
+  return error["code"] === "ENOENT" || error["code"] === "ENOTDIR";
 }

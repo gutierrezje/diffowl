@@ -18,6 +18,17 @@ describe("startAppServerPeer", () => {
     await peer.close();
   });
 
+  it("rejects and closes when the child cwd does not exist", async () => {
+    const peer = startAppServerPeer({
+      executable: process.execPath,
+      cwd: join(tmpdir(), `diffowl-missing-cwd-${randomUUID()}`),
+      closeTimeoutMs: 100,
+    });
+
+    await expect(peer.request("missing-cwd")).rejects.toMatchObject({ kind: "process" });
+    await expect(peer.close()).resolves.toBeDefined();
+  });
+
   it("registers a request before an immediate child reply can arrive", async () => {
     const peer = startAppServerPeer({
       executable: process.execPath,

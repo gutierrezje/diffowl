@@ -1,7 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { inspectCodexProtocol } from "./protocol-evidence.js";
 
@@ -51,9 +52,25 @@ describe("inspectCodexProtocol", () => {
   });
 
   it("reports a missing executable", async () => {
-    await expect(
-      inspectCodexProtocol({ executable: "/definitely/missing/codex", timeoutMs: 1_000 }),
-    ).rejects.toMatchObject({ kind: "executable-missing" });
+    const executable = join(tmpdir(), `diffowl-missing-codex-${randomUUID()}`);
+    await expect(inspectCodexProtocol({ executable, timeoutMs: 1_000 })).rejects.toMatchObject({
+      kind: "executable-missing",
+    });
+  });
+
+  it("resolves a bare executable through the sanitized PATH", async () => {
+    const pathKey = process.platform === "win32" ? "Path" : "PATH";
+    const executable =
+      process.platform === "win32"
+        ? basename(process.execPath, extname(process.execPath))
+        : basename(process.execPath);
+    const evidence = await inspectCodexProtocol({
+      executable,
+      prefixArgs: [fixture],
+      env: { [pathKey]: dirname(process.execPath) },
+      timeoutMs: 5_000,
+    });
+    expect(evidence.codexCliVersion).toBe("codex-cli 0.147.0");
   });
 
   it("rejects an invalid version", async () => {

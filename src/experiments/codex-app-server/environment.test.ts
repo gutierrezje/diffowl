@@ -13,6 +13,8 @@ describe("buildExperimentEnvironment", () => {
       },
       {
         PATH: "/bin",
+        Path: "C:\\Windows\\System32",
+        PATHEXT: ".COM;.EXE;.BAT;.CMD",
         HOME: "/tmp/home",
         REVIEW_SENTINEL: "do-not-inherit",
         API_TOKEN: "secret",
@@ -22,6 +24,8 @@ describe("buildExperimentEnvironment", () => {
     );
     expect(environment).toMatchObject({
       PATH: "/bin",
+      Path: "C:\\Windows\\System32",
+      PATHEXT: ".COM;.EXE;.BAT;.CMD",
       HOME: "/tmp/home",
       MOCK_APP_SERVER_MODE: "immediate",
       MOCK_CLI_STDERR_VALUE: "visible-control",
