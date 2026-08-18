@@ -1,5 +1,5 @@
 import { statSync } from "node:fs";
-import { delimiter, extname, isAbsolute, join } from "node:path";
+import { delimiter, extname, isAbsolute, join, resolve } from "node:path";
 import { execa } from "execa";
 import { createInterface } from "node:readline";
 
@@ -112,7 +112,11 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
       : options.extendEnv === false
         ? options.env
         : { ...process.env, ...options.env };
-  const executable = ensureExecutableAvailable(options.executable, childEnv);
+  const executable = ensureExecutableAvailable(
+    options.executable,
+    childEnv,
+    options.cwd ?? process.cwd(),
+  );
 
   const child = execa(executable, [...(options.args ?? [])], {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
@@ -419,22 +423,30 @@ function hasUsableCwd(cwd: string | undefined): boolean {
   }
 }
 
-function ensureExecutableAvailable(executable: string, env: NodeJS.ProcessEnv): string {
-  for (const candidate of executableCandidates(executable, env)) {
+function ensureExecutableAvailable(
+  executable: string,
+  env: NodeJS.ProcessEnv,
+  cwd: string,
+): string {
+  for (const candidate of executableCandidates(executable, env, cwd)) {
     if (isExistingFile(candidate)) return candidate;
   }
   throw new AppServerPeerError("executable-missing", "App Server executable was not found.");
 }
 
-function executableCandidates(executable: string, env: NodeJS.ProcessEnv): string[] {
+function executableCandidates(executable: string, env: NodeJS.ProcessEnv, cwd: string): string[] {
   const suffixes = executableSuffixes(executable, env);
-  const names = suffixes.map((suffix) => `${executable}${suffix}`);
+  const names = suffixes.map((suffix) => resolveCandidate(`${executable}${suffix}`, cwd));
   if (isPathLike(executable)) return names;
   const pathValue = environmentValue(env, "PATH");
   if (pathValue === undefined) return [];
   return pathValue
     .split(delimiter)
-    .flatMap((directory) => names.map((name) => join(directory === "" ? "." : directory, name)));
+    .flatMap((directory) =>
+      suffixes.map((suffix) =>
+        resolveCandidate(join(directory === "" ? "." : directory, `${executable}${suffix}`), cwd),
+      ),
+    );
 }
 
 function executableSuffixes(executable: string, env: NodeJS.ProcessEnv): string[] {
@@ -454,6 +466,10 @@ function executableSuffixes(executable: string, env: NodeJS.ProcessEnv): string[
 
 function isPathLike(executable: string): boolean {
   return isAbsolute(executable) || executable.includes("/") || executable.includes("\\");
+}
+
+function resolveCandidate(candidate: string, cwd: string): string {
+  return isAbsolute(candidate) ? candidate : resolve(cwd, candidate);
 }
 
 function isExistingFile(candidate: string): boolean {

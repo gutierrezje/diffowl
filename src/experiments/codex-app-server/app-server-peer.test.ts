@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, extname, join } from "node:path";
+import { basename, dirname, extname, join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import { fileURLToPath } from "node:url";
 import { AppServerPeerError, startAppServerPeer } from "./app-server-peer.js";
@@ -40,6 +41,24 @@ describe("startAppServerPeer", () => {
 
     await expect(peer.request("bare")).resolves.toEqual({ request: "bare" });
     await expect(peer.close()).resolves.toMatchObject({ kind: "eof", code: 0 });
+  });
+
+  it("resolves a relative executable from the child cwd", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "diffowl-relative-app-server-"));
+    try {
+      const peer = startAppServerPeer({
+        executable: relative(cwd, process.execPath),
+        cwd,
+        args: [fixture],
+        env: { MOCK_APP_SERVER_MODE: "immediate" },
+        closeTimeoutMs: 500,
+      });
+
+      await expect(peer.request("relative")).resolves.toEqual({ request: "relative" });
+      await expect(peer.close()).resolves.toMatchObject({ kind: "eof", code: 0 });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   it("rejects and closes when the child cwd does not exist", async () => {

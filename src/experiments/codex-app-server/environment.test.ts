@@ -15,6 +15,9 @@ describe("buildExperimentEnvironment", () => {
         PATH: "/bin",
         Path: "C:\\Windows\\System32",
         PATHEXT: ".COM;.EXE;.BAT;.CMD",
+        USERPROFILE: "C:\\Users\\runner",
+        HOMEDRIVE: "C:",
+        HOMEPATH: "\\Users\\runner",
         HOME: "/tmp/home",
         PATHOLOGY: "do-not-inherit",
         HOMEBREW_PREFIX: "do-not-inherit",
@@ -39,11 +42,19 @@ describe("buildExperimentEnvironment", () => {
       MOCK_CLI_STDERR_VALUE: "visible-control",
     });
     if (process.platform === "win32") {
-      expect(environment).toHaveProperty("PATHEXT", ".COM;.EXE;.BAT;.CMD");
-      expect(environment).toHaveProperty("Path", "C:\\Windows\\System32");
+      expect(environment).toMatchObject({
+        PATHEXT: ".COM;.EXE;.BAT;.CMD",
+        Path: "C:\\Windows\\System32",
+        USERPROFILE: "C:\\Users\\runner",
+        HOMEDRIVE: "C:",
+        HOMEPATH: "\\Users\\runner",
+      });
     } else {
       expect(environment).not.toHaveProperty("PATHEXT");
       expect(environment).not.toHaveProperty("Path");
+      expect(environment).not.toHaveProperty("USERPROFILE");
+      expect(environment).not.toHaveProperty("HOMEDRIVE");
+      expect(environment).not.toHaveProperty("HOMEPATH");
     }
     expect(environment).not.toHaveProperty("REVIEW_SENTINEL");
     expect(environment).not.toHaveProperty("PATHOLOGY");

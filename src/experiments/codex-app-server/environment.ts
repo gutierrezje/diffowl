@@ -14,6 +14,7 @@ const EXACT_SAFE_INHERITED = new Set([
   "CODEX_HOME",
   "NODE_EXTRA_CA_CERTS",
 ]);
+const WINDOWS_SAFE_INHERITED = new Set(["PATHEXT", "USERPROFILE", "HOMEDRIVE", "HOMEPATH"]);
 const PREFIX_SAFE_INHERITED = ["LC_", "XDG_", "SSL_CERT"];
 const CREDENTIAL_KEY = /TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|CREDENTIAL/i;
 const TEST_CONTROLS = new Set([
@@ -49,9 +50,10 @@ export function buildExperimentEnvironment(
 }
 
 function isAllowed(key: string): boolean {
-  const normalizedKey = process.platform === "win32" ? key.toUpperCase() : key;
+  const isWindows = process.platform === "win32";
+  const normalizedKey = isWindows ? key.toUpperCase() : key;
   return (
-    (process.platform === "win32" && normalizedKey === "PATHEXT") ||
+    (isWindows && WINDOWS_SAFE_INHERITED.has(normalizedKey)) ||
     EXACT_SAFE_INHERITED.has(normalizedKey) ||
     PREFIX_SAFE_INHERITED.some((prefix) => normalizedKey.startsWith(prefix)) ||
     TEST_CONTROLS.has(normalizedKey)
