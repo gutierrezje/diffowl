@@ -1,5 +1,20 @@
-const SAFE_INHERITED =
-  /^(?:PATH|PATHEXT|HOME|USER|LOGNAME|SHELL|TMP|TMPDIR|TEMP|LANG|LC_|TERM$|COLORTERM$|NO_COLOR$|XDG_|CODEX_HOME$|SSL_CERT|NODE_EXTRA_CA_CERTS$)/i;
+const EXACT_SAFE_INHERITED = new Set([
+  "PATH",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "TMP",
+  "TMPDIR",
+  "TEMP",
+  "LANG",
+  "TERM",
+  "COLORTERM",
+  "NO_COLOR",
+  "CODEX_HOME",
+  "NODE_EXTRA_CA_CERTS",
+]);
+const PREFIX_SAFE_INHERITED = ["LC_", "XDG_", "SSL_CERT"];
 const CREDENTIAL_KEY = /TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|CREDENTIAL/i;
 const TEST_CONTROLS = new Set([
   "MOCK_APP_SERVER_MODE",
@@ -34,5 +49,11 @@ export function buildExperimentEnvironment(
 }
 
 function isAllowed(key: string): boolean {
-  return SAFE_INHERITED.test(key) || TEST_CONTROLS.has(key);
+  const normalizedKey = process.platform === "win32" ? key.toUpperCase() : key;
+  return (
+    (process.platform === "win32" && normalizedKey === "PATHEXT") ||
+    EXACT_SAFE_INHERITED.has(normalizedKey) ||
+    PREFIX_SAFE_INHERITED.some((prefix) => normalizedKey.startsWith(prefix)) ||
+    TEST_CONTROLS.has(normalizedKey)
+  );
 }

@@ -1,21 +1,45 @@
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { fileURLToPath } from "node:url";
-import { startAppServerPeer } from "./app-server-peer.js";
+import { AppServerPeerError, startAppServerPeer } from "./app-server-peer.js";
 
 const fixture = fileURLToPath(new URL("./fixtures/mock-app-server.mjs", import.meta.url));
 
 describe("startAppServerPeer", () => {
-  it("classifies a missing executable before stdout EOF", async () => {
+  it("throws a typed missing executable error synchronously", () => {
+    const executable = join(tmpdir(), `diffowl-missing-app-server-${randomUUID()}`);
+    let thrown: unknown;
+    try {
+      startAppServerPeer({ executable });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(AppServerPeerError);
+    expect(thrown).toMatchObject({ kind: "executable-missing" });
+  });
+
+  it("resolves a bare executable through the supplied PATH and PATHEXT", async () => {
+    const executable =
+      process.platform === "win32"
+        ? basename(process.execPath, extname(process.execPath))
+        : basename(process.execPath);
+    const pathKey = process.platform === "win32" ? "Path" : "PATH";
     const peer = startAppServerPeer({
-      executable: join(tmpdir(), `diffowl-missing-app-server-${randomUUID()}`),
+      executable,
+      args: [fixture],
+      env: {
+        [pathKey]: dirname(process.execPath),
+        PATHEXT: ".COM;.EXE;.BAT;.CMD",
+        MOCK_APP_SERVER_MODE: "immediate",
+      },
       closeTimeoutMs: 500,
     });
 
-    await expect(peer.request("missing")).rejects.toMatchObject({ kind: "executable-missing" });
-    await peer.close();
+    await expect(peer.request("bare")).resolves.toEqual({ request: "bare" });
+    await expect(peer.close()).resolves.toMatchObject({ kind: "eof", code: 0 });
   });
 
   it("rejects and closes when the child cwd does not exist", async () => {

@@ -251,11 +251,11 @@ async function runCodex(
   const remaining = deadline - performance.now();
   if (remaining <= 0) throw new ProtocolTimeoutError(phase);
   const childEnv = buildExperimentEnvironment(options.env);
-  await ensureExecutableAvailable(options.executable, childEnv, deadline, phase);
+  const executable = await ensureExecutableAvailable(options.executable, childEnv, deadline, phase);
   const commandRemaining = deadline - performance.now();
   if (commandRemaining <= 0) throw new ProtocolTimeoutError(phase);
   try {
-    const result = await execa(options.executable, args, {
+    const result = await execa(executable, args, {
       env: childEnv,
       extendEnv: false,
       reject: true,
@@ -282,9 +282,9 @@ async function ensureExecutableAvailable(
   env: NodeJS.ProcessEnv,
   deadline: number,
   phase: string,
-): Promise<void> {
+): Promise<string> {
   for (const candidate of executableCandidates(executable, env)) {
-    if (await isFile(candidate, deadline, phase)) return;
+    if (await isFile(candidate, deadline, phase)) return candidate;
   }
   throw new ProtocolEvidenceError("executable-missing", "Codex CLI executable was not found.");
 }

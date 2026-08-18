@@ -1,4 +1,5 @@
 import { statSync } from "node:fs";
+import { delimiter, extname, isAbsolute, join } from "node:path";
 import { execa } from "execa";
 import { createInterface } from "node:readline";
 
@@ -105,7 +106,15 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
     throw new RangeError("closeTimeoutMs must be a positive safe integer");
   }
 
-  const child = execa(options.executable, [...(options.args ?? [])], {
+  const childEnv =
+    options.env === undefined
+      ? process.env
+      : options.extendEnv === false
+        ? options.env
+        : { ...process.env, ...options.env };
+  const executable = ensureExecutableAvailable(options.executable, childEnv);
+
+  const child = execa(executable, [...(options.args ?? [])], {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     ...(options.env === undefined
       ? {}
@@ -408,6 +417,69 @@ function hasUsableCwd(cwd: string | undefined): boolean {
   } catch {
     return false;
   }
+}
+
+function ensureExecutableAvailable(executable: string, env: NodeJS.ProcessEnv): string {
+  for (const candidate of executableCandidates(executable, env)) {
+    if (isExistingFile(candidate)) return candidate;
+  }
+  throw new AppServerPeerError("executable-missing", "App Server executable was not found.");
+}
+
+function executableCandidates(executable: string, env: NodeJS.ProcessEnv): string[] {
+  const suffixes = executableSuffixes(executable, env);
+  const names = suffixes.map((suffix) => `${executable}${suffix}`);
+  if (isPathLike(executable)) return names;
+  const pathValue = environmentValue(env, "PATH");
+  if (pathValue === undefined) return [];
+  return pathValue
+    .split(delimiter)
+    .flatMap((directory) => names.map((name) => join(directory === "" ? "." : directory, name)));
+}
+
+function executableSuffixes(executable: string, env: NodeJS.ProcessEnv): string[] {
+  if (process.platform !== "win32" || extname(executable) !== "") return [""];
+  const pathExt = environmentValue(env, "PATHEXT");
+  const extensions = pathExt?.split(delimiter).filter((extension) => extension !== "") ?? [
+    ".COM",
+    ".EXE",
+    ".BAT",
+    ".CMD",
+  ];
+  return [
+    "",
+    ...extensions.map((extension) => (extension.startsWith(".") ? extension : `.${extension}`)),
+  ];
+}
+
+function isPathLike(executable: string): boolean {
+  return isAbsolute(executable) || executable.includes("/") || executable.includes("\\");
+}
+
+function isExistingFile(candidate: string): boolean {
+  try {
+    return statSync(candidate).isFile();
+  } catch (error) {
+    return !isMissingPathError(error);
+  }
+}
+
+function environmentValue(env: NodeJS.ProcessEnv, key: string): string | undefined {
+  let value: string | undefined;
+  let found = false;
+  const normalizedKey = key.toUpperCase();
+  for (const [name, entry] of Object.entries(env)) {
+    if (name.toUpperCase() === normalizedKey) {
+      found = true;
+      value = entry;
+    }
+  }
+  return found ? value : undefined;
+}
+
+function isMissingPathError(error: unknown): boolean {
+  if (!isRecord(error)) return false;
+  return error["code"] === "ENOENT" || error["code"] === "ENOTDIR";
 }
 
 function hasErrorCode(value: unknown, code: string): boolean {
