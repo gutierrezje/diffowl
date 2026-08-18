@@ -88,7 +88,7 @@ process.exit(1);
 
 async function generate(output, extension = ".ts") {
   if (process.env.MOCK_CLI_MODE === "fail-generate") {
-    process.stderr.write(`generation failed ${process.env.MOCK_SECRET ?? ""}`);
+    process.stderr.write(`generation failed ${process.env.MOCK_CLI_STDERR_VALUE ?? ""}`);
     process.exit(7);
   }
   if (process.env.MOCK_CLI_MODE === "hang-generate") {
@@ -103,8 +103,8 @@ async function generate(output, extension = ".ts") {
         `${relativePath.replace(/\.json$/, ".ts")}` === process.env.MOCK_CLI_MISSING)
     )
       continue;
-    const content = process.env.MOCK_CLI_MISSING_TOKEN
-      ? originalContent.replace(process.env.MOCK_CLI_MISSING_TOKEN, "")
+    const content = process.env.MOCK_CLI_MISSING_FRAGMENT
+      ? originalContent.replace(process.env.MOCK_CLI_MISSING_FRAGMENT, "")
       : originalContent;
     const path = join(output, relativePath);
     await mkdir(dirname(path), { recursive: true });

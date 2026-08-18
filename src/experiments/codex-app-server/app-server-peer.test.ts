@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { fileURLToPath } from "node:url";
 import { startAppServerPeer } from "./app-server-peer.js";
@@ -5,6 +8,16 @@ import { startAppServerPeer } from "./app-server-peer.js";
 const fixture = fileURLToPath(new URL("./fixtures/mock-app-server.mjs", import.meta.url));
 
 describe("startAppServerPeer", () => {
+  it("classifies a missing executable before stdout EOF", async () => {
+    const peer = startAppServerPeer({
+      executable: join(tmpdir(), `diffowl-missing-app-server-${randomUUID()}`),
+      closeTimeoutMs: 500,
+    });
+
+    await expect(peer.request("missing")).rejects.toMatchObject({ kind: "executable-missing" });
+    await peer.close();
+  });
+
   it("registers a request before an immediate child reply can arrive", async () => {
     const peer = startAppServerPeer({
       executable: process.execPath,

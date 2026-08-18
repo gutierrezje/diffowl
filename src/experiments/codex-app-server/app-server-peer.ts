@@ -93,6 +93,7 @@ type NotificationWaiter = {
   reject(reason: unknown): void;
 };
 type Exit = { code: number | null; signal: NodeJS.Signals | null };
+type SpawnState = "pending" | "spawned" | "failed";
 
 export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer {
   const stderrMaxBytes = options.stderrMaxBytes ?? DEFAULT_STDERR_MAX_BYTES;
@@ -125,6 +126,7 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
   let stderr = Buffer.alloc(0);
   let terminalError: AppServerPeerError | undefined;
   let exit: Exit | undefined;
+  let spawnState: SpawnState = "pending";
   let exitedBeforeClose = false;
   let stdoutEndedBeforeClose = false;
   let closing = false;
@@ -152,6 +154,10 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
     const stdin = child.stdin;
     if (stdin === null) throw new AppServerPeerError("process", "App Server stdin is unavailable.");
     stdin.write(`${JSON.stringify(message)}\n`);
+  };
+  const failPrematureEof = (message: string): void => {
+    if (spawnState === "pending" || closing || terminalError !== undefined) return;
+    fail(new AppServerPeerError("premature-eof", message), false);
   };
   const parse = (raw: unknown): AppServerMessage => {
     if (!isRecord(raw)) {
@@ -229,7 +235,7 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
     if (!closing) exitedBeforeClose = true;
     for (const resolve of exitWaiters.splice(0)) resolve(exit);
     if (!closing && terminalError === undefined) {
-      fail(new AppServerPeerError("premature-eof", "App Server process ended before close."));
+      failPrematureEof("App Server process ended before close.");
     } else if (closing && pending.size > 0) {
       fail(new AppServerPeerError("process", "App Server process ended with pending requests."));
     }
@@ -238,7 +244,17 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
     }
   };
   child.once("close", onExit);
+  child.once("spawn", () => {
+    spawnState = "spawned";
+    if (exit !== undefined || stdoutEndedBeforeClose)
+      failPrematureEof(
+        stdoutEndedBeforeClose
+          ? "App Server stdout ended before close."
+          : "App Server process ended before close.",
+      );
+  });
   child.once("error", (error: NodeJS.ErrnoException) => {
+    spawnState = "failed";
     fail(
       new AppServerPeerError(
         error.code === "ENOENT" ? "executable-missing" : "process",
@@ -273,12 +289,7 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
         }
       }
       if (!closing) stdoutEndedBeforeClose = true;
-      if (!closing && exit === undefined && terminalError === undefined) {
-        fail(
-          new AppServerPeerError("premature-eof", "App Server stdout ended before close."),
-          false,
-        );
-      }
+      if (!closing && exit === undefined) failPrematureEof("App Server stdout ended before close.");
     } catch {
       fail(new AppServerPeerError("process", "App Server stdout could not be read."));
     }

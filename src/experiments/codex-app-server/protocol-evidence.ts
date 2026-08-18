@@ -263,7 +263,7 @@ async function runCodex(
     return result.stdout;
   } catch (error) {
     if (isRecord(error) && error["timedOut"] === true) throw new ProtocolTimeoutError(phase);
-    if (isRecord(error) && error["code"] === "ENOENT") {
+    if (isMissingExecutableError(error)) {
       throw new ProtocolEvidenceError("executable-missing", "Codex CLI executable was not found.");
     }
     const stderr = redactStderr(
@@ -352,4 +352,16 @@ function redactStderr(stderr: string, env: NodeJS.ProcessEnv | undefined): strin
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isMissingExecutableError(error: unknown): boolean {
+  let current: unknown = error;
+  const seen = new Set<object>();
+  while (isRecord(current)) {
+    if (seen.has(current)) return false;
+    seen.add(current);
+    if (current["code"] === "ENOENT") return true;
+    current = current["cause"];
+  }
+  return false;
 }

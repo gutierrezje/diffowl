@@ -35,7 +35,7 @@ describe("inspectCodexProtocol", () => {
 
   it.each([
     ["missing-file", { MOCK_CLI_MISSING: "ClientRequest.ts" }, "ClientRequest.ts"],
-    ["missing-token", { MOCK_CLI_MISSING_TOKEN: "turn/interrupt" }, "turn/interrupt"],
+    ["missing-token", { MOCK_CLI_MISSING_FRAGMENT: "turn/interrupt" }, "turn/interrupt"],
   ])("rejects incompatible generated output for %s", async (_mode, env, detail) => {
     await expect(
       inspectCodexProtocol({
@@ -90,7 +90,7 @@ describe("inspectCodexProtocol", () => {
     const error = await inspectCodexProtocol({
       executable: process.execPath,
       prefixArgs: [fixture],
-      env: { MOCK_CLI_MODE: "fail-generate", MOCK_SECRET: "secret-token" },
+      env: { MOCK_CLI_MODE: "fail-generate", MOCK_CLI_STDERR_VALUE: "secret-token" },
       timeoutMs: 5_000,
     }).catch((value: unknown) => value);
     expect(error).toMatchObject({ kind: "generation-failed", phase: "generate-ts" });

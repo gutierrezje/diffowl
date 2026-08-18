@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { execa } from "execa";
 import { describe, expect, it } from "vitest";
 import type { DiffOwlConfig } from "../../config.js";
@@ -9,6 +9,7 @@ import { commandProvenanceFor, runCodexAppServerSpike } from "./spike.js";
 
 const codexFixture = fileURLToPath(new URL("./fixtures/mock-codex-cli.mjs", import.meta.url));
 const serverFixture = fileURLToPath(new URL("./fixtures/mock-app-server.mjs", import.meta.url));
+const expectedNodeExecutableBasename = basename(process.execPath);
 const config: DiffOwlConfig = {
   model: "legacy/requested-model",
   server: { port: 4096, auto_start: false },
@@ -97,9 +98,13 @@ describe("runCodexAppServerSpike", () => {
     );
     expect(standard).toMatchObject({
       configuredExecutablesMatch: true,
-      protocol: { executableBasename: "node", shape: "standard", argCount: 0 },
+      protocol: {
+        executableBasename: expectedNodeExecutableBasename,
+        shape: "standard",
+        argCount: 0,
+      },
       appServer: {
-        executableBasename: "node",
+        executableBasename: expectedNodeExecutableBasename,
         shape: "standard",
         args: ["app-server", "--stdio"],
         argCount: 2,
