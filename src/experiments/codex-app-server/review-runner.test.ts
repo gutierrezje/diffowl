@@ -12,6 +12,7 @@ import {
   CodexRepositoryMutatedError,
   CodexReviewCancelledError,
   executeCodexReview,
+  getCodexReviewFailureEvidence,
 } from "./review-runner.js";
 
 const fixture = fileURLToPath(new URL("./fixtures/mock-app-server.mjs", import.meta.url));
@@ -129,6 +130,23 @@ describe("executeCodexReview", () => {
     expect(outcome.evidence.attempts).toBe(2);
   });
 
+  it("exhausts output-schema validation after exactly three turns", async () => {
+    const error = await executeCodexReview({
+      ...makeInput("output-schema-three-invalid", false),
+      strategy: { kind: "output-schema" },
+    }).catch((value: unknown) => value);
+    expect(error).toBeInstanceOf(SchemaValidationError);
+    expect(error).toMatchObject({ attempts: 3 });
+    expect(getCodexReviewFailureEvidence(error)).toMatchObject({
+      turnIds: ["turn-1", "turn-2", "turn-3"],
+      validationAttempts: [
+        { turnId: "turn-1", outcome: "retry" },
+        { turnId: "turn-2", outcome: "retry" },
+        { turnId: "turn-3", outcome: "failed" },
+      ],
+    });
+  });
+
   it.each(["auth-null", "auth-apikey"])(
     "rejects unsupported account state %s before starting a thread",
     async (mode) => {
@@ -213,6 +231,13 @@ describe("executeCodexReview", () => {
       threadId: "thread-1",
       turnId: "turn-1",
       close: { kind: "eof", code: 0 },
+      interrupt: {
+        deadlineMs: 300,
+        acknowledgementReceived: true,
+        acknowledgementDurationMs: expect.any(Number),
+        totalDurationMs: expect.any(Number),
+        terminalStatus: "interrupted",
+      },
     });
     await expect(promise).rejects.toBeInstanceOf(CodexReviewCancelledError);
   });
@@ -239,11 +264,16 @@ describe("executeCodexReview", () => {
       const outcome = await executeCodexReview(makeInput("repository-unchanged", true, directory));
       expect(outcome.evidence.repositoryGuard).toEqual({
         kind: "unchanged",
+        includeIgnoredPaths: false,
         beforeSha256: expect.any(String),
-        afterSha256: expect.any(String),
+        afterTurnSha256: expect.any(String),
+        afterCloseSha256: expect.any(String),
       });
       expect(outcome.evidence.repositoryGuard.beforeSha256).toBe(
-        outcome.evidence.repositoryGuard.afterSha256,
+        outcome.evidence.repositoryGuard.afterTurnSha256,
+      );
+      expect(outcome.evidence.repositoryGuard.beforeSha256).toBe(
+        outcome.evidence.repositoryGuard.afterCloseSha256,
       );
     } finally {
       await rm(directory, { recursive: true, force: true });
@@ -262,6 +292,28 @@ describe("executeCodexReview", () => {
         changedPaths: ["codex-mutated.txt"],
         beforeSha256: expect.any(String),
         afterSha256: expect.any(String),
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("catches a mutation made while the child is closing", async () => {
+    const directory = await temporaryRepository();
+    try {
+      const error = await executeCodexReview(makeInput("teardown-mutates", true, directory)).catch(
+        (value: unknown) => value,
+      );
+      expect(error).toBeInstanceOf(CodexRepositoryMutatedError);
+      expect(error).toMatchObject({
+        kind: "repository-mutated",
+        changedPaths: ["codex-mutated-on-close.txt"],
+      });
+      expect(getCodexReviewFailureEvidence(error)).toMatchObject({
+        repositoryStatus: "changed",
+        repositoryBeforeSha256: expect.any(String),
+        repositoryAfterTurnSha256: expect.any(String),
+        repositoryAfterCloseSha256: expect.any(String),
       });
     } finally {
       await rm(directory, { recursive: true, force: true });
@@ -323,6 +375,8 @@ function makeInput(
     strategy: { kind: "marker" },
     timeoutMs: 2_000,
     closeTimeoutMs: 500,
+    interruptTimeoutMs: 300,
+    includeIgnoredRepositoryPaths: false,
   };
 }
 

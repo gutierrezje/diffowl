@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import type { ReviewOptions } from "../../opencode/client.js";
+import type { ReviewOptions, ReviewProgressEvent } from "../../opencode/client.js";
 import { ReviewCancelledError as ReviewCancelledErrorClass } from "../../opencode/client.js";
 import {
   defaultReviewPipelineDeps,
@@ -30,6 +30,8 @@ import {
 
 export type SpikeInput = {
   review: Omit<ReviewPipelineInput, "onStatus">;
+  signal?: AbortSignal;
+  onProgress?: (event: ReviewProgressEvent) => void;
   codex: {
     protocol: { executable: string; prefixArgs?: readonly string[]; env?: NodeJS.ProcessEnv };
     appServer: { executable: string; args?: readonly string[]; env?: NodeJS.ProcessEnv };
@@ -37,7 +39,9 @@ export type SpikeInput = {
     strategy: CodexReviewStrategy;
     artifactDirectory: string;
     timeoutMs: number;
+    interruptDeadlineMs: number;
     teardownDeadlineMs: number;
+    includeIgnoredRepositoryPaths: boolean;
   };
 };
 
@@ -134,13 +138,22 @@ export async function runCodexAppServerSpike(input: SpikeInput): Promise<SpikeOu
           model: input.codex.model,
           strategy: input.codex.strategy,
           timeoutMs: input.codex.timeoutMs,
+          interruptTimeoutMs: input.codex.interruptDeadlineMs,
           closeTimeoutMs: input.codex.teardownDeadlineMs,
+          includeIgnoredRepositoryPaths: input.codex.includeIgnoredRepositoryPaths,
         });
         codex = result.evidence;
         return result.reviewResult;
       },
     };
-    const result = await runReviewPipeline(input.review, deps);
+    const result = await runReviewPipeline(
+      {
+        ...input.review,
+        ...(input.signal === undefined ? {} : { signal: input.signal }),
+        ...(input.onProgress === undefined ? {} : { onProgress: input.onProgress }),
+      },
+      deps,
+    );
     pipeline = result;
     const outcome =
       result.kind === "completed"
@@ -173,8 +186,12 @@ function validateInput(input: SpikeInput): void {
     throw new TypeError("Codex executables are required.");
   if (!Number.isFinite(input.codex.timeoutMs) || input.codex.timeoutMs <= 0)
     throw new RangeError("timeoutMs must be positive");
+  if (!Number.isFinite(input.codex.interruptDeadlineMs) || input.codex.interruptDeadlineMs <= 0)
+    throw new RangeError("interruptDeadlineMs must be positive");
   if (!Number.isFinite(input.codex.teardownDeadlineMs) || input.codex.teardownDeadlineMs <= 0)
     throw new RangeError("teardownDeadlineMs must be positive");
+  if (typeof input.codex.includeIgnoredRepositoryPaths !== "boolean")
+    throw new TypeError("includeIgnoredRepositoryPaths must be boolean");
   if (!input.codex.artifactDirectory) throw new TypeError("artifactDirectory is required.");
 }
 
@@ -244,6 +261,13 @@ async function writeArtifact(input: SpikeInput, outcome: SpikeOutcome): Promise<
   );
   const artifact = {
     schemaVersion: 1,
+    requestedDeadlines: {
+      interruptDeadlineMs: input.codex.interruptDeadlineMs,
+      teardownDeadlineMs: input.codex.teardownDeadlineMs,
+    },
+    repositoryPolicy: {
+      includeIgnoredRepositoryPaths: input.codex.includeIgnoredRepositoryPaths,
+    },
     protocol: outcome.protocol,
     commandProvenance: outcome.commandProvenance,
     codex: "codex" in outcome ? outcome.codex : null,

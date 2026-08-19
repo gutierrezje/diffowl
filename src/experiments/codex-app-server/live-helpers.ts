@@ -1,13 +1,31 @@
 import { createHash, randomUUID } from "node:crypto";
 import { chmod, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { execa } from "execa";
 import type { DiffOwlConfig } from "../../config.js";
+import { getServerHealth } from "../../opencode/server.js";
 import type { ReviewTarget } from "../../review/target.js";
 
 export const CODEX_MODEL_ENV = "DIFFOWL_CODEX_MODEL";
 export const ARTIFACT_DIR_ENV = "DIFFOWL_CODEX_ARTIFACT_DIR";
+export const CODEX_STRATEGY_ENV = "DIFFOWL_CODEX_STRATEGY";
+
+export type CodexStrategyKind = "marker" | "output-schema";
+
+export type OpenCodeProvenance = {
+  baseUrl: string;
+  port: number;
+  listener: {
+    pid: number;
+    executableBasename: string;
+    commandSha256: string;
+  };
+  health: {
+    healthy: true;
+    version: string;
+  };
+};
 
 export type LiveEnvironment = {
   model: string;
@@ -44,6 +62,177 @@ export function requireLiveEnvironment(): LiveEnvironment {
     artifactDirectory,
     codexExecutable: process.env["DIFFOWL_CODEX_EXECUTABLE"] ?? "codex",
   };
+}
+
+export function requireCodexStrategy(): { kind: CodexStrategyKind } {
+  const strategy = process.env[CODEX_STRATEGY_ENV];
+  if (strategy !== "marker" && strategy !== "output-schema") {
+    throw new Error(`${CODEX_STRATEGY_ENV} must be exactly marker or output-schema.`);
+  }
+  return { kind: strategy };
+}
+
+export async function captureOpenCodeProvenance(
+  port: number,
+  baseUrl = `http://127.0.0.1:${port}`,
+): Promise<OpenCodeProvenance> {
+  if (!Number.isSafeInteger(port) || port <= 0) {
+    throw new RangeError("OpenCode port must be positive");
+  }
+  const health = await getServerHealth(port);
+  const version = health?.version?.trim() ?? "";
+  if (health?.healthy !== true || version === "") {
+    throw new Error("OpenCode serving process did not report a healthy version.");
+  }
+  const pids = await findListenerPids(port);
+  if (pids.length !== 1) {
+    throw new Error(`Expected exactly one OpenCode listener on port ${port}.`);
+  }
+  const pid = pids[0];
+  if (pid === undefined) throw new Error(`OpenCode listener on port ${port} was not found.`);
+  const listener = await readListenerIdentity(pid);
+  return {
+    baseUrl,
+    port,
+    listener: { pid, ...listener },
+    health: { healthy: true, version },
+  };
+}
+
+export function assertStableOpenCodeProvenance(
+  before: OpenCodeProvenance,
+  after: OpenCodeProvenance,
+): void {
+  if (
+    before.baseUrl !== after.baseUrl ||
+    before.port !== after.port ||
+    before.listener.pid !== after.listener.pid ||
+    before.listener.executableBasename !== after.listener.executableBasename ||
+    before.listener.commandSha256 !== after.listener.commandSha256 ||
+    before.health.version !== after.health.version ||
+    after.health.healthy !== true
+  ) {
+    throw new Error("OpenCode listener identity changed during the matched review.");
+  }
+}
+
+export function parseUnixListenerPids(stdout: string): number[] {
+  return uniquePids(stdout.split(/\s+/));
+}
+
+export function parseWindowsListenerPids(stdout: string, port: number): number[] {
+  const portSuffix = `:${port}`;
+  const pids: string[] = [];
+  for (const line of stdout.split(/\r?\n/)) {
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 5 || parts[0]?.toUpperCase() !== "TCP") continue;
+    const localAddress = parts[1] ?? "";
+    const state = parts[3]?.toUpperCase();
+    if (state !== "LISTENING" || !localAddress.endsWith(portSuffix)) continue;
+    const pid = parts[4];
+    if (pid !== undefined) pids.push(pid);
+  }
+  return uniquePids(pids);
+}
+
+export function parsePosixProcessIdentity(commandLine: string): {
+  executableBasename: string;
+  commandSha256: string;
+} {
+  const command = commandLine.trim();
+  const firstToken = command.match(/^(?:"([^"]+)"|'([^']+)'|(\S+))/);
+  const executable = firstToken?.[1] ?? firstToken?.[2] ?? firstToken?.[3] ?? "";
+  const executableBasename = basename(executable.replaceAll("\\", "/"));
+  if (command === "" || executableBasename === "") {
+    throw new Error("OpenCode listener process command was empty.");
+  }
+  return { executableBasename, commandSha256: hashText(command) };
+}
+
+async function findListenerPids(port: number): Promise<number[]> {
+  if (process.platform === "win32") {
+    try {
+      const result = await execa("netstat", ["-ano"], { timeout: 5_000 });
+      return parseWindowsListenerPids(result.stdout, port);
+    } catch (error) {
+      throw new Error(`Unable to inspect Windows listeners: ${describeError(error)}`);
+    }
+  }
+  try {
+    const result = await execa("lsof", [`-tiTCP:${port}`, "-sTCP:LISTEN"], { timeout: 5_000 });
+    return parseUnixListenerPids(result.stdout);
+  } catch (error) {
+    throw new Error(`Unable to inspect Unix listeners: ${describeError(error)}`);
+  }
+}
+
+async function readListenerIdentity(
+  pid: number,
+): Promise<Omit<OpenCodeProvenance["listener"], "pid">> {
+  if (process.platform === "win32") {
+    const script =
+      `Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}' ` +
+      "| Select-Object Name,ExecutablePath,CommandLine | ConvertTo-Json -Compress";
+    try {
+      const result = await execa(
+        "powershell",
+        ["-NoProfile", "-NonInteractive", "-Command", script],
+        { timeout: 5_000 },
+      );
+      const raw: unknown = JSON.parse(result.stdout);
+      const processInfo = isRecord(raw) ? raw : Array.isArray(raw) ? raw[0] : undefined;
+      if (!isRecord(processInfo)) throw new Error("process query returned no row");
+      const commandLine = processInfo["CommandLine"];
+      const executablePath = processInfo["ExecutablePath"];
+      const command =
+        typeof commandLine === "string" && commandLine.trim() !== ""
+          ? commandLine.trim()
+          : typeof executablePath === "string"
+            ? executablePath.trim()
+            : "";
+      requireOpenCodeCommand(command);
+      const parsed = parsePosixProcessIdentity(command);
+      return parsed;
+    } catch (error) {
+      throw new Error(`Unable to inspect OpenCode process ${pid}: ${describeError(error)}`);
+    }
+  }
+  try {
+    const result = await execa("ps", ["-p", String(pid), "-o", "command="], { timeout: 5_000 });
+    requireOpenCodeCommand(result.stdout);
+    return parsePosixProcessIdentity(result.stdout);
+  } catch (error) {
+    throw new Error(`Unable to inspect OpenCode process ${pid}: ${describeError(error)}`);
+  }
+}
+
+function requireOpenCodeCommand(command: string): void {
+  if (!command.toLowerCase().includes("opencode")) {
+    throw new Error("listener process is not OpenCode");
+  }
+}
+
+function uniquePids(values: readonly string[]): number[] {
+  return [
+    ...new Set(
+      values
+        .filter((value) => /^\d+$/.test(value))
+        .map((value) => Number(value))
+        .filter(isPositivePid),
+    ),
+  ];
+}
+
+function isPositivePid(value: number): boolean {
+  return Number.isSafeInteger(value) && value > 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export async function createStagedRepo(label: string): Promise<string> {

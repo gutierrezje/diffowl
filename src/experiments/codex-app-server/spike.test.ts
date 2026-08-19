@@ -74,7 +74,9 @@ function input(
       strategy: { kind: "marker" as const },
       artifactDirectory,
       timeoutMs: 15_000,
+      interruptDeadlineMs: 2_000,
       teardownDeadlineMs: 2_000,
+      includeIgnoredRepositoryPaths: true,
     },
   };
 }
@@ -168,6 +170,46 @@ describe("runCodexAppServerSpike", () => {
     }
   });
 
+  it("writes a cancellation artifact before the disposable repository is removed", async () => {
+    const root = await makeRepo();
+    const controller = new AbortController();
+    try {
+      const outcome = await runCodexAppServerSpike({
+        ...input(root, join(root, "artifacts"), process.execPath, undefined, "spike-cancel-active"),
+        signal: controller.signal,
+        onProgress: (event) => {
+          if (event.type === "output") controller.abort();
+        },
+      });
+      expect(outcome).toMatchObject({ kind: "failed", failure: { kind: "cancelled" } });
+      if (outcome.kind !== "failed") return;
+      expect(outcome.artifactPath).toMatch(/\.json$/);
+      if (outcome.artifactPath === null) return;
+      const artifact: unknown = JSON.parse(await readFile(outcome.artifactPath, "utf8"));
+      expect(artifact).toMatchObject({
+        failureEvidence: {
+          interrupt: {
+            deadlineMs: 2_000,
+            acknowledgementReceived: true,
+            acknowledgementDurationMs: expect.any(Number),
+            totalDurationMs: expect.any(Number),
+            terminalStatus: "interrupted",
+          },
+          interruptAcknowledged: true,
+          terminalStatus: "interrupted",
+          close: { kind: "eof", code: 0, signal: null },
+          pid: expect.any(Number),
+          pidAliveAfterClose: false,
+          repositoryBeforeSha256: expect.any(String),
+          repositoryAfterTurnSha256: expect.any(String),
+          repositoryAfterCloseSha256: expect.any(String),
+        },
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("inspects protocol before an empty pipeline without spawning App Server", async () => {
     const root = await makeRepo(true);
     try {
@@ -221,6 +263,11 @@ describe("runCodexAppServerSpike", () => {
           requestedModel: "gpt-5-codex",
           threadId: "thread-1",
           turnIds: ["turn-1", "turn-2", "turn-3"],
+          validationAttempts: [
+            { turnId: "turn-1", outcome: "retry" },
+            { turnId: "turn-2", outcome: "retry" },
+            { turnId: "turn-3", outcome: "failed" },
+          ],
         },
       });
       if (outcome.kind !== "failed" || outcome.artifactPath === null) return;

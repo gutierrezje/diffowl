@@ -2,7 +2,6 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { CodexReviewCancelledError, executeCodexReview } from "./review-runner.js";
 import { runCodexAppServerSpike } from "./spike.js";
 import {
   createStagedRepo,
@@ -40,7 +39,9 @@ describe("human-gated Codex App Server live harness", () => {
               strategy,
               artifactDirectory: join(environment.artifactDirectory, strategy.kind),
               timeoutMs: 600_000,
+              interruptDeadlineMs: 10_000,
               teardownDeadlineMs: 10_000,
+              includeIgnoredRepositoryPaths: true,
             },
           });
           if (outcome.kind === "completed") {
@@ -59,8 +60,12 @@ describe("human-gated Codex App Server live harness", () => {
             });
             expect(outcome.codex.effectiveModel.trim()).not.toBe("");
             expect(outcome.codex.repositoryGuard.beforeSha256).toBe(
-              outcome.codex.repositoryGuard.afterSha256,
+              outcome.codex.repositoryGuard.afterTurnSha256,
             );
+            expect(outcome.codex.repositoryGuard.beforeSha256).toBe(
+              outcome.codex.repositoryGuard.afterCloseSha256,
+            );
+            expect(outcome.codex.repositoryGuard.includeIgnoredPaths).toBe(true);
             expect(outcome.commandProvenance).toMatchObject({
               configuredExecutablesMatch: true,
               protocol: {
@@ -139,27 +144,48 @@ describe("human-gated Codex App Server live harness", () => {
     const root = await createStagedRepo("cancel");
     const controller = new AbortController();
     try {
-      const promise = executeCodexReview({
-        ...reviewInput(root),
-        directory: root,
-        executable: environment.codexExecutable,
-        args: ["app-server", "--stdio"],
-        model: environment.model,
-        strategy: { kind: "marker" },
-        timeoutMs: 600_000,
-        closeTimeoutMs: 10_000,
+      const outcome = await runCodexAppServerSpike({
+        review: reviewInput(root),
         signal: controller.signal,
         onProgress: (event) => {
           if (event.type === "output") controller.abort();
         },
+        codex: {
+          protocol: { executable: environment.codexExecutable },
+          appServer: {
+            executable: environment.codexExecutable,
+            args: ["app-server", "--stdio"],
+          },
+          model: environment.model,
+          strategy: { kind: "marker" },
+          artifactDirectory: join(environment.artifactDirectory, "cancel"),
+          timeoutMs: 600_000,
+          interruptDeadlineMs: 10_000,
+          teardownDeadlineMs: 10_000,
+          includeIgnoredRepositoryPaths: true,
+        },
       });
-      const error = await promise.catch((value: unknown) => value);
-      expect(error).toBeInstanceOf(CodexReviewCancelledError);
-      if (!(error instanceof CodexReviewCancelledError)) return;
-      expect(error.interruptAcknowledged).toBe(true);
-      expect(error.terminalStatus).toBe("interrupted");
-      expect(error.close).toMatchObject({ kind: "eof", code: 0, signal: null });
-      expect(error.pidAliveAfterClose).toBe(false);
+      expect(outcome.kind).toBe("failed");
+      if (outcome.kind !== "failed") return;
+      expect(outcome.artifactPath).toMatch(/\.json$/);
+      if (outcome.artifactPath === null) return;
+      const artifact: unknown = JSON.parse(await readFile(outcome.artifactPath, "utf8"));
+      expect(artifact).toMatchObject({
+        failureEvidence: {
+          interrupt: {
+            deadlineMs: 10_000,
+            acknowledgementReceived: true,
+            acknowledgementDurationMs: expect.any(Number),
+            totalDurationMs: expect.any(Number),
+            terminalStatus: "interrupted",
+          },
+          interruptAcknowledged: true,
+          terminalStatus: "interrupted",
+          close: { kind: "eof", code: 0, signal: null },
+          pid: expect.any(Number),
+          pidAliveAfterClose: false,
+        },
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -194,7 +220,9 @@ describe("human-gated Codex App Server live harness", () => {
           strategy: { kind: "marker" },
           artifactDirectory: join(environment.artifactDirectory, "unauthenticated"),
           timeoutMs: 600_000,
+          interruptDeadlineMs: 10_000,
           teardownDeadlineMs: 10_000,
+          includeIgnoredRepositoryPaths: true,
         },
       });
       expect(outcome).toMatchObject({ kind: "failed", failure: { kind: "unauthenticated" } });

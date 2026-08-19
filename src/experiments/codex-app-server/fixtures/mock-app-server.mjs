@@ -14,6 +14,7 @@ if (
     "output-schema",
     "output-schema-default",
     "output-schema-retry",
+    "output-schema-three-invalid",
     "auth-null",
     "auth-apikey",
     "policy-approval",
@@ -34,8 +35,10 @@ if (
     "timeout-active",
     "repository-unchanged",
     "repository-mutates",
+    "teardown-mutates",
     "spike-marker",
     "spike-three-invalid",
+    "spike-cancel-active",
   ].includes(mode) &&
   (process.env.OPENAI_API_KEY || process.env.CODEX_API_KEY)
 ) {
@@ -93,6 +96,7 @@ const markerModes = [
   "output-schema",
   "output-schema-default",
   "output-schema-retry",
+  "output-schema-three-invalid",
   "auth-null",
   "auth-apikey",
   "policy-approval",
@@ -113,18 +117,22 @@ const markerModes = [
   "timeout-active",
   "repository-unchanged",
   "repository-mutates",
+  "teardown-mutates",
   "spike-marker",
   "spike-three-invalid",
+  "spike-cancel-active",
 ].includes(mode);
 const outputSchemaModes = [
   "output-schema",
   "output-schema-default",
   "output-schema-retry",
+  "output-schema-three-invalid",
 ].includes(mode);
 const retryModes = [
   "marker-retry",
   "marker-three-invalid",
   "output-schema-retry",
+  "output-schema-three-invalid",
   "spike-three-invalid",
 ].includes(mode);
 
@@ -227,7 +235,7 @@ function handleMarker(message) {
     const systemPromptOk =
       isRecord(params) &&
       typeof params.developerInstructions === "string" &&
-      (["spike-marker", "spike-three-invalid"].includes(mode)
+      (["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode)
         ? params.developerInstructions.includes("DiffOwl")
         : expectedSystem
           ? params.developerInstructions.includes(expectedSystem)
@@ -240,20 +248,22 @@ function handleMarker(message) {
         typeof params.developerInstructions === "string" &&
         systemPromptOk &&
         !params.developerInstructions.includes("FINAL_REVIEW_JSON")
-      : ["spike-marker", "spike-three-invalid"].includes(mode)
+      : ["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode)
         ? systemPromptOk
         : isRecord(params) && params.developerInstructions === expectedSystem;
     if (
       !isRecord(params) ||
-      (!["spike-marker", "spike-three-invalid"].includes(mode) && params.cwd !== process.cwd()) ||
-      (["spike-marker", "spike-three-invalid"].includes(mode) && typeof params.cwd !== "string") ||
+      (!["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode) &&
+        params.cwd !== process.cwd()) ||
+      (["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode) &&
+        typeof params.cwd !== "string") ||
       params.model !== expectedModel ||
       params.approvalPolicy !== "never" ||
       params.sandbox !== "read-only" ||
       params.ephemeral !== true ||
       !developerInstructionsOk
     ) {
-      if (["spike-marker", "spike-three-invalid"].includes(mode)) {
+      if (["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode)) {
         send({
           id: message.id,
           error: {
@@ -275,7 +285,7 @@ function handleMarker(message) {
         cwd:
           mode === "policy-cwd"
             ? `${process.cwd()}-other`
-            : ["spike-marker", "spike-three-invalid"].includes(mode)
+            : ["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode)
               ? params.cwd
               : process.cwd(),
         approvalPolicy: mode === "policy-approval" ? "on-request" : "never",
@@ -288,9 +298,13 @@ function handleMarker(message) {
     return;
   }
   if (
-    ["cancel-active", "timeout-active", "cancel-active-mutates", "cancel-active-hung"].includes(
-      mode,
-    ) &&
+    [
+      "cancel-active",
+      "timeout-active",
+      "cancel-active-mutates",
+      "cancel-active-hung",
+      "spike-cancel-active",
+    ].includes(mode) &&
     markerStep === 5 &&
     message.method === "turn/interrupt" &&
     typeof message.id === "number"
@@ -323,7 +337,7 @@ function handleMarker(message) {
     const retryPromptOk =
       attempt === 1
         ? isRecord(item) &&
-          (["spike-marker", "spike-three-invalid"].includes(mode)
+          (["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode)
             ? typeof item.text === "string" && item.text.length > 0
             : item.text === expectedUser)
         : isRecord(item) &&
@@ -338,8 +352,10 @@ function handleMarker(message) {
     if (
       !isRecord(params) ||
       params.threadId !== "thread-1" ||
-      (!["spike-marker", "spike-three-invalid"].includes(mode) && params.cwd !== process.cwd()) ||
-      (["spike-marker", "spike-three-invalid"].includes(mode) && typeof params.cwd !== "string") ||
+      (!["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode) &&
+        params.cwd !== process.cwd()) ||
+      (["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode) &&
+        typeof params.cwd !== "string") ||
       params.model !== expectedModel ||
       params.approvalPolicy !== "never" ||
       !isRecord(policy) ||
@@ -366,9 +382,13 @@ function handleMarker(message) {
       },
     });
     if (
-      ["cancel-active", "timeout-active", "cancel-active-mutates", "cancel-active-hung"].includes(
-        mode,
-      )
+      [
+        "cancel-active",
+        "timeout-active",
+        "cancel-active-mutates",
+        "cancel-active-hung",
+        "spike-cancel-active",
+      ].includes(mode)
     ) {
       if (mode === "cancel-active-mutates")
         writeFileSync("codex-mutated.txt", "provider mutation\n");
@@ -402,7 +422,9 @@ function handleMarker(message) {
     }
     const invalid =
       (mode === "marker-retry" && attempt === 1) ||
-      ["marker-three-invalid", "spike-three-invalid"].includes(mode) ||
+      ["marker-three-invalid", "spike-three-invalid", "output-schema-three-invalid"].includes(
+        mode,
+      ) ||
       (mode === "output-schema-retry" && attempt === 1);
     const finalText = outputSchemaModes
       ? invalid
@@ -593,6 +615,8 @@ input.on("line", (line) => {
 });
 
 input.on("close", () => {
+  if (mode === "teardown-mutates")
+    writeFileSync("codex-mutated-on-close.txt", "teardown mutation\n");
   if (
     [
       "basic",
@@ -608,6 +632,7 @@ input.on("close", () => {
       "output-schema",
       "output-schema-default",
       "output-schema-retry",
+      "output-schema-three-invalid",
       "auth-null",
       "auth-apikey",
       "policy-approval",
@@ -627,8 +652,10 @@ input.on("close", () => {
       "timeout-active",
       "repository-unchanged",
       "repository-mutates",
+      "teardown-mutates",
       "spike-marker",
       "spike-three-invalid",
+      "spike-cancel-active",
     ].includes(mode)
   )
     setImmediate(() => process.exit(0));

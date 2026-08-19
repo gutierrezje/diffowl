@@ -21,9 +21,18 @@ export type RepositoryStateComparison =
   | { kind: "unchanged" }
   | { kind: "changed"; changedPaths: readonly string[] };
 
-export async function captureRepositoryState(directory: string): Promise<RepositoryState> {
+export type RepositoryStateOptions = {
+  includeIgnoredPaths?: boolean;
+};
+
+export async function captureRepositoryState(
+  directory: string,
+  options: RepositoryStateOptions = {},
+): Promise<RepositoryState> {
+  const statusArgs = ["status", "--porcelain=v1", "-z", "--untracked-files=all"];
+  if (options.includeIgnoredPaths === true) statusArgs.push("--ignored=matching");
   const [statusOutput, stagedDiff, unstagedDiff, headResult] = await Promise.all([
-    runGit(directory, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
+    runGit(directory, statusArgs),
     runGit(directory, ["diff", "--binary", "--no-ext-diff", "--no-color", "--"]),
     runGit(directory, ["diff", "--cached", "--binary", "--no-ext-diff", "--no-color", "--"]),
     execa("git", ["rev-parse", "HEAD"], { cwd: directory, reject: false }),

@@ -1,5 +1,4 @@
 import { join } from "node:path";
-import { execa } from "execa";
 import { describe, expect, it } from "vitest";
 import { resolveReviewPrompts } from "../../opencode/client.js";
 import { defaultReviewPipelineDeps, runReviewPipeline } from "../../review/run.js";
@@ -11,7 +10,16 @@ import type { ReviewFinding } from "../../review/types.js";
 import type { ReviewUsage } from "../../review/usage.js";
 import type { AppServerCloseResult } from "./app-server-peer.js";
 import { runCodexAppServerSpike } from "./spike.js";
-import { hashText, reviewInput, writeSafeJsonArtifact, liveConfig } from "./live-helpers.js";
+import type { OpenCodeProvenance } from "./live-helpers.js";
+import {
+  assertStableOpenCodeProvenance,
+  captureOpenCodeProvenance,
+  hashText,
+  liveConfig,
+  requireCodexStrategy,
+  reviewInput,
+  writeSafeJsonArtifact,
+} from "./live-helpers.js";
 
 const enabled = process.env["DIFFOWL_CODEX_MATCHED_LIVE"] === "1";
 
@@ -22,6 +30,7 @@ describe("human-gated Codex/OpenCode matched harness", () => {
       const codexModel = process.env["DIFFOWL_CODEX_MODEL"]?.trim() ?? "";
       const opencodeModel = process.env["DIFFOWL_OPENCODE_MODEL"]?.trim() ?? "";
       const artifactDirectory = process.env["DIFFOWL_CODEX_ARTIFACT_DIR"]?.trim() ?? "";
+      const codexStrategy = requireCodexStrategy();
       if (
         codexModel === "" ||
         codexModel.includes("/") ||
@@ -42,7 +51,13 @@ describe("human-gated Codex/OpenCode matched harness", () => {
       try {
         for (const evalCase of cases) {
           records.push(
-            await runMatchedCase(evalCase, codexModel, opencodeModel, artifactDirectory),
+            await runMatchedCase(
+              evalCase,
+              codexModel,
+              opencodeModel,
+              codexStrategy,
+              artifactDirectory,
+            ),
           );
         }
       } catch (error) {
@@ -51,6 +66,7 @@ describe("human-gated Codex/OpenCode matched harness", () => {
       } finally {
         const artifactPath = await writeSafeJsonArtifact(artifactDirectory, {
           kind: "matched-codex-opencode",
+          codexStrategy: codexStrategy.kind,
           commandShapes: {
             codex: [
               (process.env["DIFFOWL_CODEX_EXECUTABLE"] ?? "codex")
@@ -65,7 +81,6 @@ describe("human-gated Codex/OpenCode matched harness", () => {
           codexCliVersion:
             records.find((record) => record.codex.protocol)?.codex.protocol.codexCliVersion ??
             "unavailable",
-          opencodeCliVersionProbe: await probeVersion("opencode"),
           cases: records,
           failure:
             failure === undefined
@@ -86,6 +101,7 @@ type MatchedRecord = {
   durationMs: { codex: number; opencode: number };
   config: { depth: string; rules: { count: number; sha256: string } };
   codex: {
+    strategy: "marker" | "output-schema";
     executableBasename: string;
     args: readonly ["app-server", "--stdio"];
     protocol: {
@@ -103,7 +119,13 @@ type MatchedRecord = {
       approvalPolicy: "never";
       sandbox: "read-only";
       networkAccess: false;
-      repositoryGuard: { kind: "unchanged"; beforeSha256: string; afterSha256: string };
+      repositoryGuard: {
+        kind: "unchanged";
+        includeIgnoredPaths: boolean;
+        beforeSha256: string;
+        afterTurnSha256: string;
+        afterCloseSha256: string;
+      };
       promptSha256: string;
       localContextSha256: string;
       usagePresent: boolean;
@@ -120,7 +142,7 @@ type MatchedRecord = {
   };
   opencode: {
     model: string;
-    opencodeCliVersionProbe: string;
+    provenance: { before: OpenCodeProvenance; after: OpenCodeProvenance };
     sessionId: string;
     promptSha256: string;
     localContextSha256: string;
@@ -146,6 +168,7 @@ async function runMatchedCase(
   evalCase: EvalCase,
   codexModel: string,
   opencodeModel: string,
+  codexStrategy: ReturnType<typeof requireCodexStrategy>,
   artifactDirectory: string,
 ): Promise<MatchedRecord> {
   return withMaterializedEvalCase(evalCase, async (codexRepo) =>
@@ -162,10 +185,12 @@ async function runMatchedCase(
             args: ["app-server", "--stdio"],
           },
           model: codexModel,
-          strategy: { kind: "marker" },
+          strategy: codexStrategy,
           artifactDirectory: join(artifactDirectory, evalCase.id, "codex"),
           timeoutMs: 600_000,
+          interruptDeadlineMs: 10_000,
           teardownDeadlineMs: 10_000,
+          includeIgnoredRepositoryPaths: true,
         },
       });
       const codexDurationMs = performance.now() - codexStarted;
@@ -174,11 +199,17 @@ async function runMatchedCase(
 
       let opencodePromptSha256 = "";
       let opencodeContextSha256 = "";
+      let opencodeBefore: OpenCodeProvenance | undefined;
       const opencodeStarted = performance.now();
       const outcome = await runReviewPipeline(
         reviewInput(opencodeRepo.workDir, opencodeRepo.target, config),
         {
           ...defaultReviewPipelineDeps,
+          ensureServer: async (port) => {
+            const baseUrl = await defaultReviewPipelineDeps.ensureServer(port);
+            opencodeBefore = await captureOpenCodeProvenance(port, baseUrl);
+            return baseUrl;
+          },
           runReview: async (options) => {
             const prompts = resolveReviewPrompts({
               target: options.target,
@@ -195,6 +226,14 @@ async function runMatchedCase(
       const opencodeDurationMs = performance.now() - opencodeStarted;
       if (outcome.kind !== "completed")
         throw new Error(`OpenCode case ${evalCase.id} did not complete.`);
+      if (opencodeBefore === undefined) {
+        throw new Error(`OpenCode case ${evalCase.id} did not capture pre-review provenance.`);
+      }
+      const opencodeAfter = await captureOpenCodeProvenance(
+        config.server.port,
+        opencodeBefore.baseUrl,
+      );
+      assertStableOpenCodeProvenance(opencodeBefore, opencodeAfter);
       expect(codex.codex.promptSha256).toBe(opencodePromptSha256);
       expect(codex.codex.localContextSha256).toBe(opencodeContextSha256);
       return {
@@ -208,6 +247,7 @@ async function runMatchedCase(
           rules: { count: config.rules.length, sha256: hashText(JSON.stringify(config.rules)) },
         },
         codex: {
+          strategy: codex.codex.strategy.kind,
           executableBasename: codex.commandProvenance.appServer.executableBasename,
           args: ["app-server", "--stdio"],
           protocol: {
@@ -246,7 +286,7 @@ async function runMatchedCase(
         },
         opencode: {
           model: opencodeModel,
-          opencodeCliVersionProbe: await probeVersion("opencode"),
+          provenance: { before: opencodeBefore, after: opencodeAfter },
           sessionId: outcome.sessionId,
           promptSha256: opencodePromptSha256,
           localContextSha256: opencodeContextSha256,
@@ -316,13 +356,4 @@ function summarizeScore(
       severity: finding.min_severity,
     })),
   };
-}
-
-async function probeVersion(executable: string): Promise<string> {
-  try {
-    const result = await execa(executable, ["--version"], { timeout: 5_000 });
-    return result.stdout.trim().slice(0, 120) || "unknown";
-  } catch {
-    return "unavailable";
-  }
 }

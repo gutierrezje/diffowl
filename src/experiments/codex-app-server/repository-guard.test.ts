@@ -100,6 +100,24 @@ describe("repository guard", () => {
     });
     await rm(outside, { force: true });
   });
+
+  it("omits ignored files by default and includes stable ignored entries when requested", async () => {
+    const directory = await repository();
+    await writeFile(join(directory, ".gitignore"), "ignored.txt\n");
+    await writeFile(join(directory, "ignored.txt"), "ignored\n");
+
+    const omitted = await captureRepositoryState(directory);
+    expect(omitted.paths).not.toContain("ignored.txt");
+
+    const included = await captureRepositoryState(directory, { includeIgnoredPaths: true });
+    const includedAgain = await captureRepositoryState(directory, { includeIgnoredPaths: true });
+    expect(included).toEqual(includedAgain);
+    expect(included.entries).toContainEqual({
+      path: "ignored.txt",
+      status: "!!",
+      sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+  });
 });
 
 async function repository(): Promise<string> {

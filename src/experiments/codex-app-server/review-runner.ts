@@ -34,10 +34,20 @@ export type CodexReviewInput = ReviewOptions & {
   model: string;
   strategy: CodexReviewStrategy;
   timeoutMs: number;
+  interruptTimeoutMs: number;
   closeTimeoutMs: number;
+  includeIgnoredRepositoryPaths: boolean;
 };
 
 export type CodexReviewStrategy = { kind: "marker" } | { kind: "output-schema" };
+
+export type CodexInterruptEvidence = {
+  deadlineMs: number;
+  acknowledgementReceived: true;
+  acknowledgementDurationMs: number;
+  totalDurationMs: number;
+  terminalStatus: "interrupted";
+};
 
 export type CodexReviewEvidence = {
   authKind: "chatgpt";
@@ -57,8 +67,10 @@ export type CodexReviewEvidence = {
   usagePresent: boolean;
   repositoryGuard: {
     kind: "unchanged";
+    includeIgnoredPaths: boolean;
     beforeSha256: string;
-    afterSha256: string;
+    afterTurnSha256: string;
+    afterCloseSha256: string;
   };
   close: AppServerCloseResult;
   pid: number;
@@ -73,6 +85,7 @@ export type CodexReviewEvidence = {
     outcome: "accepted" | "retry" | "failed";
     issues: readonly { locator: string; message: string }[];
   }[];
+  interrupt: null;
 };
 
 export type CodexReviewFailureEvidence = {
@@ -94,11 +107,13 @@ export type CodexReviewFailureEvidence = {
   localContextSha256: string;
   developerInstructionsSha256: string;
   repositoryBeforeSha256: string | null;
-  repositoryAfterSha256: string | null;
+  repositoryAfterTurnSha256: string | null;
+  repositoryAfterCloseSha256: string | null;
   repositoryStatus: "unchanged" | "changed" | null;
   pid: number | null;
   pidAliveAfterClose: boolean | null;
   close: AppServerCloseResult | null;
+  interrupt: CodexInterruptEvidence | null;
   interruptAcknowledged: boolean;
   terminalStatus: "completed" | "interrupted" | "failed" | null;
 };
@@ -203,17 +218,25 @@ export class CodexReviewCancelledError extends ReviewCancelledError {
   readonly interruptAcknowledged: true;
   readonly terminalStatus: "interrupted";
   readonly close: AppServerCloseResult;
+  readonly interrupt: CodexInterruptEvidence;
   readonly threadId: string;
   readonly turnId: string;
   readonly pid: number;
   readonly pidAliveAfterClose: false;
 
-  constructor(threadId: string, turnId: string, close: AppServerCloseResult, pid: number) {
+  constructor(
+    threadId: string,
+    turnId: string,
+    close: AppServerCloseResult,
+    pid: number,
+    interrupt: CodexInterruptEvidence,
+  ) {
     super("Review cancelled by user.");
     this.name = "CodexReviewCancelledError";
     this.interruptAcknowledged = true;
     this.terminalStatus = "interrupted";
     this.close = close;
+    this.interrupt = interrupt;
     this.threadId = threadId;
     this.turnId = turnId;
     this.pid = pid;
@@ -257,7 +280,12 @@ type MarkerEvent =
     };
 
 type MarkerItem = { type: string; id: string; text?: string };
-type ActiveCancellation = { kind: "active-cancellation"; threadId: string; turnId: string };
+type ActiveCancellation = {
+  kind: "active-cancellation";
+  threadId: string;
+  turnId: string;
+  interrupt: CodexInterruptEvidence;
+};
 
 const ABORT_SIGNAL = Symbol("codex-review-abort");
 
@@ -327,6 +355,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
   let report: ReviewResult["report"] | undefined;
   let repositoryBefore: RepositoryState | undefined;
   let repositoryAfter: RepositoryState | undefined;
+  let repositoryAfterClose: RepositoryState | undefined;
   let repositoryStatus: "unchanged" | "changed" | null = null;
   let repositoryDiagnostic: unknown;
   const pid = peer.pid;
@@ -353,7 +382,9 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     if (repositoryBefore === undefined) return;
     try {
       repositoryAfter = await withDeadline(
-        captureRepositoryState(input.directory),
+        captureRepositoryState(input.directory, {
+          includeIgnoredPaths: input.includeIgnoredRepositoryPaths,
+        }),
         deadline,
         "repository-after-turn",
       );
@@ -479,7 +510,13 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     input.onProgress?.({ type: "session", message: "Started Codex thread.", sessionId: threadId });
 
     repositoryBefore = await timed("repository-before", () =>
-      withDeadline(captureRepositoryState(input.directory), deadline, "repository-before-turn"),
+      withDeadline(
+        captureRepositoryState(input.directory, {
+          includeIgnoredPaths: input.includeIgnoredRepositoryPaths,
+        }),
+        deadline,
+        "repository-before-turn",
+      ),
     );
     let prompt = prompts.user;
     while (report === undefined) {
@@ -498,8 +535,14 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
       const activeTurnStart = performance.now();
       try {
         if (input.signal?.aborted) {
-          await interruptTurn(peer, reader, threadId, turnId, input.closeTimeoutMs);
-          cancelled = { kind: "active-cancellation", threadId, turnId };
+          const interrupt = await interruptTurn(
+            peer,
+            reader,
+            threadId,
+            turnId,
+            input.interruptTimeoutMs,
+          );
+          cancelled = { kind: "active-cancellation", threadId, turnId, interrupt };
           await checkRepositoryAfterTurn(cancelled);
           break;
         }
@@ -591,6 +634,38 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
       attachErrorCause(failure, cancelled);
     } else attachErrorCause(failure ?? cancelled, closeFailure);
   }
+  if (repositoryBefore !== undefined) {
+    try {
+      repositoryAfterClose = await timed("repository-after-close", () =>
+        withDeadline(
+          captureRepositoryState(input.directory, {
+            includeIgnoredPaths: input.includeIgnoredRepositoryPaths,
+          }),
+          performance.now() + input.closeTimeoutMs,
+          "repository-after-close",
+        ),
+      );
+      const comparison = compareRepositoryStates(repositoryBefore, repositoryAfterClose);
+      if (comparison.kind === "changed") {
+        repositoryStatus = "changed";
+        const mutation = new CodexRepositoryMutatedError(
+          repositoryBefore.sha256,
+          repositoryAfterClose.sha256,
+          comparison.changedPaths,
+        );
+        if (failure !== undefined) attachErrorCause(mutation, failure);
+        if (cancelled !== undefined) attachErrorCause(mutation, cancelled);
+        failure = mutation;
+        cancelled = undefined;
+      } else if (repositoryStatus !== "changed") {
+        repositoryStatus = "unchanged";
+      }
+    } catch (error) {
+      if (failure !== undefined) attachErrorCause(failure, error);
+      else if (cancelled !== undefined) attachErrorCause(cancelled, error);
+      else failure = error;
+    }
+  }
   const buildFailureEvidence = (): CodexReviewFailureEvidence => ({
     requestedModel: input.model,
     effectiveModel: effectiveModel || null,
@@ -613,12 +688,14 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     localContextSha256,
     developerInstructionsSha256,
     repositoryBeforeSha256: repositoryBefore?.sha256 ?? null,
-    repositoryAfterSha256: repositoryAfter?.sha256 ?? null,
+    repositoryAfterTurnSha256: repositoryAfter?.sha256 ?? null,
+    repositoryAfterCloseSha256: repositoryAfterClose?.sha256 ?? null,
     repositoryStatus,
     pid: pid ?? null,
     pidAliveAfterClose: pid === undefined ? null : isPidAlive(pid),
     close: close ?? null,
-    interruptAcknowledged: cancelled !== undefined && close !== undefined,
+    interrupt: cancelled?.interrupt ?? null,
+    interruptAcknowledged: cancelled?.interrupt.acknowledgementReceived ?? false,
     terminalStatus:
       cancelled !== undefined ? "interrupted" : failure === undefined ? "completed" : "failed",
   });
@@ -635,7 +712,13 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     if (close === undefined || pid === undefined)
       throw new ReviewCancelledError("Review cancelled by user.");
     if (isPidAlive(pid)) throw new CodexTeardownError(close);
-    const error = new CodexReviewCancelledError(cancelled.threadId, cancelled.turnId, close, pid);
+    const error = new CodexReviewCancelledError(
+      cancelled.threadId,
+      cancelled.turnId,
+      close,
+      pid,
+      cancelled.interrupt,
+    );
     if (repositoryDiagnostic !== undefined) attachErrorCause(error, repositoryDiagnostic);
     attachFailure(error);
     throw error;
@@ -645,6 +728,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     close === undefined ||
     repositoryBefore === undefined ||
     repositoryAfter === undefined ||
+    repositoryAfterClose === undefined ||
     pid === undefined
   ) {
     const error = protocolError("review completion");
@@ -686,8 +770,10 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
       usagePresent: usage !== undefined,
       repositoryGuard: {
         kind: "unchanged",
+        includeIgnoredPaths: input.includeIgnoredRepositoryPaths,
         beforeSha256: repositoryBefore.sha256,
-        afterSha256: repositoryAfter.sha256,
+        afterTurnSha256: repositoryAfter.sha256,
+        afterCloseSha256: repositoryAfterClose.sha256,
       },
       close,
       pid,
@@ -698,6 +784,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
       timings: [...timings, { phase: "total", ms: finiteMs(performance.now() - totalStart) }],
       events,
       validationAttempts,
+      interrupt: null,
     },
   };
 }
@@ -808,12 +895,23 @@ async function collectTurn(
     }
   } catch (error) {
     if (error === ABORT_SIGNAL) {
-      await interruptTurn(peer, reader, threadId, turnId, input.closeTimeoutMs);
-      throw { kind: "active-cancellation", threadId, turnId } satisfies ActiveCancellation;
+      const interrupt = await interruptTurn(
+        peer,
+        reader,
+        threadId,
+        turnId,
+        input.interruptTimeoutMs,
+      );
+      throw {
+        kind: "active-cancellation",
+        threadId,
+        turnId,
+        interrupt,
+      } satisfies ActiveCancellation;
     }
     if (error instanceof CodexTimeoutError && error.phase === "turn") {
       try {
-        await interruptTurn(peer, reader, threadId, turnId, input.closeTimeoutMs);
+        await interruptTurn(peer, reader, threadId, turnId, input.interruptTimeoutMs);
       } catch (interruptError) {
         attachErrorCause(error, interruptError);
       }
@@ -828,8 +926,11 @@ async function interruptTurn(
   threadId: string,
   turnId: string,
   timeoutMs: number,
-): Promise<void> {
-  const deadline = performance.now() + timeoutMs;
+): Promise<CodexInterruptEvidence> {
+  const started = performance.now();
+  const deadline = started + timeoutMs;
+  let acknowledgementReceived = false;
+  let acknowledgementDurationMs: number | undefined;
   const response = asRecord(
     await withDeadline(
       peer.request("turn/interrupt", { threadId, turnId }),
@@ -839,6 +940,8 @@ async function interruptTurn(
     "turn/interrupt",
   );
   if (Object.keys(response).length !== 0) throw protocolError("turn/interrupt response");
+  acknowledgementReceived = true;
+  acknowledgementDurationMs = finiteMs(performance.now() - started);
   while (true) {
     const notification = await reader.next(deadline);
     if (notification === undefined) throw protocolError("interrupted turn completion");
@@ -847,7 +950,13 @@ async function interruptTurn(
     if (event.kind !== "turn-completed") continue;
     if (event.status !== "interrupted")
       throw protocolError(`turn/interrupt status ${event.status}`);
-    return;
+    return {
+      deadlineMs: timeoutMs,
+      acknowledgementReceived,
+      acknowledgementDurationMs,
+      totalDurationMs: finiteMs(performance.now() - started),
+      terminalStatus: "interrupted",
+    };
   }
 }
 
@@ -911,6 +1020,12 @@ function validateInput(input: CodexReviewInput): void {
   }
   if (!Number.isFinite(input.timeoutMs) || input.timeoutMs <= 0) {
     throw new RangeError("timeoutMs must be positive");
+  }
+  if (!Number.isFinite(input.interruptTimeoutMs) || input.interruptTimeoutMs <= 0) {
+    throw new RangeError("interruptTimeoutMs must be positive");
+  }
+  if (typeof input.includeIgnoredRepositoryPaths !== "boolean") {
+    throw new TypeError("includeIgnoredRepositoryPaths must be boolean");
   }
 }
 
@@ -1113,11 +1228,24 @@ function parseItem(value: Record<string, unknown>, context: string): MarkerItem 
 }
 
 function isActiveCancellation(value: unknown): value is ActiveCancellation {
+  const interrupt = isRecord(value) ? value["interrupt"] : undefined;
   return (
     isRecord(value) &&
     value["kind"] === "active-cancellation" &&
     typeof value["threadId"] === "string" &&
-    typeof value["turnId"] === "string"
+    typeof value["turnId"] === "string" &&
+    isRecord(interrupt) &&
+    typeof interrupt["deadlineMs"] === "number" &&
+    Number.isFinite(interrupt["deadlineMs"]) &&
+    interrupt["deadlineMs"] > 0 &&
+    interrupt["acknowledgementReceived"] === true &&
+    typeof interrupt["acknowledgementDurationMs"] === "number" &&
+    Number.isFinite(interrupt["acknowledgementDurationMs"]) &&
+    interrupt["acknowledgementDurationMs"] >= 0 &&
+    typeof interrupt["totalDurationMs"] === "number" &&
+    Number.isFinite(interrupt["totalDurationMs"]) &&
+    interrupt["totalDurationMs"] >= 0 &&
+    interrupt["terminalStatus"] === "interrupted"
   );
 }
 
