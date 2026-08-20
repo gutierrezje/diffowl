@@ -8,6 +8,32 @@ export const REVIEW_JSON_MARKER = "FINAL_REVIEW_JSON" as const;
 /** Maximum total attempts, including the first emit. Not a config knob. */
 export const SCHEMA_VALIDATION_MAX_ATTEMPTS = 3;
 
+export const REVIEW_DOCUMENT_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    summary: { type: "string" },
+    findings: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          severity: { type: "string", enum: ["error", "warning", "info"] },
+          file: { type: "string" },
+          line: { type: "integer", minimum: 1 },
+          evidence: { type: ["string", "null"] },
+          title: { type: "string" },
+          body: { type: "string" },
+          confidence: { type: "string", enum: ["low", "medium", "high"] },
+        },
+        required: ["severity", "file", "line", "evidence", "title", "body", "confidence"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["summary", "findings"],
+  additionalProperties: false,
+} as const satisfies Record<string, unknown>;
+
 export type SchemaIssue = {
   locator: string;
   message: string;
@@ -30,6 +56,8 @@ export type ReviewAttemptDecision =
       nextAttempt: number;
     }
   | { kind: "fail"; error: SchemaValidationError };
+
+export type ReviewDocumentMode = "marker" | "native-json";
 
 export class SchemaValidationError extends Error {
   override readonly name = "SchemaValidationError";
@@ -114,19 +142,37 @@ export function inspectReviewText(text: string): ReviewTextInspection {
     case "no-marker-object":
       return {
         kind: "open",
-        ifFinished: invalidWithMarker(validateClosedObject(extracted.value)),
+        ifFinished: invalidWithMarker(validateReviewDocument(extracted.value)),
       };
     case "marked-incomplete":
       return { kind: "open", ifFinished: { kind: "invalid", issues: extracted.issues } };
     case "marked-invalid-json":
       return { kind: "invalid", issues: extracted.issues };
     case "marked-object":
-      return validateClosedObject(extracted.value);
+      return validateReviewDocument(extracted.value);
     default: {
       const _exhaustive: never = extracted;
       throw new Error(`unexpected extract: ${String(_exhaustive)}`);
     }
   }
+}
+
+export function inspectNativeReviewText(text: string): ClosedReview {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch (error) {
+    return {
+      kind: "invalid",
+      issues: [
+        {
+          locator: "json",
+          message: `invalid JSON: ${error instanceof Error ? error.message : "parse failed"}`,
+        },
+      ],
+    };
+  }
+  return validateReviewDocument(value);
 }
 
 export function looksLikeCompleteStructuredReview(text: string): boolean {
@@ -151,6 +197,7 @@ export function parseStructuredReview(raw: string): ReviewReport {
 export function decideReviewAttempt(input: {
   closed: ClosedReview;
   attempt: number;
+  mode?: ReviewDocumentMode;
 }): ReviewAttemptDecision {
   switch (input.closed.kind) {
     case "valid":
@@ -160,7 +207,10 @@ export function decideReviewAttempt(input: {
         return {
           kind: "retry",
           issues: input.closed.issues,
-          userMessage: formatSchemaRetryPrompt(input.closed.issues),
+          userMessage:
+            input.mode === "native-json"
+              ? formatNativeSchemaRetryPrompt(input.closed.issues)
+              : formatSchemaRetryPrompt(input.closed.issues),
           nextAttempt: input.attempt + 1,
         };
       }
@@ -206,6 +256,14 @@ export async function resolveReviewDocument(input: {
 export function formatSchemaRetryPrompt(issues: readonly SchemaIssue[]): string {
   return [
     `The previous review document failed schema validation. Emit a replacement document: a single line ${REVIEW_JSON_MARKER}, then one JSON object that fixes every issue below. No markdown fences. No commentary. Do not patch the previous object.`,
+    "",
+    ...issues.map((issue) => `- ${issue.message}`),
+  ].join("\n");
+}
+
+function formatNativeSchemaRetryPrompt(issues: readonly SchemaIssue[]): string {
+  return [
+    "The previous review document failed schema validation. Emit one replacement JSON object that fixes every issue below. Do not include markdown fences or commentary.",
     "",
     ...issues.map((issue) => `- ${issue.message}`),
   ].join("\n");
@@ -298,7 +356,7 @@ function extractBalancedJson(text: string): { jsonText: string; complete: boolea
   return { jsonText: text.slice(firstBrace), complete: false };
 }
 
-function validateClosedObject(value: unknown): ClosedReview {
+export function validateReviewDocument(value: unknown): ClosedReview {
   const parsed = ReviewDocumentSchema.safeParse(value);
   if (!parsed.success) {
     return { kind: "invalid", issues: issuesFromZod(parsed.error) };

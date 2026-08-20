@@ -1,10 +1,17 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 const args = process.argv.slice(2);
 if (args.includes("--experimental")) process.exit(2);
+if (process.env.MOCK_CLI_COMMAND_LOG)
+  await appendFile(process.env.MOCK_CLI_COMMAND_LOG, `${args.join(" ")}\n`);
 if (process.env.MOCK_CLI_PID_FILE)
   await writeFile(process.env.MOCK_CLI_PID_FILE, `${process.pid}\n`);
+
+if (args.length === 2 && args[0] === "app-server" && args[1] === "--stdio") {
+  await import("./mock-app-server.mjs");
+  await new Promise(() => {});
+}
 
 const tsFiles = {
   "ClientNotification.ts": "initialized\n",

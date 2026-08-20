@@ -7,8 +7,8 @@ import { describe, expect, it } from "vitest";
 import type { DiffOwlConfig } from "../../config.js";
 import { commandProvenanceFor, runCodexAppServerSpike } from "./spike.js";
 
-const codexFixture = fileURLToPath(new URL("./fixtures/mock-codex-cli.mjs", import.meta.url));
-const serverFixture = fileURLToPath(new URL("./fixtures/mock-app-server.mjs", import.meta.url));
+const codexFixture = fileURLToPath(new URL("../../codex/fixtures/mock-codex-cli.mjs", import.meta.url));
+const serverFixture = fileURLToPath(new URL("../../codex/fixtures/mock-app-server.mjs", import.meta.url));
 const expectedNodeExecutableBasename = basename(process.execPath);
 const SLOW_INTEGRATION_TEST_TIMEOUT_MS = 40_000;
 const config: DiffOwlConfig = {
@@ -72,7 +72,6 @@ function input(
         env: { MOCK_APP_SERVER_MODE: appMode, MOCK_APP_SERVER_MODEL: "gpt-5-codex" },
       },
       model: "gpt-5-codex",
-      strategy: { kind: "marker" as const },
       artifactDirectory,
       timeoutMs: 15_000,
       interruptDeadlineMs: 2_000,

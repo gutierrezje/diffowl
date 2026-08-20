@@ -3,7 +3,7 @@ import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, extname, isAbsolute, join, relative } from "node:path";
 import { execa } from "execa";
-import { buildExperimentEnvironment } from "./environment.js";
+import { buildCodexEnvironment } from "./environment.js";
 
 export type ProtocolEvidenceOptions = {
   executable: string;
@@ -250,7 +250,7 @@ async function runCodex(
 ): Promise<string> {
   const remaining = deadline - performance.now();
   if (remaining <= 0) throw new ProtocolTimeoutError(phase);
-  const childEnv = buildExperimentEnvironment(options.env);
+  const childEnv = buildCodexEnvironment(options.env);
   const executable = await ensureExecutableAvailable(options.executable, childEnv, deadline, phase);
   const commandRemaining = deadline - performance.now();
   if (commandRemaining <= 0) throw new ProtocolTimeoutError(phase);

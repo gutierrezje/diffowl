@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { REVIEW_AGENT_PROMPT, buildReviewPrompt, resolveReviewPrompts } from "./prompt.js";
+import {
+  REVIEW_AGENT_NATIVE_JSON_PROMPT,
+  REVIEW_AGENT_PROMPT,
+  buildReviewPrompt,
+  resolveReviewPrompts,
+} from "./prompt.js";
 
 const config = {
   model: "provider/model",
@@ -41,6 +46,20 @@ describe("resolveReviewPrompts", () => {
     expect(prompts.system).toBe(REVIEW_AGENT_PROMPT);
     expect(prompts.user).toContain("DiffOwl has already collected");
     expect(prompts.user).toContain("## context");
+  });
+
+  it("uses the native JSON contract without rewriting marker instructions", () => {
+    const prompts = resolveReviewPrompts({
+      target: { kind: "staged" },
+      config,
+      depth: "default",
+      documentMode: "native-json",
+    });
+
+    expect(prompts.system).toBe(REVIEW_AGENT_NATIVE_JSON_PROMPT);
+    expect(prompts.system).toContain("supplied output schema");
+    expect(prompts.system).toContain("Required review passes");
+    expect(prompts.system).not.toContain("FINAL_REVIEW_JSON");
   });
 });
 

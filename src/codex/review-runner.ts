@@ -1,16 +1,16 @@
 import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
-import { resolveReviewPrompts } from "../../review/prompt.js";
-import { ReviewCancelledError } from "../../review/errors.js";
-import type { ReviewOptions, ReviewResult } from "../../review/types.js";
+import { resolveReviewPrompts } from "../review/prompt.js";
+import { ReviewCancelledError } from "../review/errors.js";
+import type { ReviewOptions, ReviewResult } from "../review/types.js";
 import {
   decideReviewAttempt,
-  inspectReviewText,
-  REVIEW_JSON_MARKER,
+  inspectNativeReviewText,
+  REVIEW_DOCUMENT_OUTPUT_SCHEMA,
   SCHEMA_VALIDATION_MAX_ATTEMPTS,
   type SchemaIssue,
-} from "../../review/document.js";
-import type { ReviewUsage } from "../../review/usage.js";
+} from "../review/document.js";
+import type { ReviewUsage } from "../review/usage.js";
 import {
   startAppServerPeer,
   AppServerPeerError,
@@ -23,21 +23,18 @@ import {
   compareRepositoryStates,
   type RepositoryState,
 } from "./repository-guard.js";
-import { buildExperimentEnvironment } from "./environment.js";
+import { buildCodexEnvironment } from "./environment.js";
 
 export type CodexReviewInput = ReviewOptions & {
   executable: string;
   args?: readonly string[];
   env?: NodeJS.ProcessEnv;
   model: string;
-  strategy: CodexReviewStrategy;
   timeoutMs: number;
   interruptTimeoutMs: number;
   closeTimeoutMs: number;
   includeIgnoredRepositoryPaths: boolean;
 };
-
-export type CodexReviewStrategy = { kind: "marker" } | { kind: "output-schema" };
 
 export type CodexInterruptEvidence = {
   deadlineMs: number;
@@ -59,7 +56,7 @@ export type CodexReviewEvidence = {
   apiKeyEnvironmentRemoved: true;
   threadId: string;
   turnIds: readonly [string, ...string[]];
-  strategy: CodexReviewStrategy;
+  documentMode: "native-json";
   attempts: number;
   terminalStatus: "completed";
   usagePresent: boolean;
@@ -297,32 +294,6 @@ type ActiveCancellation = {
 
 const ABORT_SIGNAL = Symbol("codex-review-abort");
 
-const OUTPUT_SCHEMA = {
-  type: "object",
-  properties: {
-    summary: { type: "string" },
-    findings: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          severity: { type: "string", enum: ["error", "warning", "info"] },
-          file: { type: "string" },
-          line: { type: "integer", minimum: 1 },
-          evidence: { type: ["string", "null"] },
-          title: { type: "string" },
-          body: { type: "string" },
-          confidence: { type: "string", enum: ["low", "medium", "high"] },
-        },
-        required: ["severity", "file", "line", "evidence", "title", "body", "confidence"],
-        additionalProperties: false,
-      },
-    },
-  },
-  required: ["summary", "findings"],
-  additionalProperties: false,
-} satisfies Record<string, unknown>;
-
 export async function executeCodexReview(input: CodexReviewInput): Promise<CodexReviewOutcome> {
   validateInput(input);
   if (input.signal?.aborted) throw new ReviewCancelledError("Review cancelled by user.");
@@ -336,10 +307,10 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     ...(input.localContext === undefined ? {} : { localContext: input.localContext }),
     ...(input.systemPrompt === undefined ? {} : { systemPrompt: input.systemPrompt }),
     ...(input.userPrompt === undefined ? {} : { userPrompt: input.userPrompt }),
+    documentMode: "native-json",
   });
-  const developerInstructions =
-    input.strategy.kind === "marker" ? prompts.system : outputSchemaInstructions(prompts.system);
-  const peerEnv = buildExperimentEnvironment(input.env);
+  const developerInstructions = prompts.system;
+  const peerEnv = buildCodexEnvironment(input.env);
   const peer = startAppServerPeer({
     executable: input.executable,
     ...(input.args === undefined ? {} : { args: input.args }),
@@ -582,13 +553,12 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
         }
         await timed("repository-after", () => checkRepositoryAfterTurn());
         if (completed.usage !== undefined) usage = completed.usage;
-        const candidate =
-          input.strategy.kind === "marker"
-            ? completed.text
-            : `${REVIEW_JSON_MARKER}\n${completed.text}`;
-        const inspection = inspectReviewText(candidate);
-        const closed = inspection.kind === "open" ? inspection.ifFinished : inspection;
-        const decision = decideReviewAttempt({ closed, attempt: turnIds.length });
+        const closed = inspectNativeReviewText(completed.text);
+        const decision = decideReviewAttempt({
+          closed,
+          attempt: turnIds.length,
+          mode: "native-json",
+        });
         switch (decision.kind) {
           case "accept":
             validationAttempts.push({ turnId, outcome: "accepted", issues: [] });
@@ -598,10 +568,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
             validationAttempts.push({ turnId, outcome: "retry", issues: decision.issues });
             if (turnIds.length >= SCHEMA_VALIDATION_MAX_ATTEMPTS)
               throw new Error("Unexpected schema retry beyond the attempt limit.");
-            prompt =
-              input.strategy.kind === "marker"
-                ? decision.userMessage
-                : formatOutputSchemaRetryPrompt(decision.issues);
+            prompt = decision.userMessage;
             continue;
           case "fail":
             validationAttempts.push({ turnId, outcome: "failed", issues: decision.error.issues });
@@ -623,10 +590,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     if (isActiveCancellation(error)) {
       cancelled = error;
       interruptEvidence = error.interrupt;
-    } else if (
-      error instanceof AppServerPeerError &&
-      error.kind === "unexpected-server-request"
-    ) {
+    } else if (error instanceof AppServerPeerError && error.kind === "unexpected-server-request") {
       failure = policyError("unexpected server request");
       try {
         await checkRepositoryAfterTurn(failure);
@@ -799,7 +763,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
       apiKeyEnvironmentRemoved: true,
       threadId,
       turnIds: nonEmptyTurnIds,
-      strategy: input.strategy,
+      documentMode: "native-json",
       attempts: nonEmptyTurnIds.length,
       terminalStatus: "completed",
       usagePresent: usage !== undefined,
@@ -839,7 +803,7 @@ async function startTurn(
     model: input.model,
     approvalPolicy: "never",
     sandboxPolicy: { type: "readOnly", networkAccess: false },
-    ...(input.strategy.kind === "output-schema" ? { outputSchema: OUTPUT_SCHEMA } : {}),
+    outputSchema: REVIEW_DOCUMENT_OUTPUT_SCHEMA,
   };
   events.push("sent:turn/start");
   const turn = asRecord(
@@ -924,7 +888,7 @@ async function collectTurn(
         }
         default: {
           const _exhaustive: never = event;
-          throw new Error(`unexpected marker event: ${String(_exhaustive)}`);
+          throw new Error(`unexpected Codex event: ${String(_exhaustive)}`);
         }
       }
     }
@@ -1000,29 +964,6 @@ async function interruptTurn(
   }
 }
 
-function outputSchemaInstructions(system: string): string {
-  const preambleStart = system.indexOf("You MAY think step-by-step internally");
-  const semanticsStart = system.indexOf("\n\nSemantics and constraints:");
-  if (preambleStart !== -1 && semanticsStart > preambleStart) {
-    return `${system.slice(0, preambleStart)}You MAY think step-by-step internally, but your VISIBLE output must be JSON-only: exactly one JSON object matching the supplied output schema. Do not include markdown fences or commentary.${system.slice(semanticsStart)}`.replaceAll(
-      REVIEW_JSON_MARKER,
-      "the supplied output schema",
-    );
-  }
-  const clean = system.replaceAll(REVIEW_JSON_MARKER, "the supplied output schema");
-  return clean.includes("JSON-only")
-    ? clean
-    : `${clean}\n\nJSON-only output: return exactly one object matching the supplied output schema. Do not add markdown or commentary.`;
-}
-
-function formatOutputSchemaRetryPrompt(issues: readonly { message: string }[]): string {
-  return [
-    "The previous review document failed schema validation. Emit one replacement JSON object that fixes every issue below. Do not include markdown fences or commentary.",
-    "",
-    ...issues.map((issue) => `- ${issue.message}`),
-  ].join("\n");
-}
-
 function requestWithin(
   peer: AppServerPeer,
   method: string,
@@ -1052,9 +993,6 @@ function withDeadline<T>(promise: Promise<T>, deadline: number, phase: string): 
 }
 
 function validateInput(input: CodexReviewInput): void {
-  if (input.strategy.kind !== "marker" && input.strategy.kind !== "output-schema") {
-    throw new Error("Unsupported Codex review strategy.");
-  }
   if (input.model.trim() === "" || input.model.includes("/")) {
     throw new Error("Codex review model must be a bare model id.");
   }

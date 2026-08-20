@@ -3,9 +3,11 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  inspectNativeReviewText,
   inspectReviewText,
   looksLikeCompleteStructuredReview,
   parseStructuredReview,
+  REVIEW_DOCUMENT_OUTPUT_SCHEMA,
   REVIEW_JSON_MARKER,
   SchemaValidationError,
 } from "./document.js";
@@ -319,6 +321,33 @@ describe("parseStructuredReview", () => {
     );
 
     expect(report.summary).toContain(REVIEW_JSON_MARKER);
+  });
+});
+
+describe("inspectNativeReviewText", () => {
+  it("validates a complete marker-free review document", () => {
+    expect(inspectNativeReviewText('{"summary":"No issues.","findings":[]}')).toEqual({
+      kind: "valid",
+      report: { summary: "No issues.", findings: [] },
+    });
+  });
+
+  it("exports the complete native output schema", () => {
+    expect(REVIEW_DOCUMENT_OUTPUT_SCHEMA).toMatchObject({
+      type: "object",
+      required: ["summary", "findings"],
+      additionalProperties: false,
+      properties: {
+        findings: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["severity", "file", "line", "evidence", "title", "body", "confidence"],
+            additionalProperties: false,
+          },
+        },
+      },
+    });
   });
 });
 

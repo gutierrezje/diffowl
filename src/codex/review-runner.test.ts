@@ -4,10 +4,10 @@ import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
-import type { DiffOwlConfig } from "../../config.js";
-import type { ReviewProgressEvent } from "../../review/types.js";
-import { ReviewCancelledError } from "../../review/errors.js";
-import { SchemaValidationError } from "../../review/document.js";
+import type { DiffOwlConfig } from "../config.js";
+import type { ReviewProgressEvent } from "../review/types.js";
+import { ReviewCancelledError } from "../review/errors.js";
+import { SchemaValidationError } from "../review/document.js";
 import {
   CodexRepositoryMutatedError,
   CodexReviewCancelledError,
@@ -35,15 +35,15 @@ const config: DiffOwlConfig = {
 };
 
 describe("executeCodexReview", () => {
-  it("runs one marker review over the real App Server child", async () => {
+  it("runs one native-schema review over the real App Server child", async () => {
     const events: ReviewProgressEvent[] = [];
     const outcome = await executeCodexReview({
-      ...makeInput("marker"),
+      ...makeInput("output-schema"),
       onProgress: (event) => events.push(event),
     });
 
     expect(outcome.reviewResult).toEqual({
-      report: { summary: "marker summary", findings: [] },
+      report: { summary: "schema summary", findings: [] },
       sessionId: "thread-1",
       usage: {
         tokens: { input: 100, output: 200, reasoning: 19, cache: { read: 10, write: 2 } },
@@ -61,7 +61,7 @@ describe("executeCodexReview", () => {
       networkAccess: false,
       threadId: "thread-1",
       turnIds: ["turn-1"],
-      strategy: { kind: "marker" },
+      documentMode: "native-json",
       attempts: 1,
       terminalStatus: "completed",
       usagePresent: true,
@@ -80,12 +80,12 @@ describe("executeCodexReview", () => {
 
   it("correlates agent deltas and completions by item id", async () => {
     const outcome = await executeCodexReview(makeInput("item-correlation"));
-    expect(outcome.reviewResult.report.summary).toBe("marker summary");
+    expect(outcome.reviewResult.report.summary).toBe("schema summary");
   });
 
   it("accepts a completed agent message without a preceding delta", async () => {
     const outcome = await executeCodexReview(makeInput("completed-no-delta"));
-    expect(outcome.reviewResult.report.summary).toBe("marker summary");
+    expect(outcome.reviewResult.report.summary).toBe("schema summary");
   });
 
   it("reports file changes as a stable policy violation", async () => {
@@ -94,47 +94,26 @@ describe("executeCodexReview", () => {
     });
   });
 
-  it("retries one invalid marker turn on the same thread", async () => {
-    const outcome = await executeCodexReview(makeInput("marker-retry"));
-    expect(outcome.reviewResult.report.summary).toBe("marker summary");
-    expect(outcome.evidence).toMatchObject({ attempts: 2, turnIds: ["turn-1", "turn-2"] });
-  });
-
-  it("fails after exactly three invalid marker turns with the existing validation error", async () => {
-    const error = await executeCodexReview(makeInput("marker-three-invalid")).catch(
-      (value: unknown) => value,
-    );
-    expect(error).toBeInstanceOf(SchemaValidationError);
-    expect(error).toMatchObject({ attempts: 3 });
-  });
-
-  it("runs the strict output-schema strategy without a marker in the provider prompt", async () => {
-    const outcome = await executeCodexReview({
-      ...makeInput("output-schema-default", false),
-      strategy: { kind: "output-schema" },
-    });
+  it("uses the shared native system prompt without a marker", async () => {
+    const outcome = await executeCodexReview(makeInput("output-schema-default", false));
     expect(outcome.reviewResult.report).toEqual({ summary: "schema summary", findings: [] });
     expect(outcome.evidence).toMatchObject({
-      strategy: { kind: "output-schema" },
+      documentMode: "native-json",
       attempts: 1,
       turnIds: ["turn-1"],
     });
   });
 
   it("uses a marker-free replacement prompt for an output-schema retry", async () => {
-    const outcome = await executeCodexReview({
-      ...makeInput("output-schema-retry"),
-      strategy: { kind: "output-schema" },
-    });
+    const outcome = await executeCodexReview(makeInput("output-schema-retry"));
     expect(outcome.reviewResult.report.summary).toBe("schema summary");
     expect(outcome.evidence.attempts).toBe(2);
   });
 
   it("exhausts output-schema validation after exactly three turns", async () => {
-    const error = await executeCodexReview({
-      ...makeInput("output-schema-three-invalid", false),
-      strategy: { kind: "output-schema" },
-    }).catch((value: unknown) => value);
+    const error = await executeCodexReview(makeInput("output-schema-three-invalid", false)).catch(
+      (value: unknown) => value,
+    );
     expect(error).toBeInstanceOf(SchemaValidationError);
     expect(error).toMatchObject({ attempts: 3 });
     expect(getCodexReviewFailureEvidence(error)).toMatchObject({
@@ -242,34 +221,30 @@ describe("executeCodexReview", () => {
     await expect(promise).rejects.toBeInstanceOf(CodexReviewCancelledError);
   });
 
-  it(
-    "interrupts an active turn before reporting a timeout",
-    { timeout: 10_000 },
-    async () => {
-      const directory = await temporaryRepository();
-      try {
-        const error = await executeCodexReview({
-          ...makeInput("timeout-active", true, directory),
-          timeoutMs: 5_000,
-        }).catch((value: unknown) => value);
-        expect(error).toMatchObject({
-          kind: "timeout",
-          phase: "turn",
-        });
-        expect(getCodexReviewFailureEvidence(error)).toMatchObject({
-          interrupt: {
-            deadlineMs: 300,
-            acknowledgementReceived: true,
-            terminalStatus: "interrupted",
-          },
-          interruptAcknowledged: true,
+  it("interrupts an active turn before reporting a timeout", { timeout: 10_000 }, async () => {
+    const directory = await temporaryRepository();
+    try {
+      const error = await executeCodexReview({
+        ...makeInput("timeout-active", true, directory),
+        timeoutMs: 5_000,
+      }).catch((value: unknown) => value);
+      expect(error).toMatchObject({
+        kind: "timeout",
+        phase: "turn",
+      });
+      expect(getCodexReviewFailureEvidence(error)).toMatchObject({
+        interrupt: {
+          deadlineMs: 300,
+          acknowledgementReceived: true,
           terminalStatus: "interrupted",
-        });
-      } finally {
-        await rm(directory, { recursive: true, force: true });
-      }
-    },
-  );
+        },
+        interruptAcknowledged: true,
+        terminalStatus: "interrupted",
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 
   it.each([
     ["policy-cwd", "policy-violation"],
@@ -283,14 +258,8 @@ describe("executeCodexReview", () => {
     const linkRoot = await mkdtemp(join(tmpdir(), "codex-review-link-"));
     const linkedDirectory = join(linkRoot, "repository");
     try {
-      await symlink(
-        directory,
-        linkedDirectory,
-        process.platform === "win32" ? "junction" : "dir",
-      );
-      const outcome = await executeCodexReview(
-        makeInput("canonical-cwd", true, linkedDirectory),
-      );
+      await symlink(directory, linkedDirectory, process.platform === "win32" ? "junction" : "dir");
+      const outcome = await executeCodexReview(makeInput("canonical-cwd", true, linkedDirectory));
       expect(outcome.evidence.repositoryGuard.kind).toBe("unchanged");
     } finally {
       await Promise.all([
@@ -441,7 +410,6 @@ function makeInput(
       CODEX_API_KEY: "fake-codex-key",
     },
     model: "gpt-5-codex",
-    strategy: { kind: "marker" },
     timeoutMs: 2_000,
     closeTimeoutMs: 500,
     interruptTimeoutMs: 300,

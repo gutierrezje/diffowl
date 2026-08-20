@@ -23,6 +23,7 @@ const TEST_CONTROLS = new Set([
   "MOCK_APP_SERVER_SYSTEM",
   "MOCK_APP_SERVER_USER",
   "MOCK_CLI_EXTRA_VARIANT",
+  "MOCK_CLI_COMMAND_LOG",
   "MOCK_CLI_MARKER_FILE",
   "MOCK_CLI_MISSING",
   "MOCK_CLI_MISSING_FRAGMENT",
@@ -31,8 +32,8 @@ const TEST_CONTROLS = new Set([
   "MOCK_CLI_STDERR_VALUE",
 ]);
 
-/** Build the deliberately narrow environment allowed across the experiment process boundary. */
-export function buildExperimentEnvironment(
+/** Build the deliberately narrow environment allowed across the Codex process boundary. */
+export function buildCodexEnvironment(
   overrides: NodeJS.ProcessEnv = {},
   inherited: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {

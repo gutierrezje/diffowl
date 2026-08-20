@@ -85,7 +85,6 @@ const spikeReport = {
     },
   ],
 };
-const markerText = `FINAL_REVIEW_JSON\n${JSON.stringify(mode === "spike-marker" ? spikeReport : { summary: "marker summary", findings: [] })}`;
 const markerModes = [
   "marker",
   "authoritative",
@@ -124,12 +123,7 @@ const markerModes = [
   "spike-three-invalid",
   "spike-cancel-active",
 ].includes(mode);
-const outputSchemaModes = [
-  "output-schema",
-  "output-schema-default",
-  "output-schema-retry",
-  "output-schema-three-invalid",
-].includes(mode);
+const outputSchemaModes = markerModes;
 const retryModes = [
   "marker-retry",
   "marker-three-invalid",
@@ -293,9 +287,9 @@ function handleMarker(message) {
             ? `${process.cwd()}-other`
             : mode === "canonical-cwd"
               ? realpathSync(params.cwd)
-            : ["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode)
-              ? params.cwd
-              : process.cwd(),
+              : ["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode)
+                ? params.cwd
+                : process.cwd(),
         approvalPolicy: mode === "policy-approval" ? "on-request" : "never",
         sandbox: { type: "readOnly", networkAccess: mode === "policy-sandbox" },
         futureField: "ignored",
@@ -434,15 +428,13 @@ function handleMarker(message) {
         mode,
       ) ||
       (mode === "output-schema-retry" && attempt === 1);
-    const finalText = outputSchemaModes
-      ? invalid
-        ? JSON.stringify({ summary: "invalid", findings: "not-an-array" })
-        : JSON.stringify({ summary: "schema summary", findings: [] })
-      : mode === "authoritative"
-        ? `FINAL_REVIEW_JSON\n${JSON.stringify({ summary: "authoritative summary", findings: [] })}`
-        : invalid
-          ? `FINAL_REVIEW_JSON\n${JSON.stringify({ summary: "invalid", findings: "not-an-array" })}`
-          : markerText;
+    const finalText = invalid
+      ? JSON.stringify({ summary: "invalid", findings: "not-an-array" })
+      : mode === "spike-marker"
+        ? JSON.stringify(spikeReport)
+        : mode === "authoritative"
+          ? JSON.stringify({ summary: "authoritative summary", findings: [] })
+          : JSON.stringify({ summary: "schema summary", findings: [] });
     const agentMessage = {
       type: "agentMessage",
       id: `item-${attempt}`,

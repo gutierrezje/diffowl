@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildExperimentEnvironment } from "./environment.js";
+import { buildCodexEnvironment } from "./environment.js";
 
-describe("buildExperimentEnvironment", () => {
+describe("buildCodexEnvironment", () => {
   it("keeps the narrow inherited allowlist and removes credential-like values", () => {
-    const environment = buildExperimentEnvironment(
+    const environment = buildCodexEnvironment(
       {
         MOCK_APP_SERVER_MODE: "immediate",
         MOCK_CLI_STDERR_VALUE: "visible-control",
