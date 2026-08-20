@@ -1,7 +1,7 @@
 import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
 import type { LoadedReviewSnapshot } from "../review/context.js";
 import type { ReviewTarget } from "../review/target.js";
-import { REVIEW_JSON_MARKER } from "../opencode/review-parser.js";
+import { REVIEW_JSON_MARKER } from "../review/document.js";
 
 const MAX_DIFF_CHARS = 40_000;
 const MAX_QUICK_DIFF_CHARS = 12_000;

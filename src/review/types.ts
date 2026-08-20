@@ -1,5 +1,7 @@
 import { z } from "zod";
-import { ReviewConfidenceSchema } from "../config.js";
+import { ReviewConfidenceSchema, type DiffOwlConfig, type ReviewContextDepth } from "../config.js";
+import type { ReviewTarget } from "./target.js";
+import type { ReviewUsage } from "./usage.js";
 
 export const ReviewSeveritySchema = z.enum(["error", "warning", "info"]);
 
@@ -43,3 +45,29 @@ export interface ReviewReport {
   diagnostics?: string[];
   timings?: ReviewTiming[];
 }
+
+export interface ReviewOptions {
+  target: ReviewTarget;
+  directory: string;
+  config: DiffOwlConfig;
+  localContext?: string;
+  depth: ReviewContextDepth;
+  systemPrompt?: string;
+  userPrompt?: string;
+  onProgress?: (event: ReviewProgressEvent) => void;
+  signal?: AbortSignal;
+}
+
+export interface ReviewResult {
+  report: ReviewReport;
+  sessionId: string;
+  usage?: ReviewUsage;
+}
+
+export type ReviewProgressEvent =
+  | { type: "server"; message: string }
+  | { type: "session"; message: string; sessionId: string }
+  | { type: "tool"; message: string; tool: string; status: string }
+  | { type: "output"; message: string; characters: number }
+  | { type: "timing"; message: string; phase: string; ms: number }
+  | { type: "idle"; message: string };

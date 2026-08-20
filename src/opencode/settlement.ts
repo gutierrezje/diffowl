@@ -1,4 +1,4 @@
-import { looksLikeCompleteStructuredReview } from "./review-parser.js";
+import { looksLikeCompleteStructuredReview } from "../review/document.js";
 
 export interface ReviewSettlementCoordinator {
   acceptAssistantMessage(result: {

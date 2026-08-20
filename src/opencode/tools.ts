@@ -1,5 +1,5 @@
 import type { ReviewContextDepth } from "../config.js";
-import type { ReviewOptions } from "./client.js";
+import type { ReviewOptions } from "../review/types.js";
 
 type ToolPolicy = Record<string, boolean>;
 type PermissionResponse = "once" | "always" | "reject";

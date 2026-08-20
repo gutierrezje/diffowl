@@ -6,7 +6,7 @@ import {
   resolveReviewDocument,
   SchemaValidationError,
   REVIEW_JSON_MARKER,
-} from "./review-parser.js";
+} from "./document.js";
 
 function markedDocument(payload: unknown): string {
   return `${REVIEW_JSON_MARKER}\n${JSON.stringify(payload)}`;

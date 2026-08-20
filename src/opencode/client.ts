@@ -1,10 +1,11 @@
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import { isServerRunning } from "./server.js";
-import { REVIEW_AGENT_PROMPT, buildReviewPrompt } from "./agent.js";
+import { resolveReviewPrompts } from "../review/prompt.js";
 import {
   resolveReviewDocument,
   SCHEMA_VALIDATION_MAX_ATTEMPTS,
-} from "./review-parser.js";
+} from "../review/document.js";
+import { ReviewCancelledError } from "../review/errors.js";
 import { createReviewSettlementCoordinator, type ReconciliationResult } from "./settlement.js";
 import {
   buildToolPolicy,
@@ -14,78 +15,17 @@ import {
 } from "./tools.js";
 import { parseProviderPayload } from "./provider-payload.js";
 import { isQuotaOrRateLimitError } from "./quota.js";
-export { parseStructuredReview, looksLikeCompleteStructuredReview } from "./review-parser.js";
 export { buildToolPolicy, extractPermissionRequest } from "./tools.js";
 export { getAvailableModels } from "./models.js";
 export { isQuotaOrRateLimitError };
-export type {
-  ReviewConfidence,
-  ReviewFinding,
-  ReviewReport,
-  ReviewSeverity,
+import type { ReasoningEffort } from "../config.js";
+import type {
+  ReviewOptions,
+  ReviewResult,
   ReviewTiming,
   ReviewUsage,
 } from "../review/types.js";
-import type { DiffOwlConfig, ReasoningEffort, ReviewContextDepth } from "../config.js";
-import type { ReviewReport, ReviewTiming, ReviewUsage } from "../review/types.js";
 import { aggregateReviewUsage, parseAssistantUsage } from "../review/usage.js";
-import type { ReviewTarget } from "../review/target.js";
-
-export interface ReviewOptions {
-  target: ReviewTarget;
-  directory: string;
-  config: DiffOwlConfig;
-  localContext?: string;
-  depth: ReviewContextDepth;
-  systemPrompt?: string;
-  userPrompt?: string;
-  onProgress?: (event: ReviewProgressEvent) => void;
-  signal?: AbortSignal;
-}
-
-export interface ReviewResult {
-  report: ReviewReport;
-  sessionId: string;
-  usage?: ReviewUsage;
-}
-
-export type ReviewProgressEvent =
-  | { type: "server"; message: string }
-  | { type: "session"; message: string; sessionId: string }
-  | { type: "tool"; message: string; tool: string; status: string }
-  | { type: "output"; message: string; characters: number }
-  | { type: "timing"; message: string; phase: string; ms: number }
-  | { type: "idle"; message: string };
-
-export class ReviewCancelledError extends Error {
-  override name = "ReviewCancelledError";
-}
-
-export function isReviewCancellation(error: unknown): boolean {
-  return error instanceof ReviewCancelledError;
-}
-
-export function resolveReviewPrompts(options: {
-  target: ReviewTarget;
-  config: DiffOwlConfig;
-  localContext?: string;
-  depth: ReviewContextDepth;
-  systemPrompt?: string;
-  userPrompt?: string;
-}): { system: string; user: string } {
-  const user =
-    options.userPrompt ??
-    buildReviewPrompt(
-      options.target,
-      options.config.rules,
-      options.config.include,
-      options.config.exclude,
-      options.localContext,
-      options.depth,
-    );
-  const system = options.systemPrompt ?? REVIEW_AGENT_PROMPT;
-  return { system, user };
-}
 
 type OpencodeDirectoryOptions = { query: { directory: string } };
 type OpenCodeClient = ReturnType<typeof createOpencodeClient>;

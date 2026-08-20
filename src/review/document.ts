@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ReviewConfidenceSchema as ConfigReviewConfidenceSchema } from "../config.js";
-import type { ReviewFinding, ReviewReport } from "../review/types.js";
+import type { ReviewFinding, ReviewReport } from "./types.js";
 
 /** Wire marker. Single source of truth for prompt, parser, and detector. */
 export const REVIEW_JSON_MARKER = "FINAL_REVIEW_JSON" as const;

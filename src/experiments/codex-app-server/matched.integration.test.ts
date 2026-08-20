@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { resolveReviewPrompts } from "../../opencode/client.js";
+import { resolveReviewPrompts } from "../../review/prompt.js";
 import { defaultReviewPipelineDeps, runReviewPipeline } from "../../review/run.js";
 import { scoreEvalTrial } from "../../eval/score.js";
 import { hashCase, loadEvalCase } from "../../eval/corpus.js";

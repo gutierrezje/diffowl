@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
 import type { DiffOwlConfig } from "../../config.js";
-import type { ReviewProgressEvent } from "../../opencode/client.js";
-import { ReviewCancelledError } from "../../opencode/client.js";
-import { SchemaValidationError } from "../../opencode/review-parser.js";
+import type { ReviewProgressEvent } from "../../review/types.js";
+import { ReviewCancelledError } from "../../review/errors.js";
+import { SchemaValidationError } from "../../review/document.js";
 import {
   CodexRepositoryMutatedError,
   CodexReviewCancelledError,
