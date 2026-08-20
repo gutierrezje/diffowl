@@ -243,12 +243,20 @@ describe("executeCodexReview", () => {
   });
 
   it("interrupts an active turn before reporting a timeout", async () => {
-    await expect(
-      executeCodexReview({ ...makeInput("timeout-active"), timeoutMs: 500 }),
-    ).rejects.toMatchObject({
-      kind: "timeout",
-      phase: "turn",
-    });
+    const directory = await temporaryRepository();
+    try {
+      await expect(
+        executeCodexReview({
+          ...makeInput("timeout-active", true, directory),
+          timeoutMs: 5_000,
+        }),
+      ).rejects.toMatchObject({
+        kind: "timeout",
+        phase: "turn",
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it.each([
