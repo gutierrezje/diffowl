@@ -1,8 +1,8 @@
 import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
 import { isDocOnlyDiff, resolveCommitRef } from "../git/diff.js";
-import { runReview, type ReviewProgressEvent } from "../opencode/client.js";
+import { runReview } from "../opencode/client.js";
 import { ensureServer, isServerRunning } from "../opencode/server.js";
-import type { ReviewReport, ReviewTiming, ReviewUsage } from "./types.js";
+import type { ReviewProgressEvent, ReviewReport, ReviewTiming, ReviewUsage } from "./types.js";
 import {
   computeDiffHash,
   enrichReviewFindingsWithDurableMetadata,

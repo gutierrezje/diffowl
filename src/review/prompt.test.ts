@@ -1,5 +1,48 @@
 import { describe, expect, it } from "vitest";
-import { REVIEW_AGENT_PROMPT, buildReviewPrompt } from "./agent.js";
+import { REVIEW_AGENT_PROMPT, buildReviewPrompt, resolveReviewPrompts } from "./prompt.js";
+
+const config = {
+  model: "provider/model",
+  server: { port: 4096, auto_start: false },
+  context: { depth: "default" as const },
+  reasoning: { effort: "auto" as const },
+  retention: { hook_log_kb: 1024 },
+  gate: { fail_on_findings: false },
+  timeout: 300,
+  min_confidence: "medium" as const,
+  include: ["**/*"],
+  exclude: [],
+  rules: ["No empty ids."],
+  skip_doc_only: false,
+  verbose: false,
+};
+
+describe("resolveReviewPrompts", () => {
+  it("uses custom system and user prompts when provided", () => {
+    expect(
+      resolveReviewPrompts({
+        target: { kind: "staged" },
+        config,
+        depth: "default",
+        systemPrompt: "SYSTEM",
+        userPrompt: "USER",
+      }),
+    ).toEqual({ system: "SYSTEM", user: "USER" });
+  });
+
+  it("falls back to DiffOwl defaults when overrides are omitted", () => {
+    const prompts = resolveReviewPrompts({
+      target: { kind: "staged" },
+      config,
+      depth: "default",
+      localContext: "## context",
+    });
+
+    expect(prompts.system).toBe(REVIEW_AGENT_PROMPT);
+    expect(prompts.user).toContain("DiffOwl has already collected");
+    expect(prompts.user).toContain("## context");
+  });
+});
 
 describe("buildReviewPrompt", () => {
   it("uses provided local context before asking for tool follow-up", () => {

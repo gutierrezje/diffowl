@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import type { ReviewOptions, ReviewProgressEvent } from "../../opencode/client.js";
-import { ReviewCancelledError as ReviewCancelledErrorClass } from "../../opencode/client.js";
+import type { ReviewOptions, ReviewProgressEvent } from "../../review/types.js";
+import { ReviewCancelledError as ReviewCancelledErrorClass } from "../../review/errors.js";
 import {
   defaultReviewPipelineDeps,
   runReviewPipeline,
@@ -11,7 +11,7 @@ import {
 } from "../../review/run.js";
 import type { ReviewTiming } from "../../review/types.js";
 import type { ReviewUsage } from "../../review/usage.js";
-import { SchemaValidationError } from "../../opencode/review-parser.js";
+import { SchemaValidationError } from "../../review/document.js";
 import { AppServerPeerError } from "./app-server-peer.js";
 import {
   CodexReviewError,

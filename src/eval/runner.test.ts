@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DiffOwlConfig } from "../config.js";
-import type { ReviewResult } from "../opencode/client.js";
+import type { ReviewResult } from "../review/types.js";
 import type { ReviewFinding } from "../review/types.js";
 import { computeFindingFingerprint } from "../state/fingerprint.js";
 import { toFindingCandidate } from "../state/persist.js";

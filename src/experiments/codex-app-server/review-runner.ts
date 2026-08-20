@@ -1,18 +1,15 @@
 import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
-import {
-  resolveReviewPrompts,
-  ReviewCancelledError,
-  type ReviewOptions,
-  type ReviewResult,
-} from "../../opencode/client.js";
+import { resolveReviewPrompts } from "../../review/prompt.js";
+import { ReviewCancelledError } from "../../review/errors.js";
+import type { ReviewOptions, ReviewResult } from "../../review/types.js";
 import {
   decideReviewAttempt,
   inspectReviewText,
   REVIEW_JSON_MARKER,
   SCHEMA_VALIDATION_MAX_ATTEMPTS,
   type SchemaIssue,
-} from "../../opencode/review-parser.js";
+} from "../../review/document.js";
 import type { ReviewUsage } from "../../review/usage.js";
 import {
   startAppServerPeer,

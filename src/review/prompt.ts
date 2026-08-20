@@ -1,8 +1,9 @@
-import type { ReviewTarget } from "../review/target.js";
-import { REVIEW_JSON_MARKER } from "./review-parser.js";
+import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
+import type { ReviewTarget } from "./target.js";
+import { REVIEW_JSON_MARKER } from "./document.js";
 
 /**
- * Custom OpenCode agent definition for code review.
+ * Default DiffOwl agent definition for code review.
  *
  * IMPORTANT: The agent must only emit a single, structured JSON object.
  * All scratch work and chain-of-thought should stay internal to the model.
@@ -79,7 +80,7 @@ Do not force these passes onto unrelated changes; skip surfaces that are not pre
 `;
 
 /**
- * Build the review prompt to send to OpenCode.
+ * Build the review prompt to send to the selected backend.
  * We tell the agent what to review and let it use its tools to explore.
  */
 export function buildReviewPrompt(
@@ -127,6 +128,28 @@ Then provide your review following the format in your instructions.`;
   }
 
   return prompt;
+}
+
+export function resolveReviewPrompts(options: {
+  target: ReviewTarget;
+  config: DiffOwlConfig;
+  localContext?: string;
+  depth: ReviewContextDepth;
+  systemPrompt?: string;
+  userPrompt?: string;
+}): { system: string; user: string } {
+  const user =
+    options.userPrompt ??
+    buildReviewPrompt(
+      options.target,
+      options.config.rules,
+      options.config.include,
+      options.config.exclude,
+      options.localContext,
+      options.depth,
+    );
+  const system = options.systemPrompt ?? REVIEW_AGENT_PROMPT;
+  return { system, user };
 }
 
 function reviewDepthInstruction(depth: "shallow" | "default"): string {

@@ -16,6 +16,9 @@ Builds the review context from diffs, AST, and cross-references, then renders an
 | Persistent TypeScript import index         | `impact.ts`, `ast/module-bindings.ts` |
 | Hook log trimming                          | `retention.ts`                        |
 | Review data types                          | `types.ts`                            |
+| Review prompt construction                  | `prompt.ts`                           |
+| Structured output validation and retries    | `document.ts`                         |
+| Review cancellation errors                  | `errors.ts`                           |
 
 ## Conventions
 
@@ -31,3 +34,4 @@ Builds the review context from diffs, AST, and cross-references, then renders an
 - `buildReferenceContexts` resolves only relative TypeScript imports. It does not follow `require()`, dynamic `import()`, or `tsconfig` path aliases.
 - TypeScript parsing is best-effort. If the parser is unavailable, reviews keep diff and file context but omit import references.
 - Changing `MAX_*` limits without testing against real diffs can break prompt token budgets.
+- `inspectReviewText` is the single review-document contract. Streaming stays `open` until the `FINAL_REVIEW_JSON` marker plus a closed JSON object; `looksLikeCompleteStructuredReview` is `inspect.kind !== "open"`. Finished views (`parseStructuredReview`, idle `ifFinished`) treat a missing marker as invalid. Invalid documents retry up to `SCHEMA_VALIDATION_MAX_ATTEMPTS` then throw; there is no drop-and-succeed path. Change prompt, parser, and detector together.

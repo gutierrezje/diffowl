@@ -21,11 +21,9 @@ import { loadEffectiveConfig, MissingModelError, type ModelSource } from "./effe
 import { resetModelPreference, saveModelPreference } from "./model-preference.js";
 import {
   getAvailableModels,
-  isReviewCancellation,
-  type ReviewProgressEvent,
-  type ReviewTiming,
-  type ReviewUsage,
 } from "./opencode/client.js";
+import { isReviewCancellation } from "./review/errors.js";
+import type { ReviewProgressEvent, ReviewTiming, ReviewUsage } from "./review/types.js";
 import { getOpenCodeFailureGuidance } from "./opencode/guidance.js";
 import { runEvalCommand } from "./eval/command.js";
 import { canSelectModelInteractively, selectModel } from "./opencode/model-selection.js";
