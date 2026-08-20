@@ -10,6 +10,7 @@ export type ProtocolEvidenceOptions = {
   prefixArgs?: readonly string[];
   env?: NodeJS.ProcessEnv;
   timeoutMs: number;
+  signal?: AbortSignal;
 };
 
 export type CodexProtocolEvidence = {
@@ -25,6 +26,7 @@ export type ProtocolEvidenceErrorKind =
   | "executable-missing"
   | "generation-failed"
   | "protocol-incompatible"
+  | "cancelled"
   | "timeout";
 
 export class ProtocolEvidenceError extends Error {
@@ -55,6 +57,16 @@ export class ProtocolTimeoutError extends ProtocolEvidenceError {
   constructor(phase: string) {
     super("timeout", `Codex protocol evidence timed out during ${phase}.`);
     this.name = "ProtocolTimeoutError";
+    this.phase = phase;
+  }
+}
+
+export class ProtocolCancelledError extends ProtocolEvidenceError {
+  readonly phase: string;
+
+  constructor(phase: string) {
+    super("cancelled", `Codex protocol evidence was cancelled during ${phase}.`);
+    this.name = "ProtocolCancelledError";
     this.phase = phase;
   }
 }
@@ -203,6 +215,7 @@ export async function inspectCodexProtocol(
   if (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0) {
     throw new RangeError("timeoutMs must be positive");
   }
+  throwIfCancelled(options.signal, "startup");
   const deadline = performance.now() + options.timeoutMs;
   const outputRoot = await mkdtemp(join(tmpdir(), "codex-protocol-evidence-"));
   try {
@@ -213,6 +226,7 @@ export async function inspectCodexProtocol(
         "protocol-incompatible",
         "Codex CLI returned an invalid version.",
       );
+    throwIfCancelled(options.signal, "generate-ts");
     const typesRoot = join(outputRoot, "types");
     const jsonRoot = join(outputRoot, "json");
     await runCodex(
@@ -221,14 +235,27 @@ export async function inspectCodexProtocol(
       deadline,
       "generate-ts",
     );
+    throwIfCancelled(options.signal, "generate-json-schema");
     await runCodex(
       options,
       [...prefix, "app-server", "generate-json-schema", "--out", jsonRoot],
       deadline,
       "generate-json-schema",
     );
-    const types = await inspectTree(typesRoot, ".ts", REQUIRED_TS_TOKENS, deadline);
-    const jsonSchema = await inspectTree(jsonRoot, ".json", REQUIRED_JSON_TOKENS, deadline);
+    const types = await inspectTree(
+      typesRoot,
+      ".ts",
+      REQUIRED_TS_TOKENS,
+      deadline,
+      options.signal,
+    );
+    const jsonSchema = await inspectTree(
+      jsonRoot,
+      ".json",
+      REQUIRED_JSON_TOKENS,
+      deadline,
+      options.signal,
+    );
     return {
       codexCliVersion: version,
       generatedWithoutExperimentalApi: true,
@@ -248,6 +275,7 @@ async function runCodex(
   deadline: number,
   phase: string,
 ): Promise<string> {
+  throwIfCancelled(options.signal, phase);
   const remaining = deadline - performance.now();
   if (remaining <= 0) throw new ProtocolTimeoutError(phase);
   const childEnv = buildCodexEnvironment(options.env);
@@ -262,9 +290,13 @@ async function runCodex(
       timeout: commandRemaining,
       killSignal: "SIGTERM",
       forceKillAfterDelay: 100,
+      ...(options.signal === undefined ? {} : { cancelSignal: options.signal }),
     });
     return result.stdout;
   } catch (error) {
+    if (options.signal?.aborted || (isRecord(error) && error["isCanceled"] === true)) {
+      throw new ProtocolCancelledError(phase);
+    }
     if (isRecord(error) && error["timedOut"] === true) throw new ProtocolTimeoutError(phase);
     if (isMissingExecutableError(error)) {
       throw new ProtocolEvidenceError("executable-missing", "Codex CLI executable was not found.");
@@ -342,7 +374,9 @@ async function inspectTree(
   extension: ".ts" | ".json",
   requiredTokens: Readonly<Record<string, readonly string[]>>,
   deadline: number,
+  signal?: AbortSignal,
 ): Promise<{ sha256: string; fileCount: number }> {
+  throwIfCancelled(signal, `inspect-${extension}`);
   const expected = Object.keys(requiredTokens).sort();
   const files = (await listFiles(root)).sort();
   const missing = expected.find((path) => !files.includes(path));
@@ -353,6 +387,7 @@ async function inspectTree(
     );
   const hash = createHash("sha256");
   for (const path of files) {
+    throwIfCancelled(signal, `hash-${extension}`);
     const bytes = await withDeadline(readFile(join(root, path)), deadline, `hash-${extension}`);
     const tokens = requiredTokens[path];
     if (tokens !== undefined) {
@@ -372,6 +407,10 @@ async function inspectTree(
     hash.update(bytes);
   }
   return { sha256: hash.digest("hex"), fileCount: files.length };
+}
+
+function throwIfCancelled(signal: AbortSignal | undefined, phase: string): void {
+  if (signal?.aborted) throw new ProtocolCancelledError(phase);
 }
 
 async function listFiles(root: string): Promise<string[]> {

@@ -136,6 +136,28 @@ describe("inspectCodexProtocol", () => {
     }
   });
 
+  it("cancels an active protocol generator", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "codex-protocol-cancelled-"));
+    const pidFile = join(directory, "pid");
+    const controller = new AbortController();
+    try {
+      const inspection = inspectCodexProtocol({
+        executable: process.execPath,
+        prefixArgs: [fixture],
+        env: { MOCK_CLI_MODE: "hang-generate", MOCK_CLI_PID_FILE: pidFile },
+        timeoutMs: 5_000,
+        signal: controller.signal,
+      });
+      setTimeout(() => controller.abort(), 100);
+
+      await expect(inspection).rejects.toMatchObject({ kind: "cancelled" });
+      const pid = Number(await readFile(pidFile, "utf8"));
+      expect(() => process.kill(pid, 0)).toThrow();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it.skipIf(process.env["DIFFOWL_CODEX_PROTOCOL_LIVE"] !== "1")(
     "matches the installed Codex 0.147.0 manifest",
     { timeout: HUMAN_GATED_TEST_TIMEOUT_MS },

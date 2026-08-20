@@ -123,6 +123,7 @@ export async function runCodexAppServerSpike(input: SpikeInput): Promise<SpikeOu
     protocol = await inspectCodexProtocol({
       ...input.codex.protocol,
       timeoutMs: input.codex.timeoutMs,
+      ...(input.signal === undefined ? {} : { signal: input.signal }),
     });
     const deps = {
       ...defaultReviewPipelineDeps,

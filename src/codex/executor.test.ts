@@ -1,9 +1,10 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { DiffOwlConfig } from "../config.js";
+import { ReviewCancelledError } from "../review/errors.js";
 import { createCodexReviewExecutor } from "./executor.js";
 
 const cliFixture = fileURLToPath(new URL("./fixtures/mock-codex-cli.mjs", import.meta.url));
@@ -103,6 +104,41 @@ describe("createCodexReviewExecutor", () => {
       ).rejects.toMatchObject({ kind: "protocol-incompatible" });
 
       expect((await readFile(commandLog, "utf8")).trim().split("\n")).toEqual(["--version"]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("honors cancellation before starting compatibility subprocesses", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "diffowl-codex-executor-cancelled-"));
+    const commandLog = join(directory, "commands.log");
+    const controller = new AbortController();
+    controller.abort();
+    try {
+      const executor = createCodexReviewExecutor({
+        command: {
+          executable: process.execPath,
+          prefixArgs: [cliFixture],
+          env: { MOCK_CLI_COMMAND_LOG: commandLog },
+        },
+        model: "gpt-5-codex",
+        protocolTimeoutMs: 10_000,
+        interruptTimeoutMs: 300,
+        closeTimeoutMs: 500,
+      });
+
+      await expect(
+        executor.execute({
+          review: {
+            target: { kind: "staged" },
+            directory: process.cwd(),
+            config,
+            depth: "default",
+            signal: controller.signal,
+          },
+        }),
+      ).rejects.toBeInstanceOf(ReviewCancelledError);
+      await expect(access(commandLog)).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

@@ -1,5 +1,6 @@
 import type { ReviewExecutor, ReviewTiming } from "../review/types.js";
-import { inspectCodexProtocol } from "./protocol-evidence.js";
+import { ReviewCancelledError } from "../review/errors.js";
+import { inspectCodexProtocol, ProtocolCancelledError } from "./protocol-evidence.js";
 import { executeCodexReview } from "./review-runner.js";
 
 export type CodexCommandOptions = {
@@ -22,14 +23,22 @@ export function createCodexReviewExecutor(options: CodexReviewExecutorOptions): 
     execute: async (input) => {
       input.onStatus?.("Checking Codex compatibility...");
       const protocolStart = performance.now();
-      await inspectCodexProtocol({
-        executable: options.command.executable,
-        ...(options.command.prefixArgs === undefined
-          ? {}
-          : { prefixArgs: options.command.prefixArgs }),
-        ...(options.command.env === undefined ? {} : { env: options.command.env }),
-        timeoutMs: options.protocolTimeoutMs,
-      });
+      try {
+        await inspectCodexProtocol({
+          executable: options.command.executable,
+          ...(options.command.prefixArgs === undefined
+            ? {}
+            : { prefixArgs: options.command.prefixArgs }),
+          ...(options.command.env === undefined ? {} : { env: options.command.env }),
+          timeoutMs: options.protocolTimeoutMs,
+          ...(input.review.signal === undefined ? {} : { signal: input.review.signal }),
+        });
+      } catch (error) {
+        if (error instanceof ProtocolCancelledError) {
+          throw new ReviewCancelledError("Review cancelled by user.");
+        }
+        throw error;
+      }
       const protocolTiming = createTiming(
         "protocol-check",
         "Codex protocol compatibility",
