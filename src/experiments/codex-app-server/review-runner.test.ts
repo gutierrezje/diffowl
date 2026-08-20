@@ -242,22 +242,26 @@ describe("executeCodexReview", () => {
     await expect(promise).rejects.toBeInstanceOf(CodexReviewCancelledError);
   });
 
-  it("interrupts an active turn before reporting a timeout", async () => {
-    const directory = await temporaryRepository();
-    try {
-      await expect(
-        executeCodexReview({
-          ...makeInput("timeout-active", true, directory),
-          timeoutMs: 5_000,
-        }),
-      ).rejects.toMatchObject({
-        kind: "timeout",
-        phase: "turn",
-      });
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
-  });
+  it(
+    "interrupts an active turn before reporting a timeout",
+    { timeout: 10_000 },
+    async () => {
+      const directory = await temporaryRepository();
+      try {
+        await expect(
+          executeCodexReview({
+            ...makeInput("timeout-active", true, directory),
+            timeoutMs: 5_000,
+          }),
+        ).rejects.toMatchObject({
+          kind: "timeout",
+          phase: "turn",
+        });
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
 
   it.each([
     ["policy-cwd", "policy-violation"],
