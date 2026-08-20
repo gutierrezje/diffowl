@@ -357,15 +357,35 @@ If GO, open separate production issues in this order:
 - **Trust `outputSchema` without post-validation:** weakens DiffOwl's no-silent-
   loss review-document contract.
 
-## Implementation status (2026-08-18)
+## Implementation status (2026-08-19)
 
-Offline experiment harness tests, lint, build, cancellation-artifact checks,
-three-attempt exhaustion evidence, and repository after-close checks are
-covered by the hardened implementation. Real protocol generation is green
-against Codex CLI 0.147.0. Human-gated ChatGPT authentication,
-marker/output-schema strategy comparison, cancellation, and matched corpus
-runs have not been executed. The current decision is **NO-GO / inconclusive**
-under the rule above.
+The decision is **GO**. Human-gated evidence captured from implementation
+commit `5c86e1edd9d083fa153731a2e63876133d69c703` satisfies every operational
+condition above:
+
+- ChatGPT authentication completed marker and output-schema reviews with
+  `gpt-5.6-luna`, API-key environment paths removed, zero OpenCode calls, and
+  unchanged repository snapshots after each turn and after peer close.
+- Cancellation produced a non-null wrapper artifact with an acknowledged
+  interrupt, terminal `interrupted`, clean EOF, and a dead child PID. An
+  isolated unauthenticated `CODEX_HOME` failed before a paid turn.
+- Generated protocol evidence is compatible with Codex CLI 0.147.0. Focused
+  tests preserve the shared three-attempt validation semantics for marker and
+  output-schema exhaustion.
+- Both matched cases completed with explicit marker strategy and stable
+  OpenCode server provenance using `opencode-go/muse-spark-1.2-contributor`.
+  Both providers found the seeded off-by-one defect with no false positive,
+  and neither reported a finding for the clean case.
+
+The sealed operational run is `operational-run-20260820T041102Z-BKjhXl`; its
+15-file manifest hashes to
+`2996a52b15f07918aa5d02db724ea80a2db88c275e94abbddaddb69de5d06e26`.
+The sealed matched run is `matched-run-20260820T041441Z-qIejJu`; its 20-file
+manifest hashes to
+`67e8b184e382bf38b47dcdf6e1d20f876bdb122927a819e3a4e8028df8377702`.
+Directories are mode 0700 and evidence files and manifests are mode 0600.
+The matched result remains directional evidence from two cases, not a claim of
+general findings-quality parity.
 
 Known limitations retained for the experiment:
 

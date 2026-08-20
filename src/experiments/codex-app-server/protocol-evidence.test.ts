@@ -126,7 +126,7 @@ describe("inspectCodexProtocol", () => {
         executable: process.execPath,
         prefixArgs: [fixture],
         env: { MOCK_CLI_MODE: "hang-generate", MOCK_CLI_PID_FILE: pidFile },
-        timeoutMs: 100,
+        timeoutMs: 3_000,
       }).catch((value: unknown) => value);
       expect(error).toMatchObject({ kind: "timeout", phase: "generate-ts" });
       const pid = Number(await readFile(pidFile, "utf8"));
