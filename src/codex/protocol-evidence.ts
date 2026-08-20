@@ -279,7 +279,13 @@ async function runCodex(
   const remaining = deadline - performance.now();
   if (remaining <= 0) throw new ProtocolTimeoutError(phase);
   const childEnv = buildCodexEnvironment(options.env);
-  const executable = await ensureExecutableAvailable(options.executable, childEnv, deadline, phase);
+  const executable = await ensureExecutableAvailable(
+    options.executable,
+    childEnv,
+    deadline,
+    phase,
+    options.signal,
+  );
   const commandRemaining = deadline - performance.now();
   if (commandRemaining <= 0) throw new ProtocolTimeoutError(phase);
   try {
@@ -314,10 +320,13 @@ async function ensureExecutableAvailable(
   env: NodeJS.ProcessEnv,
   deadline: number,
   phase: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   for (const candidate of executableCandidates(executable, env)) {
-    if (await isFile(candidate, deadline, phase)) return candidate;
+    throwIfCancelled(signal, phase);
+    if (await isFile(candidate, deadline, phase, signal)) return candidate;
   }
+  throwIfCancelled(signal, phase);
   throw new ProtocolEvidenceError("executable-missing", "Codex CLI executable was not found.");
 }
 
@@ -351,11 +360,16 @@ function isPathLike(executable: string): boolean {
   return isAbsolute(executable) || executable.includes("/") || executable.includes("\\");
 }
 
-async function isFile(candidate: string, deadline: number, phase: string): Promise<boolean> {
+async function isFile(
+  candidate: string,
+  deadline: number,
+  phase: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
   try {
-    return (await withDeadline(stat(candidate), deadline, phase)).isFile();
+    return (await withDeadline(stat(candidate), deadline, phase, signal)).isFile();
   } catch (error) {
-    if (error instanceof ProtocolTimeoutError) throw error;
+    if (error instanceof ProtocolTimeoutError || error instanceof ProtocolCancelledError) throw error;
     return !isMissingPathError(error);
   }
 }
@@ -378,7 +392,7 @@ async function inspectTree(
 ): Promise<{ sha256: string; fileCount: number }> {
   throwIfCancelled(signal, `inspect-${extension}`);
   const expected = Object.keys(requiredTokens).sort();
-  const files = (await listFiles(root)).sort();
+  const files = (await listFiles(root, signal, `list-${extension}`)).sort();
   const missing = expected.find((path) => !files.includes(path));
   if (missing !== undefined)
     throw new ProtocolEvidenceError(
@@ -388,7 +402,12 @@ async function inspectTree(
   const hash = createHash("sha256");
   for (const path of files) {
     throwIfCancelled(signal, `hash-${extension}`);
-    const bytes = await withDeadline(readFile(join(root, path)), deadline, `hash-${extension}`);
+    const bytes = await withDeadline(
+      readFile(join(root, path)),
+      deadline,
+      `hash-${extension}`,
+      signal,
+    );
     const tokens = requiredTokens[path];
     if (tokens !== undefined) {
       const text = bytes.toString("utf8");
@@ -413,12 +432,22 @@ function throwIfCancelled(signal: AbortSignal | undefined, phase: string): void 
   if (signal?.aborted) throw new ProtocolCancelledError(phase);
 }
 
-async function listFiles(root: string): Promise<string[]> {
+async function listFiles(
+  root: string,
+  signal: AbortSignal | undefined,
+  phase: string,
+): Promise<string[]> {
+  throwIfCancelled(signal, phase);
   const result: string[] = [];
-  for (const entry of await readdir(root, { withFileTypes: true })) {
+  const entries = await readdir(root, { withFileTypes: true });
+  throwIfCancelled(signal, phase);
+  for (const entry of entries) {
+    throwIfCancelled(signal, phase);
     const path = join(root, entry.name);
     if (entry.isDirectory()) {
-      for (const child of await listFiles(path)) result.push(join(entry.name, child));
+      for (const child of await listFiles(path, signal, phase)) {
+        result.push(join(entry.name, child));
+      }
     } else if (entry.isFile()) {
       result.push(entry.name);
     }
@@ -426,20 +455,31 @@ async function listFiles(root: string): Promise<string[]> {
   return result.map((path) => relative(root, join(root, path)).replaceAll("\\", "/"));
 }
 
-async function withDeadline<T>(promise: Promise<T>, deadline: number, phase: string): Promise<T> {
+async function withDeadline<T>(
+  promise: Promise<T>,
+  deadline: number,
+  phase: string,
+  signal?: AbortSignal,
+): Promise<T> {
+  throwIfCancelled(signal, phase);
   const remaining = deadline - performance.now();
   if (remaining <= 0) throw new ProtocolTimeoutError(phase);
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new ProtocolTimeoutError(phase)), remaining);
+    let settled = false;
+    const finish = (callback: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      callback();
+    };
+    const onAbort = (): void => finish(() => reject(new ProtocolCancelledError(phase)));
+    const timer = setTimeout(() => finish(() => reject(new ProtocolTimeoutError(phase))), remaining);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
     promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error: unknown) => {
-        clearTimeout(timer);
-        reject(error);
-      },
+      (value) => finish(() => resolve(value)),
+      (error: unknown) => finish(() => reject(error)),
     );
   });
 }
