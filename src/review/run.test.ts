@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DiffOwlConfig } from "../config.js";
-import type { ReviewFinding } from "./types.js";
+import type { ReviewExecutor, ReviewFinding } from "./types.js";
 import type { PersistReviewRunResult } from "../state/persist.js";
 import type { LoadedReviewSnapshot, ReviewContext } from "./context.js";
 import {
@@ -50,26 +50,34 @@ function makeSnapshot(
 }
 
 function makeDeps(snapshot: LoadedReviewSnapshot): ReviewPipelineDeps {
+  const executor: ReviewExecutor = {
+    execute: vi.fn(async (options) => {
+      options.onStatus?.("Preparing review runtime...");
+      options.onStatus?.("Running review...");
+      return {
+        review: {
+          report: { summary: "summary", findings: [makeFinding("src/app.ts")] },
+          sessionId: "session",
+        },
+        timings: [],
+      };
+    }),
+  };
   return {
     ...defaultReviewPipelineDeps,
     buildReviewContextFromDiff: vi.fn(async () => makeReviewContext(snapshot)),
     computeDiffHash: vi.fn(() => "hash"),
-    ensureServer: vi.fn(async () => "http://127.0.0.1:4096"),
+    executor,
     enrichReviewFindingsWithDurableMetadata: vi.fn((findings) => findings),
     filterFindingsByChangedFiles: vi.fn((findings) => ({ findings, suppressed: [] })),
     filterFindingsByConfidence: vi.fn((findings) => ({ findings, dropped: 0 })),
     formatExcludedCandidateSummary: vi.fn(() => "excluded summary"),
     formatLifecycleSuppressedSummary: vi.fn(() => null),
-    isServerRunning: vi.fn(async () => true),
     loadReviewSnapshot: vi.fn(async () => snapshot),
     mapReviewTarget: vi.fn(() => ({ targetKind: "staged" as const, targetRef: null })),
     persistReviewRun: vi.fn(async () => persisted),
     renderMarkdown: vi.fn(() => "markdown"),
     renderReviewContext: vi.fn(() => "context"),
-    runReview: vi.fn(async () => ({
-      report: { summary: "summary", findings: [makeFinding("src/app.ts")] },
-      sessionId: "session",
-    })),
     resolveTargetCommit: vi.fn(async () => null),
     updatePersistedReview: vi.fn(async () => {}),
     writeMarkdownReport: vi.fn(async () => "/repo/.diffowl/reviews/review.md"),
@@ -167,7 +175,7 @@ describe("runReviewSkipChecks", () => {
         summary: "No committed branch changes to review.",
       }),
     );
-    expect(deps.runReview).not.toHaveBeenCalled();
+    expect(deps.executor.execute).not.toHaveBeenCalled();
   });
 
   it("writes a documentation-only skipped report and records its path", async () => {
@@ -248,9 +256,16 @@ describe("runReviewPipeline", () => {
     const inputTimings = [{ phase: "preflight", label: "Preflight", ms: 1 }];
     const kept = makeFinding("src/app.ts");
     const outside = makeFinding("src/other.ts");
-    vi.mocked(deps.runReview).mockResolvedValue({
-      report: { summary: "summary", findings: [kept, outside], timings: [{ phase: "model", label: "Model", ms: 7 }] },
-      sessionId: "session",
+    vi.mocked(deps.executor.execute).mockResolvedValue({
+      review: {
+        report: {
+          summary: "summary",
+          findings: [kept, outside],
+          timings: [{ phase: "model", label: "Model", ms: 7 }],
+        },
+        sessionId: "session",
+      },
+      timings: [],
     });
     vi.mocked(deps.filterFindingsByChangedFiles).mockReturnValue({ findings: [kept], suppressed: [outside] });
     vi.mocked(deps.persistReviewRun).mockResolvedValue({ ...persisted, actionableFindings: [kept] });
@@ -289,13 +304,58 @@ describe("runReviewPipeline", () => {
     });
   });
 
-  it("reports server and review status transitions", async () => {
+  it("passes the pipeline cancellation signal and status sink to its executor", async () => {
+    const deps = makeDeps(makeSnapshot([codeFile()]));
+    const signal = new AbortController().signal;
     const onStatus = vi.fn();
 
-    await runReviewPipeline(skipInput({ onStatus }), makeDeps(makeSnapshot([codeFile()])));
+    await runReviewPipeline(skipInput({ signal, onStatus }), deps);
 
-    expect(onStatus).toHaveBeenNthCalledWith(1, "Connecting to OpenCode...");
-    expect(onStatus).toHaveBeenNthCalledWith(2, "Reviewing changes...");
+    expect(deps.executor.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        onStatus,
+        review: expect.objectContaining({ signal }),
+      }),
+    );
+  });
+
+  it("appends executor timings without mutating provider report timings", async () => {
+    const deps = makeDeps(makeSnapshot([codeFile()]));
+    const reportTimings = [{ phase: "model", label: "Model", ms: 7 }];
+    vi.mocked(deps.executor.execute).mockResolvedValue({
+      review: {
+        report: {
+          summary: "summary",
+          findings: [makeFinding("src/app.ts")],
+          timings: reportTimings,
+        },
+        sessionId: "session-timing",
+      },
+      timings: [{ phase: "executor", label: "Review runtime", ms: 11 }],
+    });
+
+    const outcome = await runReviewPipeline(skipInput(), deps);
+
+    expect(outcome.kind).toBe("completed");
+    if (outcome.kind !== "completed") return;
+    expect(outcome.report.timings).toEqual(reportTimings);
+    expect(outcome.timings.map((timing) => timing.phase)).toEqual([
+      "context-build",
+      "context-render",
+      "executor",
+      "persist-state",
+      "render-report",
+      "write-report",
+      "model",
+    ]);
+    expect(deps.persistReviewRun).toHaveBeenCalledWith(
+      "/repo/.diffowl",
+      expect.objectContaining({
+        timings: expect.arrayContaining([
+          { phase: "executor", label: "Review runtime", ms: 11 },
+        ]),
+      }),
+    );
   });
 
   it("records diagnostics and rethrows completed-path report write failures", async () => {
@@ -314,9 +374,12 @@ describe("runReviewPipeline", () => {
     const deps = makeDeps(snapshot);
     const first = { ...makeFinding("src/app.ts"), line: 10 };
     const second = { ...first, line: 30 };
-    vi.mocked(deps.runReview).mockResolvedValue({
-      report: { summary: "summary", findings: [first, second] },
-      sessionId: "session-symbols",
+    vi.mocked(deps.executor.execute).mockResolvedValue({
+      review: {
+        report: { summary: "summary", findings: [first, second] },
+        sessionId: "session-symbols",
+      },
+      timings: [],
     });
     vi.mocked(deps.buildReviewContextFromDiff).mockResolvedValue({
       ...makeReviewContext(snapshot),
@@ -343,9 +406,12 @@ describe("runReviewPipeline", () => {
     const snapshot = makeSnapshot([codeFile()]);
     const deps = makeDeps(snapshot);
     const finding = { ...makeFinding("src/app.ts"), line: 10 };
-    vi.mocked(deps.runReview).mockResolvedValue({
-      report: { summary: "summary", findings: [finding] },
-      sessionId: "session-nested-symbols",
+    vi.mocked(deps.executor.execute).mockResolvedValue({
+      review: {
+        report: { summary: "summary", findings: [finding] },
+        sessionId: "session-nested-symbols",
+      },
+      timings: [],
     });
     vi.mocked(deps.buildReviewContextFromDiff).mockResolvedValue({
       ...makeReviewContext(snapshot),

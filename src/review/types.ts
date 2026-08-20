@@ -64,6 +64,20 @@ export interface ReviewResult {
   usage?: ReviewUsage;
 }
 
+export interface ReviewExecutorOptions {
+  review: ReviewOptions;
+  onStatus?: (message: string) => void;
+}
+
+export interface ReviewExecutionResult {
+  review: ReviewResult;
+  timings: ReviewTiming[];
+}
+
+export interface ReviewExecutor {
+  execute(options: ReviewExecutorOptions): Promise<ReviewExecutionResult>;
+}
+
 export type ReviewProgressEvent =
   | { type: "server"; message: string }
   | { type: "session"; message: string; sessionId: string }

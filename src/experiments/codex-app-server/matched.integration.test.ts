@@ -1,5 +1,8 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { runReview } from "../../opencode/client.js";
+import { createOpenCodeReviewExecutor } from "../../opencode/executor.js";
+import { ensureServer, isServerRunning } from "../../opencode/server.js";
 import { resolveReviewPrompts } from "../../review/prompt.js";
 import { defaultReviewPipelineDeps, runReviewPipeline } from "../../review/run.js";
 import { scoreEvalTrial } from "../../eval/score.js";
@@ -209,22 +212,25 @@ async function runMatchedCase(
         reviewInput(opencodeRepo.workDir, opencodeRepo.target, config),
         {
           ...defaultReviewPipelineDeps,
-          ensureServer: async (port) => {
-            const baseUrl = await defaultReviewPipelineDeps.ensureServer(port);
-            opencodeBefore = await captureOpenCodeProvenance(port, baseUrl);
-            return baseUrl;
-          },
-          runReview: async (options) => {
-            const prompts = resolveReviewPrompts({
-              target: options.target,
-              config: options.config,
-              depth: options.depth,
-              ...(options.localContext === undefined ? {} : { localContext: options.localContext }),
-            });
-            opencodePromptSha256 = hashText(prompts.user);
-            opencodeContextSha256 = hashText(options.localContext ?? "");
-            return defaultReviewPipelineDeps.runReview(options);
-          },
+          executor: createOpenCodeReviewExecutor({
+            ensureServer: async (port) => {
+              const baseUrl = await ensureServer(port);
+              opencodeBefore = await captureOpenCodeProvenance(port, baseUrl);
+              return baseUrl;
+            },
+            isServerRunning,
+            runReview: async (options) => {
+              const prompts = resolveReviewPrompts({
+                target: options.target,
+                config: options.config,
+                depth: options.depth,
+                ...(options.localContext === undefined ? {} : { localContext: options.localContext }),
+              });
+              opencodePromptSha256 = hashText(prompts.user);
+              opencodeContextSha256 = hashText(options.localContext ?? "");
+              return runReview(options);
+            },
+          }),
         },
       );
       const opencodeDurationMs = performance.now() - opencodeStarted;

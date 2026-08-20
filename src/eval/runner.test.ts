@@ -1,8 +1,7 @@
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DiffOwlConfig } from "../config.js";
-import type { ReviewResult } from "../review/types.js";
-import type { ReviewFinding } from "../review/types.js";
+import type { ReviewFinding, ReviewOptions, ReviewResult } from "../review/types.js";
 import { computeFindingFingerprint } from "../state/fingerprint.js";
 import { toFindingCandidate } from "../state/persist.js";
 import { BASELINE_AGENT_PROMPT } from "./baseline.js";
@@ -38,6 +37,17 @@ const baseConfig: DiffOwlConfig = {
   skip_doc_only: false,
   verbose: false,
 };
+
+function withExecutor(runReview: (options: ReviewOptions) => Promise<ReviewResult>) {
+  return {
+    executor: {
+      execute: async ({ review }: { review: ReviewOptions }) => ({
+        review: await runReview(review),
+        timings: [],
+      }),
+    },
+  };
+}
 
 describe("resolveEvalRunnerConfig", () => {
   it("applies explicit runner overrides", () => {
@@ -134,12 +144,10 @@ describe("runEvalCaseTrial", () => {
         timings: [{ phase: "agent-wait", label: "OpenCode review generation", ms: 42 }],
       },
     }));
-    const prepareReviewServer = vi.fn(async () => undefined);
-
     const result = await runEvalCaseTrial(
       evalCase,
       { minConfidence: "medium" },
-      { runReview, prepareReviewServer },
+      withExecutor(runReview),
     );
 
     expect(result.error).toBeUndefined();
@@ -150,7 +158,6 @@ describe("runEvalCaseTrial", () => {
     expect(result.usage?.cost).toBe(0.001);
     expect(result.timings).toHaveLength(1);
     expect(runReview).toHaveBeenCalledOnce();
-    expect(prepareReviewServer).toHaveBeenCalledOnce();
     expect(runReview).toHaveBeenCalledWith(
       expect.objectContaining({
         directory: expect.stringContaining("diffowl-eval-missing-validation-"),
@@ -169,7 +176,7 @@ describe("runEvalCaseTrial", () => {
     const result = await runEvalCaseTrial(
       evalCase,
       { mode: "baseline" },
-      { runReview, prepareReviewServer: vi.fn(async () => undefined) },
+      withExecutor(runReview),
     );
 
     expect(result.mode).toBe("baseline");
@@ -196,7 +203,7 @@ describe("runEvalCaseTrial", () => {
     const result = await runEvalCase(
       evalCase,
       { mode: "diffowl" },
-      { runReview, prepareReviewServer: vi.fn(async () => undefined) },
+      withExecutor(runReview),
     );
 
     expect(result.trials).toHaveLength(1);
@@ -220,7 +227,7 @@ describe("runEvalCaseTrial", () => {
     const result = await runEvalCase(
       evalCase,
       { mode: "baseline" },
-      { runReview, prepareReviewServer: vi.fn(async () => undefined) },
+      withExecutor(runReview),
     );
 
     expect(result.trials[0]?.error).toBeUndefined();
@@ -260,7 +267,7 @@ describe("runEvalCaseTrial", () => {
     const result = await runEvalCase(
       evalCase,
       { mode: "diffowl" },
-      { runReview, prepareReviewServer: vi.fn(async () => undefined) },
+      withExecutor(runReview),
     );
 
     const steps = result.trials[0]?.identitySteps;
@@ -299,7 +306,7 @@ describe("runEvalCaseTrial", () => {
     const result = await runEvalCase(
       evalCase,
       { mode: "diffowl" },
-      { runReview, prepareReviewServer: vi.fn(async () => undefined) },
+      withExecutor(runReview),
     );
 
     expect(result.trials[0]?.usage).toEqual({
@@ -311,10 +318,9 @@ describe("runEvalCaseTrial", () => {
     const evalCase = await loadEvalCase(join(corpusDir, "harmless-trim"));
     vi.spyOn(repo, "materializeEvalCaseRepo").mockRejectedValueOnce(new Error("git init failed"));
 
-    const result = await runEvalCaseTrial(evalCase, {}, {
-      runReview: vi.fn(),
-      prepareReviewServer: vi.fn(),
-    });
+    const result = await runEvalCaseTrial(evalCase, {}, withExecutor(async () => {
+      throw new Error("unexpected review execution");
+    }));
 
     expect(result.error).toBe("git init failed");
     expect(result.findings).toEqual([]);
@@ -325,12 +331,9 @@ describe("runEvalCaseTrial", () => {
     const result = await runEvalCaseTrial(
       evalCase,
       {},
-      {
-        runReview: vi.fn(async () => {
-          throw new Error("provider unavailable");
-        }),
-        prepareReviewServer: vi.fn(async () => undefined),
-      },
+      withExecutor(async () => {
+        throw new Error("provider unavailable");
+      }),
     );
 
     expect(result.error).toBe("provider unavailable");
@@ -349,10 +352,7 @@ describe("runEvalCase", () => {
     const result = await runEvalCase(
       evalCase,
       { trials: 2 },
-      {
-        runReview,
-        prepareReviewServer: vi.fn(async () => undefined),
-      },
+      withExecutor(runReview),
     );
 
     expect(result.trials).toHaveLength(2);
@@ -373,10 +373,7 @@ describe("runEvalCaseBoth", () => {
     const result = await runEvalCaseBoth(
       evalCase,
       { trials: 2 },
-      {
-        runReview,
-        prepareReviewServer: vi.fn(async () => undefined),
-      },
+      withExecutor(runReview),
     );
 
     expect(result.diffowl.mode).toBe("diffowl");
@@ -396,10 +393,7 @@ describe("runEvalCaseBoth", () => {
     const result = await runEvalCaseBoth(
       evalCase,
       {},
-      {
-        runReview,
-        prepareReviewServer: vi.fn(async () => undefined),
-      },
+      withExecutor(runReview),
     );
 
     expect(result.diffowl.trials[0]?.identitySteps).toHaveLength(2);
