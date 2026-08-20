@@ -134,7 +134,11 @@ describe("runCodexAppServerSpike", () => {
   it("runs the real review pipeline and writes redacted evidence", async () => {
     const root = await makeRepo();
     try {
-      const outcome = await runCodexAppServerSpike(input(root, join(root, "artifacts")));
+      const statuses: string[] = [];
+      const outcome = await runCodexAppServerSpike({
+        ...input(root, join(root, "artifacts")),
+        onStatus: (status) => statuses.push(status),
+      });
       expect(outcome.kind, JSON.stringify(outcome)).toBe("completed");
       if (outcome.kind !== "completed") return;
       expect(outcome.pipeline.reportPath).toBeTruthy();
@@ -150,6 +154,11 @@ describe("runCodexAppServerSpike", () => {
       expect(outcome.codex?.validationAttempts).toMatchObject([
         { turnId: "turn-1", outcome: "accepted" },
       ]);
+      expect(statuses).toEqual(["Reviewing changes..."]);
+      expect(outcome.pipeline.timings).toEqual(expect.arrayContaining([
+        expect.objectContaining({ phase: "review-run", label: "Codex review run" }),
+      ]));
+      expect(outcome.pipeline.timings.some((timing) => timing.label.includes("OpenCode"))).toBe(false);
       expect(outcome.protocol.typesFileCount).toBe(642);
       expect(outcome.artifactPath).toBeTruthy();
       const artifact = await readFile(outcome.artifactPath!, "utf8");

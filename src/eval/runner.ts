@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { loadConfigFromRoot, type DiffOwlConfig } from "../config.js";
-import { runReview } from "../opencode/client.js";
 import { loadReviewSnapshot } from "../review/context.js";
 import {
   filterFindingsByChangedFiles,
@@ -12,12 +11,11 @@ import {
 import { formatExcludedCandidateSummary } from "../review/formatter.js";
 import {
   defaultReviewPipelineDeps,
-  prepareReviewServer,
   runReviewPipeline,
   type ReviewPipelineDeps,
 } from "../review/run.js";
 import type { ReviewTarget } from "../review/target.js";
-import type { ReviewFinding, ReviewTiming } from "../review/types.js";
+import type { ReviewExecutor, ReviewFinding, ReviewTiming } from "../review/types.js";
 import type { ReviewUsage } from "../review/usage.js";
 import { BASELINE_AGENT_PROMPT, buildBaselinePrompt, renderBaselineDiff } from "./baseline.js";
 import type { EvalCase } from "./case-types.js";
@@ -45,13 +43,11 @@ import type {
 } from "./runner-types.js";
 
 export interface EvalRunnerDependencies {
-  runReview: typeof runReview;
-  prepareReviewServer: (config: DiffOwlConfig) => Promise<void>;
+  executor: ReviewExecutor;
 }
 
 const defaultDependencies: EvalRunnerDependencies = {
-  runReview,
-  prepareReviewServer,
+  executor: defaultReviewPipelineDeps.executor,
 };
 
 function resolveEvalRunMode(options: EvalRunnerOptions): EvalRunMode {
@@ -321,7 +317,7 @@ async function runDiffowlReview(params: {
       persistEmptyDiff: false,
       ...(options.signal ? { signal: options.signal } : {}),
     },
-    buildEvalPipelineDeps(config, dependencies, (findings) => {
+    buildEvalPipelineDeps(dependencies, (findings) => {
       preDedupFindings = [...findings];
     }),
   );
@@ -355,20 +351,22 @@ async function runBaselineReview(
   const depth = config.context.depth;
   const snapshot = await loadReviewSnapshot(materialized.workDir, materialized.target);
 
-  await dependencies.prepareReviewServer(config);
-  const reviewResult = await dependencies.runReview({
-    target: materialized.target,
-    directory: materialized.workDir,
-    config,
-    depth,
-    systemPrompt: BASELINE_AGENT_PROMPT,
-    userPrompt: buildBaselinePrompt(
-      materialized.target,
-      renderBaselineDiff(snapshot, depth),
+  const execution = await dependencies.executor.execute({
+    review: {
+      target: materialized.target,
+      directory: materialized.workDir,
       config,
-    ),
-    ...(options.signal ? { signal: options.signal } : {}),
+      depth,
+      systemPrompt: BASELINE_AGENT_PROMPT,
+      userPrompt: buildBaselinePrompt(
+        materialized.target,
+        renderBaselineDiff(snapshot, depth),
+        config,
+      ),
+      ...(options.signal ? { signal: options.signal } : {}),
+    },
   });
+  const reviewResult = execution.review;
 
   const filtered = applyActionableFindingFilters(
     reviewResult.report.findings,
@@ -389,28 +387,15 @@ async function runBaselineReview(
 
 /** Trials grade findings, not reports: no markdown is rendered and no report file is written. */
 function buildEvalPipelineDeps(
-  config: DiffOwlConfig,
   dependencies: EvalRunnerDependencies,
   onPersistInput: (findings: ReviewFinding[]) => void,
 ): ReviewPipelineDeps {
-  const ensureReviewServer = async (): Promise<void> => {
-    await dependencies.prepareReviewServer(config);
-  };
-
   return {
     ...defaultReviewPipelineDeps,
-    runReview: dependencies.runReview,
+    executor: dependencies.executor,
     persistReviewRun: async (diffOwlDir, input) => {
       onPersistInput(input.findings);
       return defaultReviewPipelineDeps.persistReviewRun(diffOwlDir, input);
-    },
-    ensureServer: async (port) => {
-      await ensureReviewServer();
-      return `http://127.0.0.1:${port}`;
-    },
-    isServerRunning: async () => {
-      await ensureReviewServer();
-      return true;
     },
     renderMarkdown: () => "",
     writeMarkdownReport: async () => "",

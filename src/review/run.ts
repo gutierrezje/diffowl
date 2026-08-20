@@ -1,8 +1,7 @@
 import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
 import { isDocOnlyDiff, resolveCommitRef } from "../git/diff.js";
-import { runReview } from "../opencode/client.js";
-import { ensureServer, isServerRunning } from "../opencode/server.js";
-import type { ReviewProgressEvent, ReviewReport, ReviewTiming, ReviewUsage } from "./types.js";
+import { createOpenCodeReviewExecutor } from "../opencode/executor.js";
+import type { ReviewExecutor, ReviewProgressEvent, ReviewReport, ReviewTiming, ReviewUsage } from "./types.js";
 import {
   computeDiffHash,
   enrichReviewFindingsWithDurableMetadata,
@@ -51,8 +50,7 @@ export interface ReviewPipelineInput {
 
 export interface ReviewPipelineDeps {
   loadReviewSnapshot: typeof loadReviewSnapshot; buildReviewContextFromDiff: typeof buildReviewContextFromDiff;
-  renderReviewContext: typeof renderReviewContext; runReview: typeof runReview;
-  ensureServer: typeof ensureServer; isServerRunning: typeof isServerRunning;
+  renderReviewContext: typeof renderReviewContext; executor: ReviewExecutor;
   filterFindingsByConfidence: typeof filterFindingsByConfidence; filterFindingsByChangedFiles: typeof filterFindingsByChangedFiles;
   formatExcludedCandidateSummary: typeof formatExcludedCandidateSummary;
   computeDiffHash: typeof computeDiffHash; mapReviewTarget: typeof mapReviewTarget;
@@ -64,10 +62,11 @@ export interface ReviewPipelineDeps {
 }
 
 export const defaultReviewPipelineDeps: ReviewPipelineDeps = {
-  buildReviewContextFromDiff, computeDiffHash, enrichReviewFindingsWithDurableMetadata, ensureServer,
+  buildReviewContextFromDiff, computeDiffHash, enrichReviewFindingsWithDurableMetadata,
+  executor: createOpenCodeReviewExecutor(),
   filterFindingsByChangedFiles, filterFindingsByConfidence, formatExcludedCandidateSummary,
-  formatLifecycleSuppressedSummary, isServerRunning, loadFindingOccurrenceCounts, loadReviewSnapshot,
-  mapReviewTarget, persistReviewRun, renderMarkdown, renderReviewContext, resolveTargetCommit, runReview, updatePersistedReview, writeMarkdownReport,
+  formatLifecycleSuppressedSummary, loadFindingOccurrenceCounts, loadReviewSnapshot,
+  mapReviewTarget, persistReviewRun, renderMarkdown, renderReviewContext, resolveTargetCommit, updatePersistedReview, writeMarkdownReport,
 };
 
 export async function runReviewPipeline(input: ReviewPipelineInput, deps: ReviewPipelineDeps = defaultReviewPipelineDeps): Promise<ReviewPipelineOutcome> {
@@ -89,24 +88,21 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
     input.onDiagnostics?.(reviewContext.diagnostics);
   }
 
-  const serverStart = performance.now();
-  input.onStatus?.("Connecting to OpenCode...");
-  await prepareReviewServer(input.config, deps);
-  recordReviewTiming(timings, "server-ensure", "OpenCode server ensure", serverStart);
-
-  const reviewStart = performance.now();
-  input.onStatus?.("Reviewing changes...");
-  const reviewResult = await deps.runReview({
-    target: snapshot.target,
-    directory: input.projectRoot,
-    config: input.config,
-    localContext,
-    depth: input.depth,
-    ...(input.signal ? { signal: input.signal } : {}),
-    ...(input.onProgress ? { onProgress: input.onProgress } : {}),
+  const execution = await deps.executor.execute({
+    review: {
+      target: snapshot.target,
+      directory: input.projectRoot,
+      config: input.config,
+      localContext,
+      depth: input.depth,
+      ...(input.signal ? { signal: input.signal } : {}),
+      ...(input.onProgress ? { onProgress: input.onProgress } : {}),
+    },
+    ...(input.onStatus ? { onStatus: input.onStatus } : {}),
   });
+  timings.push(...execution.timings);
+  const reviewResult = execution.review;
   const report: ReviewReport = reviewResult.report;
-  recordReviewTiming(timings, "review-run", "OpenCode review run", reviewStart);
 
   const diagnostics = report.diagnostics ?? [];
   const confidenceFilter = deps.filterFindingsByConfidence(report.findings, input.config.min_confidence);
@@ -305,24 +301,6 @@ export async function resolveTargetCommit(
     case "commit":
       return resolveCommit(target.ref);
   }
-}
-
-export async function prepareReviewServer(
-  config: DiffOwlConfig,
-  deps: Pick<ReviewPipelineDeps, "ensureServer" | "isServerRunning"> = defaultReviewPipelineDeps,
-): Promise<void> {
-  if (config.server.auto_start) {
-    await deps.ensureServer(config.server.port);
-    return;
-  }
-
-  if (await deps.isServerRunning(config.server.port)) {
-    return;
-  }
-
-  throw new Error(
-    `OpenCode server is not running on port ${config.server.port}. Start it with \`diffowl server start\` or set server.auto_start: true.`,
-  );
 }
 
 function recordReviewTiming(

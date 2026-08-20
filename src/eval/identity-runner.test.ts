@@ -51,11 +51,15 @@ function pipelineStep(
   const getFindingsForStep = buildDiffowlGetFindingsForStep(
     {},
     {
-      runReview: async (): Promise<ReviewResult> => ({
-        sessionId: `session-step-${call}`,
-        report: { summary: "Step review.", findings: findingsByStep[call++] ?? [] },
-      }),
-      prepareReviewServer: async () => undefined,
+      executor: {
+        execute: async (): Promise<{ review: ReviewResult; timings: [] }> => ({
+          review: {
+            sessionId: `session-step-${call}`,
+            report: { summary: "Step review.", findings: findingsByStep[call++] ?? [] },
+          },
+          timings: [],
+        }),
+      },
     },
   );
 

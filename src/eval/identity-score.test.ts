@@ -2,8 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ReviewResult } from "../review/types.js";
-import type { ReviewFinding } from "../review/types.js";
+import type { ReviewFinding, ReviewOptions, ReviewResult } from "../review/types.js";
 import { dismissFindingByLocator, withFindingDatabase } from "../state/findings-query.js";
 import type { EvalCase } from "./case-types.js";
 import { loadEvalCase } from "./corpus.js";
@@ -22,6 +21,17 @@ afterEach(async () => {
   await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
   tempDirs = [];
 });
+
+function withExecutor(runReview: (options: ReviewOptions) => Promise<ReviewResult>) {
+  return {
+    executor: {
+      execute: async ({ review }: { review: ReviewOptions }) => ({
+        review: await runReview(review),
+        timings: [],
+      }),
+    },
+  };
+}
 
 const baseFinding: ReviewFinding = {
   severity: "warning",
@@ -620,10 +630,7 @@ describe("scoreEvalIdentity integration", () => {
     });
 
     const trial = await runEvalIdentityTrial(evalCase, {}, {
-      getFindingsForStep: buildDiffowlGetFindingsForStep(
-        {},
-        { runReview, prepareReviewServer: async () => undefined },
-      ),
+      getFindingsForStep: buildDiffowlGetFindingsForStep({}, withExecutor(runReview)),
     });
 
     const score = scoreEvalIdentity({ kind, evalCase, trial });
@@ -640,41 +647,36 @@ describe("scoreEvalIdentity integration", () => {
     const evalCase = await loadEvalCase(join(corpusDir, "keep-distinct-in-same-symbol"));
     const kind = resolveEvalIdentityKind(evalCase)!;
     let stepIndex = 0;
-    const getFindingsForStep = buildDiffowlGetFindingsForStep(
-      {},
-      {
-        runReview: async (): Promise<ReviewResult> => {
-          const reviewStep = stepIndex++;
-          return {
-            sessionId: `session-lifecycle-${reviewStep}`,
-            report: {
-              summary: "Two distinct defects.",
-              findings: [
-                {
-                  severity: "warning",
-                  file: "src/profile.ts",
-                  line: 3,
-                  confidence: "high",
-                  title: "Missing empty-id validation",
-                  body: "The profile id is used without validation.",
-                  evidence: "if (!id) return;",
-                },
-                {
-                  severity: "warning",
-                  file: "src/profile.ts",
-                  line: reviewStep === 0 ? 10 : 13,
-                  confidence: "high",
-                  title: "Fire-and-forget profile fetch",
-                  body: "The profile fetch is not awaited.",
-                  evidence: "void fetchProfile();",
-                },
-              ],
+    const runReview = async (): Promise<ReviewResult> => {
+      const reviewStep = stepIndex++;
+      return {
+        sessionId: `session-lifecycle-${reviewStep}`,
+        report: {
+          summary: "Two distinct defects.",
+          findings: [
+            {
+              severity: "warning",
+              file: "src/profile.ts",
+              line: 3,
+              confidence: "high",
+              title: "Missing empty-id validation",
+              body: "The profile id is used without validation.",
+              evidence: "if (!id) return;",
             },
-          };
+            {
+              severity: "warning",
+              file: "src/profile.ts",
+              line: reviewStep === 0 ? 10 : 13,
+              confidence: "high",
+              title: "Fire-and-forget profile fetch",
+              body: "The profile fetch is not awaited.",
+              evidence: "void fetchProfile();",
+            },
+          ],
         },
-        prepareReviewServer: async () => undefined,
-      },
-    );
+      };
+    };
+    const getFindingsForStep = buildDiffowlGetFindingsForStep({}, withExecutor(runReview));
 
     const trial = await runEvalIdentityTrial(
       evalCase,

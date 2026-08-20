@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import type { ReviewOptions, ReviewProgressEvent } from "../../review/types.js";
+import type { ReviewProgressEvent } from "../../review/types.js";
 import { ReviewCancelledError as ReviewCancelledErrorClass } from "../../review/errors.js";
 import {
   defaultReviewPipelineDeps,
@@ -32,6 +32,7 @@ export type SpikeInput = {
   review: Omit<ReviewPipelineInput, "onStatus">;
   signal?: AbortSignal;
   onProgress?: (event: ReviewProgressEvent) => void;
+  onStatus?: (message: string) => void;
   codex: {
     protocol: { executable: string; prefixArgs?: readonly string[]; env?: NodeJS.ProcessEnv };
     appServer: { executable: string; args?: readonly string[]; env?: NodeJS.ProcessEnv };
@@ -127,23 +128,34 @@ export async function runCodexAppServerSpike(input: SpikeInput): Promise<SpikeOu
     });
     const deps = {
       ...defaultReviewPipelineDeps,
-      ensureServer: async () => "codex-spike://stdio",
-      isServerRunning: async () => true,
-      runReview: async (options: ReviewOptions) => {
-        const result = await executeCodexReview({
-          ...options,
-          executable: input.codex.appServer.executable,
-          ...(input.codex.appServer.args === undefined ? {} : { args: input.codex.appServer.args }),
-          ...(input.codex.appServer.env === undefined ? {} : { env: input.codex.appServer.env }),
-          model: input.codex.model,
-          strategy: input.codex.strategy,
-          timeoutMs: input.codex.timeoutMs,
-          interruptTimeoutMs: input.codex.interruptDeadlineMs,
-          closeTimeoutMs: input.codex.teardownDeadlineMs,
-          includeIgnoredRepositoryPaths: input.codex.includeIgnoredRepositoryPaths,
-        });
-        codex = result.evidence;
-        return result.reviewResult;
+      executor: {
+        execute: async (
+          options: Parameters<typeof defaultReviewPipelineDeps.executor.execute>[0],
+        ) => {
+          const reviewStart = performance.now();
+          options.onStatus?.("Reviewing changes...");
+          const result = await executeCodexReview({
+            ...options.review,
+            executable: input.codex.appServer.executable,
+            ...(input.codex.appServer.args === undefined ? {} : { args: input.codex.appServer.args }),
+            ...(input.codex.appServer.env === undefined ? {} : { env: input.codex.appServer.env }),
+            model: input.codex.model,
+            strategy: input.codex.strategy,
+            timeoutMs: input.codex.timeoutMs,
+            interruptTimeoutMs: input.codex.interruptDeadlineMs,
+            closeTimeoutMs: input.codex.teardownDeadlineMs,
+            includeIgnoredRepositoryPaths: input.codex.includeIgnoredRepositoryPaths,
+          });
+          codex = result.evidence;
+          return {
+            review: result.reviewResult,
+            timings: [{
+              phase: "review-run",
+              label: "Codex review run",
+              ms: Math.max(0, Math.round(performance.now() - reviewStart)),
+            }],
+          };
+        },
       },
     };
     const result = await runReviewPipeline(
@@ -151,6 +163,7 @@ export async function runCodexAppServerSpike(input: SpikeInput): Promise<SpikeOu
         ...input.review,
         ...(input.signal === undefined ? {} : { signal: input.signal }),
         ...(input.onProgress === undefined ? {} : { onProgress: input.onProgress }),
+        ...(input.onStatus === undefined ? {} : { onStatus: input.onStatus }),
       },
       deps,
     );
