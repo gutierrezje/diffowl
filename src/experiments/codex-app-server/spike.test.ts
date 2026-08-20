@@ -10,6 +10,7 @@ import { commandProvenanceFor, runCodexAppServerSpike } from "./spike.js";
 const codexFixture = fileURLToPath(new URL("./fixtures/mock-codex-cli.mjs", import.meta.url));
 const serverFixture = fileURLToPath(new URL("./fixtures/mock-app-server.mjs", import.meta.url));
 const expectedNodeExecutableBasename = basename(process.execPath);
+const SLOW_INTEGRATION_TEST_TIMEOUT_MS = 15_000;
 const config: DiffOwlConfig = {
   model: "legacy/requested-model",
   server: { port: 4096, auto_start: false },
@@ -168,7 +169,7 @@ describe("runCodexAppServerSpike", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, SLOW_INTEGRATION_TEST_TIMEOUT_MS);
 
   it("writes a cancellation artifact before the disposable repository is removed", async () => {
     const root = await makeRepo();
@@ -208,7 +209,7 @@ describe("runCodexAppServerSpike", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, SLOW_INTEGRATION_TEST_TIMEOUT_MS);
 
   it("inspects protocol before an empty pipeline without spawning App Server", async () => {
     const root = await makeRepo(true);

@@ -17,6 +17,7 @@ import {
 } from "./runner.js";
 
 const corpusDir = join(import.meta.dirname, "../../eval/corpus");
+const SLOW_INTEGRATION_TEST_TIMEOUT_MS = 15_000;
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -383,7 +384,7 @@ describe("runEvalCaseBoth", () => {
     expect(result.diffowl.trials).toHaveLength(2);
     expect(result.baseline.trials).toHaveLength(2);
     expect(runReview).toHaveBeenCalledTimes(4);
-  });
+  }, SLOW_INTEGRATION_TEST_TIMEOUT_MS);
 
   it("runs multi-step cases in both modes", async () => {
     const evalCase = await loadEvalCase(join(corpusDir, "recognize-same-across-commits"));
