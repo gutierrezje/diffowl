@@ -12,7 +12,9 @@ import {
 } from "./live-helpers.js";
 
 const enabled = process.env["DIFFOWL_CODEX_APP_SERVER_LIVE"] === "1";
-const HUMAN_GATED_TEST_TIMEOUT_MS = 900_000;
+const CODEX_PHASE_TIMEOUT_MS = 600_000;
+// Two strategies each run protocol generation and a review, plus cleanup margin.
+const HUMAN_GATED_TEST_TIMEOUT_MS = CODEX_PHASE_TIMEOUT_MS * 4 + 120_000;
 const humanGatedTest = (name: string, fn: () => Promise<void>) =>
   it.skipIf(!enabled)(name, fn, HUMAN_GATED_TEST_TIMEOUT_MS);
 
@@ -41,7 +43,7 @@ describe("human-gated Codex App Server live harness", () => {
               model: environment.model,
               strategy,
               artifactDirectory: join(environment.artifactDirectory, strategy.kind),
-              timeoutMs: 600_000,
+              timeoutMs: CODEX_PHASE_TIMEOUT_MS,
               interruptDeadlineMs: 10_000,
               teardownDeadlineMs: 10_000,
               includeIgnoredRepositoryPaths: true,
@@ -162,7 +164,7 @@ describe("human-gated Codex App Server live harness", () => {
           model: environment.model,
           strategy: { kind: "marker" },
           artifactDirectory: join(environment.artifactDirectory, "cancel"),
-          timeoutMs: 600_000,
+          timeoutMs: CODEX_PHASE_TIMEOUT_MS,
           interruptDeadlineMs: 10_000,
           teardownDeadlineMs: 10_000,
           includeIgnoredRepositoryPaths: true,
@@ -222,7 +224,7 @@ describe("human-gated Codex App Server live harness", () => {
           model: environment.model,
           strategy: { kind: "marker" },
           artifactDirectory: join(environment.artifactDirectory, "unauthenticated"),
-          timeoutMs: 600_000,
+          timeoutMs: CODEX_PHASE_TIMEOUT_MS,
           interruptDeadlineMs: 10_000,
           teardownDeadlineMs: 10_000,
           includeIgnoredRepositoryPaths: true,

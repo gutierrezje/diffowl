@@ -22,7 +22,9 @@ import {
 } from "./live-helpers.js";
 
 const enabled = process.env["DIFFOWL_CODEX_MATCHED_LIVE"] === "1";
-const HUMAN_GATED_TEST_TIMEOUT_MS = 900_000;
+const PROVIDER_PHASE_TIMEOUT_MS = 600_000;
+// Two cases each run protocol generation, Codex, and OpenCode, plus cleanup margin.
+const HUMAN_GATED_TEST_TIMEOUT_MS = PROVIDER_PHASE_TIMEOUT_MS * 6 + 120_000;
 
 describe("human-gated Codex/OpenCode matched harness", () => {
   it.skipIf(!enabled)(
@@ -189,7 +191,7 @@ async function runMatchedCase(
           model: codexModel,
           strategy: codexStrategy,
           artifactDirectory: join(artifactDirectory, evalCase.id, "codex"),
-          timeoutMs: 600_000,
+          timeoutMs: PROVIDER_PHASE_TIMEOUT_MS,
           interruptDeadlineMs: 10_000,
           teardownDeadlineMs: 10_000,
           includeIgnoredRepositoryPaths: true,

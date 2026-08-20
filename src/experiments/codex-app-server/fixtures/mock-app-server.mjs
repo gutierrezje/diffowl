@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline";
-import { writeFileSync } from "node:fs";
+import { realpathSync, writeFileSync } from "node:fs";
 
 const mode = process.env.MOCK_APP_SERVER_MODE ?? "basic";
 if (
@@ -20,6 +20,7 @@ if (
     "policy-approval",
     "policy-sandbox",
     "policy-cwd",
+    "canonical-cwd",
     "turn-status",
     "turn-failed",
     "turn-failed-empty-info",
@@ -102,6 +103,7 @@ const markerModes = [
   "policy-approval",
   "policy-sandbox",
   "policy-cwd",
+  "canonical-cwd",
   "turn-status",
   "turn-failed",
   "turn-failed-empty-info",
@@ -253,8 +255,12 @@ function handleMarker(message) {
         : isRecord(params) && params.developerInstructions === expectedSystem;
     if (
       !isRecord(params) ||
-      (!["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode) &&
+      (!["spike-marker", "spike-three-invalid", "spike-cancel-active", "canonical-cwd"].includes(
+        mode,
+      ) &&
         params.cwd !== process.cwd()) ||
+      (mode === "canonical-cwd" &&
+        (typeof params.cwd !== "string" || realpathSync(params.cwd) !== process.cwd())) ||
       (["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode) &&
         typeof params.cwd !== "string") ||
       params.model !== expectedModel ||
@@ -285,6 +291,8 @@ function handleMarker(message) {
         cwd:
           mode === "policy-cwd"
             ? `${process.cwd()}-other`
+            : mode === "canonical-cwd"
+              ? realpathSync(params.cwd)
             : ["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode)
               ? params.cwd
               : process.cwd(),
@@ -638,6 +646,7 @@ input.on("close", () => {
       "policy-approval",
       "policy-sandbox",
       "policy-cwd",
+      "canonical-cwd",
       "turn-status",
       "turn-failed",
       "turn-failed-empty-info",

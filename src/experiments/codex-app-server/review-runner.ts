@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { realpath } from "node:fs/promises";
 import {
   resolveReviewPrompts,
   ReviewCancelledError,
@@ -200,6 +201,16 @@ export class CodexTimeoutError extends CodexReviewError {
   }
 }
 
+class CodexInterruptedTimeoutError extends CodexTimeoutError {
+  readonly interrupt: CodexInterruptEvidence;
+
+  constructor(interrupt: CodexInterruptEvidence) {
+    super("turn");
+    this.name = "CodexInterruptedTimeoutError";
+    this.interrupt = interrupt;
+  }
+}
+
 export class CodexRepositoryMutatedError extends CodexReviewError {
   readonly changedPaths: readonly string[];
   readonly beforeSha256: string;
@@ -319,6 +330,8 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
   validateInput(input);
   if (input.signal?.aborted) throw new ReviewCancelledError("Review cancelled by user.");
   const deadline = performance.now() + input.timeoutMs;
+  const directory = await withDeadline(realpath(input.directory), deadline, "repository-directory");
+  const executionInput = { ...input, directory } satisfies CodexReviewInput;
   const prompts = resolveReviewPrompts({
     target: input.target,
     config: input.config,
@@ -333,7 +346,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
   const peer = startAppServerPeer({
     executable: input.executable,
     ...(input.args === undefined ? {} : { args: input.args }),
-    cwd: input.directory,
+    cwd: directory,
     env: peerEnv,
     extendEnv: false,
     stderrRedactions: Object.values(peerEnv).filter(
@@ -345,6 +358,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
   let close: AppServerCloseResult | undefined;
   let failure: unknown;
   let cancelled: ActiveCancellation | undefined;
+  let interruptEvidence: CodexInterruptEvidence | undefined;
   let authKind: "chatgpt" | null = null;
   let requiresOpenaiAuth: boolean | null = null;
   let effectiveModel = "";
@@ -382,7 +396,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     if (repositoryBefore === undefined) return;
     try {
       repositoryAfter = await withDeadline(
-        captureRepositoryState(input.directory, {
+        captureRepositoryState(directory, {
           includeIgnoredPaths: input.includeIgnoredRepositoryPaths,
         }),
         deadline,
@@ -475,7 +489,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
           peer,
           "thread/start",
           {
-            cwd: input.directory,
+            cwd: directory,
             model: input.model,
             approvalPolicy: "never",
             sandbox: "read-only",
@@ -493,7 +507,16 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     threadId = requiredString(threadValue, "id", "thread/start.thread.id");
     effectiveModel = requiredString(thread, "model", "thread/start.model");
     modelProvider = requiredString(thread, "modelProvider", "thread/start.modelProvider");
-    if (requiredString(thread, "cwd", "thread/start.cwd") !== input.directory) {
+    const reportedDirectory = requiredString(thread, "cwd", "thread/start.cwd");
+    const canonicalReportedDirectory = await withDeadline(
+      realpath(reportedDirectory),
+      deadline,
+      "thread/start.cwd",
+    ).catch((error: unknown) => {
+      if (error instanceof CodexTimeoutError) throw error;
+      return null;
+    });
+    if (canonicalReportedDirectory !== directory) {
       throw policyError("thread/start.cwd");
     }
     if (requiredString(thread, "approvalPolicy", "thread/start.approvalPolicy") !== "never") {
@@ -511,7 +534,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
 
     repositoryBefore = await timed("repository-before", () =>
       withDeadline(
-        captureRepositoryState(input.directory, {
+        captureRepositoryState(directory, {
           includeIgnoredPaths: input.includeIgnoredRepositoryPaths,
         }),
         deadline,
@@ -525,7 +548,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
       let turnId: string;
       try {
         turnId = await timed("turn-start", () =>
-          startTurn(peer, input, threadId, prompt, deadline, events),
+          startTurn(peer, executionInput, threadId, prompt, deadline, events),
         );
       } catch (error) {
         await checkRepositoryAfterTurn(error);
@@ -542,6 +565,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
             turnId,
             input.interruptTimeoutMs,
           );
+          interruptEvidence = interrupt;
           cancelled = { kind: "active-cancellation", threadId, turnId, interrupt };
           await checkRepositoryAfterTurn(cancelled);
           break;
@@ -551,6 +575,11 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
           completed = await collectTurn(peer, reader, threadId, turnId, input, deadline, events);
           if (completed.modelReroute !== undefined) effectiveModel = completed.modelReroute;
         } catch (error) {
+          if (error instanceof CodexInterruptedTimeoutError) {
+            interruptEvidence = error.interrupt;
+          } else if (isActiveCancellation(error)) {
+            interruptEvidence = error.interrupt;
+          }
           await checkRepositoryAfterTurn(error);
           throw error;
         }
@@ -594,8 +623,13 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
       }
     }
   } catch (error) {
-    if (isActiveCancellation(error)) cancelled = error;
-    else if (error instanceof AppServerPeerError && error.kind === "unexpected-server-request") {
+    if (isActiveCancellation(error)) {
+      cancelled = error;
+      interruptEvidence = error.interrupt;
+    } else if (
+      error instanceof AppServerPeerError &&
+      error.kind === "unexpected-server-request"
+    ) {
       failure = policyError("unexpected server request");
       try {
         await checkRepositoryAfterTurn(failure);
@@ -638,7 +672,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     try {
       repositoryAfterClose = await timed("repository-after-close", () =>
         withDeadline(
-          captureRepositoryState(input.directory, {
+          captureRepositoryState(directory, {
             includeIgnoredPaths: input.includeIgnoredRepositoryPaths,
           }),
           performance.now() + input.closeTimeoutMs,
@@ -694,10 +728,14 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     pid: pid ?? null,
     pidAliveAfterClose: pid === undefined ? null : isPidAlive(pid),
     close: close ?? null,
-    interrupt: cancelled?.interrupt ?? null,
-    interruptAcknowledged: cancelled?.interrupt.acknowledgementReceived ?? false,
+    interrupt: interruptEvidence ?? null,
+    interruptAcknowledged: interruptEvidence?.acknowledgementReceived ?? false,
     terminalStatus:
-      cancelled !== undefined ? "interrupted" : failure === undefined ? "completed" : "failed",
+      interruptEvidence !== undefined
+        ? "interrupted"
+        : failure === undefined
+          ? "completed"
+          : "failed",
   });
   const attachFailure = (error: unknown): void => {
     if (typeof error === "object" && error !== null)
@@ -910,11 +948,16 @@ async function collectTurn(
       } satisfies ActiveCancellation;
     }
     if (error instanceof CodexTimeoutError && error.phase === "turn") {
+      let interrupt: CodexInterruptEvidence;
       try {
-        await interruptTurn(peer, reader, threadId, turnId, input.interruptTimeoutMs);
+        interrupt = await interruptTurn(peer, reader, threadId, turnId, input.interruptTimeoutMs);
       } catch (interruptError) {
         attachErrorCause(error, interruptError);
+        throw error;
       }
+      const interruptedError = new CodexInterruptedTimeoutError(interrupt);
+      attachErrorCause(interruptedError, error);
+      throw interruptedError;
     }
     throw error;
   }

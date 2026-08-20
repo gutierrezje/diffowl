@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -248,14 +248,22 @@ describe("executeCodexReview", () => {
     async () => {
       const directory = await temporaryRepository();
       try {
-        await expect(
-          executeCodexReview({
-            ...makeInput("timeout-active", true, directory),
-            timeoutMs: 5_000,
-          }),
-        ).rejects.toMatchObject({
+        const error = await executeCodexReview({
+          ...makeInput("timeout-active", true, directory),
+          timeoutMs: 5_000,
+        }).catch((value: unknown) => value);
+        expect(error).toMatchObject({
           kind: "timeout",
           phase: "turn",
+        });
+        expect(getCodexReviewFailureEvidence(error)).toMatchObject({
+          interrupt: {
+            deadlineMs: 300,
+            acknowledgementReceived: true,
+            terminalStatus: "interrupted",
+          },
+          interruptAcknowledged: true,
+          terminalStatus: "interrupted",
         });
       } finally {
         await rm(directory, { recursive: true, force: true });
@@ -268,6 +276,28 @@ describe("executeCodexReview", () => {
     ["turn-status", "protocol"],
   ])("rejects an invalid response contract (%s)", async (mode, kind) => {
     await expect(executeCodexReview(makeInput(mode))).rejects.toMatchObject({ kind });
+  });
+
+  it("accepts an App Server cwd that resolves to the requested repository", async () => {
+    const directory = await temporaryRepository();
+    const linkRoot = await mkdtemp(join(tmpdir(), "codex-review-link-"));
+    const linkedDirectory = join(linkRoot, "repository");
+    try {
+      await symlink(
+        directory,
+        linkedDirectory,
+        process.platform === "win32" ? "junction" : "dir",
+      );
+      const outcome = await executeCodexReview(
+        makeInput("canonical-cwd", true, linkedDirectory),
+      );
+      expect(outcome.evidence.repositoryGuard.kind).toBe("unchanged");
+    } finally {
+      await Promise.all([
+        rm(linkRoot, { recursive: true, force: true }),
+        rm(directory, { recursive: true, force: true }),
+      ]);
+    }
   });
 
   it("reports an unchanged repository for a real temporary repository", async () => {
@@ -326,6 +356,33 @@ describe("executeCodexReview", () => {
         repositoryBeforeSha256: expect.any(String),
         repositoryAfterTurnSha256: expect.any(String),
         repositoryAfterCloseSha256: expect.any(String),
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves interrupt evidence when cancellation also mutates the repository", async () => {
+    const directory = await temporaryRepository();
+    const controller = new AbortController();
+    try {
+      const error = await executeCodexReview({
+        ...makeInput("cancel-active-mutates", true, directory),
+        signal: controller.signal,
+        onProgress: (event) => {
+          if (event.type === "output") controller.abort();
+        },
+      }).catch((value: unknown) => value);
+      expect(error).toMatchObject({ kind: "repository-mutated" });
+      expect(getCodexReviewFailureEvidence(error)).toMatchObject({
+        interrupt: {
+          deadlineMs: 300,
+          acknowledgementReceived: true,
+          terminalStatus: "interrupted",
+        },
+        interruptAcknowledged: true,
+        terminalStatus: "interrupted",
+        repositoryStatus: "changed",
       });
     } finally {
       await rm(directory, { recursive: true, force: true });
