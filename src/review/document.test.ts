@@ -332,6 +332,47 @@ describe("inspectNativeReviewText", () => {
     });
   });
 
+  it("enforces fields and object strictness promised by the native output schema", () => {
+    const findingWithoutEvidence = {
+      severity: "warning",
+      file: "src/example.ts",
+      line: 1,
+      title: "Missing evidence",
+      body: "The provider contract requires an explicit evidence value.",
+      confidence: "medium",
+    };
+
+    expect(
+      inspectNativeReviewText(
+        JSON.stringify({ summary: "Review.", findings: [findingWithoutEvidence] }),
+      ),
+    ).toMatchObject({ kind: "invalid" });
+    expect(
+      inspectNativeReviewText(
+        JSON.stringify({ summary: "Review.", findings: [], diagnostics: [] }),
+      ),
+    ).toMatchObject({ kind: "invalid" });
+  });
+
+  it("keeps marker validation backward compatible", () => {
+    const raw = `${REVIEW_JSON_MARKER}\n${JSON.stringify({
+      summary: "Review.",
+      findings: [
+        {
+          severity: "warning",
+          file: "src/example.ts",
+          line: 1,
+          title: "No evidence",
+          body: "The existing marker validator allows evidence to be omitted.",
+          confidence: "medium",
+        },
+      ],
+      diagnostics: [],
+    })}`;
+
+    expect(inspectReviewText(raw)).toMatchObject({ kind: "valid" });
+  });
+
   it("exports the complete native output schema", () => {
     expect(REVIEW_DOCUMENT_OUTPUT_SCHEMA).toMatchObject({
       type: "object",

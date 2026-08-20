@@ -114,11 +114,22 @@ const ReviewFindingSchema = z.object({
   confidence: ReviewConfidenceSchema,
 });
 
+const NativeReviewFindingSchema = ReviewFindingSchema.extend({
+  severity: z.enum(["error", "warning", "info"]),
+  line: z.number().int().positive(),
+  evidence: z.string().nullable(),
+  confidence: ConfigReviewConfidenceSchema,
+}).strict();
+
 /** One invalid finding fails the document. Drop-and-succeed hid holes from the gate. */
 const ReviewDocumentSchema = z.object({
   summary: z.string(),
   findings: z.array(ReviewFindingSchema),
 });
+
+const NativeReviewDocumentSchema = ReviewDocumentSchema.extend({
+  findings: z.array(NativeReviewFindingSchema),
+}).strict();
 
 const MARKER_ISSUE: SchemaIssue = {
   locator: "marker",
@@ -172,7 +183,7 @@ export function inspectNativeReviewText(text: string): ClosedReview {
       ],
     };
   }
-  return validateReviewDocument(value);
+  return validateReviewDocument(value, "native-json");
 }
 
 export function looksLikeCompleteStructuredReview(text: string): boolean {
@@ -356,8 +367,13 @@ function extractBalancedJson(text: string): { jsonText: string; complete: boolea
   return { jsonText: text.slice(firstBrace), complete: false };
 }
 
-export function validateReviewDocument(value: unknown): ClosedReview {
-  const parsed = ReviewDocumentSchema.safeParse(value);
+export function validateReviewDocument(
+  value: unknown,
+  mode: ReviewDocumentMode = "marker",
+): ClosedReview {
+  const parsed = (mode === "native-json" ? NativeReviewDocumentSchema : ReviewDocumentSchema).safeParse(
+    value,
+  );
   if (!parsed.success) {
     return { kind: "invalid", issues: issuesFromZod(parsed.error) };
   }
