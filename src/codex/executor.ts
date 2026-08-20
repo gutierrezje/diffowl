@@ -22,6 +22,7 @@ export function createCodexReviewExecutor(options: CodexReviewExecutorOptions): 
   return {
     execute: async (input) => {
       input.onStatus?.("Checking Codex compatibility...");
+      const deadline = performance.now() + input.review.config.timeout * 1_000;
       const protocolStart = performance.now();
       try {
         await inspectCodexProtocol({
@@ -30,11 +31,11 @@ export function createCodexReviewExecutor(options: CodexReviewExecutorOptions): 
             ? {}
             : { prefixArgs: options.command.prefixArgs }),
           ...(options.command.env === undefined ? {} : { env: options.command.env }),
-          timeoutMs: options.protocolTimeoutMs,
+          timeoutMs: Math.min(options.protocolTimeoutMs, remainingTimeout(deadline)),
           ...(input.review.signal === undefined ? {} : { signal: input.review.signal }),
         });
       } catch (error) {
-        if (error instanceof ProtocolCancelledError) {
+        if (error instanceof ProtocolCancelledError && input.review.signal?.aborted) {
           throw new ReviewCancelledError("Review cancelled by user.");
         }
         throw error;
@@ -53,7 +54,7 @@ export function createCodexReviewExecutor(options: CodexReviewExecutorOptions): 
         args: [...(options.command.prefixArgs ?? []), "app-server", "--stdio"],
         ...(options.command.env === undefined ? {} : { env: options.command.env }),
         model: options.model,
-        timeoutMs: input.review.config.timeout * 1_000,
+        timeoutMs: remainingTimeout(deadline),
         interruptTimeoutMs: options.interruptTimeoutMs,
         closeTimeoutMs: options.closeTimeoutMs,
         includeIgnoredRepositoryPaths: options.includeIgnoredRepositoryPaths ?? false,
@@ -63,6 +64,10 @@ export function createCodexReviewExecutor(options: CodexReviewExecutorOptions): 
       return { review: outcome.reviewResult, timings: [protocolTiming, reviewTiming] };
     },
   };
+}
+
+function remainingTimeout(deadline: number): number {
+  return Math.max(1, deadline - performance.now());
 }
 
 function createTiming(phase: string, label: string, start: number): ReviewTiming {

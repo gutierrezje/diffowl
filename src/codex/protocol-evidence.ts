@@ -300,10 +300,8 @@ async function runCodex(
     });
     return result.stdout;
   } catch (error) {
-    if (options.signal?.aborted || (isRecord(error) && error["isCanceled"] === true)) {
-      throw new ProtocolCancelledError(phase);
-    }
     if (isRecord(error) && error["timedOut"] === true) throw new ProtocolTimeoutError(phase);
+    if (options.signal?.aborted) throw new ProtocolCancelledError(phase);
     if (isMissingExecutableError(error)) {
       throw new ProtocolEvidenceError("executable-missing", "Codex CLI executable was not found.");
     }

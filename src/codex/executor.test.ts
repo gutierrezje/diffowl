@@ -143,4 +143,35 @@ describe("createCodexReviewExecutor", () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+
+  it(
+    "bounds compatibility checking by the configured review timeout",
+    async () => {
+      const executor = createCodexReviewExecutor({
+        command: {
+          executable: process.execPath,
+          prefixArgs: [cliFixture],
+          env: { MOCK_CLI_MODE: "hang-generate" },
+        },
+        model: "gpt-5-codex",
+        protocolTimeoutMs: 10_000,
+        interruptTimeoutMs: 300,
+        closeTimeoutMs: 500,
+      });
+      const started = performance.now();
+
+      await expect(
+        executor.execute({
+          review: {
+            target: { kind: "staged" },
+            directory: process.cwd(),
+            config: { ...config, timeout: 1 },
+            depth: "default",
+          },
+        }),
+      ).rejects.toMatchObject({ kind: "timeout", phase: "generate-ts" });
+      expect(performance.now() - started).toBeLessThan(3_000);
+    },
+    5_000,
+  );
 });

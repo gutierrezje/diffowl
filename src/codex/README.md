@@ -22,6 +22,10 @@ interface. One execution does the following in order:
    retries, for three total attempts.
 7. Verifies repository state after the turn and again after process close.
 
+The compatibility check and App Server review share the configured review
+timeout. `protocolTimeoutMs` is an additional cap on the compatibility phase,
+not a separate extension to the review budget.
+
 Cancellation interrupts the active turn and requires an acknowledged interrupt,
 terminal `interrupted` state, clean EOF, process exit, and a final unchanged
 repository snapshot.

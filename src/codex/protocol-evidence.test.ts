@@ -121,12 +121,14 @@ describe("inspectCodexProtocol", () => {
   it("terminates a hung generator and reports its phase", async () => {
     const directory = await mkdtemp(join(tmpdir(), "codex-protocol-pid-"));
     const pidFile = join(directory, "pid");
+    const controller = new AbortController();
     try {
       const error = await inspectCodexProtocol({
         executable: process.execPath,
         prefixArgs: [fixture],
         env: { MOCK_CLI_MODE: "hang-generate", MOCK_CLI_PID_FILE: pidFile },
         timeoutMs: 3_000,
+        signal: controller.signal,
       }).catch((value: unknown) => value);
       expect(error).toMatchObject({ kind: "timeout", phase: "generate-ts" });
       const pid = Number(await readFile(pidFile, "utf8"));
