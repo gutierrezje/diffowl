@@ -306,7 +306,7 @@ const OUTPUT_SCHEMA = {
           body: { type: "string" },
           confidence: { type: "string", enum: ["low", "medium", "high"] },
         },
-        required: ["severity", "file", "line", "title", "body", "confidence"],
+        required: ["severity", "file", "line", "evidence", "title", "body", "confidence"],
         additionalProperties: false,
       },
     },

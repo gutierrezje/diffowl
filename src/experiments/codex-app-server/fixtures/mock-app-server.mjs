@@ -180,7 +180,7 @@ function isOutputSchema(value) {
   )
     return false;
   return (
-    ["severity", "confidence", "file", "line", "title", "body"].every((name) =>
+    ["severity", "confidence", "file", "line", "evidence", "title", "body"].every((name) =>
       item.required.includes(name),
     ) &&
     isRecord(item.properties) &&
