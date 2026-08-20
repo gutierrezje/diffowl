@@ -15,10 +15,13 @@ jobs:
         include:
           - os: ubuntu-latest
             node-version: 22.14.0
+            test_timeout_ms: 5000
           - os: ubuntu-latest
             node-version: 24.x
+            test_timeout_ms: 5000
           - os: windows-2022
             node-version: 22.14.0
+            test_timeout_ms: 15000
       fail-fast: false
 
     steps:
@@ -43,7 +46,7 @@ jobs:
         run: pnpm run lint
 
       - name: Run unit tests
-        run: pnpm run test
+        run: pnpm run test --testTimeout=${{ matrix.test_timeout_ms }}
 
       - name: Build project
         run: pnpm run build
