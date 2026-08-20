@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { inspectCodexProtocol } from "./protocol-evidence.js";
 
 const fixture = fileURLToPath(new URL("./fixtures/mock-codex-cli.mjs", import.meta.url));
+const HUMAN_GATED_TEST_TIMEOUT_MS = 900_000;
 
 describe("inspectCodexProtocol", () => {
   it("captures compatible 0.147.0 generated protocol evidence and removes generated output", async () => {
@@ -137,6 +138,7 @@ describe("inspectCodexProtocol", () => {
 
   it.skipIf(process.env["DIFFOWL_CODEX_PROTOCOL_LIVE"] !== "1")(
     "matches the installed Codex 0.147.0 manifest",
+    { timeout: HUMAN_GATED_TEST_TIMEOUT_MS },
     async () => {
       const evidence = await inspectCodexProtocol({
         executable: process.env["DIFFOWL_CODEX_EXECUTABLE"] ?? "codex",

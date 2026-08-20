@@ -12,9 +12,12 @@ import {
 } from "./live-helpers.js";
 
 const enabled = process.env["DIFFOWL_CODEX_APP_SERVER_LIVE"] === "1";
+const HUMAN_GATED_TEST_TIMEOUT_MS = 900_000;
+const humanGatedTest = (name: string, fn: () => Promise<void>) =>
+  it.skipIf(!enabled)(name, fn, HUMAN_GATED_TEST_TIMEOUT_MS);
 
 describe("human-gated Codex App Server live harness", () => {
-  it.skipIf(!enabled)("runs marker and output-schema reviews over equivalent changes", async () => {
+  humanGatedTest("runs marker and output-schema reviews over equivalent changes", async () => {
     const environment = requireLiveEnvironment();
     const roots = await Promise.all([createStagedRepo("marker"), createStagedRepo("schema")]);
     const records: LiveStrategyRecord[] = [];
@@ -139,7 +142,7 @@ describe("human-gated Codex App Server live harness", () => {
     }
   });
 
-  it.skipIf(!enabled)("interrupts an active turn only after output progress", async () => {
+  humanGatedTest("interrupts an active turn only after output progress", async () => {
     const environment = requireLiveEnvironment();
     const root = await createStagedRepo("cancel");
     const controller = new AbortController();
@@ -191,7 +194,7 @@ describe("human-gated Codex App Server live harness", () => {
     }
   });
 
-  it.skipIf(!enabled)("fails authentication in an isolated CODEX_HOME before a turn", async () => {
+  humanGatedTest("fails authentication in an isolated CODEX_HOME before a turn", async () => {
     const environment = requireLiveEnvironment();
     const root = await createStagedRepo("unauthenticated");
     const codexHome = await mkdtemp(join(tmpdir(), "diffowl-empty-codex-home-"));

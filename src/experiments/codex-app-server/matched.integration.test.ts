@@ -22,10 +22,12 @@ import {
 } from "./live-helpers.js";
 
 const enabled = process.env["DIFFOWL_CODEX_MATCHED_LIVE"] === "1";
+const HUMAN_GATED_TEST_TIMEOUT_MS = 900_000;
 
 describe("human-gated Codex/OpenCode matched harness", () => {
   it.skipIf(!enabled)(
     "runs directional seeded-positive and clean cases with matched hashes",
+    { timeout: HUMAN_GATED_TEST_TIMEOUT_MS },
     async () => {
       const codexModel = process.env["DIFFOWL_CODEX_MODEL"]?.trim() ?? "";
       const opencodeModel = process.env["DIFFOWL_OPENCODE_MODEL"]?.trim() ?? "";
