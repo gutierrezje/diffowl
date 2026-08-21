@@ -409,6 +409,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
           },
           deadline,
           "initialize",
+          input.signal,
         ),
       ),
       "initialize",
@@ -424,7 +425,14 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     events.push("sent:account/read");
     const account = asRecord(
       await timed("account-read", () =>
-        requestWithin(peer, "account/read", { refreshToken: false }, deadline, "account/read"),
+        requestWithin(
+          peer,
+          "account/read",
+          { refreshToken: false },
+          deadline,
+          "account/read",
+          input.signal,
+        ),
       ),
       "account/read",
     );
@@ -467,6 +475,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
           },
           deadline,
           "thread/start",
+          input.signal,
         ),
       ),
       "thread/start",
@@ -806,7 +815,7 @@ async function startTurn(
   };
   events.push("sent:turn/start");
   const turn = asRecord(
-    await requestWithin(peer, "turn/start", params, deadline, "turn/start"),
+    await requestWithin(peer, "turn/start", params, deadline, "turn/start", input.signal),
     "turn/start",
   );
   events.push("received:turn/start");
@@ -965,14 +974,24 @@ function requestWithin(
   params: unknown,
   deadline: number,
   phase: string,
+  signal?: AbortSignal,
 ): Promise<unknown> {
+  if (signal?.aborted) {
+    return Promise.reject(new ReviewCancelledError("Review cancelled by user."));
+  }
   const remaining = deadline - performance.now();
   if (remaining <= 0) return Promise.reject(new CodexTimeoutError(phase));
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new CodexTimeoutError(phase)), remaining);
+  const cancel = (): void =>
+    controller.abort(new ReviewCancelledError("Review cancelled by user."));
+  signal?.addEventListener("abort", cancel, { once: true });
   return peer
     .request(method, params, { signal: controller.signal })
-    .finally(() => clearTimeout(timer));
+    .finally(() => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", cancel);
+    });
 }
 
 function withDeadline<T>(promise: Promise<T>, deadline: number, phase: string): Promise<T> {

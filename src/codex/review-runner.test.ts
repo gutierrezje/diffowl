@@ -183,6 +183,17 @@ describe("executeCodexReview", () => {
     });
   });
 
+  it("forwards cancellation to an in-flight App Server request", async () => {
+    const controller = new AbortController();
+    const promise = executeCodexReview({
+      ...makeInput("hung"),
+      signal: controller.signal,
+    });
+    setTimeout(() => controller.abort(), 50);
+
+    await expect(promise).rejects.toBeInstanceOf(ReviewCancelledError);
+  });
+
   it("closes directly when cancelled before an active turn", async () => {
     const controller = new AbortController();
     const promise = executeCodexReview({

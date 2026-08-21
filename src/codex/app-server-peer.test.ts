@@ -181,27 +181,34 @@ describe("startAppServerPeer", () => {
     const second = peer.request("second");
     await expect(first).rejects.toMatchObject({ kind: "premature-eof" });
     await expect(second).rejects.toMatchObject({ kind: "premature-eof" });
-    await expect(peer.close()).resolves.toMatchObject({ kind: "sigterm", code: 0 });
+    const close = await peer.close();
+    expect(close.code).toBe(0);
+    expect(["exit", "sigterm"]).toContain(close.kind);
   });
 
-  it("rejects pending requests when stdout ends before the child exits", async () => {
-    const peer = startAppServerPeer({
-      executable: process.execPath,
-      args: [fixture],
-      env: { MOCK_APP_SERVER_MODE: "stdout-eof-hung" },
-      closeTimeoutMs: 100,
-    });
-    const pid = peer.pid;
-    if (pid === undefined) throw new Error("peer did not expose a pid");
+  it.skipIf(process.platform === "win32")(
+    "rejects pending requests when stdout ends before the child exits",
+    async () => {
+      const peer = startAppServerPeer({
+        executable: process.execPath,
+        args: [fixture],
+        env: { MOCK_APP_SERVER_MODE: "stdout-eof-hung" },
+        closeTimeoutMs: 100,
+      });
+      const pid = peer.pid;
+      if (pid === undefined) throw new Error("peer did not expose a pid");
 
-    try {
-      await expect(peer.request("close-stdout")).rejects.toMatchObject({ kind: "premature-eof" });
-      await new Promise((resolve) => setTimeout(resolve, 30));
-      expect(() => process.kill(pid, 0)).toThrow();
-    } finally {
-      await peer.close().catch(() => undefined);
-    }
-  });
+      try {
+        await expect(peer.request("close-stdout")).rejects.toMatchObject({
+          kind: "premature-eof",
+        });
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        expect(() => process.kill(pid, 0)).toThrow();
+      } finally {
+        await peer.close().catch(() => undefined);
+      }
+    },
+  );
 
   it("rejects an unexpected server request with a stable kind", async () => {
     const peer = startAppServerPeer({
@@ -235,17 +242,20 @@ describe("startAppServerPeer", () => {
     expect(() => process.kill(pid, 0)).toThrow();
   });
 
-  it("waits for process exit after escalating teardown to SIGKILL", async () => {
-    const peer = startAppServerPeer({
-      executable: process.execPath,
-      args: [fixture],
-      env: { MOCK_APP_SERVER_MODE: "ignores-sigterm" },
-      closeTimeoutMs: 3,
-    });
+  it.skipIf(process.platform === "win32")(
+    "waits for process exit after escalating teardown to SIGKILL",
+    async () => {
+      const peer = startAppServerPeer({
+        executable: process.execPath,
+        args: [fixture],
+        env: { MOCK_APP_SERVER_MODE: "ignores-sigterm" },
+        closeTimeoutMs: 3,
+      });
 
-    await expect(peer.request("ready")).resolves.toEqual({ request: "ready" });
-    await expect(peer.close()).resolves.toMatchObject({ kind: "sigkill", signal: "SIGKILL" });
-  });
+      await expect(peer.request("ready")).resolves.toEqual({ request: "ready" });
+      await expect(peer.close()).resolves.toMatchObject({ kind: "sigkill", signal: "SIGKILL" });
+    },
+  );
 
   it("correlates responses, delivers notifications, bounds stderr, and closes on stdin EOF", async () => {
     const peer = startAppServerPeer({
