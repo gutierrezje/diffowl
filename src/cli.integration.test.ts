@@ -227,7 +227,7 @@ describe("diffowl CLI", () => {
       review: Record<string, unknown>;
     };
 
-    expect(document.schema_version).toBe(4);
+    expect(document.schema_version).toBe(5);
     expect(document.review).toMatchObject({
       backend: "codex",
       model: "gpt-5.4",
@@ -252,6 +252,7 @@ describe("diffowl CLI", () => {
       await commitAll(repo, "initial");
       await writeFile(join(repo, "src/app.ts"), "export const value = 2;\n", "utf8");
       await commitAll(repo, "change");
+      const { stdout: headCommit } = await execa("git", ["rev-parse", "HEAD"], { cwd: repo });
       const bin = await mkdtemp(join(tmpdir(), "diffowl-cli-codex-wrapper-"));
       tempDirs.push(bin);
       const executable = join(bin, "codex");
@@ -297,7 +298,7 @@ describe("diffowl CLI", () => {
         effective_model: "gpt-5-codex",
         session_id: "thread-1",
         execution: {
-          schema_version: 1,
+          schema_version: 2,
           cohort_id: null,
           reviewer_id: "single",
           role: "single",
@@ -308,6 +309,13 @@ describe("diffowl CLI", () => {
           reasoning_effort: "auto",
           session_id: "thread-1",
           terminal_outcome: "completed",
+          input: {
+            target_kind: "last-commit",
+            base_commit: null,
+            merge_base_commit: null,
+            head_commit: headCommit,
+            diff_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+          },
         },
       });
     },
@@ -425,7 +433,7 @@ describe("diffowl CLI", () => {
     );
 
     expect(JSON.parse(result.stderr)).toMatchObject({
-      schema_version: 4,
+      schema_version: 5,
       error: { message: expect.stringContaining("Codex model must be a bare model id") },
     });
   });
@@ -460,11 +468,17 @@ describe("diffowl CLI", () => {
     const repo = await createRepo("diffowl-cli-base-", { skipDocOnly: true });
     await writeFile(join(repo, "README.md"), "base\n", "utf8");
     await commitAll(repo, "base");
+    const { stdout: mergeBaseCommit } = await execa("git", ["rev-parse", "HEAD"], { cwd: repo });
     await execa("git", ["switch", "-c", "feature"], { cwd: repo });
     await mkdir(join(repo, "docs"));
     await writeFile(join(repo, "docs/feature.md"), "feature\n", "utf8");
     await commitAll(repo, "feature");
     const { stdout: headCommit } = await execa("git", ["rev-parse", "HEAD"], { cwd: repo });
+    await execa("git", ["switch", "main"], { cwd: repo });
+    await writeFile(join(repo, "base-only.md"), "base advanced\n", "utf8");
+    await commitAll(repo, "advance base");
+    const { stdout: baseCommit } = await execa("git", ["rev-parse", "HEAD"], { cwd: repo });
+    await execa("git", ["switch", "feature"], { cwd: repo });
     await writeFile(join(repo, "staged.md"), "staged\n", "utf8");
     await execa("git", ["add", "staged.md"], { cwd: repo });
     await writeFile(join(repo, "unstaged.md"), "unstaged\n", "utf8");
@@ -475,14 +489,28 @@ describe("diffowl CLI", () => {
     const document = JSON.parse(stdout) as {
       review: {
         status: string;
-        target: { kind: string; ref: string | null; commit: string | null };
+        target: {
+          kind: string;
+          ref: string | null;
+          base_commit: string | null;
+          merge_base_commit: string | null;
+          commit: string | null;
+          diff_hash: string;
+        };
         report_path: string;
       };
     };
     const report = await readFile(document.review.report_path, "utf8");
 
     expect(document.review.status).toBe("skipped");
-    expect(document.review.target).toEqual({ kind: "base", ref: "main", commit: headCommit });
+    expect(document.review.target).toEqual({
+      kind: "base",
+      ref: "main",
+      base_commit: baseCommit,
+      merge_base_commit: mergeBaseCommit,
+      commit: headCommit,
+      diff_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
     expect(report).toContain("docs/feature.md");
     expect(report).not.toContain("staged.md");
     expect(report).not.toContain("unstaged.md");
@@ -544,13 +572,27 @@ describe("diffowl CLI", () => {
       review: {
         status: string;
         skipped_reason: string | null;
-        target: { kind: string; ref: string | null; commit: string | null };
+        target: {
+          kind: string;
+          ref: string | null;
+          base_commit: string | null;
+          merge_base_commit: string | null;
+          commit: string | null;
+          diff_hash: string;
+        };
       };
     };
 
     expect(document.review.status).toBe("skipped");
     expect(document.review.skipped_reason).toBe("empty-diff");
-    expect(document.review.target).toEqual({ kind: "base", ref: "main", commit: headCommit });
+    expect(document.review.target).toEqual({
+      kind: "base",
+      ref: "main",
+      base_commit: headCommit,
+      merge_base_commit: headCommit,
+      commit: headCommit,
+      diff_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
   });
 
   it("emits skipped JSON and persists state for an empty staged diff", async () => {

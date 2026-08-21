@@ -17,6 +17,8 @@ const review: ReviewRecord = {
   createdAt: "2026-06-15T01:00:00.000Z",
   targetKind: "staged",
   targetRef: null,
+  baseCommit: null,
+  mergeBaseCommit: null,
   targetCommit: null,
   diffHash: "abc123",
   model: "provider/model",
@@ -216,7 +218,7 @@ describe("reviewStatusFromPersisted", () => {
 describe("buildReviewJsonDocument", () => {
   it("renders backend selection and the backend-reported effective model", () => {
     const execution = {
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
       cohortId: null,
       reviewerId: "single",
       role: "single" as const,
@@ -227,6 +229,13 @@ describe("buildReviewJsonDocument", () => {
       reasoningEffort: "max" as const,
       sessionId: "session-test",
       terminalOutcome: "completed" as const,
+      input: {
+        targetKind: "staged" as const,
+        baseCommit: null,
+        mergeBaseCommit: null,
+        headCommit: null,
+        diffHash: review.diffHash,
+      },
     };
     const document = buildDocument({
       review: { ...review, model: "gpt-5.4" },
@@ -248,7 +257,7 @@ describe("buildReviewJsonDocument", () => {
       effective_model: "gpt-5.4-2026-08-01",
       preference_source: { backend: "command", model: "command" },
       execution: {
-        schema_version: 1,
+        schema_version: 2,
         cohort_id: null,
         reviewer_id: "single",
         role: "single",
@@ -259,16 +268,25 @@ describe("buildReviewJsonDocument", () => {
         reasoning_effort: "max",
         session_id: "session-test",
         terminal_outcome: "completed",
+        input: {
+          target_kind: "staged",
+          base_commit: null,
+          merge_base_commit: null,
+          head_commit: null,
+          diff_hash: review.diffHash,
+        },
       },
     });
   });
 
-  it("renders a base target in schema version 4 without changing its target shape", () => {
+  it("renders immutable base review identity in schema version 5", () => {
     const document = buildDocument({
       review: {
         ...review,
         targetKind: "base",
         targetRef: "origin/main",
+        baseCommit: "base-tip",
+        mergeBaseCommit: "merge-base",
         targetCommit: "def456",
       },
       persisted,
@@ -276,15 +294,18 @@ describe("buildReviewJsonDocument", () => {
       suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
     });
 
-    expect(document.schema_version).toBe(4);
+    expect(document.schema_version).toBe(5);
     expect(document.review.target).toEqual({
       kind: "base",
       ref: "origin/main",
+      base_commit: "base-tip",
+      merge_base_commit: "merge-base",
       commit: "def456",
+      diff_hash: review.diffHash,
     });
   });
 
-  it("renders schema version 4 with review metadata and findings", () => {
+  it("renders schema version 5 with review metadata and findings", () => {
     const document = buildDocument({
       review,
       persisted,
@@ -298,7 +319,7 @@ describe("buildReviewJsonDocument", () => {
       },
     });
 
-    expect(document.schema_version).toBe(4);
+    expect(document.schema_version).toBe(5);
     expect(document.review.id).toBe("rev_test");
     expect(document.review.status).toBe("open");
     expect(document.findings).toHaveLength(1);
@@ -564,7 +585,7 @@ describe("renderReviewJsonDocument", () => {
 
     expect(rendered.endsWith("\n")).toBe(true);
     expect(JSON.parse(rendered.trim())).toMatchObject({
-      schema_version: 4,
+      schema_version: 5,
       review: { id: "rev_test" },
     });
   });
@@ -574,7 +595,7 @@ describe("renderJsonErrorDocument", () => {
   it("renders a versioned error envelope", () => {
     const rendered = renderJsonErrorDocument("Review failed.");
     expect(JSON.parse(rendered.trim())).toEqual({
-      schema_version: 4,
+      schema_version: 5,
       error: { message: "Review failed." },
     });
   });

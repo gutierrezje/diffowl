@@ -13,6 +13,9 @@ All notable changes to DiffOwl are documented here. This project adheres to
 ### Changed
 
 - TypeScript reviews resolve import references from a gitignored module index instead of `git grep`.
+- Review JSON is now schema version 5. Review targets include resolved base, merge-base,
+  head, and diff identity; completed execution provenance includes the same immutable input.
+  Consumers must negotiate `schema_version` rather than assuming version 4.
 
 ## [0.4.0] - 2026-08-14
 

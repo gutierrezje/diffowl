@@ -45,6 +45,8 @@ function makeSnapshot(
   return {
     root: "/repo",
     target,
+    baseCommit: target.kind === "base" ? "resolved-base" : null,
+    mergeBaseCommit: target.kind === "base" ? "merge-base" : null,
     targetCommit: target.kind === "staged" ? null : "abc123",
     diff: { files, raw: "diff --git a/README.md b/README.md", summary: "" },
   } as LoadedReviewSnapshot;
@@ -146,11 +148,16 @@ describe("runReviewSkipChecks", () => {
     expect(deps.persistReviewRun).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({
-        diffHash: "hash",
+        reviewInput: {
+          targetKind: "staged",
+          baseCommit: null,
+          mergeBaseCommit: null,
+          headCommit: null,
+          diffHash: "hash",
+        },
         sessionId: "",
         skippedReason: "empty-diff",
         summary: "No staged changes to review.",
-        targetCommit: null,
       }),
     );
     expect(deps.writeMarkdownReport).not.toHaveBeenCalled();
@@ -159,7 +166,7 @@ describe("runReviewSkipChecks", () => {
   it("persists empty branch diffs with their captured target identity", async () => {
     const target = { kind: "base", ref: "main" } as const;
     const deps = makeDeps(makeSnapshot([], target));
-    vi.mocked(deps.mapReviewTarget).mockReturnValue({ targetKind: "base", targetRef: "main" });
+    vi.mocked(deps.mapReviewTarget).mockReturnValue({ targetRef: "main" });
 
     const outcome = await runReviewSkipChecks(
       { ...skipInput({ persistEmptyDiff: true }), target },
@@ -170,9 +177,11 @@ describe("runReviewSkipChecks", () => {
     expect(deps.persistReviewRun).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({
-        targetKind: "base",
         targetRef: "main",
-        targetCommit: "abc123",
+        reviewInput: expect.objectContaining({
+          targetKind: "base",
+          headCommit: "abc123",
+        }),
         summary: "No committed branch changes to review.",
       }),
     );
@@ -206,7 +215,9 @@ describe("runReviewSkipChecks", () => {
     expect(deps.resolveTargetCommit).not.toHaveBeenCalled();
     expect(deps.persistReviewRun).toHaveBeenCalledWith(
       "/repo/.diffowl",
-      expect.objectContaining({ targetCommit: "abc123" }),
+      expect.objectContaining({
+        reviewInput: expect.objectContaining({ headCommit: "abc123" }),
+      }),
     );
   });
 
@@ -230,7 +241,6 @@ describe("runReviewPipeline", () => {
     );
     const deps = makeDeps(snapshot);
     vi.mocked(deps.mapReviewTarget).mockReturnValue({
-      targetKind: "base",
       targetRef: "origin/main",
     });
     vi.mocked(deps.resolveTargetCommit).mockResolvedValue("moved-head");
@@ -245,20 +255,25 @@ describe("runReviewPipeline", () => {
     expect(deps.persistReviewRun).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({
-        targetKind: "base",
         targetRef: "origin/main",
-        targetCommit: "captured-head",
+        reviewInput: expect.objectContaining({
+          targetKind: "base",
+          headCommit: "captured-head",
+        }),
       }),
     );
   });
 
   it("returns a completed outcome with filtered counts, persistence, and report path", async () => {
-    const deps = makeDeps(makeSnapshot([codeFile()]));
+    const snapshot = Object.assign(
+      makeSnapshot([codeFile()], { kind: "base", ref: "origin/main" }),
+      { targetCommit: "captured-head" },
+    );
+    const deps = makeDeps(snapshot);
     const inputTimings = [{ phase: "preflight", label: "Preflight", ms: 1 }];
     const kept = makeFinding("src/app.ts");
     const outside = makeFinding("src/other.ts");
     const provenance = {
-      schemaVersion: 1 as const,
       cohortId: null,
       reviewerId: "single",
       role: "single" as const,
@@ -272,6 +287,14 @@ describe("runReviewPipeline", () => {
     };
     const persistedExecution = {
       ...provenance,
+      schemaVersion: 2 as const,
+      input: {
+        targetKind: "base" as const,
+        baseCommit: "resolved-base",
+        mergeBaseCommit: "merge-base",
+        headCommit: "captured-head",
+        diffHash: "hash",
+      },
       id: "exe_1",
       reviewId: "rev_1",
       createdAt: "2026-08-21T00:00:00.000Z",
@@ -287,7 +310,7 @@ describe("runReviewPipeline", () => {
       },
       timings: [],
       effectiveModel: "resolved-model",
-      provenance,
+      runtimeProvenance: provenance,
     });
     vi.mocked(deps.filterFindingsByChangedFiles).mockReturnValue({ findings: [kept], suppressed: [outside] });
     vi.mocked(deps.persistReviewRun).mockResolvedValue({
@@ -325,7 +348,13 @@ describe("runReviewPipeline", () => {
     expect(deps.persistReviewRun).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({
-        diffHash: "hash",
+        reviewInput: {
+          targetKind: "base",
+          baseCommit: "resolved-base",
+          mergeBaseCommit: "merge-base",
+          headCommit: "captured-head",
+          diffHash: "hash",
+        },
         execution: provenance,
         findings: [kept],
         sessionId: "session",

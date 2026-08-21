@@ -56,6 +56,10 @@ type TextFileResult =
 export interface LoadedReviewSnapshot {
   root: string;
   target: ReviewTarget;
+  /** Resolved base ref tip for branch reviews. */
+  baseCommit: string | null;
+  /** Commit used as the left side of the captured diff. */
+  mergeBaseCommit: string | null;
   targetCommit: string | null;
   diff: DiffResult;
   source: ReviewContextSource;
@@ -82,6 +86,8 @@ export async function loadReviewSnapshot(
       return {
         root,
         target,
+        baseCommit: null,
+        mergeBaseCommit: null,
         targetCommit: null,
         diff: await getStagedDiff(root),
         source: createGitContextSource(root, { kind: "staged" }),
@@ -91,6 +97,8 @@ export async function loadReviewSnapshot(
       return {
         root,
         target,
+        baseCommit: null,
+        mergeBaseCommit: null,
         targetCommit: sha,
         diff: await getResolvedCommitDiff(sha, root),
         source: createGitContextSource(root, { kind: "commit", sha }),
@@ -101,6 +109,8 @@ export async function loadReviewSnapshot(
       return {
         root,
         target,
+        baseCommit: null,
+        mergeBaseCommit: null,
         targetCommit: sha,
         diff: await getResolvedCommitDiff(sha, root),
         source: createGitContextSource(root, { kind: "commit", sha }),
@@ -111,6 +121,8 @@ export async function loadReviewSnapshot(
       return {
         root,
         target: { kind: "base", ref: branch.baseRef },
+        baseCommit: branch.baseCommit,
+        mergeBaseCommit: branch.mergeBaseCommit,
         targetCommit: branch.headCommit,
         diff: branch.diff,
         source: createGitContextSource(root, { kind: "commit", sha: branch.headCommit }),

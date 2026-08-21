@@ -1,6 +1,9 @@
 import type { ReviewFinding, ReviewTiming, ReviewUsage } from "../review/types.js";
 import type { ReviewSelection } from "../review/backend-selection.js";
-import type { ReviewExecutionProvenance } from "../review/provenance.js";
+import type {
+  ReviewExecutionProvenance,
+  ReviewInputIdentity,
+} from "../review/provenance.js";
 import { isUntrackedFinding, type PersistReviewRunResult } from "../state/persist.js";
 import type {
   FindingStatus,
@@ -12,7 +15,7 @@ import type {
   ReviewTargetKind,
 } from "../state/types.js";
 
-export const JSON_OUTPUT_SCHEMA_VERSION = 4 as const;
+export const JSON_OUTPUT_SCHEMA_VERSION = 5 as const;
 
 export type ReviewOutputFormat = "text" | "json";
 
@@ -63,7 +66,35 @@ export interface ReviewJsonExecutionV1 {
   terminal_outcome: ReviewExecutionProvenance["terminalOutcome"];
 }
 
-export interface ReviewJsonDocumentV4 {
+export type ReviewJsonInputIdentityV1 =
+  | {
+      target_kind: "staged";
+      base_commit: null;
+      merge_base_commit: null;
+      head_commit: null;
+      diff_hash: string;
+    }
+  | {
+      target_kind: "commit" | "last-commit";
+      base_commit: null;
+      merge_base_commit: null;
+      head_commit: string;
+      diff_hash: string;
+    }
+  | {
+      target_kind: "base";
+      base_commit: string;
+      merge_base_commit: string;
+      head_commit: string;
+      diff_hash: string;
+    };
+
+export interface ReviewJsonExecutionV2 extends Omit<ReviewJsonExecutionV1, "schema_version"> {
+  schema_version: 2;
+  input: ReviewJsonInputIdentityV1;
+}
+
+export interface ReviewJsonDocumentV5 {
   schema_version: typeof JSON_OUTPUT_SCHEMA_VERSION;
   review: {
     id: string;
@@ -71,14 +102,17 @@ export interface ReviewJsonDocumentV4 {
     target: {
       kind: ReviewTargetKind;
       ref: string | null;
+      base_commit: string | null;
+      merge_base_commit: string | null;
       commit: string | null;
+      diff_hash: string;
     };
     model: string;
     backend: ReviewSelection["backend"];
     requested_model: string;
     effective_model: string | null;
     preference_source: ReviewSelection["source"];
-    execution: ReviewJsonExecutionV1 | null;
+    execution: ReviewJsonExecutionV1 | ReviewJsonExecutionV2 | null;
     reasoning: string;
     depth: string;
     session_id: string;
@@ -127,7 +161,7 @@ export function parseReviewOutputFormat(value: unknown): ReviewOutputFormat {
   throw new Error(`Invalid output format: ${String(value)}. Expected text or json.`);
 }
 
-export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJsonDocumentV4 {
+export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJsonDocumentV5 {
   const observations = selectJsonObservations(
     input.persisted.reconcile.observations,
     input.verbose,
@@ -142,7 +176,10 @@ export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJson
       target: {
         kind: input.review.targetKind,
         ref: input.review.targetRef,
+        base_commit: input.review.baseCommit,
+        merge_base_commit: input.review.mergeBaseCommit,
         commit: input.review.targetCommit,
+        diff_hash: input.review.diffHash,
       },
       model: input.review.model,
       backend: input.execution?.backend ?? input.selection.backend,
@@ -173,7 +210,7 @@ export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJson
   };
 }
 
-export function renderReviewJsonDocument(document: ReviewJsonDocumentV4): string {
+export function renderReviewJsonDocument(document: ReviewJsonDocumentV5): string {
   return `${JSON.stringify(document)}\n`;
 }
 
@@ -185,13 +222,14 @@ export function renderJsonErrorDocument(message: string): string {
   return `${JSON.stringify(document)}\n`;
 }
 
-export async function writeReviewJsonSuccess(document: ReviewJsonDocumentV4): Promise<void> {
+export async function writeReviewJsonSuccess(document: ReviewJsonDocumentV5): Promise<void> {
   await writeFully(process.stdout, renderReviewJsonDocument(document));
 }
 
-function mapJsonExecution(execution: ReviewExecutionProvenance): ReviewJsonExecutionV1 {
-  return {
-    schema_version: execution.schemaVersion,
+function mapJsonExecution(
+  execution: ReviewExecutionProvenance,
+): ReviewJsonExecutionV1 | ReviewJsonExecutionV2 {
+  const common = {
     cohort_id: execution.cohortId,
     reviewer_id: execution.reviewerId,
     role: execution.role,
@@ -203,6 +241,50 @@ function mapJsonExecution(execution: ReviewExecutionProvenance): ReviewJsonExecu
     session_id: execution.sessionId,
     terminal_outcome: execution.terminalOutcome,
   };
+
+  if (execution.schemaVersion === 1) {
+    return { ...common, schema_version: execution.schemaVersion };
+  }
+
+  return {
+    ...common,
+    schema_version: execution.schemaVersion,
+    input: mapJsonInputIdentity(execution.input),
+  };
+}
+
+function mapJsonInputIdentity(input: ReviewInputIdentity): ReviewJsonInputIdentityV1 {
+  switch (input.targetKind) {
+    case "staged":
+      return {
+        target_kind: input.targetKind,
+        base_commit: input.baseCommit,
+        merge_base_commit: input.mergeBaseCommit,
+        head_commit: input.headCommit,
+        diff_hash: input.diffHash,
+      };
+    case "commit":
+    case "last-commit":
+      return {
+        target_kind: input.targetKind,
+        base_commit: input.baseCommit,
+        merge_base_commit: input.mergeBaseCommit,
+        head_commit: input.headCommit,
+        diff_hash: input.diffHash,
+      };
+    case "base":
+      return {
+        target_kind: input.targetKind,
+        base_commit: input.baseCommit,
+        merge_base_commit: input.mergeBaseCommit,
+        head_commit: input.headCommit,
+        diff_hash: input.diffHash,
+      };
+    default: {
+      const _exhaustive: never = input;
+      return _exhaustive;
+    }
+  }
 }
 
 function writeFully(stream: NodeJS.WritableStream, chunk: string): Promise<void> {

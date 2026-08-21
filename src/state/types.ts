@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
-import type { ReviewExecutionProvenance } from "../review/provenance.js";
+import type {
+  ReviewExecutionProvenance,
+  ReviewExecutionRuntimeProvenance,
+} from "../review/provenance.js";
 
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;
 
 export type ReviewTargetKind = "staged" | "commit" | "last-commit" | "base";
 export type FindingStatus = "open" | "deferred" | "dismissed" | "fixed" | "regressed";
@@ -42,6 +45,8 @@ export interface ReviewRecord {
   createdAt: string;
   targetKind: ReviewTargetKind;
   targetRef: string | null;
+  baseCommit: string | null;
+  mergeBaseCommit: string | null;
   targetCommit: string | null;
   diffHash: string;
   model: string;
@@ -60,6 +65,8 @@ export interface InsertReviewInput {
   createdAt?: string;
   targetKind: ReviewTargetKind;
   targetRef?: string | null;
+  baseCommit?: string | null;
+  mergeBaseCommit?: string | null;
   targetCommit?: string | null;
   diffHash: string;
   model: string;
@@ -73,17 +80,17 @@ export interface InsertReviewInput {
   skippedReason?: string | null;
 }
 
-export interface ReviewExecutionRecord extends ReviewExecutionProvenance {
+export type ReviewExecutionRecord = ReviewExecutionProvenance & {
   id: string;
   reviewId: string;
   createdAt: string;
-}
+};
 
 export interface InsertReviewExecutionInput {
   id?: string;
-  reviewId: string;
+  review: ReviewRecord;
   createdAt?: string;
-  provenance: ReviewExecutionProvenance;
+  provenance: ReviewExecutionRuntimeProvenance;
 }
 
 export interface FindingRecord {

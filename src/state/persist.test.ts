@@ -22,6 +22,7 @@ import { listReviewExecutionsByReviewId } from "./repositories/review-executions
 import { getReviewById } from "./repositories/reviews.js";
 import { removeTempStateDir } from "./test-helpers.js";
 import type { ReviewFinding } from "../review/types.js";
+import type { ReviewInputIdentity } from "../review/provenance.js";
 
 let tempDirs: string[] = [];
 
@@ -46,10 +47,14 @@ describe("persistReviewRun", () => {
     const diffHash = computeDiffHash("diff --git a/src/auth.ts");
 
     const result = await persistReviewRun(dir, {
-      targetKind: "staged",
-      targetRef: null,
-      targetCommit: null,
-      diffHash,
+      targetRef: "origin/main",
+      reviewInput: {
+        targetKind: "base",
+        baseCommit: "base-tip",
+        mergeBaseCommit: "merge-base",
+        headCommit: "reviewed-head",
+        diffHash,
+      },
       model: "provider/model",
       reasoning: "medium",
       depth: "default",
@@ -59,7 +64,6 @@ describe("persistReviewRun", () => {
       timings: [{ phase: "total", label: "Total", ms: 42 }],
       findings: [sampleFinding],
       execution: {
-        schemaVersion: 1,
         cohortId: null,
         reviewerId: "single",
         role: "single",
@@ -76,7 +80,13 @@ describe("persistReviewRun", () => {
     const state = await openStateDatabase(dir);
     try {
       const review = getReviewById(state.db, result.reviewId);
-      expect(review?.diffHash).toBe(diffHash);
+      expect(review).toMatchObject({
+        targetKind: "base",
+        baseCommit: "base-tip",
+        mergeBaseCommit: "merge-base",
+        targetCommit: "reviewed-head",
+        diffHash,
+      });
       expect(review?.sessionId).toBe("session-1");
       expect(review?.diagnostics).toEqual(["context warning"]);
       expect(review?.skippedReason).toBeNull();
@@ -97,7 +107,7 @@ describe("persistReviewRun", () => {
           id: expect.stringMatching(/^exe_/),
           reviewId: result.reviewId,
           createdAt: expect.any(String),
-          schemaVersion: 1,
+          schemaVersion: 2,
           cohortId: null,
           reviewerId: "single",
           role: "single",
@@ -108,6 +118,13 @@ describe("persistReviewRun", () => {
           reasoningEffort: "max",
           sessionId: "session-1",
           terminalOutcome: "completed",
+          input: {
+            targetKind: "base",
+            baseCommit: "base-tip",
+            mergeBaseCommit: "merge-base",
+            headCommit: "reviewed-head",
+            diffHash,
+          },
         },
       ]);
     } finally {
@@ -168,7 +185,7 @@ describe("persistReviewRun", () => {
           evidence: "if (request == null) return;",
         },
       ]),
-      diffHash: computeDiffHash("matcher-failure-review"),
+      reviewInput: stagedReviewInput("matcher-failure-review"),
       sessionId: "matcher-failure-review",
     });
 
@@ -193,10 +210,14 @@ describe("persistReviewRun", () => {
     const dir = await createTempDir();
 
     const result = await persistReviewRun(dir, {
-      targetKind: "last-commit",
       targetRef: null,
-      targetCommit: "abc123def",
-      diffHash: computeDiffHash("docs only"),
+      reviewInput: {
+        targetKind: "last-commit",
+        baseCommit: null,
+        mergeBaseCommit: null,
+        headCommit: "abc123def",
+        diffHash: computeDiffHash("docs only"),
+      },
       model: "provider/model",
       reasoning: "medium",
       depth: "default",
@@ -226,7 +247,6 @@ describe("persistReviewRun", () => {
     const result = await persistReviewRun(dir, {
       ...basePersistInput([]),
       execution: {
-        schemaVersion: 1,
         cohortId: null,
         reviewerId: "single",
         role: "single",
@@ -259,7 +279,6 @@ describe("persistReviewRun", () => {
     const result = await persistReviewRun(dir, {
       ...basePersistInput([]),
       execution: {
-        schemaVersion: 1,
         cohortId: null,
         reviewerId: "single",
         role: "single",
@@ -312,7 +331,7 @@ describe("persistReviewRun", () => {
     const second = await persistReviewRun(dir, {
       ...basePersistInput([sampleFinding]),
       sessionId: "session-2",
-      diffHash: computeDiffHash("second review"),
+      reviewInput: stagedReviewInput("second review"),
     });
 
     expect(second.lifecycleSuppressedFindings).toHaveLength(1);
@@ -332,7 +351,7 @@ describe("persistReviewRun", () => {
     const second = await persistReviewRun(dir, {
       ...basePersistInput([retitled]),
       sessionId: "session-2",
-      diffHash: computeDiffHash("second review"),
+      reviewInput: stagedReviewInput("second review"),
     });
 
     const state = await openStateDatabase(dir);
@@ -428,7 +447,6 @@ describe("persistReviewRun", () => {
 describe("persist helpers", () => {
   it("maps a resolved base target without encoding it as a commit review", () => {
     expect(mapReviewTarget({ kind: "base", ref: "origin/main" })).toEqual({
-      targetKind: "base",
       targetRef: "origin/main",
     });
   });
@@ -652,10 +670,8 @@ describe("enrichReviewFindingsWithDurableMetadata", () => {
 
 function basePersistInput(findings: ReviewFinding[]) {
   return {
-    targetKind: "staged" as const,
     targetRef: null,
-    targetCommit: null,
-    diffHash: computeDiffHash("base review"),
+    reviewInput: stagedReviewInput("base review"),
     model: "provider/model",
     reasoning: "medium",
     depth: "default",
@@ -664,6 +680,16 @@ function basePersistInput(findings: ReviewFinding[]) {
     diagnostics: ["context warning"],
     timings: [{ phase: "total", label: "Total", ms: 42 }],
     findings,
+  };
+}
+
+function stagedReviewInput(diffSeed: string): ReviewInputIdentity {
+  return {
+    targetKind: "staged",
+    baseCommit: null,
+    mergeBaseCommit: null,
+    headCommit: null,
+    diffHash: computeDiffHash(diffSeed),
   };
 }
 

@@ -339,10 +339,14 @@ function basePersistInput(
   diffSeed = "diff-hash-base",
 ) {
   return {
-    targetKind: "staged" as const,
     targetRef: null,
-    targetCommit: null,
-    diffHash: computeDiffHash(diffSeed),
+    reviewInput: {
+      targetKind: "staged" as const,
+      baseCommit: null,
+      mergeBaseCommit: null,
+      headCommit: null,
+      diffHash: computeDiffHash(diffSeed),
+    },
     model: "provider/model",
     reasoning: "medium",
     depth: "default",

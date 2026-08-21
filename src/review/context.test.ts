@@ -1169,15 +1169,25 @@ describe("buildReviewContext", () => {
     await execa("git", ["branch", "-m", "base"], { cwd: root });
     await writeFile(join(root, "example.ts"), "export const value = 'base';\n", "utf-8");
     await commitAll(root, "base");
+    const { stdout: mergeBaseCommit } = await execa("git", ["rev-parse", "HEAD"], { cwd: root });
     await execa("git", ["switch", "-c", "feature"], { cwd: root });
     await writeFile(join(root, "example.ts"), "export const value = 'head';\n", "utf-8");
     await commitAll(root, "feature");
+    const { stdout: headCommit } = await execa("git", ["rev-parse", "HEAD"], { cwd: root });
+    await execa("git", ["switch", "base"], { cwd: root });
+    await writeFile(join(root, "base-only.ts"), "export const baseOnly = true;\n", "utf-8");
+    await commitAll(root, "advance base");
+    const { stdout: baseCommit } = await execa("git", ["rev-parse", "HEAD"], { cwd: root });
+    await execa("git", ["switch", "feature"], { cwd: root });
     await writeFile(join(root, "example.ts"), "export const value = 'dirty';\n", "utf-8");
 
     const snapshot = await loadReviewSnapshot(root, { kind: "base", ref: "base" });
     const context = await buildReviewContextFromDiff(snapshot, config, "shallow");
 
     expect(snapshot.target).toEqual({ kind: "base", ref: "base" });
+    expect(snapshot.baseCommit).toBe(baseCommit);
+    expect(snapshot.mergeBaseCommit).toBe(mergeBaseCommit);
+    expect(snapshot.targetCommit).toBe(headCommit);
     expect(snapshot.diff.files.map((file) => file.path)).toEqual(["example.ts"]);
     expect(context.changedFiles[0]?.content).toEqual({
       status: "loaded",
@@ -1210,6 +1220,43 @@ describe("buildReviewContext", () => {
       status: "loaded",
       text: "export const value = 'head';\n",
     });
+  });
+
+  it("changes captured branch identity after rebasing onto an advanced base", async () => {
+    const root = await createGitRepository();
+    await execa("git", ["branch", "-m", "base"], { cwd: root });
+    await writeFile(join(root, "example.ts"), "export const value = 'base';\n", "utf-8");
+    await commitAll(root, "base");
+    await execa("git", ["switch", "-c", "feature"], { cwd: root });
+    await writeFile(join(root, "example.ts"), "export const value = 'feature';\n", "utf-8");
+    await commitAll(root, "feature");
+
+    const before = await loadReviewSnapshot(root, { kind: "base", ref: "base" });
+
+    await execa("git", ["switch", "base"], { cwd: root });
+    await writeFile(join(root, "base-only.ts"), "export const baseOnly = true;\n", "utf-8");
+    await commitAll(root, "advance base");
+    const { stdout: advancedBase } = await execa("git", ["rev-parse", "HEAD"], { cwd: root });
+    await execa("git", ["switch", "feature"], { cwd: root });
+    await execa(
+      "git",
+      [
+        "-c",
+        "user.name=DiffOwl Test",
+        "-c",
+        "user.email=diffowl@example.test",
+        "rebase",
+        "base",
+      ],
+      { cwd: root },
+    );
+
+    const after = await loadReviewSnapshot(root, { kind: "base", ref: "base" });
+
+    expect(after.baseCommit).toBe(advancedBase);
+    expect(after.mergeBaseCommit).toBe(advancedBase);
+    expect(after.targetCommit).not.toBe(before.targetCommit);
+    expect(after.diff.files.map((file) => file.path)).toEqual(["example.ts"]);
   });
 
   it("renders a smaller shallow context without related files or references", async () => {

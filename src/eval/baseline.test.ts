@@ -19,6 +19,8 @@ function makeSnapshot(diff: Partial<DiffResult> = {}): LoadedReviewSnapshot {
   return {
     root: "/repo",
     target: { kind: "commit", ref: "HEAD" },
+    baseCommit: null,
+    mergeBaseCommit: null,
     targetCommit: "abc123",
     source: snapshotSource,
     diff: {

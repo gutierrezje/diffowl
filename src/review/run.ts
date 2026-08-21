@@ -2,7 +2,9 @@ import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
 import { isDocOnlyDiff, resolveCommitRef } from "../git/diff.js";
 import { createOpenCodeReviewExecutor } from "../opencode/executor.js";
 import type { ReviewExecutor, ReviewProgressEvent, ReviewReport, ReviewTiming, ReviewUsage } from "./types.js";
-import type { ReviewExecutionProvenance } from "./provenance.js";
+import {
+  createReviewInputIdentity,
+} from "./provenance.js";
 import {
   computeDiffHash,
   enrichReviewFindingsWithDurableMetadata,
@@ -29,7 +31,7 @@ export type ReviewPipelineOutcome =
       reportPath: string; sessionId: string;
       suppressed: { outsideChangedFiles: number; belowConfidence: number };
       timings: ReviewTiming[]; usage: ReviewUsage | null; effectiveModel: string | null;
-      execution: ReviewExecutionProvenance | null;
+      execution: PersistReviewRunResult["execution"];
     }
   | {
       kind: "skipped"; reason: "empty-diff" | "documentation-only";
@@ -128,15 +130,24 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
   }
 
   const persistStart = performance.now();
+  const diffHash = deps.computeDiffHash(diff.raw);
+  const reviewInput = createReviewInputIdentity({
+    targetKind: snapshot.target.kind,
+    baseCommit: snapshot.baseCommit,
+    mergeBaseCommit: snapshot.mergeBaseCommit,
+    headCommit: snapshot.targetCommit,
+    diffHash,
+  });
   const persisted = await deps.persistReviewRun(input.diffOwlDir, {
     ...deps.mapReviewTarget(snapshot.target),
-    targetCommit: snapshot.targetCommit,
-    diffHash: deps.computeDiffHash(diff.raw),
+    reviewInput,
     model: input.config.model,
     reasoning: input.config.reasoning.effort,
     depth: input.depth,
     sessionId: reviewResult.sessionId,
-    ...(execution.provenance === undefined ? {} : { execution: execution.provenance }),
+    ...(execution.runtimeProvenance === undefined
+      ? {}
+      : { execution: execution.runtimeProvenance }),
     summary: report.summary,
     diagnostics,
     timings: [...timings, ...(report.timings ?? [])],
@@ -221,9 +232,16 @@ export async function runReviewSkipChecks(
   const timings = [...input.timings];
   const snapshot = await deps.loadReviewSnapshot(input.projectRoot, input.target);
   const { diff } = snapshot;
+  const reviewInput = createReviewInputIdentity({
+    targetKind: snapshot.target.kind,
+    baseCommit: snapshot.baseCommit,
+    mergeBaseCommit: snapshot.mergeBaseCommit,
+    headCommit: snapshot.targetCommit,
+    diffHash: deps.computeDiffHash(diff.raw),
+  });
   const skippedReview = {
     ...deps.mapReviewTarget(snapshot.target),
-    diffHash: deps.computeDiffHash(diff.raw),
+    reviewInput,
     model: input.config.model,
     reasoning: input.config.reasoning.effort,
     depth: input.depth,
@@ -249,7 +267,6 @@ export async function runReviewSkipChecks(
       reason: "empty-diff",
       persisted: await deps.persistReviewRun(input.diffOwlDir, {
         ...skippedReview,
-        targetCommit: snapshot.targetCommit,
         summary,
         skippedReason: "empty-diff",
       }),
@@ -264,7 +281,6 @@ export async function runReviewSkipChecks(
 
   const persisted = await deps.persistReviewRun(input.diffOwlDir, {
     ...skippedReview,
-    targetCommit: snapshot.targetCommit,
     summary: "Documentation-only changes detected. No code review performed.",
     skippedReason: "documentation-only",
   });

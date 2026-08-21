@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import type { ReviewExecutionProvenance } from "../review/provenance.js";
+import type {
+  ReviewExecutionRuntimeProvenance,
+  ReviewInputIdentity,
+} from "../review/provenance.js";
 import type { ReviewFinding, ReviewTiming } from "../review/types.js";
 import { closeStateDatabase, openStateDatabase, runInTransaction } from "./db.js";
 import { computeFindingFingerprint } from "./fingerprint.js";
@@ -12,15 +15,12 @@ import type {
   FindingCandidate,
   ReconcileReviewFindingsResult,
   ReviewExecutionRecord,
-  ReviewTargetKind,
   ReviewRecord,
 } from "./types.js";
 
 export interface PersistReviewRunInput {
-  targetKind: ReviewTargetKind;
   targetRef: string | null;
-  targetCommit: string | null;
-  diffHash: string;
+  reviewInput: ReviewInputIdentity;
   model: string;
   reasoning: string;
   depth: string;
@@ -29,7 +29,7 @@ export interface PersistReviewRunInput {
   diagnostics: string[];
   timings: ReviewTiming[];
   findings: ReviewFinding[];
-  execution?: ReviewExecutionProvenance;
+  execution?: ReviewExecutionRuntimeProvenance;
   /** Symbol keys aligned with `findings`; persistence-only context, never review model data. */
   symbolKeys?: Array<string | null>;
   skippedReason?: string | null;
@@ -212,10 +212,12 @@ export async function persistReviewRun(
   try {
     return runInTransaction(state.db, () => {
       const review = insertReview(state.db, {
-        targetKind: input.targetKind,
         targetRef: input.targetRef,
-        targetCommit: input.targetCommit,
-        diffHash: input.diffHash,
+        targetKind: input.reviewInput.targetKind,
+        baseCommit: input.reviewInput.baseCommit,
+        mergeBaseCommit: input.reviewInput.mergeBaseCommit,
+        targetCommit: input.reviewInput.headCommit,
+        diffHash: input.reviewInput.diffHash,
         model: input.model,
         reasoning: input.reasoning,
         depth: input.depth,
@@ -228,7 +230,7 @@ export async function persistReviewRun(
       const execution = input.execution === undefined
         ? null
         : insertReviewExecution(state.db, {
-            reviewId: review.id,
+            review,
             createdAt: review.createdAt,
             provenance: input.execution,
           });
@@ -350,15 +352,15 @@ export async function loadFindingOccurrenceCounts(
 export function mapReviewTarget(target: {
   kind: "staged" | "last-commit" | "commit" | "base";
   ref?: string;
-}): { targetKind: ReviewTargetKind; targetRef: string | null } {
+}): { targetRef: string | null } {
   switch (target.kind) {
     case "staged":
-      return { targetKind: "staged", targetRef: null };
+      return { targetRef: null };
     case "last-commit":
-      return { targetKind: "last-commit", targetRef: null };
+      return { targetRef: null };
     case "commit":
-      return { targetKind: "commit", targetRef: target.ref ?? null };
+      return { targetRef: target.ref ?? null };
     case "base":
-      return { targetKind: "base", targetRef: target.ref ?? null };
+      return { targetRef: target.ref ?? null };
   }
 }
