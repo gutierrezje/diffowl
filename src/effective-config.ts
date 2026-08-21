@@ -1,38 +1,123 @@
-import { loadConfig, parseModel, type DiffOwlConfig } from "./config.js";
-import { loadModelPreference } from "./model-preference.js";
-
-export type ModelSource = "command" | "environment" | "local";
+import { loadConfig, type DiffOwlConfig } from "./config.js";
+import { loadReviewPreferences, type ReviewPreferences } from "./review-preference.js";
+import {
+  formatReviewBackend,
+  parseBackendModel,
+  parseReviewBackend,
+  type BackendPreferenceSource,
+  type ReviewBackend,
+  type ReviewSelection,
+} from "./review/backend-selection.js";
 
 export class MissingModelError extends Error {
-  constructor() {
-    super("No model selected. Run `diffowl model <provider/model>`.");
+  readonly backend: ReviewBackend;
+
+  constructor(backend: ReviewBackend = "opencode") {
+    super(
+      `No model selected for ${formatReviewBackend(backend)}. Run \`diffowl model <${
+        backend === "opencode" ? "provider/model" : "model-id"
+      }>\`.`,
+    );
+    this.backend = backend;
   }
 }
 
 export type EffectiveConfig = {
   config: DiffOwlConfig;
-  modelSource: ModelSource;
+  selection: ReviewSelection;
 };
 
-export async function loadEffectiveConfig(
-  commandModel?: unknown,
+export type EffectiveReviewOverrides = {
+  backend?: unknown;
+  model?: unknown;
+};
+
+export async function loadEffectiveReviewConfig(
+  overrides: EffectiveReviewOverrides = {},
   env: Record<string, string | undefined> = process.env,
 ): Promise<EffectiveConfig> {
   const config = await loadConfig();
+  const directBackend =
+    overrides.backend === undefined ? undefined : parseReviewBackend(overrides.backend);
   const environmentModel = env["DIFFOWL_MODEL"]?.trim() || undefined;
 
-  if (commandModel !== undefined) {
-    config.model = parseModel(commandModel);
-    return { config, modelSource: "command" };
+  if (directBackend !== undefined && overrides.model !== undefined) {
+    const requestedModel = parseBackendModel(directBackend, overrides.model);
+    config.model = requestedModel;
+    return effectiveConfig(config, {
+      backend: directBackend,
+      requestedModel,
+      source: { backend: "command", model: "command" },
+    });
   }
-  if (environmentModel !== undefined) {
-    config.model = parseModel(environmentModel);
-    return { config, modelSource: "environment" };
+  if (environmentModel !== undefined && overrides.model === undefined) {
+    const backend = directBackend ?? "opencode";
+    const requestedModel = parseBackendModel(backend, environmentModel);
+    config.model = requestedModel;
+    return effectiveConfig(config, {
+      backend,
+      requestedModel,
+      source: {
+        backend: directBackend === undefined ? "default" : "command",
+        model: "environment",
+      },
+    });
   }
-  const localModel = await loadModelPreference();
-  if (localModel !== undefined) {
-    config.model = localModel;
-    return { config, modelSource: "local" };
+
+  const preferences = await loadReviewPreferences();
+  const { backend, source: backendSource } = resolveReviewBackendPreference(
+    preferences,
+    directBackend,
+  );
+  const modelCandidate =
+    overrides.model === undefined
+      ? savedModel(preferences, backend)
+      : { model: overrides.model, source: "command" as const };
+
+  if (modelCandidate === undefined) {
+    throw new MissingModelError(backend);
   }
-  throw new MissingModelError();
+
+  const requestedModel = parseBackendModel(backend, modelCandidate.model);
+  config.model = requestedModel;
+  return effectiveConfig(config, {
+    backend,
+    requestedModel,
+    source: { backend: backendSource, model: modelCandidate.source },
+  });
+}
+
+function effectiveConfig(config: DiffOwlConfig, selection: ReviewSelection): EffectiveConfig {
+  return { config, selection };
+}
+
+export function resolveReviewBackendPreference(
+  preferences: ReviewPreferences,
+  directBackend?: ReviewBackend,
+): { backend: ReviewBackend; source: BackendPreferenceSource } {
+  if (directBackend !== undefined) {
+    return { backend: directBackend, source: "command" };
+  }
+  switch (preferences.kind) {
+    case "legacy":
+      return { backend: "opencode", source: "legacy" };
+    case "current":
+      return preferences.selectedBackend === undefined
+        ? { backend: "opencode", source: "default" }
+        : { backend: preferences.selectedBackend, source: "local" };
+    case "none":
+      return { backend: "opencode", source: "default" };
+  }
+}
+
+function savedModel(
+  preferences: ReviewPreferences,
+  backend: ReviewBackend,
+): { model: string; source: "local" | "legacy" } | undefined {
+  const selection = preferences.models.find((candidate) => candidate.backend === backend);
+  if (selection === undefined) return undefined;
+  return {
+    model: selection.model,
+    source: preferences.kind === "legacy" ? "legacy" : "local",
+  };
 }

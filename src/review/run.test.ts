@@ -266,6 +266,7 @@ describe("runReviewPipeline", () => {
         sessionId: "session",
       },
       timings: [],
+      effectiveModel: "resolved-model",
     });
     vi.mocked(deps.filterFindingsByChangedFiles).mockReturnValue({ findings: [kept], suppressed: [outside] });
     vi.mocked(deps.persistReviewRun).mockResolvedValue({ ...persisted, actionableFindings: [kept] });
@@ -286,6 +287,7 @@ describe("runReviewPipeline", () => {
       kind: "completed",
       reportPath: "/repo/.diffowl/reviews/review.md",
       sessionId: "session",
+      effectiveModel: "resolved-model",
       suppressed: { outsideChangedFiles: 1, belowConfidence: 0 },
     });
     expect(outcome.kind === "completed" ? outcome.report.findings[0]?.durable?.id : null).toBe("fnd_1");
@@ -301,6 +303,33 @@ describe("runReviewPipeline", () => {
     expect(deps.updatePersistedReview).toHaveBeenCalledWith("/repo/.diffowl", "rev_1", {
       reportPath: "/repo/.diffowl/reviews/review.md",
       diagnostics: ["excluded summary"],
+    });
+  });
+
+  it("uses an explicitly selected executor instead of the default dependency", async () => {
+    const deps = makeDeps(makeSnapshot([codeFile()]));
+    const selectedExecutor: ReviewExecutor = {
+      execute: vi.fn(async () => ({
+        review: {
+          report: { summary: "selected", findings: [] },
+          sessionId: "selected-session",
+        },
+        timings: [],
+        effectiveModel: "gpt-5.4-mini",
+      })),
+    };
+
+    const outcome = await runReviewPipeline(
+      { ...skipInput(), executor: selectedExecutor },
+      deps,
+    );
+
+    expect(deps.executor.execute).not.toHaveBeenCalled();
+    expect(selectedExecutor.execute).toHaveBeenCalledOnce();
+    expect(outcome).toMatchObject({
+      kind: "completed",
+      sessionId: "selected-session",
+      effectiveModel: "gpt-5.4-mini",
     });
   });
 

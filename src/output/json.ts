@@ -1,4 +1,5 @@
 import type { ReviewFinding, ReviewTiming, ReviewUsage } from "../review/types.js";
+import type { ReviewSelection } from "../review/backend-selection.js";
 import { isUntrackedFinding, type PersistReviewRunResult } from "../state/persist.js";
 import type {
   FindingStatus,
@@ -10,7 +11,7 @@ import type {
   ReviewTargetKind,
 } from "../state/types.js";
 
-export const JSON_OUTPUT_SCHEMA_VERSION = 2 as const;
+export const JSON_OUTPUT_SCHEMA_VERSION = 3 as const;
 
 export type ReviewOutputFormat = "text" | "json";
 
@@ -47,7 +48,7 @@ export interface ReviewJsonFindingV2 {
   occurrence_count: number;
 }
 
-export interface ReviewJsonDocumentV2 {
+export interface ReviewJsonDocumentV3 {
   schema_version: typeof JSON_OUTPUT_SCHEMA_VERSION;
   review: {
     id: string;
@@ -58,6 +59,10 @@ export interface ReviewJsonDocumentV2 {
       commit: string | null;
     };
     model: string;
+    backend: ReviewSelection["backend"];
+    requested_model: string;
+    effective_model: string | null;
+    preference_source: ReviewSelection["source"];
     reasoning: string;
     depth: string;
     session_id: string;
@@ -91,6 +96,8 @@ export interface BuildReviewJsonInput {
   verbose?: boolean;
   timings?: ReviewTiming[];
   usage?: ReviewUsage | null;
+  selection: ReviewSelection;
+  effectiveModel: string | null;
 }
 
 export function parseReviewOutputFormat(value: unknown): ReviewOutputFormat {
@@ -103,7 +110,7 @@ export function parseReviewOutputFormat(value: unknown): ReviewOutputFormat {
   throw new Error(`Invalid output format: ${String(value)}. Expected text or json.`);
 }
 
-export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJsonDocumentV2 {
+export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJsonDocumentV3 {
   const observations = selectJsonObservations(
     input.persisted.reconcile.observations,
     input.verbose,
@@ -121,6 +128,10 @@ export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJson
         commit: input.review.targetCommit,
       },
       model: input.review.model,
+      backend: input.selection.backend,
+      requested_model: input.selection.requestedModel,
+      effective_model: input.effectiveModel,
+      preference_source: input.selection.source,
       reasoning: input.review.reasoning,
       depth: input.review.depth,
       session_id: input.review.sessionId,
@@ -144,7 +155,7 @@ export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJson
   };
 }
 
-export function renderReviewJsonDocument(document: ReviewJsonDocumentV2): string {
+export function renderReviewJsonDocument(document: ReviewJsonDocumentV3): string {
   return `${JSON.stringify(document)}\n`;
 }
 
@@ -156,7 +167,7 @@ export function renderJsonErrorDocument(message: string): string {
   return `${JSON.stringify(document)}\n`;
 }
 
-export async function writeReviewJsonSuccess(document: ReviewJsonDocumentV2): Promise<void> {
+export async function writeReviewJsonSuccess(document: ReviewJsonDocumentV3): Promise<void> {
   await writeFully(process.stdout, renderReviewJsonDocument(document));
 }
 

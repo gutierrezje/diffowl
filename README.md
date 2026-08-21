@@ -9,9 +9,9 @@
 
 Review agent-written code with a second model before it ships.
 
-DiffOwl is a local code review CLI. It builds focused context from a Git diff, sends that context to a model through [OpenCode](https://opencode.ai/docs/server/), and records actionable findings in your repository.
+DiffOwl is a local code review CLI. It builds focused context from a Git diff, runs a model through OpenCode or Codex, and records actionable findings in your repository.
 
-It works with changes from any coding agent or human. You choose the model and provider through OpenCode. DiffOwl does not require an account, another API key, or a hosted DiffOwl service.
+It works with changes from any coding agent or human. You choose the backend and model on your machine. DiffOwl does not require a hosted DiffOwl account.
 
 ## Why DiffOwl
 
@@ -20,7 +20,7 @@ The agent that wrote a change should not be its only reviewer. Asking it to revi
 DiffOwl adds an independent pass between writing code and shipping it:
 
 - Review the last commit, staged changes, a specific commit, or a whole branch.
-- Use any model already connected to OpenCode, including local models.
+- Review through OpenCode or a local Codex CLI authenticated with ChatGPT.
 - Give the reviewer bounded local context instead of dumping the entire repository into a prompt.
 - Keep findings after the review ends, with stable IDs and lifecycle states.
 - Reopen the review session when a finding needs more investigation.
@@ -32,15 +32,15 @@ TypeScript reviews can include changed AST symbols, related tests, file excerpts
 
 1. DiffOwl reads the Git change you selected.
 2. It filters files and assembles relevant local context.
-3. A separate model reviews the change through a headless OpenCode session.
+3. A separate model reviews the change through your selected local backend.
 4. DiffOwl writes a Markdown report and persists findings in SQLite.
 5. You inspect the findings, continue the review chat, or hand them to a coding agent for resolution.
 
-The orchestration and state stay in your repository. Review context is sent to the provider you selected in OpenCode.
+The orchestration and state stay in your repository. Review context goes only to the backend and model you selected.
 
 ## Quick start
 
-You need Node.js 22.14.0 or newer and an authenticated [OpenCode](https://opencode.ai/) provider.
+You need Node.js 22.14.0 or newer. OpenCode is the default backend for existing installations.
 
 ```bash
 npm install --global opencode-ai
@@ -55,7 +55,15 @@ cd your-repository
 diffowl init
 ```
 
-`diffowl init` finds your available OpenCode models, lets you choose one, and writes `.diffowl.yml`. It then asks whether to add a short DiffOwl section to `AGENTS.md` (`diffowl review --base` and `diffowl findings`), whether to install the Claude Code session-start findings hook, and whether to install the post-commit hook.
+`diffowl init` reports the selected runtime and the gitignored preference path. With OpenCode selected, it lists the models from your connected providers. Use `diffowl backend codex` before initialization if you want Codex, then choose a bare Codex model ID. The committed `.diffowl.yml` contains review policy, never your backend or model choice.
+
+Codex reviews use an existing ChatGPT login from the local Codex CLI:
+
+```bash
+codex
+diffowl backend codex
+diffowl model gpt-5-codex
+```
 
 Review the last commit:
 
@@ -90,6 +98,9 @@ diffowl review --staged --depth shallow
 
 # Use a different model once
 diffowl review --staged --model openai/gpt-5.6-luna
+
+# Use Codex once without changing saved preferences
+diffowl review --staged --backend codex --model gpt-5-codex
 
 # Emit a versioned JSON document for scripts
 diffowl review --base --format json
@@ -166,7 +177,7 @@ diffowl agent-hook install --client claude
 
 ## Configuration
 
-Project review policy lives in `.diffowl.yml`. Model selection is personal and stays in the shared, gitignored `.diffowl/preferences.yml`.
+Project review policy lives in `.diffowl.yml`. Backend and model selection stay in the shared, gitignored `.diffowl/preferences.yml`. Linked worktrees use the same preference file.
 
 ```yaml
 context:
@@ -195,13 +206,20 @@ rules:
   - "Check authorization at every write boundary."
 ```
 
-Choose or change your model without editing project policy:
+Inspect or change the local backend and its model without editing project policy:
 
 ```bash
+diffowl backend
+diffowl backend opencode
+diffowl backend codex
+diffowl backend --reset
+
 diffowl model
 diffowl model provider/model
 diffowl model --reset
 ```
+
+Each backend keeps its own model choice. Switching backends does not erase the other model. A legacy preference containing only `model: provider/model` still selects OpenCode.
 
 Configuration is deep-merged with defaults, so the file only needs the settings your repository changes.
 
@@ -209,7 +227,7 @@ Configuration is deep-merged with defaults, so the file only needs the settings 
 
 ```text
 .diffowl.yml                                  # Committed project policy
-.diffowl/preferences.yml                      # Gitignored personal model choice
+.diffowl/preferences.yml                      # Gitignored backend and model choices
 .diffowl/state.db                             # Authoritative findings backlog
 .diffowl/reviews/review-<timestamp>.md        # Immutable review snapshot
 .diffowl/reviews/latest.md                    # Copy of the newest report
@@ -224,6 +242,7 @@ Linked Git worktrees share the durable backlog and review reports from the prima
 | -------------------- | ------------------------------------------- |
 | `diffowl init`       | Configure DiffOwl in the current repository |
 | `diffowl review`     | Run a review                                |
+| `diffowl backend`    | Inspect or change the local review backend  |
 | `diffowl model`      | View or change the selected model           |
 | `diffowl findings`   | Inspect and update durable findings         |
 | `diffowl chat`       | Reopen an OpenCode review session           |
@@ -236,6 +255,8 @@ Run `diffowl <command> --help` for every option.
 ## Troubleshooting
 
 - No models found: run `opencode`, connect or re-authenticate a provider, then rerun `diffowl init`.
+- Codex runtime missing: install the Codex CLI and make sure `codex` is on `PATH`.
+- Codex authentication missing: run `codex` and sign in with ChatGPT.
 - Review timed out: retry with `diffowl review --depth shallow`.
 - Hook review failed: run the retry command shown by the next foreground DiffOwl command, or inspect `.diffowl/hook.log`.
 - Agent did not load `diffowl-resolve`: verify it with `npx skills list`, then restart or reload the agent.

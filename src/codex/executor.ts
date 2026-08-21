@@ -65,7 +65,11 @@ export function createCodexReviewExecutor(options: CodexReviewExecutorOptions): 
       });
       const reviewTiming = createTiming("review-run", "Codex review run", reviewStart);
 
-      return { review: outcome.reviewResult, timings: [protocolTiming, reviewTiming] };
+      return {
+        review: outcome.reviewResult,
+        timings: [protocolTiming, reviewTiming],
+        effectiveModel: outcome.evidence.effectiveModel,
+      };
     },
   };
 }
