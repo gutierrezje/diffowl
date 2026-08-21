@@ -57,10 +57,7 @@ describe("effective config", () => {
     );
     await expect(
       loadEffectiveReviewConfig({}, { DIFFOWL_MODEL: "provider/environment" }),
-    ).resolves.toMatchObject({
-      config: { model: "provider/environment" },
-      selection: { source: { model: "environment" } },
-    });
+    ).rejects.toThrow("Failed to load");
     await writeFile(join(root, ".diffowl", "preferences.yml"), "model: provider/local\n", "utf8");
     await expect(loadEffectiveReviewConfig({ model: "invalid" }, {})).rejects.toThrow(
       "provider/model",

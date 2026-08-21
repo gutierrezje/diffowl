@@ -64,20 +64,7 @@ export async function loadEffectiveReviewConfig(
     });
   }
 
-  let preferences: ReviewPreferences;
-  try {
-    preferences = await loadReviewPreferences();
-  } catch (error) {
-    if (environmentModel === undefined || overrides.model !== undefined) throw error;
-    const requestedModel = parseBackendModel("opencode", environmentModel);
-    config.model = requestedModel;
-    return effectiveConfig(config, {
-      backend: "opencode",
-      requestedModel,
-      source: { backend: "default", model: "environment" },
-    });
-  }
-
+  const preferences = await loadReviewPreferences();
   const { backend, source: backendSource } = resolveReviewBackendPreference(
     preferences,
     directBackend,
