@@ -137,9 +137,9 @@ export class CodexReviewError extends Error {
 }
 
 export class CodexTeardownError extends CodexReviewError {
-  readonly close: AppServerCloseResult;
+  readonly close: AppServerCloseResult | null;
 
-  constructor(close: AppServerCloseResult) {
+  constructor(close: AppServerCloseResult | null) {
     super("teardown-failed", "Codex App Server did not close cleanly.");
     this.name = "CodexTeardownError";
     this.close = close;
@@ -628,8 +628,13 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     close = await timed("close", () => peer.close());
     events.push(`received:close:${close.kind}`);
   } catch (closeError) {
-    if (failure === undefined && cancelled === undefined) failure = closeError;
-    else attachErrorCause(failure ?? cancelled, closeError);
+    const teardown = new CodexTeardownError(null);
+    attachErrorCause(teardown, closeError);
+    if (failure === undefined && cancelled === undefined) failure = teardown;
+    else if (cancelled !== undefined && failure === undefined) {
+      attachErrorCause(closeError, cancelled);
+      failure = teardown;
+    } else attachErrorCause(failure ?? cancelled, teardown);
   }
   const closeFailure =
     close === undefined
@@ -993,12 +998,10 @@ function requestWithin(
   const cancel = (): void =>
     controller.abort(new ReviewCancelledError("Review cancelled by user."));
   signal?.addEventListener("abort", cancel, { once: true });
-  return peer
-    .request(method, params, { signal: controller.signal })
-    .finally(() => {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", cancel);
-    });
+  return peer.request(method, params, { signal: controller.signal }).finally(() => {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", cancel);
+  });
 }
 
 function withDeadline<T>(promise: Promise<T>, deadline: number, phase: string): Promise<T> {
@@ -1269,12 +1272,20 @@ class NotificationReader {
     void this.pump();
   }
 
-  next(deadline: number, signal?: AbortSignal): Promise<AppServerNotification | undefined> {
-    if (signal?.aborted) return Promise.reject(ABORT_SIGNAL);
+  async next(deadline: number, signal?: AbortSignal): Promise<AppServerNotification | undefined> {
     const queued = this.queue.shift();
-    if (queued !== undefined) return Promise.resolve(queued);
-    if (this.done)
-      return this.failure === undefined ? Promise.resolve(undefined) : Promise.reject(this.failure);
+    if (queued !== undefined) return queued;
+    if (signal?.aborted) {
+      // Let notifications already read from stdout cross the peer/reader queue boundary.
+      await Promise.resolve();
+      const queuedAfterAbort = this.queue.shift();
+      if (queuedAfterAbort !== undefined) return queuedAfterAbort;
+      throw ABORT_SIGNAL;
+    }
+    if (this.done) {
+      if (this.failure !== undefined) throw this.failure;
+      return undefined;
+    }
     return new Promise((resolve, reject) => {
       const remaining = deadline - performance.now();
       if (remaining <= 0) {

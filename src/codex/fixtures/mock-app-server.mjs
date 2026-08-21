@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline";
 import { realpathSync, rmSync, writeFileSync } from "node:fs";
+import { execa } from "execa";
 
 const mode = process.env.MOCK_APP_SERVER_MODE ?? "basic";
 if (
@@ -30,6 +31,7 @@ if (
     "turn-failed-mutates",
     "cancel-active-mutates",
     "cancel-active-hung",
+    "cancel-active-close-rejects",
     "timeout-thread",
     "cancel-before",
     "cancel-active",
@@ -51,6 +53,18 @@ process.stderr.write(`${process.env.MOCK_APP_SERVER_SECRET ?? ""}${"s".repeat(25
 if (["hung", "cancel-active-hung", "ignores-sigterm", "stdout-eof-hung"].includes(mode))
   setInterval(() => {}, 1_000);
 if (mode === "ignores-sigterm") process.on("SIGTERM", () => {});
+if (mode === "cancel-active-close-rejects") {
+  const descendant = execa(process.execPath, ["-e", "setInterval(() => {}, 1_000)"], {
+    detached: true,
+    reject: false,
+    stdin: "ignore",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  descendant.unref();
+  if (descendant.pid === undefined || process.env.MOCK_CLI_PID_FILE === undefined) process.exit(2);
+  writeFileSync(process.env.MOCK_CLI_PID_FILE, `${descendant.pid}\n`);
+}
 
 const requests = [];
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
@@ -118,6 +132,7 @@ const markerModes = [
   "turn-failed-mutates",
   "cancel-active-mutates",
   "cancel-active-hung",
+  "cancel-active-close-rejects",
   "timeout-thread",
   "cancel-before",
   "cancel-active",
@@ -313,6 +328,7 @@ function handleMarker(message) {
       "timeout-active-mutates-restores",
       "cancel-active-mutates",
       "cancel-active-hung",
+      "cancel-active-close-rejects",
       "spike-cancel-active",
     ].includes(mode) &&
     markerStep === 5 &&
@@ -398,6 +414,7 @@ function handleMarker(message) {
         "timeout-active-mutates-restores",
         "cancel-active-mutates",
         "cancel-active-hung",
+        "cancel-active-close-rejects",
         "spike-cancel-active",
       ].includes(mode)
     ) {
@@ -664,6 +681,7 @@ input.on("close", () => {
       "cancel-before",
       "cancel-active",
       "cancel-active-mutates",
+      "cancel-active-close-rejects",
       "timeout-active",
       "timeout-active-mutates-restores",
       "repository-unchanged",

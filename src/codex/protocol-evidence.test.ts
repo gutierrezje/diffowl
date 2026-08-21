@@ -52,6 +52,23 @@ describe("inspectCodexProtocol", () => {
     });
   });
 
+  it.each(["incompatible-shape", "incompatible-nesting"])(
+    "rejects token-preserving JSON that is not a compatible schema (%s)",
+    async (mode) => {
+      await expect(
+        inspectCodexProtocol({
+          executable: process.execPath,
+          prefixArgs: [fixture],
+          env: { MOCK_CLI_MODE: mode },
+          timeoutMs: 5_000,
+        }),
+      ).rejects.toMatchObject({
+        kind: "protocol-incompatible",
+        message: expect.stringContaining("TurnStartParams.json"),
+      });
+    },
+  );
+
   it("reports a missing executable", async () => {
     const executable = join(tmpdir(), `diffowl-missing-codex-${randomUUID()}`);
     await expect(inspectCodexProtocol({ executable, timeoutMs: 1_000 })).rejects.toMatchObject({

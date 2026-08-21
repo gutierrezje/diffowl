@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,7 @@ import { SchemaValidationError } from "../review/document.js";
 import {
   CodexRepositoryMutatedError,
   CodexReviewCancelledError,
+  CodexTeardownError,
   executeCodexReview,
   getCodexReviewFailureEvidence,
 } from "./review-runner.js";
@@ -86,6 +87,23 @@ describe("executeCodexReview", () => {
   it("accepts a completed agent message without a preceding delta", async () => {
     const outcome = await executeCodexReview(makeInput("completed-no-delta"));
     expect(outcome.reviewResult.report.summary).toBe("schema summary");
+  });
+
+  it("accepts queued completion when output progress triggers cancellation", async () => {
+    const controller = new AbortController();
+    const outcome = await executeCodexReview({
+      ...makeInput("completed-no-delta"),
+      signal: controller.signal,
+      onProgress: (event) => {
+        if (event.type === "output") controller.abort();
+      },
+    });
+
+    expect(outcome.reviewResult.report.summary).toBe("schema summary");
+    expect(outcome.evidence).toMatchObject({
+      terminalStatus: "completed",
+      interrupt: null,
+    });
   });
 
   it("reports file changes as a stable policy violation", async () => {
@@ -424,6 +442,45 @@ describe("executeCodexReview", () => {
     });
     await expect(promise).rejects.toMatchObject({ kind: "teardown-failed" });
   });
+
+  it.skipIf(process.platform === "win32")(
+    "preserves a rejected close as the primary cancellation failure",
+    async () => {
+      const directory = await mkdtemp(join(tmpdir(), "codex-review-close-rejection-"));
+      const pidFile = join(directory, "descendant.pid");
+      const controller = new AbortController();
+      const input = makeInput("cancel-active-close-rejects");
+      try {
+        const error = await executeCodexReview({
+          ...input,
+          env: { ...input.env, MOCK_CLI_PID_FILE: pidFile },
+          signal: controller.signal,
+          closeTimeoutMs: 60,
+          onProgress: (event) => {
+            if (event.type === "output") controller.abort();
+          },
+        }).catch((value: unknown) => value);
+
+        expect(error).toBeInstanceOf(CodexTeardownError);
+        expect(error).toMatchObject({
+          kind: "teardown-failed",
+          close: null,
+          cause: { kind: "process" },
+        });
+      } finally {
+        const rawPid = await readFile(pidFile, "utf8").catch(() => undefined);
+        const pid = rawPid === undefined ? Number.NaN : Number(rawPid.trim());
+        if (Number.isSafeInteger(pid) && pid > 0 && pid !== process.pid) {
+          try {
+            process.kill(pid, "SIGKILL");
+          } catch {
+            // The descendant may already have exited.
+          }
+        }
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 function makeInput(

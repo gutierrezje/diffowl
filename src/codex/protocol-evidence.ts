@@ -210,6 +210,112 @@ const REQUIRED_JSON_TOKENS: Readonly<Record<string, readonly string[]>> = {
   ],
 };
 
+type JsonSchemaType = "array" | "boolean" | "null" | "number" | "object" | "string";
+type JsonSchemaExpectation =
+  | { kind: "property"; path: readonly string[] }
+  | { kind: "property-enum"; path: readonly string[]; value: string }
+  | { kind: "property-type"; path: readonly string[]; type: JsonSchemaType };
+
+const REQUIRED_JSON_SCHEMA_EXPECTATIONS: Readonly<
+  Record<string, readonly JsonSchemaExpectation[]>
+> = {
+  "ClientNotification.json": [propertyEnum(["method"], "initialized")],
+  "ClientRequest.json": [
+    propertyEnum(["method"], "initialize"),
+    propertyEnum(["method"], "account/read"),
+    propertyEnum(["method"], "thread/start"),
+    propertyEnum(["method"], "turn/start"),
+    propertyEnum(["method"], "turn/interrupt"),
+  ],
+  "ServerNotification.json": [
+    propertyEnum(["method"], "item/completed"),
+    propertyEnum(["method"], "turn/completed"),
+    propertyEnum(["method"], "thread/tokenUsage/updated"),
+    propertyEnum(["method"], "item/agentMessage/delta"),
+    propertyEnum(["method"], "model/rerouted"),
+  ],
+  "v2/AgentMessageDeltaNotification.json": [
+    propertyType(["threadId"], "string"),
+    propertyType(["turnId"], "string"),
+    propertyType(["itemId"], "string"),
+    propertyType(["delta"], "string"),
+  ],
+  "v2/ItemCompletedNotification.json": [
+    propertyType(["threadId"], "string"),
+    propertyType(["turnId"], "string"),
+    propertyType(["item"], "object"),
+  ],
+  "v2/GetAccountParams.json": [propertyType(["refreshToken"], "boolean")],
+  "v2/GetAccountResponse.json": [
+    propertyType(["account"], "object"),
+    propertyType(["account"], "null"),
+    propertyType(["requiresOpenaiAuth"], "boolean"),
+  ],
+  "v2/ThreadStartParams.json": [
+    propertyType(["cwd"], "string"),
+    propertyType(["model"], "string"),
+    propertyEnum(["approvalPolicy"], "never"),
+    propertyEnum(["sandbox"], "read-only"),
+    propertyType(["ephemeral"], "boolean"),
+    propertyType(["developerInstructions"], "string"),
+  ],
+  "v2/ThreadStartResponse.json": [
+    propertyType(["thread"], "object"),
+    propertyType(["model"], "string"),
+    propertyType(["modelProvider"], "string"),
+    propertyType(["cwd"], "string"),
+    propertyEnum(["approvalPolicy"], "never"),
+    propertyEnum(["sandbox", "type"], "readOnly"),
+    propertyType(["sandbox", "networkAccess"], "boolean"),
+  ],
+  "v2/TurnStartParams.json": [
+    propertyType(["threadId"], "string"),
+    propertyType(["cwd"], "string"),
+    propertyType(["model"], "string"),
+    propertyEnum(["approvalPolicy"], "never"),
+    propertyType(["sandboxPolicy"], "object"),
+    propertyEnum(["sandboxPolicy", "type"], "readOnly"),
+    propertyType(["sandboxPolicy", "networkAccess"], "boolean"),
+    property(["outputSchema"]),
+  ],
+  "v2/TurnStartResponse.json": [
+    propertyType(["turn"], "object"),
+    propertyType(["turn", "id"], "string"),
+    propertyEnum(["turn", "status"], "inProgress"),
+  ],
+  "v2/TurnInterruptParams.json": [
+    propertyType(["threadId"], "string"),
+    propertyType(["turnId"], "string"),
+  ],
+  "v2/TurnCompletedNotification.json": [
+    propertyType(["threadId"], "string"),
+    propertyType(["turn"], "object"),
+    propertyType(["turn", "id"], "string"),
+    propertyEnum(["turn", "status"], "completed"),
+    propertyEnum(["turn", "status"], "interrupted"),
+    propertyEnum(["turn", "status"], "failed"),
+    propertyType(["turn", "error"], "object"),
+    propertyType(["turn", "error"], "null"),
+    propertyType(["turn", "items"], "array"),
+  ],
+  "v2/ThreadTokenUsageUpdatedNotification.json": [
+    propertyType(["threadId"], "string"),
+    propertyType(["turnId"], "string"),
+    propertyType(["tokenUsage"], "object"),
+    propertyType(["tokenUsage", "total", "inputTokens"], "number"),
+    propertyType(["tokenUsage", "total", "cachedInputTokens"], "number"),
+    propertyType(["tokenUsage", "total", "outputTokens"], "number"),
+    propertyType(["tokenUsage", "total", "reasoningOutputTokens"], "number"),
+  ],
+  "v2/ModelReroutedNotification.json": [
+    propertyType(["threadId"], "string"),
+    propertyType(["turnId"], "string"),
+    propertyType(["fromModel"], "string"),
+    propertyType(["toModel"], "string"),
+    propertyType(["reason"], "string"),
+  ],
+};
+
 export async function inspectCodexProtocol(
   options: ProtocolEvidenceOptions,
 ): Promise<CodexProtocolEvidence> {
@@ -417,6 +523,9 @@ async function inspectTree(
           );
       }
     }
+    if (extension === ".json") {
+      validateGeneratedJsonSchema(path, bytes, REQUIRED_JSON_SCHEMA_EXPECTATIONS[path] ?? []);
+    }
     const pathBytes = Buffer.from(path);
     hash.update(`${pathBytes.byteLength}:`);
     hash.update(pathBytes);
@@ -424,6 +533,158 @@ async function inspectTree(
     hash.update(bytes);
   }
   return { sha256: hash.digest("hex"), fileCount: files.length };
+}
+
+function validateGeneratedJsonSchema(
+  path: string,
+  bytes: Buffer,
+  expectations: readonly JsonSchemaExpectation[],
+): void {
+  let document: unknown;
+  try {
+    document = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    throw incompatibleJsonSchema(path, "is not valid JSON");
+  }
+  if (!isRecord(document)) throw incompatibleJsonSchema(path, "must be an object");
+  for (const expectation of expectations) {
+    switch (expectation.kind) {
+      case "property":
+        if (schemasAtPropertyPath(document, expectation.path).length === 0) {
+          throw incompatibleJsonSchema(path, `is missing property ${expectation.path.join(".")}`);
+        }
+        break;
+      case "property-enum": {
+        const schemas = schemasAtPropertyPath(document, expectation.path);
+        if (!schemas.some((schema) => schemaAllowsEnum(document, schema, expectation.value))) {
+          throw incompatibleJsonSchema(
+            path,
+            `property ${expectation.path.join(".")} does not allow ${expectation.value}`,
+          );
+        }
+        break;
+      }
+      case "property-type": {
+        const schemas = schemasAtPropertyPath(document, expectation.path);
+        if (!schemas.some((schema) => schemaAllowsType(document, schema, expectation.type))) {
+          throw incompatibleJsonSchema(
+            path,
+            `property ${expectation.path.join(".")} does not allow type ${expectation.type}`,
+          );
+        }
+        break;
+      }
+      default: {
+        const _exhaustive: never = expectation;
+        throw new Error(`Unexpected JSON schema expectation: ${String(_exhaustive)}`);
+      }
+    }
+  }
+}
+
+function schemasAtPropertyPath(
+  document: Record<string, unknown>,
+  path: readonly string[],
+): Record<string, unknown>[] {
+  let schemas = [document];
+  for (const propertyName of path) {
+    const next: Record<string, unknown>[] = [];
+    for (const schema of schemas) {
+      for (const candidate of expandSchema(document, schema)) {
+        const properties = candidate["properties"];
+        if (!isRecord(properties)) continue;
+        const propertySchema = properties[propertyName];
+        if (isRecord(propertySchema)) next.push(propertySchema);
+      }
+    }
+    schemas = next;
+  }
+  return schemas;
+}
+
+function schemaAllowsType(
+  document: Record<string, unknown>,
+  schema: Record<string, unknown>,
+  expected: JsonSchemaType,
+): boolean {
+  return expandSchema(document, schema).some((candidate) => {
+    const type = candidate["type"];
+    if (type === expected) return true;
+    if (expected === "number" && type === "integer") return true;
+    if (!Array.isArray(type)) return false;
+    return type.some(
+      (value) => value === expected || (expected === "number" && value === "integer"),
+    );
+  });
+}
+
+function schemaAllowsEnum(
+  document: Record<string, unknown>,
+  schema: Record<string, unknown>,
+  expected: string,
+): boolean {
+  return expandSchema(document, schema).some((candidate) => {
+    const values = candidate["enum"];
+    return Array.isArray(values) && values.includes(expected);
+  });
+}
+
+function expandSchema(
+  document: Record<string, unknown>,
+  schema: Record<string, unknown>,
+  visitedReferences = new Set<string>(),
+): Record<string, unknown>[] {
+  const schemas = [schema];
+  const reference = schema["$ref"];
+  if (typeof reference === "string" && !visitedReferences.has(reference)) {
+    const referenced = resolveLocalReference(document, reference);
+    if (referenced !== undefined) {
+      const nextVisited = new Set(visitedReferences);
+      nextVisited.add(reference);
+      schemas.push(...expandSchema(document, referenced, nextVisited));
+    }
+  }
+  for (const keyword of ["allOf", "anyOf", "oneOf"]) {
+    const variants = schema[keyword];
+    if (!Array.isArray(variants)) continue;
+    for (const variant of variants) {
+      if (isRecord(variant)) schemas.push(...expandSchema(document, variant, visitedReferences));
+    }
+  }
+  return schemas;
+}
+
+function resolveLocalReference(
+  document: Record<string, unknown>,
+  reference: string,
+): Record<string, unknown> | undefined {
+  if (!reference.startsWith("#/")) return undefined;
+  let current: unknown = document;
+  for (const rawPart of reference.slice(2).split("/")) {
+    if (!isRecord(current)) return undefined;
+    const part = rawPart.replaceAll("~1", "/").replaceAll("~0", "~");
+    current = current[part];
+  }
+  return isRecord(current) ? current : undefined;
+}
+
+function incompatibleJsonSchema(path: string, detail: string): ProtocolEvidenceError {
+  return new ProtocolEvidenceError(
+    "protocol-incompatible",
+    `Generated .json path ${path} ${detail}.`,
+  );
+}
+
+function property(path: readonly string[]): JsonSchemaExpectation {
+  return { kind: "property", path };
+}
+
+function propertyEnum(path: readonly string[], value: string): JsonSchemaExpectation {
+  return { kind: "property-enum", path, value };
+}
+
+function propertyType(path: readonly string[], type: JsonSchemaType): JsonSchemaExpectation {
+  return { kind: "property-type", path, type };
 }
 
 function throwIfCancelled(signal: AbortSignal | undefined, phase: string): void {
