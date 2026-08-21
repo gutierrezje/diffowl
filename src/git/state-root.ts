@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { realpath } from "node:fs/promises";
+import { lstat, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { execa } from "execa";
 import { getProjectRoot } from "../config.js";
@@ -23,8 +23,15 @@ export async function getSharedDiffOwlDir(): Promise<string> {
 }
 
 async function resolveSharedDiffOwlDir(): Promise<string> {
-  const projectRoot = await realpath(getProjectRoot());
-  const localDir = join(projectRoot, ".diffowl");
+  const discoveredProjectRoot = getProjectRoot();
+  const localDir = join(discoveredProjectRoot, ".diffowl");
+  let projectRoot: string;
+  try {
+    projectRoot = await realpath(discoveredProjectRoot);
+  } catch (error) {
+    if (isMissingPathError(error)) return localDir;
+    throw error;
+  }
   let insideWorkTree: string;
   try {
     ({ stdout: insideWorkTree } = await execa("git", ["rev-parse", "--is-inside-work-tree"], {
@@ -54,8 +61,14 @@ async function resolveSharedDiffOwlDir(): Promise<string> {
     throw error;
   }
 
-  const toplevel = await realpath(resolveGitPath(projectRoot, toplevelRaw));
-  const commonDir = await realpath(resolveGitPath(projectRoot, commonRaw));
+  let toplevel: string;
+  try {
+    toplevel = await realpath(resolveGitPath(projectRoot, toplevelRaw));
+  } catch (error) {
+    if (isMissingPathError(error)) return localDir;
+    throw error;
+  }
+  const commonDir = resolveGitPath(projectRoot, commonRaw);
   const rel = relative(toplevel, projectRoot);
   if (rel.startsWith("..")) {
     return localDir;
@@ -64,7 +77,7 @@ async function resolveSharedDiffOwlDir(): Promise<string> {
   let sharedDiffOwlDir: string;
   // Standard worktrees report the primary checkout's `.git`; bare repos and
   // separate git-dir layouts need an extra namespace under the common dir.
-  if (basename(commonDir) !== ".git") {
+  if (basename(commonDir) !== ".git" && !(await hasStandardGitEntry(toplevel))) {
     sharedDiffOwlDir = join(commonDir, "diffowl", rel, ".diffowl");
   } else {
     sharedDiffOwlDir = join(dirname(commonDir), rel, ".diffowl");
@@ -115,6 +128,20 @@ async function gitRevParse(projectRoot: string, args: string[]): Promise<{ stdou
 function resolveGitPath(projectRoot: string, raw: string): string {
   const trimmed = raw.trim();
   return isAbsolute(trimmed) ? trimmed : resolve(projectRoot, trimmed);
+}
+
+function isMissingPathError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+async function hasStandardGitEntry(toplevel: string): Promise<boolean> {
+  try {
+    const entry = await lstat(join(toplevel, ".git"));
+    return entry.isDirectory() || entry.isSymbolicLink();
+  } catch (error) {
+    if (isMissingPathError(error)) return false;
+    throw error;
+  }
 }
 
 /** Exported for tests: only ENOENT / git exit 128 are soft-fallback cases. */

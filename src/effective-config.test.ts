@@ -4,10 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { resetSharedDiffOwlDirForTests } from "./git/state-root.js";
 import { loadEffectiveReviewConfig } from "./effective-config.js";
-import {
-  saveReviewBackendModel,
-  saveReviewBackendPreference,
-} from "./review-preference.js";
+import { saveReviewBackendModel, saveReviewBackendPreference } from "./review-preference.js";
 
 const originalCwd = process.cwd();
 const tempDirs: string[] = [];
@@ -64,11 +61,7 @@ describe("effective config", () => {
       config: { model: "provider/environment" },
       selection: { source: { model: "environment" } },
     });
-    await writeFile(
-      join(root, ".diffowl", "preferences.yml"),
-      "model: provider/local\n",
-      "utf8",
-    );
+    await writeFile(join(root, ".diffowl", "preferences.yml"), "model: provider/local\n", "utf8");
     await expect(loadEffectiveReviewConfig({ model: "invalid" }, {})).rejects.toThrow(
       "provider/model",
     );
@@ -110,6 +103,16 @@ describe("effective config", () => {
         backend: "opencode",
         requestedModel: "provider/local",
         source: { backend: "command", model: "local" },
+      },
+    });
+    await expect(
+      loadEffectiveReviewConfig({}, { DIFFOWL_MODEL: "gpt-5.4-mini" }),
+    ).resolves.toMatchObject({
+      config: { model: "gpt-5.4-mini" },
+      selection: {
+        backend: "codex",
+        requestedModel: "gpt-5.4-mini",
+        source: { backend: "local", model: "environment" },
       },
     });
   });

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { execa } from "execa";
@@ -92,6 +92,18 @@ describe("getSharedDiffOwlDir", () => {
 
     await expect(getSharedDiffOwlDir()).resolves.toBe(join(commonDir, "diffowl", ".diffowl"));
   });
+
+  it.skipIf(process.platform === "win32")(
+    "keeps standard state placement when .git is a directory symlink",
+    async () => {
+      const repo = await createGitProject();
+      await rename(join(repo, ".git"), join(repo, ".git-storage"));
+      await symlink(".git-storage", join(repo, ".git"), "dir");
+      process.chdir(repo);
+
+      await expect(getSharedDiffOwlDir()).resolves.toBe(join(repo, ".diffowl"));
+    },
+  );
 
   it("resolves a relative common dir against the project root", async () => {
     const repo = await createGitProject("packages/api");

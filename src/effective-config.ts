@@ -50,25 +50,47 @@ export async function loadEffectiveReviewConfig(
       source: { backend: "command", model: "command" },
     });
   }
+  if (
+    directBackend !== undefined &&
+    environmentModel !== undefined &&
+    overrides.model === undefined
+  ) {
+    const requestedModel = parseBackendModel(directBackend, environmentModel);
+    config.model = requestedModel;
+    return effectiveConfig(config, {
+      backend: directBackend,
+      requestedModel,
+      source: { backend: "command", model: "environment" },
+    });
+  }
+
+  let preferences: ReviewPreferences;
+  try {
+    preferences = await loadReviewPreferences();
+  } catch (error) {
+    if (environmentModel === undefined || overrides.model !== undefined) throw error;
+    const requestedModel = parseBackendModel("opencode", environmentModel);
+    config.model = requestedModel;
+    return effectiveConfig(config, {
+      backend: "opencode",
+      requestedModel,
+      source: { backend: "default", model: "environment" },
+    });
+  }
+
+  const { backend, source: backendSource } = resolveReviewBackendPreference(
+    preferences,
+    directBackend,
+  );
   if (environmentModel !== undefined && overrides.model === undefined) {
-    const backend = directBackend ?? "opencode";
     const requestedModel = parseBackendModel(backend, environmentModel);
     config.model = requestedModel;
     return effectiveConfig(config, {
       backend,
       requestedModel,
-      source: {
-        backend: directBackend === undefined ? "default" : "command",
-        model: "environment",
-      },
+      source: { backend: backendSource, model: "environment" },
     });
   }
-
-  const preferences = await loadReviewPreferences();
-  const { backend, source: backendSource } = resolveReviewBackendPreference(
-    preferences,
-    directBackend,
-  );
   const modelCandidate =
     overrides.model === undefined
       ? savedModel(preferences, backend)
