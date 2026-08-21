@@ -268,7 +268,9 @@ describe("parseStructuredReview", () => {
     } catch (err) {
       expect(err).toBeInstanceOf(SchemaValidationError);
       const locators = (err as SchemaValidationError).issues.map((issue) => issue.locator);
-      expect(locators).toEqual(expect.arrayContaining(["findings[3].file", "findings[4].file", "findings[5].file"]));
+      expect(locators).toEqual(
+        expect.arrayContaining(["findings[3].file", "findings[4].file", "findings[5].file"]),
+      );
       expect(locators.some((locator) => locator.startsWith("findings[0]"))).toBe(false);
     }
   });
@@ -352,6 +354,18 @@ describe("inspectNativeReviewText", () => {
         JSON.stringify({ summary: "Review.", findings: [], diagnostics: [] }),
       ),
     ).toMatchObject({ kind: "invalid" });
+    expect(
+      inspectNativeReviewText(
+        JSON.stringify({
+          summary: "Review.",
+          findings: [{ ...findingWithoutEvidence, evidence: null, extra: 1 }],
+        }),
+      ),
+    ).toMatchObject({ kind: "invalid" });
+    expect(inspectNativeReviewText("not json")).toMatchObject({
+      kind: "invalid",
+      issues: [{ locator: "json" }],
+    });
   });
 
   it("keeps marker validation backward compatible", () => {

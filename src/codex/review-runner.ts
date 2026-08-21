@@ -7,7 +7,6 @@ import {
   decideReviewAttempt,
   inspectNativeReviewText,
   REVIEW_DOCUMENT_OUTPUT_SCHEMA,
-  SCHEMA_VALIDATION_MAX_ATTEMPTS,
   type SchemaIssue,
 } from "../review/document.js";
 import type { ReviewUsage } from "../review/usage.js";
@@ -363,11 +362,13 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
   const checkRepositoryAfterTurn = async (primary?: unknown): Promise<void> => {
     if (repositoryBefore === undefined) return;
     try {
+      const now = performance.now();
+      const repositoryDeadline = deadline > now ? deadline : now + input.closeTimeoutMs;
       repositoryAfter = await withDeadline(
         captureRepositoryState(directory, {
           includeIgnoredPaths: input.includeIgnoredRepositoryPaths,
         }),
-        deadline,
+        repositoryDeadline,
         "repository-after-turn",
       );
       const comparison = compareRepositoryStates(repositoryBefore, repositoryAfter);
@@ -566,8 +567,6 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
             break;
           case "retry":
             validationAttempts.push({ turnId, outcome: "retry", issues: decision.issues });
-            if (turnIds.length >= SCHEMA_VALIDATION_MAX_ATTEMPTS)
-              throw new Error("Unexpected schema retry beyond the attempt limit.");
             prompt = decision.userMessage;
             continue;
           case "fail":
@@ -936,11 +935,7 @@ async function interruptTurn(
   let acknowledgementReceived = false;
   let acknowledgementDurationMs: number | undefined;
   const response = asRecord(
-    await withDeadline(
-      peer.request("turn/interrupt", { threadId, turnId }),
-      deadline,
-      "turn/interrupt",
-    ),
+    await requestWithin(peer, "turn/interrupt", { threadId, turnId }, deadline, "turn/interrupt"),
     "turn/interrupt",
   );
   if (Object.keys(response).length !== 0) throw protocolError("turn/interrupt response");
@@ -971,7 +966,13 @@ function requestWithin(
   deadline: number,
   phase: string,
 ): Promise<unknown> {
-  return withDeadline(peer.request(method, params), deadline, phase);
+  const remaining = deadline - performance.now();
+  if (remaining <= 0) return Promise.reject(new CodexTimeoutError(phase));
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new CodexTimeoutError(phase)), remaining);
+  return peer
+    .request(method, params, { signal: controller.signal })
+    .finally(() => clearTimeout(timer));
 }
 
 function withDeadline<T>(promise: Promise<T>, deadline: number, phase: string): Promise<T> {

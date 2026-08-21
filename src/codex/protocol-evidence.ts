@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, extname, isAbsolute, join, relative } from "node:path";
 import { execa } from "execa";
@@ -242,13 +243,7 @@ export async function inspectCodexProtocol(
       deadline,
       "generate-json-schema",
     );
-    const types = await inspectTree(
-      typesRoot,
-      ".ts",
-      REQUIRED_TS_TOKENS,
-      deadline,
-      options.signal,
-    );
+    const types = await inspectTree(typesRoot, ".ts", REQUIRED_TS_TOKENS, deadline, options.signal);
     const jsonSchema = await inspectTree(
       jsonRoot,
       ".json",
@@ -365,10 +360,15 @@ async function isFile(
   signal?: AbortSignal,
 ): Promise<boolean> {
   try {
-    return (await withDeadline(stat(candidate), deadline, phase, signal)).isFile();
+    if (!(await withDeadline(stat(candidate), deadline, phase, signal)).isFile()) return false;
+    if (process.platform !== "win32") {
+      await withDeadline(access(candidate, constants.X_OK), deadline, phase, signal);
+    }
+    return true;
   } catch (error) {
-    if (error instanceof ProtocolTimeoutError || error instanceof ProtocolCancelledError) throw error;
-    return !isMissingPathError(error);
+    if (error instanceof ProtocolTimeoutError || error instanceof ProtocolCancelledError)
+      throw error;
+    return false;
   }
 }
 
@@ -390,7 +390,7 @@ async function inspectTree(
 ): Promise<{ sha256: string; fileCount: number }> {
   throwIfCancelled(signal, `inspect-${extension}`);
   const expected = Object.keys(requiredTokens).sort();
-  const files = (await listFiles(root, signal, `list-${extension}`)).sort();
+  const files = (await listFiles(root, deadline, signal, `list-${extension}`)).sort();
   const missing = expected.find((path) => !files.includes(path));
   if (missing !== undefined)
     throw new ProtocolEvidenceError(
@@ -432,18 +432,24 @@ function throwIfCancelled(signal: AbortSignal | undefined, phase: string): void 
 
 async function listFiles(
   root: string,
+  deadline: number,
   signal: AbortSignal | undefined,
   phase: string,
 ): Promise<string[]> {
   throwIfCancelled(signal, phase);
   const result: string[] = [];
-  const entries = await readdir(root, { withFileTypes: true });
+  const entries = await withDeadline(
+    readdir(root, { withFileTypes: true }),
+    deadline,
+    phase,
+    signal,
+  );
   throwIfCancelled(signal, phase);
   for (const entry of entries) {
     throwIfCancelled(signal, phase);
     const path = join(root, entry.name);
     if (entry.isDirectory()) {
-      for (const child of await listFiles(path, signal, phase)) {
+      for (const child of await listFiles(path, deadline, signal, phase)) {
         result.push(join(entry.name, child));
       }
     } else if (entry.isFile()) {
@@ -472,7 +478,10 @@ async function withDeadline<T>(
       callback();
     };
     const onAbort = (): void => finish(() => reject(new ProtocolCancelledError(phase)));
-    const timer = setTimeout(() => finish(() => reject(new ProtocolTimeoutError(phase))), remaining);
+    const timer = setTimeout(
+      () => finish(() => reject(new ProtocolTimeoutError(phase))),
+      remaining,
+    );
     signal?.addEventListener("abort", onAbort, { once: true });
     if (signal?.aborted) onAbort();
     promise.then(
@@ -504,9 +513,4 @@ function isMissingExecutableError(error: unknown): boolean {
     current = current["cause"];
   }
   return false;
-}
-
-function isMissingPathError(error: unknown): boolean {
-  if (!isRecord(error)) return false;
-  return error["code"] === "ENOENT" || error["code"] === "ENOTDIR";
 }

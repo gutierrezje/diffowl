@@ -1,7 +1,7 @@
 import type { ReviewExecutor, ReviewTiming } from "../review/types.js";
 import { ReviewCancelledError } from "../review/errors.js";
 import { inspectCodexProtocol, ProtocolCancelledError } from "./protocol-evidence.js";
-import { executeCodexReview } from "./review-runner.js";
+import { CodexTimeoutError, executeCodexReview } from "./review-runner.js";
 
 export type CodexCommandOptions = {
   executable: string;
@@ -31,7 +31,10 @@ export function createCodexReviewExecutor(options: CodexReviewExecutorOptions): 
             ? {}
             : { prefixArgs: options.command.prefixArgs }),
           ...(options.command.env === undefined ? {} : { env: options.command.env }),
-          timeoutMs: Math.min(options.protocolTimeoutMs, remainingTimeout(deadline)),
+          timeoutMs: Math.min(
+            options.protocolTimeoutMs,
+            remainingTimeout(deadline, "protocol-check"),
+          ),
           ...(input.review.signal === undefined ? {} : { signal: input.review.signal }),
         });
       } catch (error) {
@@ -48,13 +51,14 @@ export function createCodexReviewExecutor(options: CodexReviewExecutorOptions): 
 
       input.onStatus?.("Reviewing changes with Codex...");
       const reviewStart = performance.now();
+      const reviewTimeoutMs = remainingTimeout(deadline, "review-startup");
       const outcome = await executeCodexReview({
         ...input.review,
         executable: options.command.executable,
         args: [...(options.command.prefixArgs ?? []), "app-server", "--stdio"],
         ...(options.command.env === undefined ? {} : { env: options.command.env }),
         model: options.model,
-        timeoutMs: remainingTimeout(deadline),
+        timeoutMs: reviewTimeoutMs,
         interruptTimeoutMs: options.interruptTimeoutMs,
         closeTimeoutMs: options.closeTimeoutMs,
         includeIgnoredRepositoryPaths: options.includeIgnoredRepositoryPaths ?? false,
@@ -66,8 +70,10 @@ export function createCodexReviewExecutor(options: CodexReviewExecutorOptions): 
   };
 }
 
-function remainingTimeout(deadline: number): number {
-  return Math.max(1, deadline - performance.now());
+function remainingTimeout(deadline: number, phase: string): number {
+  const remaining = deadline - performance.now();
+  if (remaining <= 0) throw new CodexTimeoutError(phase);
+  return remaining;
 }
 
 function createTiming(phase: string, label: string, start: number): ReviewTiming {

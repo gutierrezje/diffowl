@@ -30,15 +30,20 @@ export async function captureRepositoryState(
   options: RepositoryStateOptions = {},
 ): Promise<RepositoryState> {
   const statusArgs = ["status", "--porcelain=v1", "-z", "--untracked-files=all"];
-  if (options.includeIgnoredPaths === true) statusArgs.push("--ignored=matching");
-  const [statusOutput, stagedDiff, unstagedDiff, headResult] = await Promise.all([
+  const [statusOutput, ignoredOutput, stagedDiff, unstagedDiff, headResult] = await Promise.all([
     runGit(directory, statusArgs),
+    options.includeIgnoredPaths === true
+      ? runGit(directory, ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"])
+      : Promise.resolve(""),
     runGit(directory, ["diff", "--binary", "--no-ext-diff", "--no-color", "--"]),
     runGit(directory, ["diff", "--cached", "--binary", "--no-ext-diff", "--no-color", "--"]),
     execa("git", ["rev-parse", "HEAD"], { cwd: directory, reject: false }),
   ]);
   const headSha = headResult.exitCode === 0 ? headResult.stdout.trim() : "<NO_HEAD>";
   const statuses = parseStatus(statusOutput);
+  for (const path of ignoredOutput.split("\0")) {
+    if (path !== "") statuses.set(path, "!!");
+  }
   const paths = [...statuses.keys()].sort();
   const entries = await Promise.all(
     paths.map(async (path): Promise<RepositoryStateEntry> => {

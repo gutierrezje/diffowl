@@ -58,6 +58,7 @@ describe("resolveReviewPrompts", () => {
 
     expect(prompts.system).toBe(REVIEW_AGENT_NATIVE_JSON_PROMPT);
     expect(prompts.system).toContain("supplied output schema");
+    expect(prompts.system).toContain('"evidence": null');
     expect(prompts.system).toContain("Required review passes");
     expect(prompts.system).not.toContain("FINAL_REVIEW_JSON");
   });

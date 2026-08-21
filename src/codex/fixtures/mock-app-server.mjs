@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline";
-import { realpathSync, writeFileSync } from "node:fs";
+import { realpathSync, rmSync, writeFileSync } from "node:fs";
 
 const mode = process.env.MOCK_APP_SERVER_MODE ?? "basic";
 if (
@@ -34,6 +34,7 @@ if (
     "cancel-before",
     "cancel-active",
     "timeout-active",
+    "timeout-active-mutates-restores",
     "repository-unchanged",
     "repository-mutates",
     "teardown-mutates",
@@ -46,8 +47,10 @@ if (
   process.stderr.write("unexpected api key environment\n");
   process.exit(2);
 }
-process.stderr.write("s".repeat(256));
-if (["hung", "cancel-active-hung"].includes(mode)) setInterval(() => {}, 1_000);
+process.stderr.write(`${process.env.MOCK_APP_SERVER_SECRET ?? ""}${"s".repeat(256)}`);
+if (["hung", "cancel-active-hung", "ignores-sigterm", "stdout-eof-hung"].includes(mode))
+  setInterval(() => {}, 1_000);
+if (mode === "ignores-sigterm") process.on("SIGTERM", () => {});
 
 const requests = [];
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
@@ -119,6 +122,7 @@ const markerModes = [
   "cancel-before",
   "cancel-active",
   "timeout-active",
+  "timeout-active-mutates-restores",
   "repository-unchanged",
   "repository-mutates",
   "teardown-mutates",
@@ -306,6 +310,7 @@ function handleMarker(message) {
     [
       "cancel-active",
       "timeout-active",
+      "timeout-active-mutates-restores",
       "cancel-active-mutates",
       "cancel-active-hung",
       "spike-cancel-active",
@@ -390,12 +395,13 @@ function handleMarker(message) {
       [
         "cancel-active",
         "timeout-active",
+        "timeout-active-mutates-restores",
         "cancel-active-mutates",
         "cancel-active-hung",
         "spike-cancel-active",
       ].includes(mode)
     ) {
-      if (mode === "cancel-active-mutates")
+      if (["cancel-active-mutates", "timeout-active-mutates-restores"].includes(mode))
         writeFileSync("codex-mutated.txt", "provider mutation\n");
       send({
         method: "item/agentMessage/delta",
@@ -587,11 +593,15 @@ input.on("line", (line) => {
     setImmediate(() => process.exit(0));
     return;
   }
+  if (mode === "stdout-eof-hung" && typeof message.id === "number") {
+    process.stdout.end();
+    return;
+  }
   if (mode === "server-request" && typeof message.id === "number") {
     send({ id: "server-request-1", method: "server.ask", params: { question: "?" } });
     return;
   }
-  if (mode === "immediate" && typeof message.id === "number") {
+  if (["immediate", "ignores-sigterm"].includes(mode) && typeof message.id === "number") {
     send({ id: message.id, result: { request: message.method } });
     return;
   }
@@ -618,6 +628,7 @@ input.on("line", (line) => {
 });
 
 input.on("close", () => {
+  if (mode === "timeout-active-mutates-restores") rmSync("codex-mutated.txt", { force: true });
   if (mode === "teardown-mutates")
     writeFileSync("codex-mutated-on-close.txt", "teardown mutation\n");
   if (
@@ -654,6 +665,7 @@ input.on("close", () => {
       "cancel-active",
       "cancel-active-mutates",
       "timeout-active",
+      "timeout-active-mutates-restores",
       "repository-unchanged",
       "repository-mutates",
       "teardown-mutates",

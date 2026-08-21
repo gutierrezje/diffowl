@@ -36,7 +36,7 @@ const REVIEW_AGENT_MARKER_CONTRACT = `You MAY think step-by-step internally, but
 5. If a follow-up user message lists schema-validation errors, emit a complete replacement document: a ${REVIEW_JSON_MARKER} line, then one JSON object. Do not patch the previous object. Do not wrap it in markdown.`;
 
 const REVIEW_AGENT_NATIVE_JSON_CONTRACT =
-  "You MAY think step-by-step internally, but your VISIBLE output must be JSON-only: exactly one JSON object matching the supplied output schema. Do not include markdown fences or commentary.";
+  'You MAY think step-by-step internally, but your VISIBLE output must be JSON-only: exactly one JSON object matching the supplied output schema. Include every schema field on every finding and set "evidence": null when you cannot quote exact code lines. Do not include markdown fences or commentary.';
 
 const REVIEW_AGENT_GUIDANCE = `Semantics and constraints:
 - "severity":

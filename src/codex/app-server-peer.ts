@@ -1,4 +1,4 @@
-import { statSync } from "node:fs";
+import { accessSync, constants, statSync } from "node:fs";
 import { delimiter, extname, isAbsolute, join, resolve } from "node:path";
 import { execa } from "execa";
 import { createInterface } from "node:readline";
@@ -82,7 +82,7 @@ export type AppServerCloseResult = {
 
 export type AppServerPeer = {
   readonly pid: number | undefined;
-  request(method: string, params?: unknown): Promise<unknown>;
+  request(method: string, params?: unknown, options?: { signal?: AbortSignal }): Promise<unknown>;
   notify(method: string, params?: unknown): void;
   nextNotification(): Promise<AppServerNotification | undefined>;
   getStderr(): string;
@@ -120,10 +120,7 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
 
   const child = execa(executable, [...(options.args ?? [])], {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-    ...(options.env === undefined
-      ? {}
-      : { env: options.extendEnv === false ? options.env : { ...process.env, ...options.env } }),
-    ...(options.extendEnv === undefined ? {} : { extendEnv: options.extendEnv }),
+    ...(options.env === undefined ? {} : { env: childEnv, extendEnv: false }),
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
@@ -132,6 +129,7 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
     reject: false,
   });
   const pending = new Map<AppServerRequestId, Pending>();
+  const ignoredResponseIds = new Set<AppServerRequestId>();
   const notificationQueue: AppServerNotification[] = [];
   const notificationWaiters: NotificationWaiter[] = [];
   const exitWaiters: Array<(exit: Exit) => void> = [];
@@ -155,8 +153,7 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
     terminalError = error;
     rejectAll(error);
     if (terminate && exit === undefined && !closing) {
-      termination = "sigterm";
-      child.kill("SIGTERM");
+      if (child.kill("SIGTERM")) termination = "sigterm";
     }
   };
   const closedError = (): AppServerPeerError =>
@@ -220,6 +217,7 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
     }
     const request = pending.get(message.id);
     if (request === undefined) {
+      if (ignoredResponseIds.delete(message.id)) return;
       fail(
         new AppServerPeerError("malformed-envelope", "App Server response id is unknown.", {
           id: message.id,
@@ -288,7 +286,13 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
           );
         }
       }
-      if (!closing) stdoutEndedBeforeClose = true;
+      if (!closing) {
+        stdoutEndedBeforeClose = true;
+        fail(
+          new AppServerPeerError("premature-eof", "App Server stdout ended before close."),
+          false,
+        );
+      }
     } catch {
       fail(new AppServerPeerError("process", "App Server stdout could not be read."));
     }
@@ -344,7 +348,7 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
     }
     if (finalExit === undefined) {
       if (child.kill("SIGKILL")) termination = "sigkill";
-      finalExit = await waitStage();
+      finalExit = await waitForExit(Math.max(10, closeTimeoutMs / 3));
     }
     if (finalExit === undefined)
       throw new AppServerPeerError("process", "App Server did not exit after SIGKILL.");
@@ -353,15 +357,35 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
   };
   return {
     pid: child.pid,
-    request(method, params) {
+    request(method, params, requestOptions) {
       const id = nextId++;
       return new Promise((resolve, reject) => {
-        pending.set(id, { method, resolve, reject });
+        const signal = requestOptions?.signal;
+        const cleanup = (): void => signal?.removeEventListener("abort", onAbort);
+        const settleResolve = (value: unknown): void => {
+          cleanup();
+          resolve(value);
+        };
+        const settleReject = (reason: unknown): void => {
+          cleanup();
+          reject(reason);
+        };
+        const onAbort = (): void => {
+          pending.delete(id);
+          ignoredResponseIds.add(id);
+          settleReject(signal?.reason ?? new Error("App Server request aborted."));
+        };
+        pending.set(id, { method, resolve: settleResolve, reject: settleReject });
+        if (signal?.aborted) {
+          onAbort();
+          return;
+        }
+        signal?.addEventListener("abort", onAbort, { once: true });
         try {
           write({ id, method, ...(params === undefined ? {} : { params }) });
         } catch (error) {
           pending.delete(id);
-          reject(error);
+          settleReject(error);
           fail(
             error instanceof AppServerPeerError
               ? error
@@ -474,9 +498,11 @@ function resolveCandidate(candidate: string, cwd: string): string {
 
 function isExistingFile(candidate: string): boolean {
   try {
-    return statSync(candidate).isFile();
-  } catch (error) {
-    return !isMissingPathError(error);
+    if (!statSync(candidate).isFile()) return false;
+    if (process.platform !== "win32") accessSync(candidate, constants.X_OK);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -491,11 +517,6 @@ function environmentValue(env: NodeJS.ProcessEnv, key: string): string | undefin
     }
   }
   return found ? value : undefined;
-}
-
-function isMissingPathError(error: unknown): boolean {
-  if (!isRecord(error)) return false;
-  return error["code"] === "ENOENT" || error["code"] === "ENOTDIR";
 }
 
 function hasErrorCode(value: unknown, code: string): boolean {

@@ -246,6 +246,23 @@ describe("executeCodexReview", () => {
     }
   });
 
+  it("detects a timed-out turn mutation before teardown can restore it", async () => {
+    const directory = await temporaryRepository();
+    try {
+      await expect(
+        executeCodexReview({
+          ...makeInput("timeout-active-mutates-restores", true, directory),
+          timeoutMs: 200,
+        }),
+      ).rejects.toMatchObject({
+        kind: "repository-mutated",
+        changedPaths: ["codex-mutated.txt"],
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     ["policy-cwd", "policy-violation"],
     ["turn-status", "protocol"],

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join } from "node:path";
@@ -73,6 +73,33 @@ describe("inspectCodexProtocol", () => {
     });
     expect(evidence.codexCliVersion).toBe("codex-cli 0.147.0");
   });
+
+  it.skipIf(process.platform === "win32")(
+    "skips a non-executable PATH candidate during protocol inspection",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "diffowl-protocol-path-"));
+      const first = join(root, "first");
+      const second = join(root, "second");
+      const executable = "codex-test";
+      try {
+        await Promise.all([mkdir(first), mkdir(second)]);
+        await writeFile(join(first, executable), "not executable");
+        await chmod(join(first, executable), 0o644);
+        await symlink(process.execPath, join(second, executable));
+
+        const evidence = await inspectCodexProtocol({
+          executable,
+          prefixArgs: [fixture],
+          env: { PATH: `${first}:${second}` },
+          timeoutMs: 5_000,
+        });
+
+        expect(evidence.codexCliVersion).toBe("codex-cli 0.147.0");
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("rejects an invalid version", async () => {
     await expect(
