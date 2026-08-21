@@ -1238,7 +1238,18 @@ describe("buildReviewContext", () => {
     await commitAll(root, "advance base");
     const { stdout: advancedBase } = await execa("git", ["rev-parse", "HEAD"], { cwd: root });
     await execa("git", ["switch", "feature"], { cwd: root });
-    await execa("git", ["rebase", "base"], { cwd: root });
+    await execa(
+      "git",
+      [
+        "-c",
+        "user.name=DiffOwl Test",
+        "-c",
+        "user.email=diffowl@example.test",
+        "rebase",
+        "base",
+      ],
+      { cwd: root },
+    );
 
     const after = await loadReviewSnapshot(root, { kind: "base", ref: "base" });
 
