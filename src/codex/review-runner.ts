@@ -336,6 +336,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
   let report: ReviewResult["report"] | undefined;
   let repositoryBefore: RepositoryState | undefined;
   let repositoryAfter: RepositoryState | undefined;
+  let repositoryCheckedAfterTurn = false;
   let repositoryAfterClose: RepositoryState | undefined;
   let repositoryStatus: "unchanged" | "changed" | null = null;
   let repositoryDiagnostic: unknown;
@@ -371,6 +372,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
         repositoryDeadline,
         "repository-after-turn",
       );
+      repositoryCheckedAfterTurn = true;
       const comparison = compareRepositoryStates(repositoryBefore, repositoryAfter);
       if (comparison.kind === "changed") {
         repositoryStatus = "changed";
@@ -521,6 +523,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     );
     let prompt = prompts.user;
     while (report === undefined) {
+      repositoryCheckedAfterTurn = false;
       if (input.signal?.aborted) throw new ReviewCancelledError("Review cancelled by user.");
       const turnNumber = turnIds.length + 1;
       let turnId: string;
@@ -600,17 +603,21 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
       interruptEvidence = error.interrupt;
     } else if (error instanceof AppServerPeerError && error.kind === "unexpected-server-request") {
       failure = policyError("unexpected server request");
-      try {
-        await checkRepositoryAfterTurn(failure);
-      } catch (guardError) {
-        failure = guardError;
+      if (!repositoryCheckedAfterTurn) {
+        try {
+          await checkRepositoryAfterTurn(failure);
+        } catch (guardError) {
+          failure = guardError;
+        }
       }
     } else {
       let primary = error;
-      try {
-        await checkRepositoryAfterTurn(primary);
-      } catch (guardError) {
-        primary = guardError;
+      if (!repositoryCheckedAfterTurn) {
+        try {
+          await checkRepositoryAfterTurn(primary);
+        } catch (guardError) {
+          primary = guardError;
+        }
       }
       failure = primary;
     }
