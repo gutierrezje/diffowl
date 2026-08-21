@@ -317,7 +317,8 @@ function handleMarker(message) {
         futureField: "ignored",
       },
     };
-    if (mode === "timeout-thread") setTimeout(() => send(threadResponse), 500);
+    if (mode === "timeout-thread")
+      setTimeout(() => send(threadResponse), process.platform === "win32" ? 5_500 : 500);
     else send(threadResponse);
     return;
   }

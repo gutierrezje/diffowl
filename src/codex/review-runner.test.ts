@@ -192,9 +192,11 @@ describe("executeCodexReview", () => {
     expect(outcome.evidence.events).toContain("received:model/rerouted:gpt-5-mini");
   });
 
-  it("uses one absolute timeout budget for the handshake", async () => {
+  it("uses one absolute timeout budget for the handshake", { timeout: 10_000 }, async () => {
+    // Hosted Windows needs enough budget to finish initialization before the fixture stalls.
+    const timeoutMs = process.platform === "win32" ? 5_000 : 200;
     await expect(
-      executeCodexReview({ ...makeInput("timeout-thread"), timeoutMs: 200 }),
+      executeCodexReview({ ...makeInput("timeout-thread"), timeoutMs }),
     ).rejects.toMatchObject({
       kind: "timeout",
       phase: "thread/start",

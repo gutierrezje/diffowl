@@ -292,6 +292,7 @@ type ActiveCancellation = {
 };
 
 const ABORT_SIGNAL = Symbol("codex-review-abort");
+const ABORT_RECONCILIATION_MS = 50;
 
 export async function executeCodexReview(input: CodexReviewInput): Promise<CodexReviewOutcome> {
   validateInput(input);
@@ -1267,31 +1268,19 @@ class NotificationReader {
   private readonly waiters: NotificationWaiter[] = [];
   private done = false;
   private failure: unknown;
+  private cancellationDeadline: number | undefined;
 
   constructor(private readonly peer: AppServerPeer) {
     void this.pump();
   }
 
-  async next(deadline: number, signal?: AbortSignal): Promise<AppServerNotification | undefined> {
+  next(deadline: number, signal?: AbortSignal): Promise<AppServerNotification | undefined> {
     const queued = this.queue.shift();
-    if (queued !== undefined) return queued;
-    if (signal?.aborted) {
-      // Let notifications already read from stdout cross the peer/reader queue boundary.
-      await Promise.resolve();
-      const queuedAfterAbort = this.queue.shift();
-      if (queuedAfterAbort !== undefined) return queuedAfterAbort;
-      throw ABORT_SIGNAL;
-    }
+    if (queued !== undefined) return Promise.resolve(queued);
     if (this.done) {
-      if (this.failure !== undefined) throw this.failure;
-      return undefined;
+      return this.failure === undefined ? Promise.resolve(undefined) : Promise.reject(this.failure);
     }
     return new Promise((resolve, reject) => {
-      const remaining = deadline - performance.now();
-      if (remaining <= 0) {
-        reject(new CodexTimeoutError("turn"));
-        return;
-      }
       let settled = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
       const cleanup = (): void => {
@@ -1312,14 +1301,30 @@ class NotificationReader {
         cleanup();
         reject(error);
       };
-      const onAbort = (): void => settleReject(ABORT_SIGNAL);
+      const scheduleRejection = (rejectionDeadline: number, error: unknown): void => {
+        if (timer !== undefined) clearTimeout(timer);
+        const remaining = rejectionDeadline - performance.now();
+        if (remaining <= 0) {
+          settleReject(error);
+          return;
+        }
+        timer = setTimeout(() => settleReject(error), remaining);
+      };
+      const onAbort = (): void => {
+        // The peer and this reader both buffer; allow already-emitted terminal events to cross.
+        this.cancellationDeadline ??= Math.min(
+          deadline,
+          performance.now() + ABORT_RECONCILIATION_MS,
+        );
+        scheduleRejection(this.cancellationDeadline, ABORT_SIGNAL);
+      };
       const waiter: NotificationWaiter = { resolve: settleResolve, reject: settleReject };
       this.waiters.push(waiter);
-      timer = setTimeout(() => settleReject(new CodexTimeoutError("turn")), remaining);
       if (signal !== undefined) {
         if (signal.aborted) onAbort();
         else signal.addEventListener("abort", onAbort, { once: true });
       }
+      if (!signal?.aborted) scheduleRejection(deadline, new CodexTimeoutError("turn"));
     });
   }
 
