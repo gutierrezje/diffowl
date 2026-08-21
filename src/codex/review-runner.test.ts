@@ -270,7 +270,12 @@ describe("executeCodexReview", () => {
         changedPaths: ["codex-mutated.txt"],
       });
     } finally {
-      await rm(directory, { recursive: true, force: true });
+      await rm(directory, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      });
     }
   });
 
