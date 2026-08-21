@@ -92,7 +92,7 @@ export function insertReviewExecution(
   const record = {
     id: input.id ?? createReviewExecutionId(),
     reviewId: input.review.id,
-    createdAt: input.createdAt ?? input.review.createdAt,
+    createdAt: input.createdAt ?? new Date().toISOString(),
     ...provenance,
   } satisfies ReviewExecutionRecord;
 

@@ -34,7 +34,7 @@ BEGIN
 END;
 
 CREATE TRIGGER prevent_review_input_identity_update
-BEFORE UPDATE OF target_kind, base_commit, merge_base_commit, target_commit, diff_hash
+BEFORE UPDATE OF target_kind, target_ref, base_commit, merge_base_commit, target_commit, diff_hash
 ON reviews
 BEGIN
   -- Review identity is append-only. Corrections create a new review row. A future schema migration

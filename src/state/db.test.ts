@@ -257,6 +257,11 @@ describe("openStateDatabase", () => {
           .prepare("UPDATE reviews SET diff_hash = ? WHERE id = ?")
           .run("changed-input", review.id),
       ).toThrow("Review input identity is immutable.");
+      expect(() =>
+        state.db
+          .prepare("UPDATE reviews SET target_ref = ? WHERE id = ?")
+          .run("changed-ref", review.id),
+      ).toThrow("Review input identity is immutable.");
     } finally {
       closeStateDatabase(state);
     }
