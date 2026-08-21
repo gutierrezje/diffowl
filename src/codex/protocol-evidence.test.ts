@@ -69,6 +69,17 @@ describe("inspectCodexProtocol", () => {
     },
   );
 
+  it("accepts compatible schemas that use const discriminators", async () => {
+    const evidence = await inspectCodexProtocol({
+      executable: process.execPath,
+      prefixArgs: [fixture],
+      env: { MOCK_CLI_MODE: "const-schema" },
+      timeoutMs: 5_000,
+    });
+
+    expect(evidence.codexCliVersion).toBe("codex-cli 0.147.0");
+  });
+
   it("reports a missing executable", async () => {
     const executable = join(tmpdir(), `diffowl-missing-codex-${randomUUID()}`);
     await expect(inspectCodexProtocol({ executable, timeoutMs: 1_000 })).rejects.toMatchObject({

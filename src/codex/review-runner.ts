@@ -292,7 +292,8 @@ type ActiveCancellation = {
 };
 
 const ABORT_SIGNAL = Symbol("codex-review-abort");
-const ABORT_RECONCILIATION_MS = 50;
+const ABORT_RECONCILIATION_IDLE_MS = 50;
+const ABORT_RECONCILIATION_MAX_MS = 150;
 
 export async function executeCodexReview(input: CodexReviewInput): Promise<CodexReviewOutcome> {
   validateInput(input);
@@ -1268,13 +1269,16 @@ class NotificationReader {
   private readonly waiters: NotificationWaiter[] = [];
   private done = false;
   private failure: unknown;
-  private cancellationDeadline: number | undefined;
+  private cancellationHardDeadline: number | undefined;
 
   constructor(private readonly peer: AppServerPeer) {
     void this.pump();
   }
 
   next(deadline: number, signal?: AbortSignal): Promise<AppServerNotification | undefined> {
+    const initialCancellationDeadline = signal?.aborted
+      ? this.cancellationRejectionDeadline(deadline)
+      : undefined;
     const queued = this.queue.shift();
     if (queued !== undefined) return Promise.resolve(queued);
     if (this.done) {
@@ -1312,11 +1316,10 @@ class NotificationReader {
       };
       const onAbort = (): void => {
         // The peer and this reader both buffer; allow already-emitted terminal events to cross.
-        this.cancellationDeadline ??= Math.min(
-          deadline,
-          performance.now() + ABORT_RECONCILIATION_MS,
+        scheduleRejection(
+          initialCancellationDeadline ?? this.cancellationRejectionDeadline(deadline),
+          ABORT_SIGNAL,
         );
-        scheduleRejection(this.cancellationDeadline, ABORT_SIGNAL);
       };
       const waiter: NotificationWaiter = { resolve: settleResolve, reject: settleReject };
       this.waiters.push(waiter);
@@ -1326,6 +1329,12 @@ class NotificationReader {
       }
       if (!signal?.aborted) scheduleRejection(deadline, new CodexTimeoutError("turn"));
     });
+  }
+
+  private cancellationRejectionDeadline(deadline: number): number {
+    const now = performance.now();
+    this.cancellationHardDeadline ??= Math.min(deadline, now + ABORT_RECONCILIATION_MAX_MS);
+    return Math.min(this.cancellationHardDeadline, now + ABORT_RECONCILIATION_IDLE_MS);
   }
 
   private async pump(): Promise<void> {

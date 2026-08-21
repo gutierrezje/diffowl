@@ -218,7 +218,7 @@ async function generate(output, extension = ".ts") {
             properties: { ...originalContent.properties, threadId: { type: "number" } },
           }
         : originalContent;
-    const incompatibleContent =
+    const nestedChangedContent =
       extension === ".json" &&
       process.env.MOCK_CLI_MODE === "incompatible-nesting" &&
       relativePath === "v2/TurnStartParams.json"
@@ -231,6 +231,18 @@ async function generate(output, extension = ".ts") {
             },
           }
         : shapeChangedContent;
+    const incompatibleContent =
+      extension === ".json" &&
+      process.env.MOCK_CLI_MODE === "const-schema" &&
+      relativePath === "v2/TurnStartParams.json"
+        ? {
+            ...nestedChangedContent,
+            properties: {
+              ...nestedChangedContent.properties,
+              approvalPolicy: { type: "string", const: "never" },
+            },
+          }
+        : nestedChangedContent;
     const serialized =
       extension === ".ts"
         ? JSON.stringify({ content: incompatibleContent })

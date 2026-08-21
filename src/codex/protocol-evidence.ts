@@ -624,6 +624,7 @@ function schemaAllowsEnum(
   expected: string,
 ): boolean {
   return expandSchema(document, schema).some((candidate) => {
+    if (candidate["const"] === expected) return true;
     const values = candidate["enum"];
     return Array.isArray(values) && values.includes(expected);
   });

@@ -106,6 +106,23 @@ describe("executeCodexReview", () => {
     });
   });
 
+  it("accepts completion when in-flight usage crosses the cancellation grace", async () => {
+    const controller = new AbortController();
+    const outcome = await executeCodexReview({
+      ...makeInput("completion-after-cancel-usage"),
+      signal: controller.signal,
+      onProgress: (event) => {
+        if (event.type === "output") controller.abort();
+      },
+    });
+
+    expect(outcome.reviewResult.report.summary).toBe("schema summary");
+    expect(outcome.evidence).toMatchObject({
+      terminalStatus: "completed",
+      interrupt: null,
+    });
+  });
+
   it("reports file changes as a stable policy violation", async () => {
     await expect(executeCodexReview(makeInput("file-change"))).rejects.toMatchObject({
       kind: "policy-violation",

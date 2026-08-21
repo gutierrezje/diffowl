@@ -9,6 +9,7 @@ if (
     "authoritative",
     "item-correlation",
     "completed-no-delta",
+    "completion-after-cancel-usage",
     "file-change",
     "marker-retry",
     "marker-three-invalid",
@@ -110,6 +111,7 @@ const markerModes = [
   "authoritative",
   "item-correlation",
   "completed-no-delta",
+  "completion-after-cancel-usage",
   "file-change",
   "marker-retry",
   "marker-three-invalid",
@@ -526,7 +528,7 @@ function handleMarker(message) {
         method: "item/completed",
         params: { threadId: "thread-1", turnId, item: agentMessage, completedAtMs: 1 },
       });
-    } else if (mode === "completed-no-delta") {
+    } else if (["completed-no-delta", "completion-after-cancel-usage"].includes(mode)) {
       send({
         method: "item/completed",
         params: { threadId: "thread-1", turnId, item: agentMessage, completedAtMs: 1 },
@@ -571,26 +573,45 @@ function handleMarker(message) {
       reasoningOutputTokens: 19,
     };
     if (mode === "usage-omitted") delete usage.cacheWriteInputTokens;
-    send({
-      method: "thread/tokenUsage/updated",
-      params: {
-        threadId: "thread-1",
-        turnId,
-        tokenUsage: { total: usage, last: usage, modelContextWindow: null },
-      },
-    });
-    send({
-      method: "turn/completed",
-      params: {
-        threadId: "thread-1",
-        turn: {
-          id: turnId,
-          status: "completed",
-          items: ["item-correlation", "completed-no-delta"].includes(mode) ? [] : [agentMessage],
-          error: null,
+    const sendUsage = () => {
+      send({
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread-1",
+          turnId,
+          tokenUsage: { total: usage, last: usage, modelContextWindow: null },
         },
-      },
-    });
+      });
+    };
+    const sendCompletion = () => {
+      send({
+        method: "turn/completed",
+        params: {
+          threadId: "thread-1",
+          turn: {
+            id: turnId,
+            status: "completed",
+            items: [
+              "item-correlation",
+              "completed-no-delta",
+              "completion-after-cancel-usage",
+            ].includes(mode)
+              ? []
+              : [agentMessage],
+            error: null,
+          },
+        },
+      });
+    };
+    if (mode === "completion-after-cancel-usage") {
+      setTimeout(() => {
+        sendUsage();
+        setTimeout(sendCompletion, 40);
+      }, 20);
+      return;
+    }
+    sendUsage();
+    sendCompletion();
     return;
   }
   markerError(message);
@@ -658,6 +679,7 @@ input.on("close", () => {
       "authoritative",
       "item-correlation",
       "completed-no-delta",
+      "completion-after-cancel-usage",
       "file-change",
       "marker-retry",
       "marker-three-invalid",
