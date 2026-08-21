@@ -1,10 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  CODEX_STRATEGY_ENV,
   parsePosixProcessIdentity,
   parseWindowsListenerPids,
   parseUnixListenerPids,
-  requireCodexStrategy,
 } from "./live-helpers.js";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -30,12 +28,5 @@ describe("live harness provenance helpers", () => {
       executableBasename: "opencode",
       commandSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
-  });
-
-  it("requires an exact matched strategy value", () => {
-    vi.stubEnv(CODEX_STRATEGY_ENV, "marker ");
-    expect(() => requireCodexStrategy()).toThrow(/exactly marker or output-schema/);
-    vi.stubEnv(CODEX_STRATEGY_ENV, "output-schema");
-    expect(requireCodexStrategy()).toEqual({ kind: "output-schema" });
   });
 });

@@ -1,16 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
-import type { DiffOwlConfig } from "../../config.js";
-import type { ReviewProgressEvent } from "../../review/types.js";
-import { ReviewCancelledError } from "../../review/errors.js";
-import { SchemaValidationError } from "../../review/document.js";
+import type { DiffOwlConfig } from "../config.js";
+import type { ReviewProgressEvent } from "../review/types.js";
+import { ReviewCancelledError } from "../review/errors.js";
+import { SchemaValidationError } from "../review/document.js";
 import {
   CodexRepositoryMutatedError,
   CodexReviewCancelledError,
+  CodexTeardownError,
   executeCodexReview,
   getCodexReviewFailureEvidence,
 } from "./review-runner.js";
@@ -35,15 +36,15 @@ const config: DiffOwlConfig = {
 };
 
 describe("executeCodexReview", () => {
-  it("runs one marker review over the real App Server child", async () => {
+  it("runs one native-schema review over the real App Server child", async () => {
     const events: ReviewProgressEvent[] = [];
     const outcome = await executeCodexReview({
-      ...makeInput("marker"),
+      ...makeInput("output-schema"),
       onProgress: (event) => events.push(event),
     });
 
     expect(outcome.reviewResult).toEqual({
-      report: { summary: "marker summary", findings: [] },
+      report: { summary: "schema summary", findings: [] },
       sessionId: "thread-1",
       usage: {
         tokens: { input: 100, output: 200, reasoning: 19, cache: { read: 10, write: 2 } },
@@ -61,7 +62,7 @@ describe("executeCodexReview", () => {
       networkAccess: false,
       threadId: "thread-1",
       turnIds: ["turn-1"],
-      strategy: { kind: "marker" },
+      documentMode: "native-json",
       attempts: 1,
       terminalStatus: "completed",
       usagePresent: true,
@@ -80,12 +81,46 @@ describe("executeCodexReview", () => {
 
   it("correlates agent deltas and completions by item id", async () => {
     const outcome = await executeCodexReview(makeInput("item-correlation"));
-    expect(outcome.reviewResult.report.summary).toBe("marker summary");
+    expect(outcome.reviewResult.report.summary).toBe("schema summary");
   });
 
   it("accepts a completed agent message without a preceding delta", async () => {
     const outcome = await executeCodexReview(makeInput("completed-no-delta"));
-    expect(outcome.reviewResult.report.summary).toBe("marker summary");
+    expect(outcome.reviewResult.report.summary).toBe("schema summary");
+  });
+
+  it("accepts queued completion when output progress triggers cancellation", async () => {
+    const controller = new AbortController();
+    const outcome = await executeCodexReview({
+      ...makeInput("completed-no-delta"),
+      signal: controller.signal,
+      onProgress: (event) => {
+        if (event.type === "output") controller.abort();
+      },
+    });
+
+    expect(outcome.reviewResult.report.summary).toBe("schema summary");
+    expect(outcome.evidence).toMatchObject({
+      terminalStatus: "completed",
+      interrupt: null,
+    });
+  });
+
+  it("accepts completion when in-flight usage crosses the cancellation grace", async () => {
+    const controller = new AbortController();
+    const outcome = await executeCodexReview({
+      ...makeInput("completion-after-cancel-usage"),
+      signal: controller.signal,
+      onProgress: (event) => {
+        if (event.type === "output") controller.abort();
+      },
+    });
+
+    expect(outcome.reviewResult.report.summary).toBe("schema summary");
+    expect(outcome.evidence).toMatchObject({
+      terminalStatus: "completed",
+      interrupt: null,
+    });
   });
 
   it("reports file changes as a stable policy violation", async () => {
@@ -94,47 +129,26 @@ describe("executeCodexReview", () => {
     });
   });
 
-  it("retries one invalid marker turn on the same thread", async () => {
-    const outcome = await executeCodexReview(makeInput("marker-retry"));
-    expect(outcome.reviewResult.report.summary).toBe("marker summary");
-    expect(outcome.evidence).toMatchObject({ attempts: 2, turnIds: ["turn-1", "turn-2"] });
-  });
-
-  it("fails after exactly three invalid marker turns with the existing validation error", async () => {
-    const error = await executeCodexReview(makeInput("marker-three-invalid")).catch(
-      (value: unknown) => value,
-    );
-    expect(error).toBeInstanceOf(SchemaValidationError);
-    expect(error).toMatchObject({ attempts: 3 });
-  });
-
-  it("runs the strict output-schema strategy without a marker in the provider prompt", async () => {
-    const outcome = await executeCodexReview({
-      ...makeInput("output-schema-default", false),
-      strategy: { kind: "output-schema" },
-    });
+  it("uses the shared native system prompt without a marker", async () => {
+    const outcome = await executeCodexReview(makeInput("output-schema-default", false));
     expect(outcome.reviewResult.report).toEqual({ summary: "schema summary", findings: [] });
     expect(outcome.evidence).toMatchObject({
-      strategy: { kind: "output-schema" },
+      documentMode: "native-json",
       attempts: 1,
       turnIds: ["turn-1"],
     });
   });
 
   it("uses a marker-free replacement prompt for an output-schema retry", async () => {
-    const outcome = await executeCodexReview({
-      ...makeInput("output-schema-retry"),
-      strategy: { kind: "output-schema" },
-    });
+    const outcome = await executeCodexReview(makeInput("output-schema-retry"));
     expect(outcome.reviewResult.report.summary).toBe("schema summary");
     expect(outcome.evidence.attempts).toBe(2);
   });
 
   it("exhausts output-schema validation after exactly three turns", async () => {
-    const error = await executeCodexReview({
-      ...makeInput("output-schema-three-invalid", false),
-      strategy: { kind: "output-schema" },
-    }).catch((value: unknown) => value);
+    const error = await executeCodexReview(makeInput("output-schema-three-invalid", false)).catch(
+      (value: unknown) => value,
+    );
     expect(error).toBeInstanceOf(SchemaValidationError);
     expect(error).toMatchObject({ attempts: 3 });
     expect(getCodexReviewFailureEvidence(error)).toMatchObject({
@@ -195,13 +209,26 @@ describe("executeCodexReview", () => {
     expect(outcome.evidence.events).toContain("received:model/rerouted:gpt-5-mini");
   });
 
-  it("uses one absolute timeout budget for the handshake", async () => {
+  it("uses one absolute timeout budget for the handshake", { timeout: 10_000 }, async () => {
+    // Hosted Windows needs enough budget to finish initialization before the fixture stalls.
+    const timeoutMs = process.platform === "win32" ? 5_000 : 200;
     await expect(
-      executeCodexReview({ ...makeInput("timeout-thread"), timeoutMs: 200 }),
+      executeCodexReview({ ...makeInput("timeout-thread"), timeoutMs }),
     ).rejects.toMatchObject({
       kind: "timeout",
       phase: "thread/start",
     });
+  });
+
+  it("forwards cancellation to an in-flight App Server request", async () => {
+    const controller = new AbortController();
+    const promise = executeCodexReview({
+      ...makeInput("hung"),
+      signal: controller.signal,
+    });
+    setTimeout(() => controller.abort(), 50);
+
+    await expect(promise).rejects.toBeInstanceOf(ReviewCancelledError);
   });
 
   it("closes directly when cancelled before an active turn", async () => {
@@ -242,31 +269,55 @@ describe("executeCodexReview", () => {
     await expect(promise).rejects.toBeInstanceOf(CodexReviewCancelledError);
   });
 
+  it("interrupts an active turn before reporting a timeout", { timeout: 10_000 }, async () => {
+    const directory = await temporaryRepository();
+    try {
+      const error = await executeCodexReview({
+        ...makeInput("timeout-active", true, directory),
+        timeoutMs: 5_000,
+      }).catch((value: unknown) => value);
+      expect(error).toMatchObject({
+        kind: "timeout",
+        phase: "turn",
+      });
+      expect(getCodexReviewFailureEvidence(error)).toMatchObject({
+        interrupt: {
+          deadlineMs: 300,
+          acknowledgementReceived: true,
+          terminalStatus: "interrupted",
+        },
+        interruptAcknowledged: true,
+        terminalStatus: "interrupted",
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it(
-    "interrupts an active turn before reporting a timeout",
+    "detects a timed-out turn mutation before teardown can restore it",
     { timeout: 10_000 },
     async () => {
       const directory = await temporaryRepository();
+      // Hosted Windows needs enough startup time to reach the fixture's mutation before timing out.
+      const timeoutMs = process.platform === "win32" ? 5_000 : 200;
       try {
-        const error = await executeCodexReview({
-          ...makeInput("timeout-active", true, directory),
-          timeoutMs: 5_000,
-        }).catch((value: unknown) => value);
-        expect(error).toMatchObject({
-          kind: "timeout",
-          phase: "turn",
-        });
-        expect(getCodexReviewFailureEvidence(error)).toMatchObject({
-          interrupt: {
-            deadlineMs: 300,
-            acknowledgementReceived: true,
-            terminalStatus: "interrupted",
-          },
-          interruptAcknowledged: true,
-          terminalStatus: "interrupted",
+        await expect(
+          executeCodexReview({
+            ...makeInput("timeout-active-mutates-restores", true, directory),
+            timeoutMs,
+          }),
+        ).rejects.toMatchObject({
+          kind: "repository-mutated",
+          changedPaths: ["codex-mutated.txt"],
         });
       } finally {
-        await rm(directory, { recursive: true, force: true });
+        await rm(directory, {
+          recursive: true,
+          force: true,
+          maxRetries: 5,
+          retryDelay: 100,
+        });
       }
     },
   );
@@ -283,14 +334,8 @@ describe("executeCodexReview", () => {
     const linkRoot = await mkdtemp(join(tmpdir(), "codex-review-link-"));
     const linkedDirectory = join(linkRoot, "repository");
     try {
-      await symlink(
-        directory,
-        linkedDirectory,
-        process.platform === "win32" ? "junction" : "dir",
-      );
-      const outcome = await executeCodexReview(
-        makeInput("canonical-cwd", true, linkedDirectory),
-      );
+      await symlink(directory, linkedDirectory, process.platform === "win32" ? "junction" : "dir");
+      const outcome = await executeCodexReview(makeInput("canonical-cwd", true, linkedDirectory));
       expect(outcome.evidence.repositoryGuard.kind).toBe("unchanged");
     } finally {
       await Promise.all([
@@ -416,6 +461,45 @@ describe("executeCodexReview", () => {
     });
     await expect(promise).rejects.toMatchObject({ kind: "teardown-failed" });
   });
+
+  it.skipIf(process.platform === "win32")(
+    "preserves a rejected close as the primary cancellation failure",
+    async () => {
+      const directory = await mkdtemp(join(tmpdir(), "codex-review-close-rejection-"));
+      const pidFile = join(directory, "descendant.pid");
+      const controller = new AbortController();
+      const input = makeInput("cancel-active-close-rejects");
+      try {
+        const error = await executeCodexReview({
+          ...input,
+          env: { ...input.env, MOCK_CLI_PID_FILE: pidFile },
+          signal: controller.signal,
+          closeTimeoutMs: 60,
+          onProgress: (event) => {
+            if (event.type === "output") controller.abort();
+          },
+        }).catch((value: unknown) => value);
+
+        expect(error).toBeInstanceOf(CodexTeardownError);
+        expect(error).toMatchObject({
+          kind: "teardown-failed",
+          close: null,
+          cause: { kind: "process" },
+        });
+      } finally {
+        const rawPid = await readFile(pidFile, "utf8").catch(() => undefined);
+        const pid = rawPid === undefined ? Number.NaN : Number(rawPid.trim());
+        if (Number.isSafeInteger(pid) && pid > 0 && pid !== process.pid) {
+          try {
+            process.kill(pid, "SIGKILL");
+          } catch {
+            // The descendant may already have exited.
+          }
+        }
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 function makeInput(
@@ -441,7 +525,6 @@ function makeInput(
       CODEX_API_KEY: "fake-codex-key",
     },
     model: "gpt-5-codex",
-    strategy: { kind: "marker" },
     timeoutMs: 2_000,
     closeTimeoutMs: 500,
     interruptTimeoutMs: 300,

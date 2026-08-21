@@ -1,16 +1,15 @@
 import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
-import { resolveReviewPrompts } from "../../review/prompt.js";
-import { ReviewCancelledError } from "../../review/errors.js";
-import type { ReviewOptions, ReviewResult } from "../../review/types.js";
+import { resolveReviewPrompts } from "../review/prompt.js";
+import { ReviewCancelledError } from "../review/errors.js";
+import type { ReviewOptions, ReviewResult } from "../review/types.js";
 import {
   decideReviewAttempt,
-  inspectReviewText,
-  REVIEW_JSON_MARKER,
-  SCHEMA_VALIDATION_MAX_ATTEMPTS,
+  inspectNativeReviewText,
+  REVIEW_DOCUMENT_OUTPUT_SCHEMA,
   type SchemaIssue,
-} from "../../review/document.js";
-import type { ReviewUsage } from "../../review/usage.js";
+} from "../review/document.js";
+import type { ReviewUsage } from "../review/usage.js";
 import {
   startAppServerPeer,
   AppServerPeerError,
@@ -23,21 +22,18 @@ import {
   compareRepositoryStates,
   type RepositoryState,
 } from "./repository-guard.js";
-import { buildExperimentEnvironment } from "./environment.js";
+import { buildCodexEnvironment } from "./environment.js";
 
 export type CodexReviewInput = ReviewOptions & {
   executable: string;
   args?: readonly string[];
   env?: NodeJS.ProcessEnv;
   model: string;
-  strategy: CodexReviewStrategy;
   timeoutMs: number;
   interruptTimeoutMs: number;
   closeTimeoutMs: number;
   includeIgnoredRepositoryPaths: boolean;
 };
-
-export type CodexReviewStrategy = { kind: "marker" } | { kind: "output-schema" };
 
 export type CodexInterruptEvidence = {
   deadlineMs: number;
@@ -59,7 +55,7 @@ export type CodexReviewEvidence = {
   apiKeyEnvironmentRemoved: true;
   threadId: string;
   turnIds: readonly [string, ...string[]];
-  strategy: CodexReviewStrategy;
+  documentMode: "native-json";
   attempts: number;
   terminalStatus: "completed";
   usagePresent: boolean;
@@ -141,9 +137,9 @@ export class CodexReviewError extends Error {
 }
 
 export class CodexTeardownError extends CodexReviewError {
-  readonly close: AppServerCloseResult;
+  readonly close: AppServerCloseResult | null;
 
-  constructor(close: AppServerCloseResult) {
+  constructor(close: AppServerCloseResult | null) {
     super("teardown-failed", "Codex App Server did not close cleanly.");
     this.name = "CodexTeardownError";
     this.close = close;
@@ -296,32 +292,8 @@ type ActiveCancellation = {
 };
 
 const ABORT_SIGNAL = Symbol("codex-review-abort");
-
-const OUTPUT_SCHEMA = {
-  type: "object",
-  properties: {
-    summary: { type: "string" },
-    findings: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          severity: { type: "string", enum: ["error", "warning", "info"] },
-          file: { type: "string" },
-          line: { type: "integer", minimum: 1 },
-          evidence: { type: ["string", "null"] },
-          title: { type: "string" },
-          body: { type: "string" },
-          confidence: { type: "string", enum: ["low", "medium", "high"] },
-        },
-        required: ["severity", "file", "line", "evidence", "title", "body", "confidence"],
-        additionalProperties: false,
-      },
-    },
-  },
-  required: ["summary", "findings"],
-  additionalProperties: false,
-} satisfies Record<string, unknown>;
+const ABORT_RECONCILIATION_IDLE_MS = 50;
+const ABORT_RECONCILIATION_MAX_MS = 150;
 
 export async function executeCodexReview(input: CodexReviewInput): Promise<CodexReviewOutcome> {
   validateInput(input);
@@ -336,10 +308,10 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     ...(input.localContext === undefined ? {} : { localContext: input.localContext }),
     ...(input.systemPrompt === undefined ? {} : { systemPrompt: input.systemPrompt }),
     ...(input.userPrompt === undefined ? {} : { userPrompt: input.userPrompt }),
+    documentMode: "native-json",
   });
-  const developerInstructions =
-    input.strategy.kind === "marker" ? prompts.system : outputSchemaInstructions(prompts.system);
-  const peerEnv = buildExperimentEnvironment(input.env);
+  const developerInstructions = prompts.system;
+  const peerEnv = buildCodexEnvironment(input.env);
   const peer = startAppServerPeer({
     executable: input.executable,
     ...(input.args === undefined ? {} : { args: input.args }),
@@ -366,6 +338,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
   let report: ReviewResult["report"] | undefined;
   let repositoryBefore: RepositoryState | undefined;
   let repositoryAfter: RepositoryState | undefined;
+  let repositoryCheckedAfterTurn = false;
   let repositoryAfterClose: RepositoryState | undefined;
   let repositoryStatus: "unchanged" | "changed" | null = null;
   let repositoryDiagnostic: unknown;
@@ -392,13 +365,16 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
   const checkRepositoryAfterTurn = async (primary?: unknown): Promise<void> => {
     if (repositoryBefore === undefined) return;
     try {
+      const now = performance.now();
+      const repositoryDeadline = deadline > now ? deadline : now + input.closeTimeoutMs;
       repositoryAfter = await withDeadline(
         captureRepositoryState(directory, {
           includeIgnoredPaths: input.includeIgnoredRepositoryPaths,
         }),
-        deadline,
+        repositoryDeadline,
         "repository-after-turn",
       );
+      repositoryCheckedAfterTurn = true;
       const comparison = compareRepositoryStates(repositoryBefore, repositoryAfter);
       if (comparison.kind === "changed") {
         repositoryStatus = "changed";
@@ -437,6 +413,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
           },
           deadline,
           "initialize",
+          input.signal,
         ),
       ),
       "initialize",
@@ -452,7 +429,14 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     events.push("sent:account/read");
     const account = asRecord(
       await timed("account-read", () =>
-        requestWithin(peer, "account/read", { refreshToken: false }, deadline, "account/read"),
+        requestWithin(
+          peer,
+          "account/read",
+          { refreshToken: false },
+          deadline,
+          "account/read",
+          input.signal,
+        ),
       ),
       "account/read",
     );
@@ -495,6 +479,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
           },
           deadline,
           "thread/start",
+          input.signal,
         ),
       ),
       "thread/start",
@@ -540,6 +525,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     );
     let prompt = prompts.user;
     while (report === undefined) {
+      repositoryCheckedAfterTurn = false;
       if (input.signal?.aborted) throw new ReviewCancelledError("Review cancelled by user.");
       const turnNumber = turnIds.length + 1;
       let turnId: string;
@@ -582,13 +568,12 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
         }
         await timed("repository-after", () => checkRepositoryAfterTurn());
         if (completed.usage !== undefined) usage = completed.usage;
-        const candidate =
-          input.strategy.kind === "marker"
-            ? completed.text
-            : `${REVIEW_JSON_MARKER}\n${completed.text}`;
-        const inspection = inspectReviewText(candidate);
-        const closed = inspection.kind === "open" ? inspection.ifFinished : inspection;
-        const decision = decideReviewAttempt({ closed, attempt: turnIds.length });
+        const closed = inspectNativeReviewText(completed.text);
+        const decision = decideReviewAttempt({
+          closed,
+          attempt: turnIds.length,
+          mode: "native-json",
+        });
         switch (decision.kind) {
           case "accept":
             validationAttempts.push({ turnId, outcome: "accepted", issues: [] });
@@ -596,12 +581,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
             break;
           case "retry":
             validationAttempts.push({ turnId, outcome: "retry", issues: decision.issues });
-            if (turnIds.length >= SCHEMA_VALIDATION_MAX_ATTEMPTS)
-              throw new Error("Unexpected schema retry beyond the attempt limit.");
-            prompt =
-              input.strategy.kind === "marker"
-                ? decision.userMessage
-                : formatOutputSchemaRetryPrompt(decision.issues);
+            prompt = decision.userMessage;
             continue;
           case "fail":
             validationAttempts.push({ turnId, outcome: "failed", issues: decision.error.issues });
@@ -623,22 +603,23 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     if (isActiveCancellation(error)) {
       cancelled = error;
       interruptEvidence = error.interrupt;
-    } else if (
-      error instanceof AppServerPeerError &&
-      error.kind === "unexpected-server-request"
-    ) {
+    } else if (error instanceof AppServerPeerError && error.kind === "unexpected-server-request") {
       failure = policyError("unexpected server request");
-      try {
-        await checkRepositoryAfterTurn(failure);
-      } catch (guardError) {
-        failure = guardError;
+      if (!repositoryCheckedAfterTurn) {
+        try {
+          await checkRepositoryAfterTurn(failure);
+        } catch (guardError) {
+          failure = guardError;
+        }
       }
     } else {
       let primary = error;
-      try {
-        await checkRepositoryAfterTurn(primary);
-      } catch (guardError) {
-        primary = guardError;
+      if (!repositoryCheckedAfterTurn) {
+        try {
+          await checkRepositoryAfterTurn(primary);
+        } catch (guardError) {
+          primary = guardError;
+        }
       }
       failure = primary;
     }
@@ -649,8 +630,13 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     close = await timed("close", () => peer.close());
     events.push(`received:close:${close.kind}`);
   } catch (closeError) {
-    if (failure === undefined && cancelled === undefined) failure = closeError;
-    else attachErrorCause(failure ?? cancelled, closeError);
+    const teardown = new CodexTeardownError(null);
+    attachErrorCause(teardown, closeError);
+    if (failure === undefined && cancelled === undefined) failure = teardown;
+    else if (cancelled !== undefined && failure === undefined) {
+      attachErrorCause(closeError, cancelled);
+      failure = teardown;
+    } else attachErrorCause(failure ?? cancelled, teardown);
   }
   const closeFailure =
     close === undefined
@@ -799,7 +785,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
       apiKeyEnvironmentRemoved: true,
       threadId,
       turnIds: nonEmptyTurnIds,
-      strategy: input.strategy,
+      documentMode: "native-json",
       attempts: nonEmptyTurnIds.length,
       terminalStatus: "completed",
       usagePresent: usage !== undefined,
@@ -839,11 +825,11 @@ async function startTurn(
     model: input.model,
     approvalPolicy: "never",
     sandboxPolicy: { type: "readOnly", networkAccess: false },
-    ...(input.strategy.kind === "output-schema" ? { outputSchema: OUTPUT_SCHEMA } : {}),
+    outputSchema: REVIEW_DOCUMENT_OUTPUT_SCHEMA,
   };
   events.push("sent:turn/start");
   const turn = asRecord(
-    await requestWithin(peer, "turn/start", params, deadline, "turn/start"),
+    await requestWithin(peer, "turn/start", params, deadline, "turn/start", input.signal),
     "turn/start",
   );
   events.push("received:turn/start");
@@ -924,7 +910,7 @@ async function collectTurn(
         }
         default: {
           const _exhaustive: never = event;
-          throw new Error(`unexpected marker event: ${String(_exhaustive)}`);
+          throw new Error(`unexpected Codex event: ${String(_exhaustive)}`);
         }
       }
     }
@@ -972,11 +958,7 @@ async function interruptTurn(
   let acknowledgementReceived = false;
   let acknowledgementDurationMs: number | undefined;
   const response = asRecord(
-    await withDeadline(
-      peer.request("turn/interrupt", { threadId, turnId }),
-      deadline,
-      "turn/interrupt",
-    ),
+    await requestWithin(peer, "turn/interrupt", { threadId, turnId }, deadline, "turn/interrupt"),
     "turn/interrupt",
   );
   if (Object.keys(response).length !== 0) throw protocolError("turn/interrupt response");
@@ -1000,37 +982,28 @@ async function interruptTurn(
   }
 }
 
-function outputSchemaInstructions(system: string): string {
-  const preambleStart = system.indexOf("You MAY think step-by-step internally");
-  const semanticsStart = system.indexOf("\n\nSemantics and constraints:");
-  if (preambleStart !== -1 && semanticsStart > preambleStart) {
-    return `${system.slice(0, preambleStart)}You MAY think step-by-step internally, but your VISIBLE output must be JSON-only: exactly one JSON object matching the supplied output schema. Do not include markdown fences or commentary.${system.slice(semanticsStart)}`.replaceAll(
-      REVIEW_JSON_MARKER,
-      "the supplied output schema",
-    );
-  }
-  const clean = system.replaceAll(REVIEW_JSON_MARKER, "the supplied output schema");
-  return clean.includes("JSON-only")
-    ? clean
-    : `${clean}\n\nJSON-only output: return exactly one object matching the supplied output schema. Do not add markdown or commentary.`;
-}
-
-function formatOutputSchemaRetryPrompt(issues: readonly { message: string }[]): string {
-  return [
-    "The previous review document failed schema validation. Emit one replacement JSON object that fixes every issue below. Do not include markdown fences or commentary.",
-    "",
-    ...issues.map((issue) => `- ${issue.message}`),
-  ].join("\n");
-}
-
 function requestWithin(
   peer: AppServerPeer,
   method: string,
   params: unknown,
   deadline: number,
   phase: string,
+  signal?: AbortSignal,
 ): Promise<unknown> {
-  return withDeadline(peer.request(method, params), deadline, phase);
+  if (signal?.aborted) {
+    return Promise.reject(new ReviewCancelledError("Review cancelled by user."));
+  }
+  const remaining = deadline - performance.now();
+  if (remaining <= 0) return Promise.reject(new CodexTimeoutError(phase));
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new CodexTimeoutError(phase)), remaining);
+  const cancel = (): void =>
+    controller.abort(new ReviewCancelledError("Review cancelled by user."));
+  signal?.addEventListener("abort", cancel, { once: true });
+  return peer.request(method, params, { signal: controller.signal }).finally(() => {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", cancel);
+  });
 }
 
 function withDeadline<T>(promise: Promise<T>, deadline: number, phase: string): Promise<T> {
@@ -1052,9 +1025,6 @@ function withDeadline<T>(promise: Promise<T>, deadline: number, phase: string): 
 }
 
 function validateInput(input: CodexReviewInput): void {
-  if (input.strategy.kind !== "marker" && input.strategy.kind !== "output-schema") {
-    throw new Error("Unsupported Codex review strategy.");
-  }
   if (input.model.trim() === "" || input.model.includes("/")) {
     throw new Error("Codex review model must be a bare model id.");
   }
@@ -1299,23 +1269,22 @@ class NotificationReader {
   private readonly waiters: NotificationWaiter[] = [];
   private done = false;
   private failure: unknown;
+  private cancellationHardDeadline: number | undefined;
 
   constructor(private readonly peer: AppServerPeer) {
     void this.pump();
   }
 
   next(deadline: number, signal?: AbortSignal): Promise<AppServerNotification | undefined> {
-    if (signal?.aborted) return Promise.reject(ABORT_SIGNAL);
+    const initialCancellationDeadline = signal?.aborted
+      ? this.cancellationRejectionDeadline(deadline)
+      : undefined;
     const queued = this.queue.shift();
     if (queued !== undefined) return Promise.resolve(queued);
-    if (this.done)
+    if (this.done) {
       return this.failure === undefined ? Promise.resolve(undefined) : Promise.reject(this.failure);
+    }
     return new Promise((resolve, reject) => {
-      const remaining = deadline - performance.now();
-      if (remaining <= 0) {
-        reject(new CodexTimeoutError("turn"));
-        return;
-      }
       let settled = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
       const cleanup = (): void => {
@@ -1336,15 +1305,36 @@ class NotificationReader {
         cleanup();
         reject(error);
       };
-      const onAbort = (): void => settleReject(ABORT_SIGNAL);
+      const scheduleRejection = (rejectionDeadline: number, error: unknown): void => {
+        if (timer !== undefined) clearTimeout(timer);
+        const remaining = rejectionDeadline - performance.now();
+        if (remaining <= 0) {
+          settleReject(error);
+          return;
+        }
+        timer = setTimeout(() => settleReject(error), remaining);
+      };
+      const onAbort = (): void => {
+        // The peer and this reader both buffer; allow already-emitted terminal events to cross.
+        scheduleRejection(
+          initialCancellationDeadline ?? this.cancellationRejectionDeadline(deadline),
+          ABORT_SIGNAL,
+        );
+      };
       const waiter: NotificationWaiter = { resolve: settleResolve, reject: settleReject };
       this.waiters.push(waiter);
-      timer = setTimeout(() => settleReject(new CodexTimeoutError("turn")), remaining);
       if (signal !== undefined) {
         if (signal.aborted) onAbort();
         else signal.addEventListener("abort", onAbort, { once: true });
       }
+      if (!signal?.aborted) scheduleRejection(deadline, new CodexTimeoutError("turn"));
     });
+  }
+
+  private cancellationRejectionDeadline(deadline: number): number {
+    const now = performance.now();
+    this.cancellationHardDeadline ??= Math.min(deadline, now + ABORT_RECONCILIATION_MAX_MS);
+    return Math.min(this.cancellationHardDeadline, now + ABORT_RECONCILIATION_IDLE_MS);
   }
 
   private async pump(): Promise<void> {

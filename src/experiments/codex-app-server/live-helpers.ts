@@ -9,9 +9,6 @@ import type { ReviewTarget } from "../../review/target.js";
 
 export const CODEX_MODEL_ENV = "DIFFOWL_CODEX_MODEL";
 export const ARTIFACT_DIR_ENV = "DIFFOWL_CODEX_ARTIFACT_DIR";
-export const CODEX_STRATEGY_ENV = "DIFFOWL_CODEX_STRATEGY";
-
-export type CodexStrategyKind = "marker" | "output-schema";
 
 export type OpenCodeProvenance = {
   baseUrl: string;
@@ -62,14 +59,6 @@ export function requireLiveEnvironment(): LiveEnvironment {
     artifactDirectory,
     codexExecutable: process.env["DIFFOWL_CODEX_EXECUTABLE"] ?? "codex",
   };
-}
-
-export function requireCodexStrategy(): { kind: CodexStrategyKind } {
-  const strategy = process.env[CODEX_STRATEGY_ENV];
-  if (strategy !== "marker" && strategy !== "output-schema") {
-    throw new Error(`${CODEX_STRATEGY_ENV} must be exactly marker or output-schema.`);
-  }
-  return { kind: strategy };
 }
 
 export async function captureOpenCodeProvenance(

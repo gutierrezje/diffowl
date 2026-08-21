@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline";
-import { realpathSync, writeFileSync } from "node:fs";
+import { realpathSync, rmSync, writeFileSync } from "node:fs";
+import { execa } from "execa";
 
 const mode = process.env.MOCK_APP_SERVER_MODE ?? "basic";
 if (
@@ -8,6 +9,7 @@ if (
     "authoritative",
     "item-correlation",
     "completed-no-delta",
+    "completion-after-cancel-usage",
     "file-change",
     "marker-retry",
     "marker-three-invalid",
@@ -30,10 +32,12 @@ if (
     "turn-failed-mutates",
     "cancel-active-mutates",
     "cancel-active-hung",
+    "cancel-active-close-rejects",
     "timeout-thread",
     "cancel-before",
     "cancel-active",
     "timeout-active",
+    "timeout-active-mutates-restores",
     "repository-unchanged",
     "repository-mutates",
     "teardown-mutates",
@@ -46,8 +50,22 @@ if (
   process.stderr.write("unexpected api key environment\n");
   process.exit(2);
 }
-process.stderr.write("s".repeat(256));
-if (["hung", "cancel-active-hung"].includes(mode)) setInterval(() => {}, 1_000);
+process.stderr.write(`${process.env.MOCK_APP_SERVER_SECRET ?? ""}${"s".repeat(256)}`);
+if (["hung", "cancel-active-hung", "ignores-sigterm", "stdout-eof-hung"].includes(mode))
+  setInterval(() => {}, 1_000);
+if (mode === "ignores-sigterm") process.on("SIGTERM", () => {});
+if (mode === "cancel-active-close-rejects") {
+  const descendant = execa(process.execPath, ["-e", "setInterval(() => {}, 1_000)"], {
+    detached: true,
+    reject: false,
+    stdin: "ignore",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  descendant.unref();
+  if (descendant.pid === undefined || process.env.MOCK_CLI_PID_FILE === undefined) process.exit(2);
+  writeFileSync(process.env.MOCK_CLI_PID_FILE, `${descendant.pid}\n`);
+}
 
 const requests = [];
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
@@ -63,6 +81,7 @@ const spikeReport = {
       severity: "error",
       file: "src.ts",
       line: 1,
+      evidence: null,
       title: "In-scope finding",
       body: "A useful finding.",
       confidence: "high",
@@ -71,6 +90,7 @@ const spikeReport = {
       severity: "warning",
       file: "outside.ts",
       line: 1,
+      evidence: null,
       title: "Outside finding",
       body: "Should be filtered.",
       confidence: "high",
@@ -79,18 +99,19 @@ const spikeReport = {
       severity: "info",
       file: "src.ts",
       line: 1,
+      evidence: null,
       title: "Low confidence",
       body: "Should be filtered.",
       confidence: "low",
     },
   ],
 };
-const markerText = `FINAL_REVIEW_JSON\n${JSON.stringify(mode === "spike-marker" ? spikeReport : { summary: "marker summary", findings: [] })}`;
 const markerModes = [
   "marker",
   "authoritative",
   "item-correlation",
   "completed-no-delta",
+  "completion-after-cancel-usage",
   "file-change",
   "marker-retry",
   "marker-three-invalid",
@@ -113,10 +134,12 @@ const markerModes = [
   "turn-failed-mutates",
   "cancel-active-mutates",
   "cancel-active-hung",
+  "cancel-active-close-rejects",
   "timeout-thread",
   "cancel-before",
   "cancel-active",
   "timeout-active",
+  "timeout-active-mutates-restores",
   "repository-unchanged",
   "repository-mutates",
   "teardown-mutates",
@@ -124,12 +147,7 @@ const markerModes = [
   "spike-three-invalid",
   "spike-cancel-active",
 ].includes(mode);
-const outputSchemaModes = [
-  "output-schema",
-  "output-schema-default",
-  "output-schema-retry",
-  "output-schema-three-invalid",
-].includes(mode);
+const outputSchemaModes = markerModes;
 const retryModes = [
   "marker-retry",
   "marker-three-invalid",
@@ -293,15 +311,16 @@ function handleMarker(message) {
             ? `${process.cwd()}-other`
             : mode === "canonical-cwd"
               ? realpathSync(params.cwd)
-            : ["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode)
-              ? params.cwd
-              : process.cwd(),
+              : ["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode)
+                ? params.cwd
+                : process.cwd(),
         approvalPolicy: mode === "policy-approval" ? "on-request" : "never",
         sandbox: { type: "readOnly", networkAccess: mode === "policy-sandbox" },
         futureField: "ignored",
       },
     };
-    if (mode === "timeout-thread") setTimeout(() => send(threadResponse), 500);
+    if (mode === "timeout-thread")
+      setTimeout(() => send(threadResponse), process.platform === "win32" ? 5_500 : 500);
     else send(threadResponse);
     return;
   }
@@ -309,8 +328,10 @@ function handleMarker(message) {
     [
       "cancel-active",
       "timeout-active",
+      "timeout-active-mutates-restores",
       "cancel-active-mutates",
       "cancel-active-hung",
+      "cancel-active-close-rejects",
       "spike-cancel-active",
     ].includes(mode) &&
     markerStep === 5 &&
@@ -393,12 +414,14 @@ function handleMarker(message) {
       [
         "cancel-active",
         "timeout-active",
+        "timeout-active-mutates-restores",
         "cancel-active-mutates",
         "cancel-active-hung",
+        "cancel-active-close-rejects",
         "spike-cancel-active",
       ].includes(mode)
     ) {
-      if (mode === "cancel-active-mutates")
+      if (["cancel-active-mutates", "timeout-active-mutates-restores"].includes(mode))
         writeFileSync("codex-mutated.txt", "provider mutation\n");
       send({
         method: "item/agentMessage/delta",
@@ -434,15 +457,13 @@ function handleMarker(message) {
         mode,
       ) ||
       (mode === "output-schema-retry" && attempt === 1);
-    const finalText = outputSchemaModes
-      ? invalid
-        ? JSON.stringify({ summary: "invalid", findings: "not-an-array" })
-        : JSON.stringify({ summary: "schema summary", findings: [] })
-      : mode === "authoritative"
-        ? `FINAL_REVIEW_JSON\n${JSON.stringify({ summary: "authoritative summary", findings: [] })}`
-        : invalid
-          ? `FINAL_REVIEW_JSON\n${JSON.stringify({ summary: "invalid", findings: "not-an-array" })}`
-          : markerText;
+    const finalText = invalid
+      ? JSON.stringify({ summary: "invalid", findings: "not-an-array" })
+      : mode === "spike-marker"
+        ? JSON.stringify(spikeReport)
+        : mode === "authoritative"
+          ? JSON.stringify({ summary: "authoritative summary", findings: [] })
+          : JSON.stringify({ summary: "schema summary", findings: [] });
     const agentMessage = {
       type: "agentMessage",
       id: `item-${attempt}`,
@@ -507,7 +528,7 @@ function handleMarker(message) {
         method: "item/completed",
         params: { threadId: "thread-1", turnId, item: agentMessage, completedAtMs: 1 },
       });
-    } else if (mode === "completed-no-delta") {
+    } else if (["completed-no-delta", "completion-after-cancel-usage"].includes(mode)) {
       send({
         method: "item/completed",
         params: { threadId: "thread-1", turnId, item: agentMessage, completedAtMs: 1 },
@@ -552,26 +573,45 @@ function handleMarker(message) {
       reasoningOutputTokens: 19,
     };
     if (mode === "usage-omitted") delete usage.cacheWriteInputTokens;
-    send({
-      method: "thread/tokenUsage/updated",
-      params: {
-        threadId: "thread-1",
-        turnId,
-        tokenUsage: { total: usage, last: usage, modelContextWindow: null },
-      },
-    });
-    send({
-      method: "turn/completed",
-      params: {
-        threadId: "thread-1",
-        turn: {
-          id: turnId,
-          status: "completed",
-          items: ["item-correlation", "completed-no-delta"].includes(mode) ? [] : [agentMessage],
-          error: null,
+    const sendUsage = () => {
+      send({
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread-1",
+          turnId,
+          tokenUsage: { total: usage, last: usage, modelContextWindow: null },
         },
-      },
-    });
+      });
+    };
+    const sendCompletion = () => {
+      send({
+        method: "turn/completed",
+        params: {
+          threadId: "thread-1",
+          turn: {
+            id: turnId,
+            status: "completed",
+            items: [
+              "item-correlation",
+              "completed-no-delta",
+              "completion-after-cancel-usage",
+            ].includes(mode)
+              ? []
+              : [agentMessage],
+            error: null,
+          },
+        },
+      });
+    };
+    if (mode === "completion-after-cancel-usage") {
+      setTimeout(() => {
+        sendUsage();
+        setTimeout(sendCompletion, 40);
+      }, 20);
+      return;
+    }
+    sendUsage();
+    sendCompletion();
     return;
   }
   markerError(message);
@@ -592,11 +632,15 @@ input.on("line", (line) => {
     setImmediate(() => process.exit(0));
     return;
   }
+  if (mode === "stdout-eof-hung" && typeof message.id === "number") {
+    process.stdout.end();
+    return;
+  }
   if (mode === "server-request" && typeof message.id === "number") {
     send({ id: "server-request-1", method: "server.ask", params: { question: "?" } });
     return;
   }
-  if (mode === "immediate" && typeof message.id === "number") {
+  if (["immediate", "ignores-sigterm"].includes(mode) && typeof message.id === "number") {
     send({ id: message.id, result: { request: message.method } });
     return;
   }
@@ -623,6 +667,7 @@ input.on("line", (line) => {
 });
 
 input.on("close", () => {
+  if (mode === "timeout-active-mutates-restores") rmSync("codex-mutated.txt", { force: true });
   if (mode === "teardown-mutates")
     writeFileSync("codex-mutated-on-close.txt", "teardown mutation\n");
   if (
@@ -634,6 +679,7 @@ input.on("close", () => {
       "authoritative",
       "item-correlation",
       "completed-no-delta",
+      "completion-after-cancel-usage",
       "file-change",
       "marker-retry",
       "marker-three-invalid",
@@ -658,7 +704,9 @@ input.on("close", () => {
       "cancel-before",
       "cancel-active",
       "cancel-active-mutates",
+      "cancel-active-close-rejects",
       "timeout-active",
+      "timeout-active-mutates-restores",
       "repository-unchanged",
       "repository-mutates",
       "teardown-mutates",

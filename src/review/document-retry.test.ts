@@ -55,6 +55,23 @@ describe("decideReviewAttempt", () => {
     }
   });
 
+  it("returns a marker-free retry for native JSON output", () => {
+    const inspection = inspectReviewText(invalidDocument);
+    expect(inspection.kind).toBe("invalid");
+    if (inspection.kind !== "invalid") return;
+
+    const decision = decideReviewAttempt({
+      closed: inspection,
+      attempt: 1,
+      mode: "native-json",
+    });
+
+    expect(decision.kind).toBe("retry");
+    if (decision.kind !== "retry") return;
+    expect(decision.userMessage).toContain("replacement JSON object");
+    expect(decision.userMessage).not.toContain(REVIEW_JSON_MARKER);
+  });
+
   it("fails after the last allowed attempt", () => {
     const inspection = inspectReviewText(invalidDocument);
     expect(inspection.kind).toBe("invalid");

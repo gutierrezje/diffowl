@@ -1,4 +1,4 @@
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
@@ -116,6 +116,22 @@ describe("repository guard", () => {
       path: "ignored.txt",
       status: "!!",
       sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+  });
+
+  it("detects content changes inside an explicitly included ignored directory", async () => {
+    const directory = await repository();
+    await writeFile(join(directory, ".gitignore"), "ignored/\n");
+    await mkdir(join(directory, "ignored"));
+    await writeFile(join(directory, "ignored", "child.txt"), "before");
+
+    const before = await captureRepositoryState(directory, { includeIgnoredPaths: true });
+    await writeFile(join(directory, "ignored", "child.txt"), "after");
+    const after = await captureRepositoryState(directory, { includeIgnoredPaths: true });
+
+    expect(compareRepositoryStates(before, after)).toEqual({
+      kind: "changed",
+      changedPaths: ["ignored/child.txt"],
     });
   });
 });

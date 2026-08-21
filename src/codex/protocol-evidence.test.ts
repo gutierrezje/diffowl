@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join } from "node:path";
@@ -52,6 +52,34 @@ describe("inspectCodexProtocol", () => {
     });
   });
 
+  it.each(["incompatible-shape", "incompatible-nesting"])(
+    "rejects token-preserving JSON that is not a compatible schema (%s)",
+    async (mode) => {
+      await expect(
+        inspectCodexProtocol({
+          executable: process.execPath,
+          prefixArgs: [fixture],
+          env: { MOCK_CLI_MODE: mode },
+          timeoutMs: 5_000,
+        }),
+      ).rejects.toMatchObject({
+        kind: "protocol-incompatible",
+        message: expect.stringContaining("TurnStartParams.json"),
+      });
+    },
+  );
+
+  it("accepts compatible schemas that use const discriminators", async () => {
+    const evidence = await inspectCodexProtocol({
+      executable: process.execPath,
+      prefixArgs: [fixture],
+      env: { MOCK_CLI_MODE: "const-schema" },
+      timeoutMs: 5_000,
+    });
+
+    expect(evidence.codexCliVersion).toBe("codex-cli 0.147.0");
+  });
+
   it("reports a missing executable", async () => {
     const executable = join(tmpdir(), `diffowl-missing-codex-${randomUUID()}`);
     await expect(inspectCodexProtocol({ executable, timeoutMs: 1_000 })).rejects.toMatchObject({
@@ -73,6 +101,33 @@ describe("inspectCodexProtocol", () => {
     });
     expect(evidence.codexCliVersion).toBe("codex-cli 0.147.0");
   });
+
+  it.skipIf(process.platform === "win32")(
+    "skips a non-executable PATH candidate during protocol inspection",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "diffowl-protocol-path-"));
+      const first = join(root, "first");
+      const second = join(root, "second");
+      const executable = "codex-test";
+      try {
+        await Promise.all([mkdir(first), mkdir(second)]);
+        await writeFile(join(first, executable), "not executable");
+        await chmod(join(first, executable), 0o644);
+        await symlink(process.execPath, join(second, executable));
+
+        const evidence = await inspectCodexProtocol({
+          executable,
+          prefixArgs: [fixture],
+          env: { PATH: `${first}:${second}` },
+          timeoutMs: 5_000,
+        });
+
+        expect(evidence.codexCliVersion).toBe("codex-cli 0.147.0");
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("rejects an invalid version", async () => {
     await expect(
@@ -121,14 +176,38 @@ describe("inspectCodexProtocol", () => {
   it("terminates a hung generator and reports its phase", async () => {
     const directory = await mkdtemp(join(tmpdir(), "codex-protocol-pid-"));
     const pidFile = join(directory, "pid");
+    const controller = new AbortController();
     try {
       const error = await inspectCodexProtocol({
         executable: process.execPath,
         prefixArgs: [fixture],
         env: { MOCK_CLI_MODE: "hang-generate", MOCK_CLI_PID_FILE: pidFile },
         timeoutMs: 3_000,
+        signal: controller.signal,
       }).catch((value: unknown) => value);
       expect(error).toMatchObject({ kind: "timeout", phase: "generate-ts" });
+      const pid = Number(await readFile(pidFile, "utf8"));
+      expect(() => process.kill(pid, 0)).toThrow();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("cancels an active protocol generator", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "codex-protocol-cancelled-"));
+    const pidFile = join(directory, "pid");
+    const controller = new AbortController();
+    try {
+      const inspection = inspectCodexProtocol({
+        executable: process.execPath,
+        prefixArgs: [fixture],
+        env: { MOCK_CLI_MODE: "hang-generate", MOCK_CLI_PID_FILE: pidFile },
+        timeoutMs: 5_000,
+        signal: controller.signal,
+      });
+      setTimeout(() => controller.abort(), 100);
+
+      await expect(inspection).rejects.toMatchObject({ kind: "cancelled" });
       const pid = Number(await readFile(pidFile, "utf8"));
       expect(() => process.kill(pid, 0)).toThrow();
     } finally {

@@ -12,7 +12,7 @@ import {
 import type { ReviewTiming } from "../../review/types.js";
 import type { ReviewUsage } from "../../review/usage.js";
 import { SchemaValidationError } from "../../review/document.js";
-import { AppServerPeerError } from "./app-server-peer.js";
+import { AppServerPeerError } from "../../codex/app-server-peer.js";
 import {
   CodexReviewError,
   executeCodexReview,
@@ -20,13 +20,12 @@ import {
   type CodexReviewErrorKind,
   type CodexReviewEvidence,
   type CodexReviewFailureEvidence,
-  type CodexReviewStrategy,
-} from "./review-runner.js";
+} from "../../codex/review-runner.js";
 import {
   inspectCodexProtocol,
   ProtocolEvidenceError,
   type CodexProtocolEvidence,
-} from "./protocol-evidence.js";
+} from "../../codex/protocol-evidence.js";
 
 export type SpikeInput = {
   review: Omit<ReviewPipelineInput, "onStatus">;
@@ -37,7 +36,6 @@ export type SpikeInput = {
     protocol: { executable: string; prefixArgs?: readonly string[]; env?: NodeJS.ProcessEnv };
     appServer: { executable: string; args?: readonly string[]; env?: NodeJS.ProcessEnv };
     model: string;
-    strategy: CodexReviewStrategy;
     artifactDirectory: string;
     timeoutMs: number;
     interruptDeadlineMs: number;
@@ -125,6 +123,7 @@ export async function runCodexAppServerSpike(input: SpikeInput): Promise<SpikeOu
     protocol = await inspectCodexProtocol({
       ...input.codex.protocol,
       timeoutMs: input.codex.timeoutMs,
+      ...(input.signal === undefined ? {} : { signal: input.signal }),
     });
     const deps = {
       ...defaultReviewPipelineDeps,
@@ -140,7 +139,6 @@ export async function runCodexAppServerSpike(input: SpikeInput): Promise<SpikeOu
             ...(input.codex.appServer.args === undefined ? {} : { args: input.codex.appServer.args }),
             ...(input.codex.appServer.env === undefined ? {} : { env: input.codex.appServer.env }),
             model: input.codex.model,
-            strategy: input.codex.strategy,
             timeoutMs: input.codex.timeoutMs,
             interruptTimeoutMs: input.codex.interruptDeadlineMs,
             closeTimeoutMs: input.codex.teardownDeadlineMs,

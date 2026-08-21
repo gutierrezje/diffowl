@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -42,6 +42,38 @@ describe("startAppServerPeer", () => {
     await expect(peer.request("bare")).resolves.toEqual({ request: "bare" });
     await expect(peer.close()).resolves.toMatchObject({ kind: "eof", code: 0 });
   });
+
+  it.skipIf(process.platform === "win32")(
+    "skips a non-executable PATH candidate and uses the next executable",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "diffowl-app-server-path-"));
+      const first = join(root, "first");
+      const second = join(root, "second");
+      const executable = "codex-test";
+      try {
+        await Promise.all([mkdir(first), mkdir(second)]);
+        await writeFile(join(first, executable), "not executable");
+        await chmod(join(first, executable), 0o644);
+        await symlink(process.execPath, join(second, executable));
+        const peer = startAppServerPeer({
+          executable,
+          args: [fixture],
+          env: {
+            PATH: `${first}:${second}`,
+            MOCK_APP_SERVER_MODE: "immediate",
+          },
+          closeTimeoutMs: 500,
+        });
+
+        await expect(peer.request("path-fallback")).resolves.toEqual({
+          request: "path-fallback",
+        });
+        await expect(peer.close()).resolves.toMatchObject({ kind: "eof", code: 0 });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("resolves a relative executable from the child cwd", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "diffowl-relative-app-server-"));
@@ -103,6 +135,25 @@ describe("startAppServerPeer", () => {
     await expect(peer.close()).resolves.toMatchObject({ kind: "eof", code: 0 });
   });
 
+  it("removes an aborted request before teardown", async () => {
+    const peer = startAppServerPeer({
+      executable: process.execPath,
+      args: [fixture],
+      env: { MOCK_APP_SERVER_MODE: "basic" },
+      closeTimeoutMs: 500,
+    });
+    const controller = new AbortController();
+    const reason = new Error("request deadline expired");
+
+    const pending = peer.request("never-completes", undefined, { signal: controller.signal });
+    controller.abort(reason);
+
+    await expect(pending).rejects.toBe(reason);
+    await expect(peer.request("follow-up")).resolves.toEqual({ request: "second" });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await expect(peer.close()).resolves.toMatchObject({ kind: "eof", code: 0 });
+  });
+
   it.each([
     ["malformed-json", "malformed-json"],
     ["malformed-envelope", "malformed-envelope"],
@@ -130,8 +181,34 @@ describe("startAppServerPeer", () => {
     const second = peer.request("second");
     await expect(first).rejects.toMatchObject({ kind: "premature-eof" });
     await expect(second).rejects.toMatchObject({ kind: "premature-eof" });
-    await expect(peer.close()).resolves.toMatchObject({ kind: "exit", code: 0 });
+    const close = await peer.close();
+    expect(close.code).toBe(0);
+    expect(["exit", "sigterm"]).toContain(close.kind);
   });
+
+  it.skipIf(process.platform === "win32")(
+    "rejects pending requests when stdout ends before the child exits",
+    async () => {
+      const peer = startAppServerPeer({
+        executable: process.execPath,
+        args: [fixture],
+        env: { MOCK_APP_SERVER_MODE: "stdout-eof-hung" },
+        closeTimeoutMs: 100,
+      });
+      const pid = peer.pid;
+      if (pid === undefined) throw new Error("peer did not expose a pid");
+
+      try {
+        await expect(peer.request("close-stdout")).rejects.toMatchObject({
+          kind: "premature-eof",
+        });
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        expect(() => process.kill(pid, 0)).toThrow();
+      } finally {
+        await peer.close().catch(() => undefined);
+      }
+    },
+  );
 
   it("rejects an unexpected server request with a stable kind", async () => {
     const peer = startAppServerPeer({
@@ -165,6 +242,21 @@ describe("startAppServerPeer", () => {
     expect(() => process.kill(pid, 0)).toThrow();
   });
 
+  it.skipIf(process.platform === "win32")(
+    "waits for process exit after escalating teardown to SIGKILL",
+    async () => {
+      const peer = startAppServerPeer({
+        executable: process.execPath,
+        args: [fixture],
+        env: { MOCK_APP_SERVER_MODE: "ignores-sigterm" },
+        closeTimeoutMs: 3,
+      });
+
+      await expect(peer.request("ready")).resolves.toEqual({ request: "ready" });
+      await expect(peer.close()).resolves.toMatchObject({ kind: "sigkill", signal: "SIGKILL" });
+    },
+  );
+
   it("correlates responses, delivers notifications, bounds stderr, and closes on stdin EOF", async () => {
     const peer = startAppServerPeer({
       executable: process.execPath,
@@ -190,5 +282,20 @@ describe("startAppServerPeer", () => {
     const closing = peer.close();
     expect(peer.close()).toBe(closing);
     await expect(closing).resolves.toMatchObject({ kind: "eof", code: 0 });
+  });
+
+  it("redacts configured secrets from captured stderr", async () => {
+    const peer = startAppServerPeer({
+      executable: process.execPath,
+      args: [fixture],
+      env: { MOCK_APP_SERVER_MODE: "immediate", MOCK_APP_SERVER_SECRET: "do-not-expose" },
+      stderrRedactions: ["do-not-expose"],
+      closeTimeoutMs: 500,
+    });
+
+    await expect(peer.request("ready")).resolves.toEqual({ request: "ready" });
+    expect(peer.getStderr()).toContain("[REDACTED]");
+    expect(peer.getStderr()).not.toContain("do-not-expose");
+    await expect(peer.close()).resolves.toMatchObject({ kind: "eof", code: 0 });
   });
 });

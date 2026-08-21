@@ -11,7 +11,7 @@ import { withMaterializedEvalCase } from "../../eval/repo.js";
 import { collectEvalCaseExpected, type EvalCase } from "../../eval/case-types.js";
 import type { ReviewFinding } from "../../review/types.js";
 import type { ReviewUsage } from "../../review/usage.js";
-import type { AppServerCloseResult } from "./app-server-peer.js";
+import type { AppServerCloseResult } from "../../codex/app-server-peer.js";
 import { runCodexAppServerSpike } from "./spike.js";
 import type { OpenCodeProvenance } from "./live-helpers.js";
 import {
@@ -19,7 +19,6 @@ import {
   captureOpenCodeProvenance,
   hashText,
   liveConfig,
-  requireCodexStrategy,
   reviewInput,
   writeSafeJsonArtifact,
 } from "./live-helpers.js";
@@ -37,7 +36,6 @@ describe("human-gated Codex/OpenCode matched harness", () => {
       const codexModel = process.env["DIFFOWL_CODEX_MODEL"]?.trim() ?? "";
       const opencodeModel = process.env["DIFFOWL_OPENCODE_MODEL"]?.trim() ?? "";
       const artifactDirectory = process.env["DIFFOWL_CODEX_ARTIFACT_DIR"]?.trim() ?? "";
-      const codexStrategy = requireCodexStrategy();
       if (
         codexModel === "" ||
         codexModel.includes("/") ||
@@ -58,13 +56,7 @@ describe("human-gated Codex/OpenCode matched harness", () => {
       try {
         for (const evalCase of cases) {
           records.push(
-            await runMatchedCase(
-              evalCase,
-              codexModel,
-              opencodeModel,
-              codexStrategy,
-              artifactDirectory,
-            ),
+            await runMatchedCase(evalCase, codexModel, opencodeModel, artifactDirectory),
           );
         }
       } catch (error) {
@@ -73,7 +65,7 @@ describe("human-gated Codex/OpenCode matched harness", () => {
       } finally {
         const artifactPath = await writeSafeJsonArtifact(artifactDirectory, {
           kind: "matched-codex-opencode",
-          codexStrategy: codexStrategy.kind,
+          codexDocumentMode: "native-json",
           commandShapes: {
             codex: [
               (process.env["DIFFOWL_CODEX_EXECUTABLE"] ?? "codex")
@@ -108,7 +100,7 @@ type MatchedRecord = {
   durationMs: { codex: number; opencode: number };
   config: { depth: string; rules: { count: number; sha256: string } };
   codex: {
-    strategy: "marker" | "output-schema";
+    documentMode: "native-json";
     executableBasename: string;
     args: readonly ["app-server", "--stdio"];
     protocol: {
@@ -175,7 +167,6 @@ async function runMatchedCase(
   evalCase: EvalCase,
   codexModel: string,
   opencodeModel: string,
-  codexStrategy: ReturnType<typeof requireCodexStrategy>,
   artifactDirectory: string,
 ): Promise<MatchedRecord> {
   return withMaterializedEvalCase(evalCase, async (codexRepo) =>
@@ -192,7 +183,6 @@ async function runMatchedCase(
             args: ["app-server", "--stdio"],
           },
           model: codexModel,
-          strategy: codexStrategy,
           artifactDirectory: join(artifactDirectory, evalCase.id, "codex"),
           timeoutMs: PROVIDER_PHASE_TIMEOUT_MS,
           interruptDeadlineMs: 10_000,
@@ -257,7 +247,7 @@ async function runMatchedCase(
           rules: { count: config.rules.length, sha256: hashText(JSON.stringify(config.rules)) },
         },
         codex: {
-          strategy: codex.codex.strategy.kind,
+          documentMode: codex.codex.documentMode,
           executableBasename: codex.commandProvenance.appServer.executableBasename,
           args: ["app-server", "--stdio"],
           protocol: {

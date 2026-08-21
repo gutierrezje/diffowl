@@ -1,6 +1,6 @@
 import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
 import type { ReviewTarget } from "./target.js";
-import { REVIEW_JSON_MARKER } from "./document.js";
+import { REVIEW_JSON_MARKER, type ReviewDocumentMode } from "./document.js";
 
 /**
  * Default DiffOwl agent definition for code review.
@@ -8,9 +8,10 @@ import { REVIEW_JSON_MARKER } from "./document.js";
  * IMPORTANT: The agent must only emit a single, structured JSON object.
  * All scratch work and chain-of-thought should stay internal to the model.
  */
-export const REVIEW_AGENT_PROMPT = `You are DiffOwl, a meticulous senior code reviewer. Your job is to review git changes and provide actionable feedback as structured JSON.
+const REVIEW_AGENT_INTRO =
+  "You are DiffOwl, a meticulous senior code reviewer. Your job is to review git changes and provide actionable feedback as structured JSON.";
 
-You MAY think step-by-step internally, but your VISIBLE output must follow this contract exactly:
+const REVIEW_AGENT_MARKER_CONTRACT = `You MAY think step-by-step internally, but your VISIBLE output must follow this contract exactly:
 
 1. Output a single line with the text: ${REVIEW_JSON_MARKER}
 2. On the next line, output a single JSON object with this exact shape (no markdown fences, no comments, no trailing commas):
@@ -32,9 +33,12 @@ You MAY think step-by-step internally, but your VISIBLE output must follow this 
 
 3. Do not wrap the JSON in backticks or markdown code fences.
 4. Do not print any other text before or after the JSON line. No greetings, no explanations, no scratchpad, no commentary.
-5. If a follow-up user message lists schema-validation errors, emit a complete replacement document: a ${REVIEW_JSON_MARKER} line, then one JSON object. Do not patch the previous object. Do not wrap it in markdown.
+5. If a follow-up user message lists schema-validation errors, emit a complete replacement document: a ${REVIEW_JSON_MARKER} line, then one JSON object. Do not patch the previous object. Do not wrap it in markdown.`;
 
-Semantics and constraints:
+const REVIEW_AGENT_NATIVE_JSON_CONTRACT =
+  'You MAY think step-by-step internally, but your VISIBLE output must be JSON-only: exactly one JSON object matching the supplied output schema. Include every schema field on every finding and set "evidence": null when you cannot quote exact code lines. Do not include markdown fences or commentary.';
+
+const REVIEW_AGENT_GUIDANCE = `Semantics and constraints:
 - "severity":
   - "error" — Bugs, security vulnerabilities, crashes, data loss, or behavior that is very likely wrong and should block merge.
   - "warning" — Error-handling gaps, race conditions, performance issues, surprising behavior that is likely problematic but not an immediate blocker.
@@ -78,6 +82,10 @@ Do not force these passes onto unrelated changes; skip surfaces that are not pre
 - Performance and boundedness: Look for unbounded work, N+1 calls, excessive rendering or recomputation, large-payload cliffs, slow common paths, and missing limits.
 - Data filtering/loss: Look for data silently dropped, hidden, duplicated, parsed with a fallback, or reported inconsistently.
 `;
+
+export const REVIEW_AGENT_PROMPT = `${REVIEW_AGENT_INTRO}\n\n${REVIEW_AGENT_MARKER_CONTRACT}\n\n${REVIEW_AGENT_GUIDANCE}`;
+
+export const REVIEW_AGENT_NATIVE_JSON_PROMPT = `${REVIEW_AGENT_INTRO}\n\n${REVIEW_AGENT_NATIVE_JSON_CONTRACT}\n\n${REVIEW_AGENT_GUIDANCE}`;
 
 /**
  * Build the review prompt to send to the selected backend.
@@ -137,6 +145,7 @@ export function resolveReviewPrompts(options: {
   depth: ReviewContextDepth;
   systemPrompt?: string;
   userPrompt?: string;
+  documentMode?: ReviewDocumentMode;
 }): { system: string; user: string } {
   const user =
     options.userPrompt ??
@@ -148,7 +157,11 @@ export function resolveReviewPrompts(options: {
       options.localContext,
       options.depth,
     );
-  const system = options.systemPrompt ?? REVIEW_AGENT_PROMPT;
+  const system =
+    options.systemPrompt ??
+    (options.documentMode === "native-json"
+      ? REVIEW_AGENT_NATIVE_JSON_PROMPT
+      : REVIEW_AGENT_PROMPT);
   return { system, user };
 }
 
