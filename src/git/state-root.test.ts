@@ -125,6 +125,7 @@ describe("getSharedDiffOwlDir", () => {
       const externalRoot = await createProject("diffowl-state-root-external-git-");
       const commonDir = join(externalRoot, "repo.git");
       await rename(join(repo, ".git"), commonDir);
+      await symlink(".git", join(externalRoot, ".git"));
       await symlink(commonDir, join(repo, ".git"), "dir");
       process.chdir(repo);
 

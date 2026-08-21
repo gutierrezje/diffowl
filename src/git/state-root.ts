@@ -149,12 +149,22 @@ async function findStandardWorktreeRoot(commonDir: string): Promise<string | und
         if (relative(commonDir, target) === "") return candidate;
       }
     } catch (error) {
-      if (!isMissingPathError(error)) throw error;
+      if (!isUnusableStandardGitEntryError(error)) throw error;
     }
     const parent = dirname(candidate);
     if (parent === candidate) return undefined;
     candidate = parent;
   }
+}
+
+function isUnusableStandardGitEntryError(error: unknown): boolean {
+  if (!(error instanceof Error) || !("code" in error)) return false;
+  return (
+    error.code === "ENOENT" ||
+    error.code === "EACCES" ||
+    error.code === "ELOOP" ||
+    error.code === "EPERM"
+  );
 }
 
 /** Exported for tests: only ENOENT / git exit 128 are soft-fallback cases. */
