@@ -105,6 +105,33 @@ describe("getSharedDiffOwlDir", () => {
     },
   );
 
+  it.skipIf(process.platform === "win32")(
+    "shares standard state with linked worktrees when .git is a directory symlink",
+    async () => {
+      const repo = await createGitProject();
+      await rename(join(repo, ".git"), join(repo, ".git-storage"));
+      await symlink(".git-storage", join(repo, ".git"), "dir");
+      const worktree = await createWorktree(repo);
+      process.chdir(worktree);
+
+      await expect(getSharedDiffOwlDir()).resolves.toBe(join(repo, ".diffowl"));
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "namespaces state inside an external .git symlink target",
+    async () => {
+      const repo = await createGitProject();
+      const externalRoot = await createProject("diffowl-state-root-external-git-");
+      const commonDir = join(externalRoot, "repo.git");
+      await rename(join(repo, ".git"), commonDir);
+      await symlink(commonDir, join(repo, ".git"), "dir");
+      process.chdir(repo);
+
+      await expect(getSharedDiffOwlDir()).resolves.toBe(join(commonDir, "diffowl", ".diffowl"));
+    },
+  );
+
   it("resolves a relative common dir against the project root", async () => {
     const repo = await createGitProject("packages/api");
     const worktree = await createWorktree(repo);

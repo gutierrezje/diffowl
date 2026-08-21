@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { lstat, realpath } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { execa } from "execa";
 import { getProjectRoot } from "../config.js";
 
@@ -62,26 +62,27 @@ async function resolveSharedDiffOwlDir(): Promise<string> {
   }
 
   let toplevel: string;
+  let commonDir: string;
   try {
     toplevel = await realpath(resolveGitPath(projectRoot, toplevelRaw));
+    commonDir = await realpath(resolveGitPath(projectRoot, commonRaw));
   } catch (error) {
     if (isMissingPathError(error)) return localDir;
     throw error;
   }
-  const commonDir = resolveGitPath(projectRoot, commonRaw);
   const rel = relative(toplevel, projectRoot);
-  if (rel.startsWith("..")) {
+  if (isOutsidePath(rel)) {
     return localDir;
   }
 
   let sharedDiffOwlDir: string;
-  // Standard worktrees report the primary checkout's `.git`; bare repos and
-  // separate git-dir layouts need an extra namespace under the common dir.
-  if (basename(commonDir) !== ".git" && !(await hasStandardGitEntry(toplevel))) {
-    sharedDiffOwlDir = join(commonDir, "diffowl", rel, ".diffowl");
-  } else {
-    sharedDiffOwlDir = join(dirname(commonDir), rel, ".diffowl");
-  }
+  const standardWorktree = await findStandardWorktreeRoot(commonDir);
+  // A normal checkout, including an internal `.git` directory symlink, owns
+  // state beside that checkout. Separate or external git directories use
+  // their own repository-specific namespace.
+  sharedDiffOwlDir = standardWorktree
+    ? join(standardWorktree, rel, ".diffowl")
+    : join(commonDir, "diffowl", rel, ".diffowl");
 
   warnIfIgnoringLocalState(localDir, sharedDiffOwlDir);
   return sharedDiffOwlDir;
@@ -134,13 +135,25 @@ function isMissingPathError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
-async function hasStandardGitEntry(toplevel: string): Promise<boolean> {
-  try {
-    const entry = await lstat(join(toplevel, ".git"));
-    return entry.isDirectory() || entry.isSymbolicLink();
-  } catch (error) {
-    if (isMissingPathError(error)) return false;
-    throw error;
+function isOutsidePath(path: string): boolean {
+  return path === ".." || path.startsWith(`..${sep}`) || isAbsolute(path);
+}
+
+async function findStandardWorktreeRoot(commonDir: string): Promise<string | undefined> {
+  let candidate = dirname(commonDir);
+  while (true) {
+    try {
+      const entry = await lstat(join(candidate, ".git"));
+      if (entry.isDirectory() || entry.isSymbolicLink()) {
+        const target = await realpath(join(candidate, ".git"));
+        if (relative(commonDir, target) === "") return candidate;
+      }
+    } catch (error) {
+      if (!isMissingPathError(error)) throw error;
+    }
+    const parent = dirname(candidate);
+    if (parent === candidate) return undefined;
+    candidate = parent;
   }
 }
 
