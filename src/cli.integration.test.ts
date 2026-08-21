@@ -227,13 +227,14 @@ describe("diffowl CLI", () => {
       review: Record<string, unknown>;
     };
 
-    expect(document.schema_version).toBe(3);
+    expect(document.schema_version).toBe(4);
     expect(document.review).toMatchObject({
       backend: "codex",
       model: "gpt-5.4",
       requested_model: "gpt-5.4",
       effective_model: null,
       preference_source: { backend: "command", model: "command" },
+      execution: null,
       status: "skipped",
     });
     await expect(readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).resolves.toBe(
@@ -295,6 +296,19 @@ describe("diffowl CLI", () => {
         requested_model: "gpt-5-codex",
         effective_model: "gpt-5-codex",
         session_id: "thread-1",
+        execution: {
+          schema_version: 1,
+          cohort_id: null,
+          reviewer_id: "single",
+          role: "single",
+          backend: "codex",
+          requested_model: "gpt-5-codex",
+          effective_model: "gpt-5-codex",
+          preference_source: { backend: "command", model: "command" },
+          reasoning_effort: "auto",
+          session_id: "thread-1",
+          terminal_outcome: "completed",
+        },
       });
     },
     30_000,
@@ -411,7 +425,7 @@ describe("diffowl CLI", () => {
     );
 
     expect(JSON.parse(result.stderr)).toMatchObject({
-      schema_version: 3,
+      schema_version: 4,
       error: { message: expect.stringContaining("Codex model must be a bare model id") },
     });
   });

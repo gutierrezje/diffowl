@@ -17,6 +17,7 @@ import { MIGRATION_001_INITIAL_SCHEMA } from "./migrations/001-initial-schema.js
 import { openSqliteDatabase } from "./sqlite.js";
 import { dismissFinding } from "./lifecycle.js";
 import { listFindingEvents } from "./repositories/events.js";
+import { listReviewExecutionsByReviewId } from "./repositories/review-executions.js";
 import { getReviewById, insertReview } from "./repositories/reviews.js";
 import { reconcileReviewFindings } from "./reconcile.js";
 import { removeTempStateDir } from "./test-helpers.js";
@@ -29,6 +30,7 @@ const EXPECTED_TABLES = [
   "finding_observations",
   "finding_events",
   "finding_possible_duplicates",
+  "review_executions",
 ];
 
 let tempDirs: string[] = [];
@@ -68,6 +70,7 @@ describe("openStateDatabase", () => {
       expect(migrations).toEqual([
         { version: 1 },
         { version: 2 },
+        { version: 3 },
         { version: CURRENT_SCHEMA_VERSION },
       ]);
     } finally {
@@ -88,6 +91,7 @@ describe("openStateDatabase", () => {
       expect(migrations).toEqual([
         { version: 1 },
         { version: 2 },
+        { version: 3 },
         { version: CURRENT_SCHEMA_VERSION },
       ]);
     } finally {
@@ -228,6 +232,27 @@ describe("openStateDatabase", () => {
       "[]",
     );
     db.prepare(
+      `INSERT INTO reviews (
+        id, created_at, target_kind, target_ref, target_commit, diff_hash, model, reasoning,
+        depth, session_id, summary, diagnostics_json, timings_json, skipped_reason
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "rev_skipped",
+      "2026-07-12T00:00:00.000Z",
+      "last-commit",
+      null,
+      "abc123",
+      "skip-hash",
+      "provider/model",
+      "medium",
+      "default",
+      "",
+      "Documentation-only changes detected.",
+      "[]",
+      "[]",
+      "documentation-only",
+    );
+    db.prepare(
       `INSERT INTO findings (
         id, fingerprint, status, first_review_id, last_review_id, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -254,6 +279,20 @@ describe("openStateDatabase", () => {
           .prepare("SELECT first_review_id, last_review_id FROM findings WHERE id = ?")
           .get("fnd_existing"),
       ).toEqual({ first_review_id: "rev_existing", last_review_id: "rev_existing" });
+      expect(listReviewExecutionsByReviewId(state.db, "rev_existing")).toEqual([
+        expect.objectContaining({
+          id: "exe_legacy_rev_existing",
+          backend: null,
+          requestedModel: "provider/model",
+          effectiveModel: null,
+          preferenceSource: null,
+          reviewerId: "single",
+          role: "single",
+          sessionId: "session-existing",
+          terminalOutcome: "completed",
+        }),
+      ]);
+      expect(listReviewExecutionsByReviewId(state.db, "rev_skipped")).toEqual([]);
 
       const inserted = insertReview(state.db, {
         targetKind: "base",
@@ -320,6 +359,7 @@ describe("openStateDatabase", () => {
       expect(versions).toEqual([
         { version: 1 },
         { version: 2 },
+        { version: 3 },
         { version: CURRENT_SCHEMA_VERSION },
       ]);
     } finally {

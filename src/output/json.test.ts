@@ -49,6 +49,7 @@ function buildDocument(
 
 const persisted: PersistReviewRunResult = {
   reviewId: "rev_test",
+  execution: null,
   possibleDuplicateSuggestions: [],
   actionableFindings: [],
   lifecycleSuppressedFindings: [],
@@ -214,6 +215,19 @@ describe("reviewStatusFromPersisted", () => {
 
 describe("buildReviewJsonDocument", () => {
   it("renders backend selection and the backend-reported effective model", () => {
+    const execution = {
+      schemaVersion: 1 as const,
+      cohortId: null,
+      reviewerId: "single",
+      role: "single" as const,
+      backend: "codex" as const,
+      requestedModel: "gpt-5.4",
+      effectiveModel: "gpt-5.4-2026-08-01",
+      preferenceSource: { backend: "command" as const, model: "command" as const },
+      reasoningEffort: "max" as const,
+      sessionId: "session-test",
+      terminalOutcome: "completed" as const,
+    };
     const document = buildDocument({
       review: { ...review, model: "gpt-5.4" },
       persisted,
@@ -225,6 +239,7 @@ describe("buildReviewJsonDocument", () => {
         source: { backend: "command", model: "command" },
       },
       effectiveModel: "gpt-5.4-2026-08-01",
+      execution,
     });
 
     expect(document.review).toMatchObject({
@@ -232,10 +247,23 @@ describe("buildReviewJsonDocument", () => {
       requested_model: "gpt-5.4",
       effective_model: "gpt-5.4-2026-08-01",
       preference_source: { backend: "command", model: "command" },
+      execution: {
+        schema_version: 1,
+        cohort_id: null,
+        reviewer_id: "single",
+        role: "single",
+        backend: "codex",
+        requested_model: "gpt-5.4",
+        effective_model: "gpt-5.4-2026-08-01",
+        preference_source: { backend: "command", model: "command" },
+        reasoning_effort: "max",
+        session_id: "session-test",
+        terminal_outcome: "completed",
+      },
     });
   });
 
-  it("renders a base target in schema version 3 without changing its target shape", () => {
+  it("renders a base target in schema version 4 without changing its target shape", () => {
     const document = buildDocument({
       review: {
         ...review,
@@ -248,7 +276,7 @@ describe("buildReviewJsonDocument", () => {
       suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
     });
 
-    expect(document.schema_version).toBe(3);
+    expect(document.schema_version).toBe(4);
     expect(document.review.target).toEqual({
       kind: "base",
       ref: "origin/main",
@@ -256,7 +284,7 @@ describe("buildReviewJsonDocument", () => {
     });
   });
 
-  it("renders schema version 3 with review metadata and findings", () => {
+  it("renders schema version 4 with review metadata and findings", () => {
     const document = buildDocument({
       review,
       persisted,
@@ -270,7 +298,7 @@ describe("buildReviewJsonDocument", () => {
       },
     });
 
-    expect(document.schema_version).toBe(3);
+    expect(document.schema_version).toBe(4);
     expect(document.review.id).toBe("rev_test");
     expect(document.review.status).toBe("open");
     expect(document.findings).toHaveLength(1);
@@ -307,6 +335,7 @@ describe("buildReviewJsonDocument", () => {
       },
       persisted: {
         reviewId: "rev_skip",
+        execution: null,
         possibleDuplicateSuggestions: [],
         actionableFindings: [],
         lifecycleSuppressedFindings: [],
@@ -535,7 +564,7 @@ describe("renderReviewJsonDocument", () => {
 
     expect(rendered.endsWith("\n")).toBe(true);
     expect(JSON.parse(rendered.trim())).toMatchObject({
-      schema_version: 3,
+      schema_version: 4,
       review: { id: "rev_test" },
     });
   });
@@ -545,7 +574,7 @@ describe("renderJsonErrorDocument", () => {
   it("renders a versioned error envelope", () => {
     const rendered = renderJsonErrorDocument("Review failed.");
     expect(JSON.parse(rendered.trim())).toEqual({
-      schema_version: 3,
+      schema_version: 4,
       error: { message: "Review failed." },
     });
   });

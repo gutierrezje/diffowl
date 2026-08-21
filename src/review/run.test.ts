@@ -30,6 +30,7 @@ const config: DiffOwlConfig = {
 
 const persisted: PersistReviewRunResult = {
   reviewId: "rev_1",
+  execution: null,
   possibleDuplicateSuggestions: [],
   reconcile: { observations: [], suppressedCounts: { dismissed: 0, deferred: 0 } },
   actionableFindings: [],
@@ -256,6 +257,25 @@ describe("runReviewPipeline", () => {
     const inputTimings = [{ phase: "preflight", label: "Preflight", ms: 1 }];
     const kept = makeFinding("src/app.ts");
     const outside = makeFinding("src/other.ts");
+    const provenance = {
+      schemaVersion: 1 as const,
+      cohortId: null,
+      reviewerId: "single",
+      role: "single" as const,
+      backend: "codex" as const,
+      requestedModel: "gpt-5.6-luna",
+      effectiveModel: "resolved-model",
+      preferenceSource: { backend: "local" as const, model: "local" as const },
+      reasoningEffort: "max" as const,
+      sessionId: "session",
+      terminalOutcome: "completed" as const,
+    };
+    const persistedExecution = {
+      ...provenance,
+      id: "exe_1",
+      reviewId: "rev_1",
+      createdAt: "2026-08-21T00:00:00.000Z",
+    };
     vi.mocked(deps.executor.execute).mockResolvedValue({
       review: {
         report: {
@@ -267,9 +287,14 @@ describe("runReviewPipeline", () => {
       },
       timings: [],
       effectiveModel: "resolved-model",
+      provenance,
     });
     vi.mocked(deps.filterFindingsByChangedFiles).mockReturnValue({ findings: [kept], suppressed: [outside] });
-    vi.mocked(deps.persistReviewRun).mockResolvedValue({ ...persisted, actionableFindings: [kept] });
+    vi.mocked(deps.persistReviewRun).mockResolvedValue({
+      ...persisted,
+      execution: persistedExecution,
+      actionableFindings: [kept],
+    });
     vi.mocked(deps.enrichReviewFindingsWithDurableMetadata).mockImplementation((findings) =>
       findings.map((finding) => ({
         ...finding,
@@ -288,6 +313,7 @@ describe("runReviewPipeline", () => {
       reportPath: "/repo/.diffowl/reviews/review.md",
       sessionId: "session",
       effectiveModel: "resolved-model",
+      execution: persistedExecution,
       suppressed: { outsideChangedFiles: 1, belowConfidence: 0 },
     });
     expect(outcome.kind === "completed" ? outcome.report.findings[0]?.durable?.id : null).toBe("fnd_1");
@@ -298,7 +324,12 @@ describe("runReviewPipeline", () => {
     ]));
     expect(deps.persistReviewRun).toHaveBeenCalledWith(
       "/repo/.diffowl",
-      expect.objectContaining({ diffHash: "hash", findings: [kept], sessionId: "session" }),
+      expect.objectContaining({
+        diffHash: "hash",
+        execution: provenance,
+        findings: [kept],
+        sessionId: "session",
+      }),
     );
     expect(deps.updatePersistedReview).toHaveBeenCalledWith("/repo/.diffowl", "rev_1", {
       reportPath: "/repo/.diffowl/reviews/review.md",

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { closeStateDatabase, openStateDatabase } from "./db.js";
+import { closeStateDatabase, openStateDatabase, StateDatabaseError } from "./db.js";
 import { dismissFinding } from "./lifecycle.js";
 import {
   computeDiffHash,
@@ -18,6 +18,7 @@ import {
 import { computeFindingFingerprint } from "./fingerprint.js";
 import { listFindingEvents } from "./repositories/events.js";
 import { listAllFindings } from "./repositories/findings.js";
+import { listReviewExecutionsByReviewId } from "./repositories/review-executions.js";
 import { getReviewById } from "./repositories/reviews.js";
 import { removeTempStateDir } from "./test-helpers.js";
 import type { ReviewFinding } from "../review/types.js";
@@ -57,6 +58,19 @@ describe("persistReviewRun", () => {
       diagnostics: ["context warning"],
       timings: [{ phase: "total", label: "Total", ms: 42 }],
       findings: [sampleFinding],
+      execution: {
+        schemaVersion: 1,
+        cohortId: null,
+        reviewerId: "single",
+        role: "single",
+        backend: "codex",
+        requestedModel: "gpt-5.6-luna",
+        effectiveModel: "gpt-5.6-luna-2026-08-20",
+        preferenceSource: { backend: "local", model: "local" },
+        reasoningEffort: "max",
+        sessionId: "session-1",
+        terminalOutcome: "completed",
+      },
     });
 
     const state = await openStateDatabase(dir);
@@ -70,6 +84,32 @@ describe("persistReviewRun", () => {
       expect(result.actionableFindings).toHaveLength(1);
       expect(result.lifecycleSuppressedFindings).toHaveLength(0);
       expect(result.identityDiagnostics).toEqual([]);
+      expect(result.execution).toMatchObject({
+        reviewId: result.reviewId,
+        backend: "codex",
+        requestedModel: "gpt-5.6-luna",
+        effectiveModel: "gpt-5.6-luna-2026-08-20",
+        reviewerId: "single",
+        role: "single",
+      });
+      expect(listReviewExecutionsByReviewId(state.db, result.reviewId)).toEqual([
+        {
+          id: expect.stringMatching(/^exe_/),
+          reviewId: result.reviewId,
+          createdAt: expect.any(String),
+          schemaVersion: 1,
+          cohortId: null,
+          reviewerId: "single",
+          role: "single",
+          backend: "codex",
+          requestedModel: "gpt-5.6-luna",
+          effectiveModel: "gpt-5.6-luna-2026-08-20",
+          preferenceSource: { backend: "local", model: "local" },
+          reasoningEffort: "max",
+          sessionId: "session-1",
+          terminalOutcome: "completed",
+        },
+      ]);
     } finally {
       closeStateDatabase(state);
     }
@@ -173,8 +213,78 @@ describe("persistReviewRun", () => {
       const review = getReviewById(state.db, result.reviewId);
       expect(review?.skippedReason).toBe("documentation-only");
       expect(review?.targetCommit).toBe("abc123def");
+      expect(listReviewExecutionsByReviewId(state.db, result.reviewId)).toEqual([]);
       expect(result.reconcile?.observations).toHaveLength(0);
       expect(result.identityDiagnostics).toEqual([]);
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
+  it("round-trips an explicitly unknown preference source", async () => {
+    const dir = await createTempDir();
+    const result = await persistReviewRun(dir, {
+      ...basePersistInput([]),
+      execution: {
+        schemaVersion: 1,
+        cohortId: null,
+        reviewerId: "single",
+        role: "single",
+        backend: null,
+        requestedModel: "provider/model",
+        effectiveModel: null,
+        preferenceSource: null,
+        reasoningEffort: null,
+        sessionId: "legacy-session",
+        terminalOutcome: "completed",
+      },
+    });
+
+    const state = await openStateDatabase(dir);
+    try {
+      expect(listReviewExecutionsByReviewId(state.db, result.reviewId)).toEqual([
+        expect.objectContaining({
+          backend: null,
+          preferenceSource: null,
+          reasoningEffort: null,
+        }),
+      ]);
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
+  it("reports invalid execution rows as state database corruption", async () => {
+    const dir = await createTempDir();
+    const result = await persistReviewRun(dir, {
+      ...basePersistInput([]),
+      execution: {
+        schemaVersion: 1,
+        cohortId: null,
+        reviewerId: "single",
+        role: "single",
+        backend: "opencode",
+        requestedModel: "provider/model",
+        effectiveModel: null,
+        preferenceSource: { backend: "local", model: "local" },
+        reasoningEffort: "medium",
+        sessionId: "session-corrupt",
+        terminalOutcome: "completed",
+      },
+    });
+
+    const state = await openStateDatabase(dir);
+    try {
+      state.db
+        .prepare("UPDATE review_executions SET reasoning_effort = ? WHERE review_id = ?")
+        .run("future-effort", result.reviewId);
+
+      expect(() => listReviewExecutionsByReviewId(state.db, result.reviewId)).toThrow(
+        StateDatabaseError,
+      );
+      expect(() => listReviewExecutionsByReviewId(state.db, result.reviewId)).toThrow(
+        `Review ${result.reviewId} contains invalid execution provenance.`,
+      );
     } finally {
       closeStateDatabase(state);
     }

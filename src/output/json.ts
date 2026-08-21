@@ -1,5 +1,6 @@
 import type { ReviewFinding, ReviewTiming, ReviewUsage } from "../review/types.js";
 import type { ReviewSelection } from "../review/backend-selection.js";
+import type { ReviewExecutionProvenance } from "../review/provenance.js";
 import { isUntrackedFinding, type PersistReviewRunResult } from "../state/persist.js";
 import type {
   FindingStatus,
@@ -11,7 +12,7 @@ import type {
   ReviewTargetKind,
 } from "../state/types.js";
 
-export const JSON_OUTPUT_SCHEMA_VERSION = 3 as const;
+export const JSON_OUTPUT_SCHEMA_VERSION = 4 as const;
 
 export type ReviewOutputFormat = "text" | "json";
 
@@ -48,7 +49,21 @@ export interface ReviewJsonFindingV2 {
   occurrence_count: number;
 }
 
-export interface ReviewJsonDocumentV3 {
+export interface ReviewJsonExecutionV1 {
+  schema_version: 1;
+  cohort_id: string | null;
+  reviewer_id: string;
+  role: ReviewExecutionProvenance["role"];
+  backend: ReviewExecutionProvenance["backend"];
+  requested_model: ReviewExecutionProvenance["requestedModel"];
+  effective_model: string | null;
+  preference_source: ReviewExecutionProvenance["preferenceSource"];
+  reasoning_effort: ReviewExecutionProvenance["reasoningEffort"];
+  session_id: ReviewExecutionProvenance["sessionId"];
+  terminal_outcome: ReviewExecutionProvenance["terminalOutcome"];
+}
+
+export interface ReviewJsonDocumentV4 {
   schema_version: typeof JSON_OUTPUT_SCHEMA_VERSION;
   review: {
     id: string;
@@ -63,6 +78,7 @@ export interface ReviewJsonDocumentV3 {
     requested_model: string;
     effective_model: string | null;
     preference_source: ReviewSelection["source"];
+    execution: ReviewJsonExecutionV1 | null;
     reasoning: string;
     depth: string;
     session_id: string;
@@ -98,6 +114,7 @@ export interface BuildReviewJsonInput {
   usage?: ReviewUsage | null;
   selection: ReviewSelection;
   effectiveModel: string | null;
+  execution?: ReviewExecutionProvenance | null;
 }
 
 export function parseReviewOutputFormat(value: unknown): ReviewOutputFormat {
@@ -110,7 +127,7 @@ export function parseReviewOutputFormat(value: unknown): ReviewOutputFormat {
   throw new Error(`Invalid output format: ${String(value)}. Expected text or json.`);
 }
 
-export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJsonDocumentV3 {
+export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJsonDocumentV4 {
   const observations = selectJsonObservations(
     input.persisted.reconcile.observations,
     input.verbose,
@@ -128,10 +145,11 @@ export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJson
         commit: input.review.targetCommit,
       },
       model: input.review.model,
-      backend: input.selection.backend,
-      requested_model: input.selection.requestedModel,
-      effective_model: input.effectiveModel,
-      preference_source: input.selection.source,
+      backend: input.execution?.backend ?? input.selection.backend,
+      requested_model: input.execution?.requestedModel ?? input.selection.requestedModel,
+      effective_model: input.execution?.effectiveModel ?? input.effectiveModel,
+      preference_source: input.execution?.preferenceSource ?? input.selection.source,
+      execution: input.execution ? mapJsonExecution(input.execution) : null,
       reasoning: input.review.reasoning,
       depth: input.review.depth,
       session_id: input.review.sessionId,
@@ -155,7 +173,7 @@ export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJson
   };
 }
 
-export function renderReviewJsonDocument(document: ReviewJsonDocumentV3): string {
+export function renderReviewJsonDocument(document: ReviewJsonDocumentV4): string {
   return `${JSON.stringify(document)}\n`;
 }
 
@@ -167,8 +185,24 @@ export function renderJsonErrorDocument(message: string): string {
   return `${JSON.stringify(document)}\n`;
 }
 
-export async function writeReviewJsonSuccess(document: ReviewJsonDocumentV3): Promise<void> {
+export async function writeReviewJsonSuccess(document: ReviewJsonDocumentV4): Promise<void> {
   await writeFully(process.stdout, renderReviewJsonDocument(document));
+}
+
+function mapJsonExecution(execution: ReviewExecutionProvenance): ReviewJsonExecutionV1 {
+  return {
+    schema_version: execution.schemaVersion,
+    cohort_id: execution.cohortId,
+    reviewer_id: execution.reviewerId,
+    role: execution.role,
+    backend: execution.backend,
+    requested_model: execution.requestedModel,
+    effective_model: execution.effectiveModel,
+    preference_source: execution.preferenceSource,
+    reasoning_effort: execution.reasoningEffort,
+    session_id: execution.sessionId,
+    terminal_outcome: execution.terminalOutcome,
+  };
 }
 
 function writeFully(stream: NodeJS.WritableStream, chunk: string): Promise<void> {

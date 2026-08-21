@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ReviewConfidenceSchema, type DiffOwlConfig, type ReviewContextDepth } from "../config.js";
 import type { ReviewTarget } from "./target.js";
 import type { ReviewUsage } from "./usage.js";
+import type { ReviewExecutionProvenance } from "./provenance.js";
 
 export const ReviewSeveritySchema = z.enum(["error", "warning", "info"]);
 
@@ -74,6 +75,7 @@ export interface ReviewExecutionResult {
   timings: ReviewTiming[];
   /** Backend-reported effective model. Omitted when the adapter cannot observe it. */
   effectiveModel?: string;
+  provenance?: ReviewExecutionProvenance;
 }
 
 export interface ReviewExecutor {

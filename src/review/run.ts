@@ -2,6 +2,7 @@ import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
 import { isDocOnlyDiff, resolveCommitRef } from "../git/diff.js";
 import { createOpenCodeReviewExecutor } from "../opencode/executor.js";
 import type { ReviewExecutor, ReviewProgressEvent, ReviewReport, ReviewTiming, ReviewUsage } from "./types.js";
+import type { ReviewExecutionProvenance } from "./provenance.js";
 import {
   computeDiffHash,
   enrichReviewFindingsWithDurableMetadata,
@@ -28,6 +29,7 @@ export type ReviewPipelineOutcome =
       reportPath: string; sessionId: string;
       suppressed: { outsideChangedFiles: number; belowConfidence: number };
       timings: ReviewTiming[]; usage: ReviewUsage | null; effectiveModel: string | null;
+      execution: ReviewExecutionProvenance | null;
     }
   | {
       kind: "skipped"; reason: "empty-diff" | "documentation-only";
@@ -134,6 +136,7 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
     reasoning: input.config.reasoning.effort,
     depth: input.depth,
     sessionId: reviewResult.sessionId,
+    ...(execution.provenance === undefined ? {} : { execution: execution.provenance }),
     summary: report.summary,
     diagnostics,
     timings: [...timings, ...(report.timings ?? [])],
@@ -207,6 +210,7 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
     timings: [...timings, ...(report.timings ?? [])],
     usage: reviewResult.usage ?? null,
     effectiveModel: execution.effectiveModel ?? null,
+    execution: persisted.execution,
   };
 }
 

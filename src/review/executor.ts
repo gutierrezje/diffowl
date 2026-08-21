@@ -1,6 +1,6 @@
 import { createCodexReviewExecutor, type CodexReviewExecutorOptions } from "../codex/executor.js";
 import { createOpenCodeReviewExecutor } from "../opencode/executor.js";
-import type { ReviewSelection } from "./backend-selection.js";
+import { REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION, type ReviewAssignment } from "./provenance.js";
 import type { ReviewExecutor } from "./types.js";
 
 const CODEX_PROTOCOL_TIMEOUT_MS = 30_000;
@@ -18,11 +18,42 @@ const defaultDependencies: SelectedReviewExecutorDependencies = {
 };
 
 export function createSelectedReviewExecutor(
-  selection: ReviewSelection,
+  assignment: ReviewAssignment,
   dependencies: SelectedReviewExecutorDependencies = defaultDependencies,
   env: Record<string, string | undefined> = process.env,
 ): ReviewExecutor {
-  switch (selection.backend) {
+  const adapter = createReviewExecutor(assignment, dependencies, env);
+  return {
+    execute: async (options) => {
+      // Provenance v1 starts after an adapter returns a complete review. Failed attempts do not
+      // have a ReviewResult and need a separate persistence path before they can be represented.
+      const result = await adapter.execute(options);
+      return {
+        ...result,
+        provenance: {
+          schemaVersion: REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION,
+          cohortId: assignment.cohortId,
+          reviewerId: assignment.reviewerId,
+          role: assignment.role,
+          backend: assignment.selection.backend,
+          requestedModel: assignment.selection.requestedModel,
+          effectiveModel: result.effectiveModel ?? null,
+          preferenceSource: assignment.selection.source,
+          reasoningEffort: assignment.reasoningEffort,
+          sessionId: result.review.sessionId,
+          terminalOutcome: "completed",
+        },
+      };
+    },
+  };
+}
+
+function createReviewExecutor(
+  assignment: ReviewAssignment,
+  dependencies: SelectedReviewExecutorDependencies,
+  env: Record<string, string | undefined>,
+): ReviewExecutor {
+  switch (assignment.selection.backend) {
     case "opencode":
       return dependencies.createOpenCode();
     case "codex":
@@ -30,7 +61,7 @@ export function createSelectedReviewExecutor(
         command: {
           executable: env["DIFFOWL_CODEX_EXECUTABLE"]?.trim() || "codex",
         },
-        model: selection.requestedModel,
+        model: assignment.selection.requestedModel,
         protocolTimeoutMs: CODEX_PROTOCOL_TIMEOUT_MS,
         interruptTimeoutMs: CODEX_INTERRUPT_TIMEOUT_MS,
         closeTimeoutMs: CODEX_CLOSE_TIMEOUT_MS,
