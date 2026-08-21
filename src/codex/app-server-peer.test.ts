@@ -181,7 +181,7 @@ describe("startAppServerPeer", () => {
     const second = peer.request("second");
     await expect(first).rejects.toMatchObject({ kind: "premature-eof" });
     await expect(second).rejects.toMatchObject({ kind: "premature-eof" });
-    await expect(peer.close()).resolves.toMatchObject({ kind: "exit", code: 0 });
+    await expect(peer.close()).resolves.toMatchObject({ kind: "sigterm", code: 0 });
   });
 
   it("rejects pending requests when stdout ends before the child exits", async () => {
@@ -191,15 +191,16 @@ describe("startAppServerPeer", () => {
       env: { MOCK_APP_SERVER_MODE: "stdout-eof-hung" },
       closeTimeoutMs: 100,
     });
+    const pid = peer.pid;
+    if (pid === undefined) throw new Error("peer did not expose a pid");
 
-    const pending = peer.request("close-stdout");
-    const closing = new Promise<void>((resolve) => {
-      setTimeout(() => {
-        void peer.close().finally(resolve);
-      }, 50);
-    });
-    await expect(pending).rejects.toMatchObject({ kind: "premature-eof" });
-    await closing;
+    try {
+      await expect(peer.request("close-stdout")).rejects.toMatchObject({ kind: "premature-eof" });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(() => process.kill(pid, 0)).toThrow();
+    } finally {
+      await peer.close().catch(() => undefined);
+    }
   });
 
   it("rejects an unexpected server request with a stable kind", async () => {

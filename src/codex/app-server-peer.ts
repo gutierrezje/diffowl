@@ -288,10 +288,7 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
       }
       if (!closing) {
         stdoutEndedBeforeClose = true;
-        fail(
-          new AppServerPeerError("premature-eof", "App Server stdout ended before close."),
-          false,
-        );
+        fail(new AppServerPeerError("premature-eof", "App Server stdout ended before close."));
       }
     } catch {
       fail(new AppServerPeerError("process", "App Server stdout could not be read."));
