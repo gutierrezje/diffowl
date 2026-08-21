@@ -7,6 +7,7 @@ import {
   reviewStatusFromPersisted,
   writeReviewJsonSuccess,
 } from "./json.js";
+import type { BuildReviewJsonInput } from "./json.js";
 import type { PersistReviewRunResult } from "../state/persist.js";
 import type { PersistedObservation, ReviewRecord } from "../state/types.js";
 import type { ReviewFinding } from "../review/types.js";
@@ -28,6 +29,23 @@ const review: ReviewRecord = {
   timings: [{ phase: "total", label: "Total", ms: 42 }],
   skippedReason: null,
 };
+
+const defaultSelection = {
+  backend: "opencode",
+  requestedModel: "provider/model",
+  source: { backend: "local", model: "local" },
+} as const;
+
+function buildDocument(
+  input: Omit<BuildReviewJsonInput, "selection" | "effectiveModel"> &
+    Partial<Pick<BuildReviewJsonInput, "selection" | "effectiveModel">>,
+) {
+  return buildReviewJsonDocument({
+    selection: defaultSelection,
+    effectiveModel: null,
+    ...input,
+  });
+}
 
 const persisted: PersistReviewRunResult = {
   reviewId: "rev_test",
@@ -171,7 +189,7 @@ describe("reviewStatusFromPersisted", () => {
           suppressedCounts: { dismissed: 0, deferred: 0 },
         },
       };
-      const document = buildReviewJsonDocument({
+      const document = buildDocument({
         review: caseReview,
         persisted: casePersisted,
         occurrenceCounts: new Map(),
@@ -195,8 +213,30 @@ describe("reviewStatusFromPersisted", () => {
 });
 
 describe("buildReviewJsonDocument", () => {
-  it("renders a base target in schema version 2 without changing its shape", () => {
-    const document = buildReviewJsonDocument({
+  it("renders backend selection and the backend-reported effective model", () => {
+    const document = buildDocument({
+      review: { ...review, model: "gpt-5.4" },
+      persisted,
+      occurrenceCounts: new Map(),
+      suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+      selection: {
+        backend: "codex",
+        requestedModel: "gpt-5.4",
+        source: { backend: "command", model: "command" },
+      },
+      effectiveModel: "gpt-5.4-2026-08-01",
+    });
+
+    expect(document.review).toMatchObject({
+      backend: "codex",
+      requested_model: "gpt-5.4",
+      effective_model: "gpt-5.4-2026-08-01",
+      preference_source: { backend: "command", model: "command" },
+    });
+  });
+
+  it("renders a base target in schema version 3 without changing its target shape", () => {
+    const document = buildDocument({
       review: {
         ...review,
         targetKind: "base",
@@ -208,7 +248,7 @@ describe("buildReviewJsonDocument", () => {
       suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
     });
 
-    expect(document.schema_version).toBe(2);
+    expect(document.schema_version).toBe(3);
     expect(document.review.target).toEqual({
       kind: "base",
       ref: "origin/main",
@@ -216,8 +256,8 @@ describe("buildReviewJsonDocument", () => {
     });
   });
 
-  it("renders schema version 2 with review metadata and findings", () => {
-    const document = buildReviewJsonDocument({
+  it("renders schema version 3 with review metadata and findings", () => {
+    const document = buildDocument({
       review,
       persisted,
       occurrenceCounts: new Map([
@@ -230,7 +270,7 @@ describe("buildReviewJsonDocument", () => {
       },
     });
 
-    expect(document.schema_version).toBe(2);
+    expect(document.schema_version).toBe(3);
     expect(document.review.id).toBe("rev_test");
     expect(document.review.status).toBe("open");
     expect(document.findings).toHaveLength(1);
@@ -245,7 +285,7 @@ describe("buildReviewJsonDocument", () => {
   });
 
   it("includes suppressed lifecycle findings when verbose", () => {
-    const document = buildReviewJsonDocument({
+    const document = buildDocument({
       review,
       persisted,
       occurrenceCounts: new Map(),
@@ -258,7 +298,7 @@ describe("buildReviewJsonDocument", () => {
   });
 
   it("marks skipped reviews as skipped with no actionable findings", () => {
-    const document = buildReviewJsonDocument({
+    const document = buildDocument({
       review: {
         ...review,
         summary: "Documentation-only changes detected. No code review performed.",
@@ -283,7 +323,7 @@ describe("buildReviewJsonDocument", () => {
   });
 
   it("marks resolved reviews when no actionable findings remain", () => {
-    const document = buildReviewJsonDocument({
+    const document = buildDocument({
       review,
       persisted: {
         ...persisted,
@@ -304,7 +344,7 @@ describe("buildReviewJsonDocument", () => {
   });
 
   it("marks advisory reviews when only unsuppressed info findings remain", () => {
-    const document = buildReviewJsonDocument({
+    const document = buildDocument({
       review,
       persisted: {
         ...persisted,
@@ -332,7 +372,7 @@ describe("buildReviewJsonDocument", () => {
   });
 
   it("includes untracked findings in the document and keeps status open", () => {
-    const document = buildReviewJsonDocument({
+    const document = buildDocument({
       review,
       persisted: {
         ...persisted,
@@ -367,7 +407,7 @@ describe("buildReviewJsonDocument", () => {
   });
 
   it("marks advisory reviews when only untracked info findings remain", () => {
-    const document = buildReviewJsonDocument({
+    const document = buildDocument({
       review,
       persisted: {
         ...persisted,
@@ -384,7 +424,7 @@ describe("buildReviewJsonDocument", () => {
   });
 
   it("keeps open status when info findings mix with errors", () => {
-    const document = buildReviewJsonDocument({
+    const document = buildDocument({
       review,
       persisted: {
         ...persisted,
@@ -417,7 +457,7 @@ describe("buildReviewJsonDocument", () => {
   });
 
   it("treats suppressed-only info findings as resolved", () => {
-    const document = buildReviewJsonDocument({
+    const document = buildDocument({
       review,
       persisted: {
         ...persisted,
@@ -440,7 +480,7 @@ describe("buildReviewJsonDocument", () => {
   });
 
   it("includes usage when provided", () => {
-    const document = buildReviewJsonDocument({
+    const document = buildDocument({
       review,
       persisted,
       occurrenceCounts: new Map(),
@@ -468,7 +508,7 @@ describe("buildReviewJsonDocument", () => {
   });
 
   it("omits usage when not provided", () => {
-    const document = buildReviewJsonDocument({
+    const document = buildDocument({
       review,
       persisted,
       occurrenceCounts: new Map(),
@@ -482,7 +522,7 @@ describe("buildReviewJsonDocument", () => {
 describe("renderReviewJsonDocument", () => {
   it("writes a single JSON object with trailing newline", () => {
     const rendered = renderReviewJsonDocument(
-      buildReviewJsonDocument({
+      buildDocument({
         review,
         persisted: {
           ...persisted,
@@ -495,7 +535,7 @@ describe("renderReviewJsonDocument", () => {
 
     expect(rendered.endsWith("\n")).toBe(true);
     expect(JSON.parse(rendered.trim())).toMatchObject({
-      schema_version: 2,
+      schema_version: 3,
       review: { id: "rev_test" },
     });
   });
@@ -505,7 +545,7 @@ describe("renderJsonErrorDocument", () => {
   it("renders a versioned error envelope", () => {
     const rendered = renderJsonErrorDocument("Review failed.");
     expect(JSON.parse(rendered.trim())).toEqual({
-      schema_version: 2,
+      schema_version: 3,
       error: { message: "Review failed." },
     });
   });
@@ -513,7 +553,7 @@ describe("renderJsonErrorDocument", () => {
 
 describe("writeReviewJsonSuccess", () => {
   it("resolves only after stdout reports the document was written", async () => {
-    const document = buildReviewJsonDocument({
+    const document = buildDocument({
       review,
       persisted,
       occurrenceCounts: new Map([["fnd_test", 1]]),

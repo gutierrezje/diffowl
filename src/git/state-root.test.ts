@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { execa } from "execa";
@@ -93,6 +93,46 @@ describe("getSharedDiffOwlDir", () => {
     await expect(getSharedDiffOwlDir()).resolves.toBe(join(commonDir, "diffowl", ".diffowl"));
   });
 
+  it.skipIf(process.platform === "win32")(
+    "keeps standard state placement when .git is a directory symlink",
+    async () => {
+      const repo = await createGitProject();
+      await rename(join(repo, ".git"), join(repo, ".git-storage"));
+      await symlink(".git-storage", join(repo, ".git"), "dir");
+      process.chdir(repo);
+
+      await expect(getSharedDiffOwlDir()).resolves.toBe(join(repo, ".diffowl"));
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "shares standard state with linked worktrees when .git is a directory symlink",
+    async () => {
+      const repo = await createGitProject();
+      await rename(join(repo, ".git"), join(repo, ".git-storage"));
+      await symlink(".git-storage", join(repo, ".git"), "dir");
+      const worktree = await createWorktree(repo);
+      process.chdir(worktree);
+
+      await expect(getSharedDiffOwlDir()).resolves.toBe(join(repo, ".diffowl"));
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "namespaces state inside an external .git symlink target",
+    async () => {
+      const repo = await createGitProject();
+      const externalRoot = await createProject("diffowl-state-root-external-git-");
+      const commonDir = join(externalRoot, "repo.git");
+      await rename(join(repo, ".git"), commonDir);
+      await symlink(".git", join(externalRoot, ".git"));
+      await symlink(commonDir, join(repo, ".git"), "dir");
+      process.chdir(repo);
+
+      await expect(getSharedDiffOwlDir()).resolves.toBe(join(commonDir, "diffowl", ".diffowl"));
+    },
+  );
+
   it("resolves a relative common dir against the project root", async () => {
     const repo = await createGitProject("packages/api");
     const worktree = await createWorktree(repo);
@@ -134,6 +174,30 @@ describe("getSharedDiffOwlDir", () => {
       isRecoverableGitLookupError(Object.assign(new Error("permission denied"), { exitCode: 1 })),
     ).toBe(false);
   });
+
+  it.skipIf(process.platform === "win32")(
+    "does not warn when the discovered project root aliases the canonical checkout",
+    async () => {
+      const repo = await createGitProject();
+      const alias = `${repo}-alias`;
+      await symlink(repo, alias, "dir");
+      tempDirs.push(alias);
+      await mkdir(join(repo, ".diffowl"), { recursive: true });
+      await writeFile(join(repo, ".diffowl", "state.db"), "", "utf8");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.resetModules();
+      vi.doMock("../config.js", () => ({ getProjectRoot: () => alias }));
+
+      try {
+        const stateRoot = await import("./state-root.js");
+        await expect(stateRoot.getSharedDiffOwlDir()).resolves.toBe(join(repo, ".diffowl"));
+        expect(warn).not.toHaveBeenCalled();
+      } finally {
+        vi.doUnmock("../config.js");
+        vi.resetModules();
+      }
+    },
+  );
 
   it("retries shared-root resolution after a rejected lookup", async () => {
     const repo = await createGitProject();

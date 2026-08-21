@@ -72,6 +72,8 @@ export interface ReviewExecutorOptions {
 export interface ReviewExecutionResult {
   review: ReviewResult;
   timings: ReviewTiming[];
+  /** Backend-reported effective model. Omitted when the adapter cannot observe it. */
+  effectiveModel?: string;
 }
 
 export interface ReviewExecutor {

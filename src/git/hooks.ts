@@ -260,6 +260,20 @@ export function isHookQueueStopFailure(message: string | undefined): boolean {
     return true;
   }
 
+  if (
+    normalized.includes("codex review failed:") &&
+    (normalized.includes("executable was not found") ||
+      normalized.includes("not authenticated") ||
+      normalized.includes("protocol generation failed") ||
+      normalized.includes("returned an invalid version") ||
+      (normalized.includes("generated ") && normalized.includes("missing")) ||
+      normalized.includes("incompatible") ||
+      normalized.includes("compatibility") ||
+      normalized.includes("enoent"))
+  ) {
+    return true;
+  }
+
   return false;
 }
 

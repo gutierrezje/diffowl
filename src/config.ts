@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { parse, stringify } from "yaml";
 import { z, ZodError } from "zod";
+import { OpenCodeModelSchema } from "./review/backend-selection.js";
 
 export const ReviewConfidenceSchema = z.enum(["low", "medium", "high"]);
 export const ReviewContextDepthSchema = z.enum(["shallow", "default"]);
@@ -16,11 +17,7 @@ export const ReasoningEffortSchema = z.enum([
   "max",
   "xhigh",
 ]);
-export const ModelSchema = z
-  .string()
-  .trim()
-  .min(1, "model must not be empty")
-  .regex(/^[^/\s]+\/\S+$/, "model must use provider/model format");
+export const ModelSchema = OpenCodeModelSchema;
 
 export type ReviewConfidence = z.output<typeof ReviewConfidenceSchema>;
 export type ReviewContextDepth = z.output<typeof ReviewContextDepthSchema>;
@@ -109,6 +106,8 @@ export const DiffOwlConfigSchema = z
   })
   .strict();
 
+const ProjectConfigSchema = DiffOwlConfigSchema.omit({ model: true });
+
 export type DiffOwlConfig = z.output<typeof DiffOwlConfigSchema>;
 
 export function parseModel(value: unknown): string {
@@ -174,7 +173,8 @@ export async function loadConfigFromRoot(root: string): Promise<DiffOwlConfig> {
 
 export async function saveConfig(config: DiffOwlConfig): Promise<string> {
   const configPath = findConfigPath();
-  const { model: _legacyModel, ...projectConfig } = DiffOwlConfigSchema.parse(config);
+  const { model: _backendModel, ...projectConfigInput } = config;
+  const projectConfig = ProjectConfigSchema.parse(projectConfigInput);
   const content = stringify(projectConfig, { lineWidth: 0 });
   await writeFile(configPath, content, "utf-8");
   return configPath;

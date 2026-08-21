@@ -10,15 +10,32 @@ import {
   configExists,
   getDiffOwlDir,
   getProjectRoot,
-  parseModel,
   parseReviewContextDepth,
   parseReasoningEffort,
   type DiffOwlConfig,
   type ReviewContextDepth,
   type ReasoningEffort,
 } from "./config.js";
-import { loadEffectiveConfig, MissingModelError, type ModelSource } from "./effective-config.js";
-import { resetModelPreference, saveModelPreference } from "./model-preference.js";
+import {
+  loadEffectiveReviewConfig,
+  MissingModelError,
+  resolveReviewBackendPreference,
+} from "./effective-config.js";
+import {
+  getReviewPreferencesPath,
+  loadReviewPreferences,
+  resetReviewBackendModel,
+  resetReviewBackendPreference,
+  saveReviewBackendModel,
+  saveReviewBackendPreference,
+} from "./review-preference.js";
+import {
+  formatReviewBackend,
+  parseBackendModel,
+  parseReviewBackend,
+  type ReviewBackend,
+  type ReviewSelection,
+} from "./review/backend-selection.js";
 import {
   getAvailableModels,
 } from "./opencode/client.js";
@@ -121,6 +138,9 @@ import {
 } from "./state/possible-duplicates.js";
 import { resolveCompletedReviewExit } from "./review/gate.js";
 import { runReviewPipeline } from "./review/run.js";
+import { createSelectedReviewExecutor } from "./review/executor.js";
+import { inspectReviewRuntimes } from "./review/runtime.js";
+import { getReviewBackendFailureGuidance } from "./review/guidance.js";
 
 import { readFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
@@ -131,7 +151,7 @@ const program = new Command();
 
 program
   .name("diffowl")
-  .description("Local AI code review agent powered by OpenCode")
+  .description("Local AI code review agent")
   .version(packageJson.version);
 
 // Default command: review last commit
@@ -149,6 +169,7 @@ program
     "Reasoning variant: auto, none, minimal, low, medium, high, max, or xhigh",
   )
   .option("--model <id>", "Review model override")
+  .option("--backend <backend>", "Review backend override: opencode or codex")
   .option("--verbose", "Include suppressed findings and extra review details")
   .option("--format <format>", "Output format: text or json", "text")
   .action(async (options) => {
@@ -181,7 +202,14 @@ program
       await runInit();
     }
 
-    const config = (await loadEffectiveConfigOrExit(options.model)).config;
+    const effective = await loadEffectiveReviewConfigOrExit(
+      {
+        backend: options.backend,
+        model: options.model,
+      },
+      format,
+    );
+    const { config, selection } = effective;
     const projectRoot = getProjectRoot();
     const diffOwlDir = await getSharedDiffOwlDir();
     const baseRequested = options.base !== undefined;
@@ -287,6 +315,7 @@ program
         timings,
         persistEmptyDiff: jsonMode,
         signal: cancelController.signal,
+        executor: createSelectedReviewExecutor(selection),
         onProgress: (event) => {
           if (spinner) {
             spinner.text = formatReviewProgress(event);
@@ -301,7 +330,7 @@ program
             console.log(chalk.yellow(`  - ${diagnostic}`));
           }
           console.log();
-          spinner.start("Connecting to OpenCode...");
+          spinner.start(`Connecting to ${formatReviewBackend(selection.backend)}...`);
         },
         onStatus: (message) => {
           if (spinner) {
@@ -312,6 +341,7 @@ program
 
       if (outcome.kind === "empty-diff") {
         spinner?.stop();
+        printReviewExecutionDetails(selection, null, jsonMode);
         console.log(chalk.yellow("No changes to review"));
         if (options.hook) {
           await writeHookStatus(0, hookCommit);
@@ -328,6 +358,8 @@ program
           suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
           verbose,
           timings: outcome.timings,
+          selection,
+          effectiveModel: null,
         });
         if (options.hook) {
           await writeHookStatus(0, hookCommit);
@@ -337,6 +369,7 @@ program
 
       if (outcome.kind === "skipped" && outcome.reason === "documentation-only") {
         spinner?.stop();
+        printReviewExecutionDetails(selection, null, jsonMode);
         if (!jsonMode) {
           console.warn(chalk.yellow("Documentation-only changes detected. Skipping review."));
         }
@@ -348,6 +381,8 @@ program
             suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
             verbose,
             timings: outcome.timings,
+            selection,
+            effectiveModel: null,
           });
         } else {
           console.log(chalk.dim(`Report saved: ${outcome.reportPath}`));
@@ -370,6 +405,7 @@ program
         ...outcome.timings,
         createCliTiming("total", "Total review command", totalStart),
       ];
+      printReviewExecutionDetails(selection, outcome.effectiveModel, jsonMode);
 
       if (jsonMode) {
         await emitReviewJsonSuccess({
@@ -380,6 +416,8 @@ program
           verbose,
           timings: outputTimings,
           usage: outcome.usage,
+          selection,
+          effectiveModel: outcome.effectiveModel,
         });
       } else {
         printFooter(report, outcome.reportPath);
@@ -416,16 +454,23 @@ program
         return;
       }
       const message = err instanceof Error ? err.message : String(err);
+      const backendName = formatReviewBackend(selection.backend);
+      const guidance = getReviewBackendFailureGuidance(selection.backend, err);
+      const failureMessage = `${backendName} review failed: ${message}`;
       if (jsonMode) {
-        writeJsonError(message);
+        writeJsonError(
+          guidance.length === 0
+            ? failureMessage
+            : `${failureMessage} Next action: ${guidance.join(" ")}`,
+        );
       } else {
-        console.error(chalk.red(`\nReview failed: ${message}`));
-        for (const line of getOpenCodeFailureGuidance(message)) {
+        console.error(chalk.red(`\n${failureMessage}`));
+        for (const line of guidance) {
           console.log(chalk.dim(line));
         }
       }
       if (options.hook) {
-        await writeHookStatus(1, hookCommit, message);
+        await writeHookStatus(1, hookCommit, failureMessage);
         process.exit(0);
       }
       process.exit(1);
@@ -613,7 +658,16 @@ program
 async function runInit() {
   console.log(chalk.bold("DiffOwl Setup\n"));
   const config = await loadProjectConfigOrExit();
-  await selectModelInteractively(config, { allowKeepCurrent: false });
+  const preferences = await loadReviewPreferencesOrExit();
+  const { backend, source } = resolveReviewBackendPreference(preferences);
+  const currentModel = preferences.models.find((selection) => selection.backend === backend)?.model;
+  console.log(`${chalk.bold("Review backend:")} ${formatReviewBackend(backend)} (${source})`);
+  console.log(chalk.dim(`Local preference: ${await getReviewPreferencesPath()}`));
+  await selectModelInteractively(config, {
+    allowKeepCurrent: false,
+    backend,
+    ...(currentModel === undefined ? {} : { currentModel }),
+  });
   console.log(chalk.green(`✓ Config saved to ${await saveConfig(config)}`));
   await enableAgentPathFromCli();
 }
@@ -749,43 +803,119 @@ function printAgentPathResult(result: AgentPathResult): void {
   }
 }
 
+// Backend command
+program
+  .command("backend")
+  .description("View or change the local review backend")
+  .argument("[backend]", "Review backend: opencode or codex")
+  .option("--reset", "Use the backward-compatible OpenCode default")
+  .action(async (backendValue: string | undefined, options: { reset?: boolean }) => {
+    if (backendValue && options.reset) {
+      console.error(chalk.red("Cannot pass a backend and --reset together"));
+      process.exit(1);
+    }
+    if (options.reset) {
+      try {
+        await resetReviewBackendPreference();
+      } catch (error) {
+        failConfigError(error);
+      }
+      console.log(chalk.green("✓ Backend preference reset to OpenCode default"));
+      console.log(chalk.dim(`Local preference: ${await getReviewPreferencesPath()}`));
+      return;
+    }
+    if (backendValue !== undefined) {
+      let backend: ReviewBackend;
+      try {
+        backend = parseReviewBackend(backendValue);
+      } catch {
+        console.error(chalk.red(`Invalid backend: ${backendValue}`));
+        console.error(chalk.dim("Expected one of: opencode, codex"));
+        process.exit(1);
+      }
+      let path: string;
+      try {
+        path = await saveReviewBackendPreference(backend);
+      } catch (error) {
+        failConfigError(error);
+      }
+      console.log(chalk.green(`✓ Backend set to ${formatReviewBackend(backend)}`));
+      console.log(chalk.dim(`Local preference: ${path}`));
+      return;
+    }
+
+    const preferences = await loadReviewPreferencesOrExit();
+    const { backend, source } = resolveReviewBackendPreference(preferences);
+    const model = preferences.models.find((selection) => selection.backend === backend)?.model;
+    const runtimes = await inspectReviewRuntimes();
+    console.log(`${chalk.bold("Current backend:")} ${formatReviewBackend(backend)}`);
+    console.log(`Preference source: ${source}`);
+    console.log(`Model: ${model ?? "not selected"}`);
+    for (const runtimeBackend of ["opencode", "codex"] as const) {
+      const runtime = runtimes[runtimeBackend];
+      console.log(
+        `${formatReviewBackend(runtimeBackend)} runtime: ${
+          runtime.available ? `available (${runtime.version})` : "not installed"
+        }`,
+      );
+    }
+    console.log(chalk.dim(`Local preference: ${await getReviewPreferencesPath()}`));
+  });
+
 // Model command
 program
   .command("model")
-  .description("View or change the AI model")
-  .argument("[model]", "Model to use (e.g., opencode/big-pickle)")
-  .option("--reset", "Remove the shared local model preference")
+  .description("View or change the model for the selected backend")
+  .argument("[model]", "Backend-specific model id")
+  .option("--reset", "Remove the selected backend's local model preference")
   .action(async (model: string | undefined, options: { reset?: boolean }) => {
     if (model && options.reset) {
       console.error(chalk.red("Cannot pass a model and --reset together"));
       process.exit(1);
     }
+    const preferences = await loadReviewPreferencesOrExit();
+    const { backend } = resolveReviewBackendPreference(preferences);
     if (options.reset) {
-      await resetModelPreference();
-      console.log(chalk.green("✓ Local model preference reset"));
-      console.log(chalk.dim("Run `diffowl model <provider/model>` to choose another."));
+      await resetReviewBackendModel(backend);
+      console.log(
+        chalk.green(
+          backend === "opencode"
+            ? "✓ Local model preference reset (OpenCode)"
+            : "✓ Codex model preference reset",
+        ),
+      );
+      console.log(chalk.dim("Run `diffowl model <model-id>` to choose another."));
       return;
     }
 
     if (model !== undefined) {
       let parsedModel: string;
       try {
-        parsedModel = parseModel(model);
+        parsedModel = parseBackendModel(backend, model);
       } catch {
-        console.error(chalk.red(`Invalid model: ${model}`));
-        console.error(chalk.dim("Expected provider/model format, for example opencode/big-pickle"));
+        const detail =
+          backend === "opencode"
+            ? "OpenCode model must use provider/model format"
+            : "Codex model must be a bare model id";
+        console.error(chalk.red(`Invalid model for ${formatReviewBackend(backend)}: ${detail}`));
         process.exit(1);
       }
 
-      const configPath = await saveModelPreference(parsedModel);
-      console.log(chalk.green(`✓ Model set to ${chalk.cyan(parsedModel)}`));
+      const configPath = await saveReviewBackendModel(backend, parsedModel);
+      console.log(
+        chalk.green(
+          backend === "opencode"
+            ? `✓ Model set to ${chalk.cyan(parsedModel)} (OpenCode)`
+            : `✓ Codex model set to ${chalk.cyan(parsedModel)}`,
+        ),
+      );
       console.log(chalk.dim(`Local preference: ${configPath}`));
       return;
     }
 
     let effective;
     try {
-      effective = await loadEffectiveConfig();
+      effective = await loadEffectiveReviewConfig();
     } catch (err) {
       if (!(err instanceof MissingModelError)) {
         console.error(
@@ -794,20 +924,32 @@ program
         process.exit(1);
       }
       const config = await loadProjectConfigOrExit();
-      console.log(chalk.yellow("No model selected."));
-      await selectModelInteractively(config, { allowKeepCurrent: false });
+      console.log(chalk.yellow(`No ${formatReviewBackend(backend)} model selected.`));
+      await selectModelInteractively(config, {
+        allowKeepCurrent: false,
+        backend,
+      });
       return;
     }
     const config = effective.config;
 
-    console.log(formatEffectiveModel(config.model, effective.modelSource));
-    await selectModelInteractively(config, { allowKeepCurrent: true });
+    console.log(formatEffectiveModel(effective.selection));
+    await selectModelInteractively(config, {
+      allowKeepCurrent: true,
+      backend,
+      currentModel: config.model,
+    });
   });
 
 async function selectModelInteractively(
   config: DiffOwlConfig,
-  options: { allowKeepCurrent: boolean },
+  options: { allowKeepCurrent: boolean; backend: ReviewBackend; currentModel?: string },
 ): Promise<void> {
+  if (options.backend === "codex") {
+    await selectCodexModelInteractively(config, options);
+    return;
+  }
+
   const spinner = ora("Querying available models from OpenCode...").start();
   let models: string[] = [];
   try {
@@ -824,7 +966,7 @@ async function selectModelInteractively(
     process.exit(1);
   }
 
-  let selectedModel = config.model;
+  let selectedModel = options.currentModel ?? config.model;
 
   if (models.length > 0) {
     if (!canSelectModelInteractively(process.stdin.isTTY, process.stdout.isTTY)) {
@@ -861,7 +1003,7 @@ async function selectModelInteractively(
 
         const selection = selectModel(
           models,
-          config.model,
+          selectedModel,
           await rl.question(chalk.yellow(promptText)),
           options.allowKeepCurrent,
         );
@@ -882,11 +1024,49 @@ async function selectModelInteractively(
   }
 
   // Only update/save if a new model was selected or config is being initialized
-  if (selectedModel !== config.model || !options.allowKeepCurrent) {
+  if (selectedModel !== options.currentModel || !options.allowKeepCurrent) {
     config.model = selectedModel;
-    await saveModelPreference(selectedModel);
-    console.log(chalk.green(`✓ Model set to ${chalk.cyan(selectedModel)}`));
+    await saveReviewBackendModel("opencode", selectedModel);
+    console.log(chalk.green(`✓ OpenCode model set to ${chalk.cyan(selectedModel)}`));
     console.log();
+  }
+}
+
+async function selectCodexModelInteractively(
+  config: DiffOwlConfig,
+  options: { allowKeepCurrent: boolean; currentModel?: string },
+): Promise<void> {
+  if (!canSelectModelInteractively(process.stdin.isTTY, process.stdout.isTTY)) {
+    console.error(
+      chalk.red(
+        "Interactive Codex model selection requires a terminal. Pass a model explicitly, for example `diffowl model gpt-5.4`.",
+      ),
+    );
+    process.exit(1);
+  }
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    while (true) {
+      const suffix =
+        options.allowKeepCurrent && options.currentModel
+          ? ` or press Enter to keep ${options.currentModel}`
+          : "";
+      const raw = await rl.question(chalk.yellow(`Codex model id${suffix}: `));
+      if (raw.trim() === "" && options.allowKeepCurrent && options.currentModel) return;
+      try {
+        const model = parseBackendModel("codex", raw);
+        config.model = model;
+        await saveReviewBackendModel("codex", model);
+        console.log(chalk.green(`✓ Codex model set to ${chalk.cyan(model)}`));
+        console.log();
+        return;
+      } catch {
+        console.log(chalk.red("Invalid Codex model. Expected a bare model id, for example gpt-5.4."));
+      }
+    }
+  } finally {
+    rl.close();
   }
 }
 
@@ -1455,14 +1635,35 @@ async function loadConfigOrExit(): Promise<DiffOwlConfig> {
   return await loadProjectConfigOrExit();
 }
 
-async function loadEffectiveConfigOrExit(commandModel?: unknown) {
+async function loadEffectiveReviewConfigOrExit(
+  overrides: { backend?: unknown; model?: unknown },
+  format: ReviewOutputFormat,
+) {
   try {
-    return await loadEffectiveConfig(commandModel);
+    return await loadEffectiveReviewConfig(overrides);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(chalk.red(`Config error: ${message}`));
+    if (format === "json") {
+      writeJsonError(`Config error: ${message}`);
+    } else {
+      console.error(chalk.red(`Config error: ${message}`));
+    }
     process.exit(1);
   }
+}
+
+async function loadReviewPreferencesOrExit() {
+  try {
+    return await loadReviewPreferences();
+  } catch (err) {
+    failConfigError(err);
+  }
+}
+
+function failConfigError(error: unknown): never {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(chalk.red(`Config error: ${message}`));
+  process.exit(1);
 }
 
 async function loadProjectConfigOrExit(): Promise<DiffOwlConfig> {
@@ -1475,9 +1676,27 @@ async function loadProjectConfigOrExit(): Promise<DiffOwlConfig> {
   }
 }
 
-function formatEffectiveModel(model: string, source: ModelSource): string {
-  const label = source === "local" ? "local preference" : source;
-  return `${chalk.bold("Current model: ")} ${chalk.cyan(model)} ${chalk.dim(`(${label})`)}`;
+function formatEffectiveModel(selection: ReviewSelection): string {
+  return `${chalk.bold(`${formatReviewBackend(selection.backend)} model:`)} ${chalk.cyan(
+    selection.requestedModel,
+  )} ${chalk.dim(`(${selection.source.model})`)}`;
+}
+
+function printReviewExecutionDetails(
+  selection: ReviewSelection,
+  effectiveModel: string | null,
+  jsonMode: boolean,
+): void {
+  if (jsonMode) return;
+  console.log(chalk.dim(`Backend: ${formatReviewBackend(selection.backend)}`));
+  console.log(chalk.dim(`Requested model: ${selection.requestedModel}`));
+  console.log(chalk.dim(`Effective model: ${effectiveModel ?? "not reported"}`));
+  console.log(
+    chalk.dim(
+      `Preference source: backend=${selection.source.backend}, model=${selection.source.model}`,
+    ),
+  );
+  console.log();
 }
 
 function handleReviewInterrupt(input: {
@@ -1549,6 +1768,8 @@ async function emitReviewJsonSuccess(input: {
   verbose: boolean;
   timings?: ReviewTiming[];
   usage?: ReviewUsage | null;
+  selection: ReviewSelection;
+  effectiveModel: string | null;
 }): Promise<void> {
   const review = await getPersistedReview(input.diffOwlDir, input.reviewId);
   if (!review) {
@@ -1566,6 +1787,8 @@ async function emitReviewJsonSuccess(input: {
       belowConfidence: input.suppressed.belowConfidence,
     },
     verbose: input.verbose,
+    selection: input.selection,
+    effectiveModel: input.effectiveModel,
     ...(input.timings ? { timings: input.timings } : {}),
     ...(input.usage !== undefined ? { usage: input.usage } : {}),
   });

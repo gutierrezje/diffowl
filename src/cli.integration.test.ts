@@ -2,7 +2,8 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { existsSync } from "node:fs";
 import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { execa } from "execa";
 import { removeTempDir } from "./test/helpers.js";
 import {
@@ -24,6 +25,7 @@ import type { FindingCandidate, PossibleDuplicateRecord, ReviewSeverity } from "
 
 const projectRoot = join(import.meta.dirname, "..");
 const cliPath = join(projectRoot, "dist/cli.js");
+const mockCodexCliPath = join(projectRoot, "src/codex/fixtures/mock-codex-cli.mjs");
 
 let tempDirs: string[] = [];
 
@@ -65,9 +67,81 @@ describe("diffowl CLI", () => {
     expect(stdout).toContain("Model set to provider/local");
     await expect(readFile(configPath, "utf8")).resolves.toBe(originalConfig);
     await expect(readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).resolves.toBe(
-      "model: provider/local\n",
+      [
+        "models:",
+        "  - backend: opencode",
+        "    model: provider/local",
+        "",
+      ].join("\n"),
     );
   });
+
+  it("stores an explicit backend and keeps model choices for both backends", async () => {
+    const repo = await createRepo("diffowl-cli-backend-both-");
+
+    const selected = await execa("node", [cliPath, "backend", "codex"], { cwd: repo });
+    const model = await execa("node", [cliPath, "model", "gpt-5.4"], { cwd: repo });
+    await execa("node", [cliPath, "backend", "opencode"], { cwd: repo });
+
+    expect(selected.stdout).toContain("Backend set to Codex");
+    expect(model.stdout).toContain("Codex model set to gpt-5.4");
+    await expect(readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).resolves.toBe(
+      [
+        "backend: opencode",
+        "models:",
+        "  - backend: opencode",
+        "    model: provider/model",
+        "  - backend: codex",
+        "    model: gpt-5.4",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("resets the explicit backend without deleting either saved model", async () => {
+    const repo = await createRepo("diffowl-cli-backend-reset-");
+    await execa("node", [cliPath, "backend", "codex"], { cwd: repo });
+    await execa("node", [cliPath, "model", "gpt-5.4"], { cwd: repo });
+
+    const { stdout } = await execa("node", [cliPath, "backend", "--reset"], { cwd: repo });
+
+    expect(stdout).toContain("Backend preference reset to OpenCode default");
+    const preference = await readFile(join(repo, ".diffowl/preferences.yml"), "utf8");
+    expect(preference).not.toContain("backend: codex\nmodels:");
+    expect(preference).toContain("backend: opencode\n    model: provider/model");
+    expect(preference).toContain("backend: codex\n    model: gpt-5.4");
+  });
+
+  it("reports a legacy model-only preference as an OpenCode backend selection", async () => {
+    const repo = await createRepo("diffowl-cli-backend-legacy-");
+
+    const { stdout } = await execa("node", [cliPath, "backend"], { cwd: repo });
+
+    expect(stdout).toContain("Current backend: OpenCode");
+    expect(stdout).toContain("Preference source: legacy");
+    expect(stdout).toContain("Model: provider/model");
+    expect(stdout).toContain("OpenCode runtime:");
+    expect(stdout).toContain("Codex runtime:");
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "selects and resets a backend without invoking either provider runtime",
+    async () => {
+      const repo = await createRepo("diffowl-cli-backend-no-provider-");
+      const bin = await mkdtemp(join(tmpdir(), "diffowl-cli-backend-bin-"));
+      tempDirs.push(bin);
+      const marker = join(repo, "provider-started");
+      const runtime = `#!${process.execPath}\nrequire("node:fs").writeFileSync(process.env.MARKER, "started");\n`;
+      await writeFile(join(bin, "opencode"), runtime, { mode: 0o755 });
+      await writeFile(join(bin, "codex"), runtime, { mode: 0o755 });
+      const env = { PATH: bin, MARKER: marker };
+
+      await execa(process.execPath, [cliPath, "backend", "codex"], { cwd: repo, env });
+      await execa(process.execPath, [cliPath, "backend", "--reset"], { cwd: repo, env });
+
+      await expect(access(marker)).rejects.toThrow();
+    },
+  );
 
   it("rejects an explicitly empty model", async () => {
     const repo = await createRepo("diffowl-cli-model-empty-", { localModel: false });
@@ -97,7 +171,7 @@ describe("diffowl CLI", () => {
     });
 
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("No model selected");
+    expect(result.stderr).toContain("No model selected for OpenCode");
   });
 
   it("uses a one-off review model without changing saved model settings", async () => {
@@ -123,6 +197,223 @@ describe("diffowl CLI", () => {
     await expect(readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).resolves.toBe(
       preferenceBefore,
     );
+  });
+
+  it("uses one-off Codex backend and model overrides without rewriting local preferences", async () => {
+    const repo = await createRepo("diffowl-cli-review-backend-", { skipDocOnly: true });
+    await writeFile(join(repo, ".gitignore"), ".diffowl/\n", "utf8");
+    await commitAll(repo, "initial");
+    await mkdir(join(repo, "docs"));
+    await writeFile(join(repo, "docs", "backend.md"), "documentation\n", "utf8");
+    await commitAll(repo, "docs");
+    const preferenceBefore = await readFile(join(repo, ".diffowl/preferences.yml"), "utf8");
+
+    const { stdout } = await execa(
+      "node",
+      [
+        cliPath,
+        "review",
+        "--backend",
+        "codex",
+        "--model",
+        "gpt-5.4",
+        "--format",
+        "json",
+      ],
+      { cwd: repo },
+    );
+    const document = JSON.parse(stdout) as {
+      schema_version: number;
+      review: Record<string, unknown>;
+    };
+
+    expect(document.schema_version).toBe(3);
+    expect(document.review).toMatchObject({
+      backend: "codex",
+      model: "gpt-5.4",
+      requested_model: "gpt-5.4",
+      effective_model: null,
+      preference_source: { backend: "command", model: "command" },
+      status: "skipped",
+    });
+    await expect(readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).resolves.toBe(
+      preferenceBefore,
+    );
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "runs the selected Codex adapter and reports its effective model",
+    async () => {
+      const repo = await createRepo("diffowl-cli-review-codex-");
+      await writeFile(join(repo, ".gitignore"), ".diffowl/\n", "utf8");
+      await mkdir(join(repo, "src"));
+      await writeFile(join(repo, "src/app.ts"), "export const value = 1;\n", "utf8");
+      await commitAll(repo, "initial");
+      await writeFile(join(repo, "src/app.ts"), "export const value = 2;\n", "utf8");
+      await commitAll(repo, "change");
+      const bin = await mkdtemp(join(tmpdir(), "diffowl-cli-codex-wrapper-"));
+      tempDirs.push(bin);
+      const executable = join(bin, "codex");
+      await writeFile(
+        executable,
+        [
+          `#!${process.execPath}`,
+          `(async () => import(${JSON.stringify(pathToFileURL(mockCodexCliPath).href)}))().catch((error) => {`,
+          "  console.error(error);",
+          "  process.exit(1);",
+          "});",
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+
+      const { stdout } = await execa(
+        process.execPath,
+        [
+          cliPath,
+          "review",
+          "--backend",
+          "codex",
+          "--model",
+          "gpt-5-codex",
+          "--format",
+          "json",
+        ],
+        {
+          cwd: repo,
+          env: {
+            DIFFOWL_CODEX_EXECUTABLE: executable,
+            MOCK_APP_SERVER_MODE: "spike-marker",
+            MOCK_APP_SERVER_MODEL: "gpt-5-codex",
+          },
+        },
+      );
+      const document = JSON.parse(stdout) as { review: Record<string, unknown> };
+
+      expect(document.review).toMatchObject({
+        backend: "codex",
+        requested_model: "gpt-5-codex",
+        effective_model: "gpt-5-codex",
+        session_id: "thread-1",
+      });
+    },
+    30_000,
+  );
+
+  it("names a missing Codex runtime and gives a deterministic JSON next action", async () => {
+    const repo = await createRepo("diffowl-cli-review-codex-missing-");
+    await mkdir(join(repo, "src"));
+    await writeFile(join(repo, "src/app.ts"), "export const value = 1;\n", "utf8");
+    await commitAll(repo, "initial");
+    await writeFile(join(repo, "src/app.ts"), "export const value = 2;\n", "utf8");
+    await commitAll(repo, "change");
+
+    const result = await execa(
+      process.execPath,
+      [
+        cliPath,
+        "review",
+        "--backend",
+        "codex",
+        "--model",
+        "gpt-5-codex",
+        "--format",
+        "json",
+      ],
+      {
+        cwd: repo,
+        env: { DIFFOWL_CODEX_EXECUTABLE: join(repo, "missing-codex") },
+        reject: false,
+      },
+    );
+    const document = JSON.parse(result.stderr) as { error: { message: string } };
+
+    expect(result.exitCode).toBe(1);
+    expect(document.error.message).toContain("Codex review failed");
+    expect(document.error.message).toContain("Codex runtime is not installed");
+    expect(document.error.message).toContain("ensure `codex` is on PATH");
+  });
+
+  it("reports backend, requested model, effective model, and source in human output", async () => {
+    const repo = await createRepo("diffowl-cli-review-backend-text-", { skipDocOnly: true });
+    await writeFile(join(repo, ".gitignore"), ".diffowl/\n", "utf8");
+    await commitAll(repo, "initial");
+    await mkdir(join(repo, "docs"));
+    await writeFile(join(repo, "docs/backend.md"), "documentation\n", "utf8");
+    await commitAll(repo, "docs");
+
+    const { stdout } = await execa(
+      process.execPath,
+      [cliPath, "review", "--backend", "codex", "--model", "gpt-5.4"],
+      { cwd: repo },
+    );
+
+    expect(stdout).toContain("Backend: Codex");
+    expect(stdout).toContain("Requested model: gpt-5.4");
+    expect(stdout).toContain("Effective model: not reported");
+    expect(stdout).toContain("Preference source: backend=command, model=command");
+  });
+
+  it("uses the same CLI backend preference from a linked worktree", async () => {
+    const repo = await createRepo("diffowl-cli-backend-worktree-");
+    await execa("git", ["add", ".diffowl.yml"], { cwd: repo });
+    await commitAll(repo, "initial");
+    const worktree = join(dirname(repo), `${basename(repo)}-worktree`);
+    tempDirs.push(worktree);
+    await execa("git", ["worktree", "add", "--detach", worktree, "HEAD"], { cwd: repo });
+
+    await execa(process.execPath, [cliPath, "backend", "codex"], { cwd: worktree });
+
+    await expect(readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).resolves.toContain(
+      "backend: codex",
+    );
+  });
+
+  it.each([
+    {
+      args: ["--backend", "codex", "--model", "provider/model"],
+      message: "Codex model must be a bare model id",
+    },
+    {
+      args: ["--backend", "opencode", "--model", "gpt-5.4"],
+      message: "OpenCode model must use provider/model format",
+    },
+    { args: ["--backend", "other", "--model", "model"], message: "Invalid option" },
+  ])("rejects invalid backend/model review combinations: $message", async ({ args, message }) => {
+    const repo = await createRepo("diffowl-cli-review-backend-invalid-");
+
+    const result = await execa("node", [cliPath, "review", "--staged", ...args], {
+      cwd: repo,
+      reject: false,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(message);
+  });
+
+  it("keeps invalid backend/model errors machine-readable in JSON mode", async () => {
+    const repo = await createRepo("diffowl-cli-review-backend-invalid-json-");
+
+    const result = await execa(
+      process.execPath,
+      [
+        cliPath,
+        "review",
+        "--staged",
+        "--backend",
+        "codex",
+        "--model",
+        "provider/model",
+        "--format",
+        "json",
+      ],
+      { cwd: repo, reject: false },
+    );
+
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      schema_version: 3,
+      error: { message: expect.stringContaining("Codex model must be a bare model id") },
+    });
   });
 
   it("documents base review as an optional-value flag", async () => {

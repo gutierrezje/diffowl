@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { lstat, realpath } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { execa } from "execa";
-import { getDiffOwlDir, getProjectRoot } from "../config.js";
+import { getProjectRoot } from "../config.js";
 
 let sharedDiffOwlDirPromise: Promise<string> | undefined;
 let warnedStateMove = false;
@@ -22,8 +23,16 @@ export async function getSharedDiffOwlDir(): Promise<string> {
 }
 
 async function resolveSharedDiffOwlDir(): Promise<string> {
-  const projectRoot = getProjectRoot();
-  const localDir = getDiffOwlDir();
+  const discoveredProjectRoot = getProjectRoot();
+  const fallbackLocalDir = join(discoveredProjectRoot, ".diffowl");
+  let projectRoot: string;
+  try {
+    projectRoot = await realpath(discoveredProjectRoot);
+  } catch (error) {
+    if (isMissingPathError(error)) return fallbackLocalDir;
+    throw error;
+  }
+  const localDir = join(projectRoot, ".diffowl");
   let insideWorkTree: string;
   try {
     ({ stdout: insideWorkTree } = await execa("git", ["rev-parse", "--is-inside-work-tree"], {
@@ -53,21 +62,28 @@ async function resolveSharedDiffOwlDir(): Promise<string> {
     throw error;
   }
 
-  const toplevel = resolveGitPath(projectRoot, toplevelRaw);
-  const commonDir = resolveGitPath(projectRoot, commonRaw);
+  let toplevel: string;
+  let commonDir: string;
+  try {
+    toplevel = await realpath(resolveGitPath(projectRoot, toplevelRaw));
+    commonDir = await realpath(resolveGitPath(projectRoot, commonRaw));
+  } catch (error) {
+    if (isMissingPathError(error)) return localDir;
+    throw error;
+  }
   const rel = relative(toplevel, projectRoot);
-  if (rel.startsWith("..")) {
+  if (isOutsidePath(rel)) {
     return localDir;
   }
 
   let sharedDiffOwlDir: string;
-  // Standard worktrees report the primary checkout's `.git`; bare repos and
-  // separate git-dir layouts need an extra namespace under the common dir.
-  if (basename(commonDir) !== ".git") {
-    sharedDiffOwlDir = join(commonDir, "diffowl", rel, ".diffowl");
-  } else {
-    sharedDiffOwlDir = join(dirname(commonDir), rel, ".diffowl");
-  }
+  const standardWorktree = await findStandardWorktreeRoot(commonDir);
+  // A normal checkout, including an internal `.git` directory symlink, owns
+  // state beside that checkout. Separate or external git directories use
+  // their own repository-specific namespace.
+  sharedDiffOwlDir = standardWorktree
+    ? join(standardWorktree, rel, ".diffowl")
+    : join(commonDir, "diffowl", rel, ".diffowl");
 
   warnIfIgnoringLocalState(localDir, sharedDiffOwlDir);
   return sharedDiffOwlDir;
@@ -114,6 +130,42 @@ async function gitRevParse(projectRoot: string, args: string[]): Promise<{ stdou
 function resolveGitPath(projectRoot: string, raw: string): string {
   const trimmed = raw.trim();
   return isAbsolute(trimmed) ? trimmed : resolve(projectRoot, trimmed);
+}
+
+function isMissingPathError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+function isOutsidePath(path: string): boolean {
+  return path === ".." || path.startsWith(`..${sep}`) || isAbsolute(path);
+}
+
+async function findStandardWorktreeRoot(commonDir: string): Promise<string | undefined> {
+  let candidate = dirname(commonDir);
+  while (true) {
+    try {
+      const entry = await lstat(join(candidate, ".git"));
+      if (entry.isDirectory() || entry.isSymbolicLink()) {
+        const target = await realpath(join(candidate, ".git"));
+        if (relative(commonDir, target) === "") return candidate;
+      }
+    } catch (error) {
+      if (!isUnusableStandardGitEntryError(error)) throw error;
+    }
+    const parent = dirname(candidate);
+    if (parent === candidate) return undefined;
+    candidate = parent;
+  }
+}
+
+function isUnusableStandardGitEntryError(error: unknown): boolean {
+  if (!(error instanceof Error) || !("code" in error)) return false;
+  return (
+    error.code === "ENOENT" ||
+    error.code === "EACCES" ||
+    error.code === "ELOOP" ||
+    error.code === "EPERM"
+  );
 }
 
 /** Exported for tests: only ENOENT / git exit 128 are soft-fallback cases. */

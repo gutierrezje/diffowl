@@ -1,7 +1,8 @@
 # Codex App Server adapter
 
-This module owns DiffOwl's production Codex App Server implementation. It is not
-user-selectable yet. OpenCode remains the only default runtime.
+This module owns DiffOwl's production Codex App Server implementation. Users
+select it with `diffowl backend codex`. OpenCode remains the default for existing
+installations and preferences.
 
 ## Execution contract
 

@@ -27,7 +27,7 @@ export type ReviewPipelineOutcome =
       kind: "completed"; report: ReviewReport; persisted: PersistReviewRunResult;
       reportPath: string; sessionId: string;
       suppressed: { outsideChangedFiles: number; belowConfidence: number };
-      timings: ReviewTiming[]; usage: ReviewUsage | null;
+      timings: ReviewTiming[]; usage: ReviewUsage | null; effectiveModel: string | null;
     }
   | {
       kind: "skipped"; reason: "empty-diff" | "documentation-only";
@@ -43,6 +43,7 @@ export interface ReviewPipelineInput {
   target: ReviewTarget; config: DiffOwlConfig; depth: ReviewContextDepth; verbose: boolean;
   projectRoot: string; diffOwlDir: string; timings: ReviewTiming[]; persistEmptyDiff: boolean;
   signal?: AbortSignal;
+  executor?: ReviewExecutor;
   onProgress?: (event: ReviewProgressEvent) => void;
   onDiagnostics?: (diagnostics: string[]) => void;
   onStatus?: (message: string) => void;
@@ -88,7 +89,7 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
     input.onDiagnostics?.(reviewContext.diagnostics);
   }
 
-  const execution = await deps.executor.execute({
+  const execution = await (input.executor ?? deps.executor).execute({
     review: {
       target: snapshot.target,
       directory: input.projectRoot,
@@ -205,6 +206,7 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
     },
     timings: [...timings, ...(report.timings ?? [])],
     usage: reviewResult.usage ?? null,
+    effectiveModel: execution.effectiveModel ?? null,
   };
 }
 
