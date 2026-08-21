@@ -24,14 +24,15 @@ export async function getSharedDiffOwlDir(): Promise<string> {
 
 async function resolveSharedDiffOwlDir(): Promise<string> {
   const discoveredProjectRoot = getProjectRoot();
-  const localDir = join(discoveredProjectRoot, ".diffowl");
+  const fallbackLocalDir = join(discoveredProjectRoot, ".diffowl");
   let projectRoot: string;
   try {
     projectRoot = await realpath(discoveredProjectRoot);
   } catch (error) {
-    if (isMissingPathError(error)) return localDir;
+    if (isMissingPathError(error)) return fallbackLocalDir;
     throw error;
   }
+  const localDir = join(projectRoot, ".diffowl");
   let insideWorkTree: string;
   try {
     ({ stdout: insideWorkTree } = await execa("git", ["rev-parse", "--is-inside-work-tree"], {

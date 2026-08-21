@@ -175,6 +175,30 @@ describe("getSharedDiffOwlDir", () => {
     ).toBe(false);
   });
 
+  it.skipIf(process.platform === "win32")(
+    "does not warn when the discovered project root aliases the canonical checkout",
+    async () => {
+      const repo = await createGitProject();
+      const alias = `${repo}-alias`;
+      await symlink(repo, alias, "dir");
+      tempDirs.push(alias);
+      await mkdir(join(repo, ".diffowl"), { recursive: true });
+      await writeFile(join(repo, ".diffowl", "state.db"), "", "utf8");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.resetModules();
+      vi.doMock("../config.js", () => ({ getProjectRoot: () => alias }));
+
+      try {
+        const stateRoot = await import("./state-root.js");
+        await expect(stateRoot.getSharedDiffOwlDir()).resolves.toBe(join(repo, ".diffowl"));
+        expect(warn).not.toHaveBeenCalled();
+      } finally {
+        vi.doUnmock("../config.js");
+        vi.resetModules();
+      }
+    },
+  );
+
   it("retries shared-root resolution after a rejected lookup", async () => {
     const repo = await createGitProject();
     process.chdir(repo);
