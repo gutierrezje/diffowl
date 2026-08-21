@@ -257,27 +257,33 @@ describe("executeCodexReview", () => {
     }
   });
 
-  it("detects a timed-out turn mutation before teardown can restore it", async () => {
-    const directory = await temporaryRepository();
-    try {
-      await expect(
-        executeCodexReview({
-          ...makeInput("timeout-active-mutates-restores", true, directory),
-          timeoutMs: 200,
-        }),
-      ).rejects.toMatchObject({
-        kind: "repository-mutated",
-        changedPaths: ["codex-mutated.txt"],
-      });
-    } finally {
-      await rm(directory, {
-        recursive: true,
-        force: true,
-        maxRetries: 5,
-        retryDelay: 100,
-      });
-    }
-  });
+  it(
+    "detects a timed-out turn mutation before teardown can restore it",
+    { timeout: 10_000 },
+    async () => {
+      const directory = await temporaryRepository();
+      // Hosted Windows needs enough startup time to reach the fixture's mutation before timing out.
+      const timeoutMs = process.platform === "win32" ? 5_000 : 200;
+      try {
+        await expect(
+          executeCodexReview({
+            ...makeInput("timeout-active-mutates-restores", true, directory),
+            timeoutMs,
+          }),
+        ).rejects.toMatchObject({
+          kind: "repository-mutated",
+          changedPaths: ["codex-mutated.txt"],
+        });
+      } finally {
+        await rm(directory, {
+          recursive: true,
+          force: true,
+          maxRetries: 5,
+          retryDelay: 100,
+        });
+      }
+    },
+  );
 
   it.each([
     ["policy-cwd", "policy-violation"],
