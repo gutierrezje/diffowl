@@ -2,7 +2,7 @@ import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { DiffOwlConfig } from "../config.js";
 import { ReviewCancelledError } from "../review/errors.js";
 import { createCodexReviewExecutor } from "./executor.js";
@@ -174,6 +174,8 @@ describe("createCodexReviewExecutor", () => {
   it("does not start App Server when the shared budget expires before review startup", async () => {
     const directory = await mkdtemp(join(tmpdir(), "diffowl-codex-executor-deadline-"));
     const commandLog = join(directory, "commands.log");
+    let currentTime = 1_000;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => currentTime);
     try {
       const executor = createCodexReviewExecutor({
         command: {
@@ -196,12 +198,12 @@ describe("createCodexReviewExecutor", () => {
           review: {
             target: { kind: "staged" },
             directory: process.cwd(),
-            config: { ...config, timeout: 2 },
+            config: { ...config, timeout: 30 },
             depth: "default",
           },
           onStatus: (status) => {
             if (status === "Reviewing changes with Codex...") {
-              Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2_100);
+              currentTime = 31_001;
             }
           },
         }),
@@ -213,6 +215,7 @@ describe("createCodexReviewExecutor", () => {
         expect.stringMatching(/^app-server generate-json-schema --out /),
       ]);
     } finally {
+      clock.mockRestore();
       await rm(directory, { recursive: true, force: true });
     }
   }, 10_000);
