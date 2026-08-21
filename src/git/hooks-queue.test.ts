@@ -34,8 +34,27 @@ describe("isHookQueueStopFailure", () => {
     expect(isHookQueueStopFailure("opencode: command not found")).toBe(true);
   });
 
+  it("stops on Codex runtime, authentication, and protocol failures", () => {
+    expect(
+      isHookQueueStopFailure("Codex review failed: App Server executable was not found."),
+    ).toBe(true);
+    expect(isHookQueueStopFailure("Codex review failed: Codex account is not authenticated.")).toBe(
+      true,
+    );
+    expect(
+      isHookQueueStopFailure(
+        "Codex review failed: Codex protocol generation failed during review.",
+      ),
+    ).toBe(true);
+  });
+
   it("allows timeouts and generic review failures to keep draining the queue", () => {
     expect(isHookQueueStopFailure("Review timed out after 900s")).toBe(false);
+    expect(
+      isHookQueueStopFailure(
+        "Codex review failed: Codex protocol evidence timed out during version.",
+      ),
+    ).toBe(false);
     expect(isHookQueueStopFailure("Review failed: model returned empty output")).toBe(false);
     expect(isHookQueueStopFailure("Review started.")).toBe(false);
     expect(isHookQueueStopFailure(undefined)).toBe(false);

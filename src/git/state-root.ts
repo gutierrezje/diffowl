@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
+import { realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { execa } from "execa";
-import { getDiffOwlDir, getProjectRoot } from "../config.js";
+import { getProjectRoot } from "../config.js";
 
 let sharedDiffOwlDirPromise: Promise<string> | undefined;
 let warnedStateMove = false;
@@ -22,8 +23,8 @@ export async function getSharedDiffOwlDir(): Promise<string> {
 }
 
 async function resolveSharedDiffOwlDir(): Promise<string> {
-  const projectRoot = getProjectRoot();
-  const localDir = getDiffOwlDir();
+  const projectRoot = await realpath(getProjectRoot());
+  const localDir = join(projectRoot, ".diffowl");
   let insideWorkTree: string;
   try {
     ({ stdout: insideWorkTree } = await execa("git", ["rev-parse", "--is-inside-work-tree"], {
@@ -53,8 +54,8 @@ async function resolveSharedDiffOwlDir(): Promise<string> {
     throw error;
   }
 
-  const toplevel = resolveGitPath(projectRoot, toplevelRaw);
-  const commonDir = resolveGitPath(projectRoot, commonRaw);
+  const toplevel = await realpath(resolveGitPath(projectRoot, toplevelRaw));
+  const commonDir = await realpath(resolveGitPath(projectRoot, commonRaw));
   const rel = relative(toplevel, projectRoot);
   if (rel.startsWith("..")) {
     return localDir;

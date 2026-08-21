@@ -62,6 +62,18 @@ describe("config", () => {
     expect(await readFile(parentConfig, "utf-8")).not.toContain("model:");
   });
 
+  it("omits a transient Codex model before validating project policy", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
+    tempDirs.push(root);
+    process.chdir(root);
+    const config = await loadConfig();
+    config.model = "gpt-5.4";
+
+    const savedPath = await saveConfig(config);
+
+    expect(await readFile(savedPath, "utf-8")).not.toContain("model:");
+  });
+
   it("defaults missing optional fields", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
     tempDirs.push(root);
