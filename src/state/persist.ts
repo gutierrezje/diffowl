@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { ReviewExecutionProvenance } from "../review/provenance.js";
 import type { ReviewFinding, ReviewTiming } from "../review/types.js";
 import { closeStateDatabase, openStateDatabase, runInTransaction } from "./db.js";
 import { computeFindingFingerprint } from "./fingerprint.js";
@@ -6,9 +7,11 @@ import { reconcileReviewFindings } from "./reconcile.js";
 import { suggestPossibleDuplicates } from "./possible-duplicates.js";
 import { getReviewById, insertReview, updateReview } from "./repositories/reviews.js";
 import { countObservationsByFindingIds } from "./repositories/observations.js";
+import { insertReviewExecution } from "./repositories/review-executions.js";
 import type {
   FindingCandidate,
   ReconcileReviewFindingsResult,
+  ReviewExecutionRecord,
   ReviewTargetKind,
   ReviewRecord,
 } from "./types.js";
@@ -26,6 +29,7 @@ export interface PersistReviewRunInput {
   diagnostics: string[];
   timings: ReviewTiming[];
   findings: ReviewFinding[];
+  execution?: ReviewExecutionProvenance;
   /** Symbol keys aligned with `findings`; persistence-only context, never review model data. */
   symbolKeys?: Array<string | null>;
   skippedReason?: string | null;
@@ -33,6 +37,7 @@ export interface PersistReviewRunInput {
 
 export interface PersistReviewRunResult {
   reviewId: string;
+  execution: ReviewExecutionRecord | null;
   reconcile: ReconcileReviewFindingsResult;
   actionableFindings: ReviewFinding[];
   lifecycleSuppressedFindings: ReviewFinding[];
@@ -220,6 +225,13 @@ export async function persistReviewRun(
         timings: input.timings,
         skippedReason: input.skippedReason ?? null,
       });
+      const execution = input.execution === undefined
+        ? null
+        : insertReviewExecution(state.db, {
+            reviewId: review.id,
+            createdAt: review.createdAt,
+            provenance: input.execution,
+          });
 
       const identifiable: ReviewFinding[] = [];
       const untracked: ReviewFinding[] = [];
@@ -279,6 +291,7 @@ export async function persistReviewRun(
 
       return {
         reviewId: review.id,
+        execution,
         reconcile,
         actionableFindings: [...actionableFindings, ...untracked],
         lifecycleSuppressedFindings,

@@ -139,6 +139,10 @@ import {
 import { resolveCompletedReviewExit } from "./review/gate.js";
 import { runReviewPipeline } from "./review/run.js";
 import { createSelectedReviewExecutor } from "./review/executor.js";
+import {
+  createSingleReviewAssignment,
+  type ReviewExecutionProvenance,
+} from "./review/provenance.js";
 import { inspectReviewRuntimes } from "./review/runtime.js";
 import { getReviewBackendFailureGuidance } from "./review/guidance.js";
 
@@ -315,7 +319,9 @@ program
         timings,
         persistEmptyDiff: jsonMode,
         signal: cancelController.signal,
-        executor: createSelectedReviewExecutor(selection),
+        executor: createSelectedReviewExecutor(
+          createSingleReviewAssignment(selection, config.reasoning.effort),
+        ),
         onProgress: (event) => {
           if (spinner) {
             spinner.text = formatReviewProgress(event);
@@ -418,6 +424,7 @@ program
           usage: outcome.usage,
           selection,
           effectiveModel: outcome.effectiveModel,
+          execution: outcome.execution,
         });
       } else {
         printFooter(report, outcome.reportPath);
@@ -1770,6 +1777,7 @@ async function emitReviewJsonSuccess(input: {
   usage?: ReviewUsage | null;
   selection: ReviewSelection;
   effectiveModel: string | null;
+  execution?: ReviewExecutionProvenance | null;
 }): Promise<void> {
   const review = await getPersistedReview(input.diffOwlDir, input.reviewId);
   if (!review) {
@@ -1789,6 +1797,7 @@ async function emitReviewJsonSuccess(input: {
     verbose: input.verbose,
     selection: input.selection,
     effectiveModel: input.effectiveModel,
+    ...(input.execution === undefined ? {} : { execution: input.execution }),
     ...(input.timings ? { timings: input.timings } : {}),
     ...(input.usage !== undefined ? { usage: input.usage } : {}),
   });
