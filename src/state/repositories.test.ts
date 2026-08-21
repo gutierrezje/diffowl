@@ -83,6 +83,7 @@ describe("finding repository", () => {
     try {
       const review = insertReview(state.db, {
         targetKind: "last-commit",
+        targetCommit: "def456",
         diffHash: "def456",
         model: "provider/model",
         reasoning: "auto",
@@ -115,6 +116,7 @@ describe("finding repository", () => {
           const review = insertReview(state.db, {
             targetKind: "commit",
             targetRef: "HEAD~1",
+            targetCommit: "ghi789",
             diffHash: "ghi789",
             model: "provider/model",
             reasoning: "high",

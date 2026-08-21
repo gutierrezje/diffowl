@@ -68,8 +68,7 @@ describe("createSelectedReviewExecutor", () => {
 
     const result = await executor.execute(reviewExecutorOptions("gpt-5.6-luna", "max"));
 
-    expect(result.provenance).toEqual({
-      schemaVersion: 1,
+    expect(result.runtimeProvenance).toEqual({
       cohortId: null,
       reviewerId: "single",
       role: "single",
@@ -99,7 +98,7 @@ describe("createSelectedReviewExecutor", () => {
 
     const result = await executor.execute(reviewExecutorOptions("provider/model", "high"));
 
-    expect(result.provenance).toMatchObject({
+    expect(result.runtimeProvenance).toMatchObject({
       backend: "opencode",
       requestedModel: "provider/model",
       effectiveModel: null,

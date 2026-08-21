@@ -10,6 +10,8 @@ const insertReviewStatement = (db: SqliteDatabase) =>
       created_at,
       target_kind,
       target_ref,
+      base_commit,
+      merge_base_commit,
       target_commit,
       diff_hash,
       model,
@@ -26,6 +28,8 @@ const insertReviewStatement = (db: SqliteDatabase) =>
       @createdAt,
       @targetKind,
       @targetRef,
+      @baseCommit,
+      @mergeBaseCommit,
       @targetCommit,
       @diffHash,
       @model,
@@ -47,6 +51,8 @@ const getReviewByIdStatement = (db: SqliteDatabase) =>
       created_at AS createdAt,
       target_kind AS targetKind,
       target_ref AS targetRef,
+      base_commit AS baseCommit,
+      merge_base_commit AS mergeBaseCommit,
       target_commit AS targetCommit,
       diff_hash AS diffHash,
       model,
@@ -67,6 +73,8 @@ type ReviewRow = {
   createdAt: string;
   targetKind: ReviewRecord["targetKind"];
   targetRef: string | null;
+  baseCommit: string | null;
+  mergeBaseCommit: string | null;
   targetCommit: string | null;
   diffHash: string;
   model: string;
@@ -86,6 +94,8 @@ export function insertReview(db: SqliteDatabase, input: InsertReviewInput): Revi
     createdAt: input.createdAt ?? new Date().toISOString(),
     targetKind: input.targetKind,
     targetRef: input.targetRef ?? null,
+    baseCommit: input.baseCommit ?? null,
+    mergeBaseCommit: input.mergeBaseCommit ?? null,
     targetCommit: input.targetCommit ?? null,
     diffHash: input.diffHash,
     model: input.model,
@@ -104,6 +114,8 @@ export function insertReview(db: SqliteDatabase, input: InsertReviewInput): Revi
     createdAt: record.createdAt,
     targetKind: record.targetKind,
     targetRef: record.targetRef,
+    baseCommit: record.baseCommit,
+    mergeBaseCommit: record.mergeBaseCommit,
     targetCommit: record.targetCommit,
     diffHash: record.diffHash,
     model: record.model,
@@ -137,6 +149,8 @@ export function getLatestReview(db: SqliteDatabase): ReviewRecord | undefined {
         created_at AS createdAt,
         target_kind AS targetKind,
         target_ref AS targetRef,
+        base_commit AS baseCommit,
+        merge_base_commit AS mergeBaseCommit,
         target_commit AS targetCommit,
         diff_hash AS diffHash,
         model,
@@ -202,6 +216,8 @@ function mapReviewRow(row: ReviewRow): ReviewRecord {
     createdAt: row.createdAt,
     targetKind: row.targetKind,
     targetRef: row.targetRef,
+    baseCommit: row.baseCommit,
+    mergeBaseCommit: row.mergeBaseCommit,
     targetCommit: row.targetCommit,
     diffHash: row.diffHash,
     model: row.model,

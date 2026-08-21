@@ -29,9 +29,7 @@ afterEach(async () => {
 });
 
 const persistDefaults = {
-  targetKind: "staged" as const,
   targetRef: null,
-  targetCommit: null,
   model: "provider/model",
   reasoning: "medium",
   depth: "default",
@@ -79,7 +77,13 @@ async function persistFinding(
   reviewNumber++;
   return persistReviewRun(dir, {
     ...persistDefaults,
-    diffHash: `diff-${reviewNumber}`,
+    reviewInput: {
+      targetKind: "staged",
+      baseCommit: null,
+      mergeBaseCommit: null,
+      headCommit: null,
+      diffHash: `diff-${reviewNumber}`,
+    },
     sessionId: `session-${reviewNumber}`,
     summary: "test",
     findings: [finding],

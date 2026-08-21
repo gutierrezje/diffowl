@@ -71,6 +71,7 @@ describe("openStateDatabase", () => {
         { version: 1 },
         { version: 2 },
         { version: 3 },
+        { version: 4 },
         { version: CURRENT_SCHEMA_VERSION },
       ]);
     } finally {
@@ -92,6 +93,7 @@ describe("openStateDatabase", () => {
         { version: 1 },
         { version: 2 },
         { version: 3 },
+        { version: 4 },
         { version: CURRENT_SCHEMA_VERSION },
       ]);
     } finally {
@@ -207,6 +209,59 @@ describe("openStateDatabase", () => {
     }
   });
 
+  it("rejects malformed review input identity at the database boundary", async () => {
+    const dir = await createTempDir();
+    const state = await openStateDatabase(dir);
+
+    try {
+      expect(() =>
+        state.db.prepare(`
+          INSERT INTO reviews (
+            id, created_at, target_kind, target_ref, base_commit, merge_base_commit,
+            target_commit, diff_hash, model, reasoning, depth, session_id, summary,
+            diagnostics_json, timings_json
+          ) VALUES (
+            'rev_malformed', @createdAt, 'base', 'origin/main', NULL, NULL, NULL,
+            'malformed-input', 'provider/model', 'medium', 'default', 'session-malformed',
+            'Malformed input probe', '[]', '[]'
+          )
+        `).run({
+          createdAt: new Date().toISOString(),
+        }),
+      ).toThrow("Review contains invalid input identity.");
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
+  it("keeps persisted review input identity immutable", async () => {
+    const dir = await createTempDir();
+    const state = await openStateDatabase(dir);
+
+    try {
+      const review = insertReview(state.db, {
+        targetKind: "base",
+        targetRef: "origin/main",
+        baseCommit: "base-tip",
+        mergeBaseCommit: "merge-base",
+        targetCommit: "reviewed-head",
+        diffHash: "immutable-input",
+        model: "provider/model",
+        reasoning: "medium",
+        depth: "default",
+        sessionId: "session-immutable",
+        summary: "Immutable input probe",
+      });
+      expect(() =>
+        state.db
+          .prepare("UPDATE reviews SET diff_hash = ? WHERE id = ?")
+          .run("changed-input", review.id),
+      ).toThrow("Review input identity is immutable.");
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
   it("migrates v1 review data and accepts base review targets", async () => {
     const dir = await createTempDir();
     const db = await openSqliteDatabase(getStateDbPath(dir));
@@ -272,6 +327,8 @@ describe("openStateDatabase", () => {
       expect(getReviewById(state.db, "rev_existing")).toMatchObject({
         targetKind: "commit",
         targetRef: "HEAD~1",
+        baseCommit: null,
+        mergeBaseCommit: null,
         targetCommit: "abc123",
       });
       expect(
@@ -290,13 +347,19 @@ describe("openStateDatabase", () => {
           role: "single",
           sessionId: "session-existing",
           terminalOutcome: "completed",
+          schemaVersion: 1,
         }),
       ]);
+      expect(listReviewExecutionsByReviewId(state.db, "rev_existing")[0]).not.toHaveProperty(
+        "input",
+      );
       expect(listReviewExecutionsByReviewId(state.db, "rev_skipped")).toEqual([]);
 
       const inserted = insertReview(state.db, {
         targetKind: "base",
         targetRef: "origin/main",
+        baseCommit: "base-tip",
+        mergeBaseCommit: "merge-base",
         targetCommit: "def456",
         diffHash: "branch-hash",
         model: "provider/model",
@@ -308,6 +371,8 @@ describe("openStateDatabase", () => {
       expect(getReviewById(state.db, inserted.id)).toMatchObject({
         targetKind: "base",
         targetRef: "origin/main",
+        baseCommit: "base-tip",
+        mergeBaseCommit: "merge-base",
         targetCommit: "def456",
       });
     } finally {
@@ -360,6 +425,7 @@ describe("openStateDatabase", () => {
         { version: 1 },
         { version: 2 },
         { version: 3 },
+        { version: 4 },
         { version: CURRENT_SCHEMA_VERSION },
       ]);
     } finally {

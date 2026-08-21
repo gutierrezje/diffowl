@@ -1,6 +1,6 @@
 import { createCodexReviewExecutor, type CodexReviewExecutorOptions } from "../codex/executor.js";
 import { createOpenCodeReviewExecutor } from "../opencode/executor.js";
-import { REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION, type ReviewAssignment } from "./provenance.js";
+import type { ReviewAssignment } from "./provenance.js";
 import type { ReviewExecutor } from "./types.js";
 
 const CODEX_PROTOCOL_TIMEOUT_MS = 30_000;
@@ -30,8 +30,7 @@ export function createSelectedReviewExecutor(
       const result = await adapter.execute(options);
       return {
         ...result,
-        provenance: {
-          schemaVersion: REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION,
+        runtimeProvenance: {
           cohortId: assignment.cohortId,
           reviewerId: assignment.reviewerId,
           role: assignment.role,

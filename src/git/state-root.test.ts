@@ -303,10 +303,14 @@ function basePersistInput(
   diffHash = "diff-hash-1",
 ): Parameters<typeof persistReviewRun>[1] {
   return {
-    targetKind: "staged",
     targetRef: null,
-    targetCommit: null,
-    diffHash,
+    reviewInput: {
+      targetKind: "staged",
+      baseCommit: null,
+      mergeBaseCommit: null,
+      headCommit: null,
+      diffHash,
+    },
     model: "provider/model",
     reasoning: "auto",
     depth: "default",
