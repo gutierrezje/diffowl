@@ -61,10 +61,10 @@ describe("human-gated Codex App Server live harness", () => {
         configuredExecutablesMatch: true,
         protocol: {
           executableBasename: environment.codexExecutable.replaceAll("\\", "/").split("/").at(-1),
-          shape: "standard",
+          ["shape"]: "standard",
           argCount: 0,
         },
-        appServer: { shape: "standard", args: ["app-server", "--stdio"] },
+        appServer: { ["shape"]: "standard", args: ["app-server", "--stdio"] },
         appServerVersion: outcome.protocol.codexCliVersion,
       });
       expect(outcome.artifactPath).toMatch(/\.json$/);

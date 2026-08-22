@@ -3,8 +3,10 @@ import { chmod, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { execa } from "execa";
+import { isRecord, isText, type CodexJsonObject, type CodexJsonValue } from "../../codex/types.js";
 import type { DiffOwlConfig } from "../../config.js";
 import { getServerHealth } from "../../opencode/server.js";
+import type { ReviewPipelineInput } from "../../review/run.js";
 import type { ReviewTarget } from "../../review/target.js";
 
 export const CODEX_MODEL_ENV = "DIFFOWL_CODEX_MODEL";
@@ -28,6 +30,16 @@ export type LiveEnvironment = {
   model: string;
   artifactDirectory: string;
   codexExecutable: string;
+};
+
+export type ProcessIdentity = {
+  executableBasename: string;
+  commandSha256: string;
+};
+
+type WindowsProcessInfo = {
+  commandLine: string;
+  executablePath: string;
 };
 
 export const liveConfig: DiffOwlConfig = {
@@ -124,10 +136,7 @@ export function parseWindowsListenerPids(stdout: string, port: number): number[]
   return uniquePids(pids);
 }
 
-export function parsePosixProcessIdentity(commandLine: string): {
-  executableBasename: string;
-  commandSha256: string;
-} {
+export function parsePosixProcessIdentity(commandLine: string): ProcessIdentity {
   const command = commandLine.trim();
   const firstToken = command.match(/^(?:"([^"]+)"|'([^']+)'|(\S+))/);
   const executable = firstToken?.[1] ?? firstToken?.[2] ?? firstToken?.[3] ?? "";
@@ -168,20 +177,10 @@ async function readListenerIdentity(
         ["-NoProfile", "-NonInteractive", "-Command", script],
         { timeout: 5_000 },
       );
-      const raw: unknown = JSON.parse(result.stdout);
-      const processInfo = isRecord(raw) ? raw : Array.isArray(raw) ? raw[0] : undefined;
-      if (!isRecord(processInfo)) throw new Error("process query returned no row");
-      const commandLine = processInfo["CommandLine"];
-      const executablePath = processInfo["ExecutablePath"];
-      const command =
-        typeof commandLine === "string" && commandLine.trim() !== ""
-          ? commandLine.trim()
-          : typeof executablePath === "string"
-            ? executablePath.trim()
-            : "";
+      const processInfo = parseWindowsProcessInfo(JSON.parse(result.stdout));
+      const command = processInfo.commandLine.trim() || processInfo.executablePath.trim();
       requireOpenCodeCommand(command);
-      const parsed = parsePosixProcessIdentity(command);
-      return parsed;
+      return parsePosixProcessIdentity(command);
     } catch (error) {
       throw new Error(`Unable to inspect OpenCode process ${pid}: ${describeError(error)}`);
     }
@@ -216,12 +215,16 @@ function isPositivePid(value: number): boolean {
   return Number.isSafeInteger(value) && value > 0;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function parseWindowsProcessInfo(cause: unknown): WindowsProcessInfo {
+  const processInfo = isRecord(cause) ? cause : Array.isArray(cause) ? cause[0] : undefined;
+  if (!isRecord(processInfo)) throw new Error("process query returned no row");
+  const commandLine = isText(processInfo["CommandLine"]) ? processInfo["CommandLine"] : "";
+  const executablePath = isText(processInfo["ExecutablePath"]) ? processInfo["ExecutablePath"] : "";
+  return { commandLine, executablePath };
 }
 
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function describeError(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 export async function createStagedRepo(label: string): Promise<string> {
@@ -262,16 +265,7 @@ export function reviewInput(
   root: string,
   target: ReviewTarget = { kind: "staged" },
   config: DiffOwlConfig = liveConfig,
-): {
-  target: ReviewTarget;
-  config: DiffOwlConfig;
-  depth: "default";
-  verbose: boolean;
-  projectRoot: string;
-  diffOwlDir: string;
-  timings: [];
-  persistEmptyDiff: false;
-} {
+): ReviewPipelineInput {
   return {
     target,
     config,
@@ -288,16 +282,23 @@ export function hashText(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
-export async function writeSafeJsonArtifact(directory: string, value: unknown): Promise<string> {
+export async function writeSafeJsonArtifact(
+  directory: string,
+  value: CodexJsonValue,
+): Promise<string> {
   await mkdir(directory, { recursive: true, mode: 0o700 });
   await chmod(directory, 0o700);
   const path = join(directory, `diffowl-live-${Date.now()}-${randomUUID()}.json`);
   const temporary = `${path}.tmp-${randomUUID()}`;
   try {
-    await writeFile(temporary, `${JSON.stringify({ schemaVersion: 1, ...asRecord(value) })}\n`, {
-      mode: 0o600,
-      flag: "wx",
-    });
+    await writeFile(
+      temporary,
+      `${JSON.stringify({ schemaVersion: 1, ...artifactRecord(value) })}\n`,
+      {
+        mode: 0o600,
+        flag: "wx",
+      },
+    );
     await chmod(temporary, 0o600);
     await rename(temporary, path);
     return path;
@@ -306,8 +307,6 @@ export async function writeSafeJsonArtifact(directory: string, value: unknown): 
   }
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : { value };
+function artifactRecord(value: CodexJsonValue): CodexJsonObject {
+  return isRecord(value) ? value : { value };
 }
