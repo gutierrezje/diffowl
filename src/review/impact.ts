@@ -2,15 +2,18 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import { execa } from "execa";
+import { z } from "zod";
 import type { DiffFile, DiffResult } from "../git/diff.js";
 import { getSharedDiffOwlDir } from "../git/state-root.js";
 import {
   asBlobOid,
+  BlobOidSchema,
+  ExportBindingSchema,
+  ImportBindingSchema,
   isTsModulePath,
   parseModuleBindings,
   resolveSpecifier,
   type BlobOid,
-  type ExportBinding,
   type ImportBinding,
   type ImportClause,
   type ModuleBindings,
@@ -29,6 +32,23 @@ const MAX_REFERENCE_SNIPPET_CHARS = 1_200;
 const MAX_REFERENCE_SNIPPET_FILE_BYTES = 256 * 1024;
 const MAX_PARSE_FILE_BYTES = 512 * 1024;
 const IMPACT_SCHEMA_VERSION = 2;
+
+const BlobCacheRecordSchema = z.object({
+  version: z.literal(IMPACT_SCHEMA_VERSION),
+  parserVersion: z.string(),
+  oid: BlobOidSchema,
+  exports: z.array(ExportBindingSchema),
+  imports: z.array(ImportBindingSchema),
+});
+const TreeCacheRecordSchema = z.object({
+  version: z.literal(IMPACT_SCHEMA_VERSION),
+  key: z.string(),
+  files: z.record(z.string(), BlobOidSchema),
+});
+
+type ImpactCacheRecord =
+  | z.input<typeof BlobCacheRecordSchema>
+  | z.input<typeof TreeCacheRecordSchema>;
 
 type ImpactSnapshot = {
   root: string;
@@ -509,8 +529,12 @@ async function readBlobFile(
   oid: BlobOid,
   parserVersion: string,
 ): Promise<ModuleBindings | undefined> {
-  const raw = await readJson(join(impactDir, "blobs", `${oid}.json`));
-  return parseBlobRecord(raw, oid, parserVersion);
+  const record = await readJson(
+    join(impactDir, "blobs", `${oid}.json`),
+    BlobCacheRecordSchema,
+  );
+  if (!record || record.parserVersion !== parserVersion || record.oid !== oid) return undefined;
+  return { oid: record.oid, exports: record.exports, imports: record.imports };
 }
 
 async function writeBlobFile(
@@ -531,8 +555,12 @@ async function readTreeFile(
   impactDir: string,
   key: SnapshotKey,
 ): Promise<ReadonlyMap<string, BlobOid> | undefined> {
-  const raw = await readJson(join(impactDir, "trees", snapshotKeyFileName(key)));
-  return parseTreeRecord(raw, snapshotKeyValue(key));
+  const record = await readJson(
+    join(impactDir, "trees", snapshotKeyFileName(key)),
+    TreeCacheRecordSchema,
+  );
+  if (!record || record.key !== snapshotKeyValue(key)) return undefined;
+  return new Map(Object.entries(record.files));
 }
 
 async function writeTreeFile(
@@ -547,118 +575,19 @@ async function writeTreeFile(
   });
 }
 
-function parseBlobRecord(
-  raw: unknown,
-  expectedOid: BlobOid,
-  parserVersion: string,
-): ModuleBindings | undefined {
-  if (
-    !isRecord(raw) ||
-    raw["version"] !== IMPACT_SCHEMA_VERSION ||
-    raw["parserVersion"] !== parserVersion ||
-    raw["oid"] !== expectedOid ||
-    !Array.isArray(raw["exports"]) ||
-    !Array.isArray(raw["imports"])
-  ) {
-    return undefined;
-  }
-
-  const exports: ExportBinding[] = [];
-  for (const value of raw["exports"]) {
-    const binding = parseExportBinding(value);
-    if (!binding) return undefined;
-    exports.push(binding);
-  }
-
-  const imports: ImportBinding[] = [];
-  for (const value of raw["imports"]) {
-    const binding = parseImportBinding(value);
-    if (!binding) return undefined;
-    imports.push(binding);
-  }
-
-  return { oid: expectedOid, exports, imports };
-}
-
-function parseTreeRecord(
-  raw: unknown,
-  expectedKey: string,
-): ReadonlyMap<string, BlobOid> | undefined {
-  if (
-    !isRecord(raw) ||
-    raw["version"] !== IMPACT_SCHEMA_VERSION ||
-    raw["key"] !== expectedKey ||
-    !isRecord(raw["files"])
-  ) {
-    return undefined;
-  }
-
-  const files = new Map<string, BlobOid>();
-  for (const [path, value] of Object.entries(raw["files"])) {
-    if (typeof value !== "string") return undefined;
-    try {
-      files.set(path, asBlobOid(value));
-    } catch {
-      return undefined;
-    }
-  }
-  return files;
-}
-
-function parseExportBinding(raw: unknown): ExportBinding | undefined {
-  if (!isRecord(raw) || typeof raw["kind"] !== "string" || !isPositiveLine(raw["line"])) {
-    return undefined;
-  }
-  if (raw["kind"] === "named" && typeof raw["name"] === "string") {
-    return { kind: "named", name: raw["name"], line: raw["line"] };
-  }
-  if (raw["kind"] === "default" && (typeof raw["name"] === "string" || raw["name"] === undefined)) {
-    return { kind: "default", name: raw["name"], line: raw["line"] };
-  }
-  if (raw["kind"] === "star" && typeof raw["from"] === "string") {
-    return { kind: "star", from: raw["from"], line: raw["line"] };
-  }
-  return undefined;
-}
-
-function parseImportBinding(raw: unknown): ImportBinding | undefined {
-  if (
-    !isRecord(raw) ||
-    typeof raw["specifier"] !== "string" ||
-    !isPositiveLine(raw["line"]) ||
-    !isRecord(raw["clause"])
-  ) {
-    return undefined;
-  }
-  const clause = parseImportClause(raw["clause"]);
-  return clause ? { specifier: raw["specifier"], line: raw["line"], clause } : undefined;
-}
-
-function parseImportClause(raw: Record<string, unknown>): ImportClause | undefined {
-  if (raw["kind"] === "named" && Array.isArray(raw["names"]) && raw["names"].every(isString)) {
-    return { kind: "named", names: raw["names"] };
-  }
-  if (raw["kind"] === "default" && typeof raw["local"] === "string") {
-    return { kind: "default", local: raw["local"] };
-  }
-  if (raw["kind"] === "namespace" && typeof raw["local"] === "string") {
-    return { kind: "namespace", local: raw["local"] };
-  }
-  if (raw["kind"] === "side-effect") return { kind: "side-effect" };
-  if (raw["kind"] === "export-star") return { kind: "export-star" };
-  return undefined;
-}
-
-async function readJson(path: string): Promise<unknown | undefined> {
+async function readJson<Output>(
+  path: string,
+  schema: z.ZodType<Output>,
+): Promise<Output | undefined> {
   try {
-    const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
-    return parsed;
+    const result = schema.safeParse(JSON.parse(await readFile(path, "utf8")));
+    return result.success ? result.data : undefined;
   } catch {
     return undefined;
   }
 }
 
-async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
+async function writeJsonAtomic(path: string, value: ImpactCacheRecord): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temporaryPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
   try {
@@ -680,19 +609,7 @@ function mapsEqual(
   return true;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isPositiveLine(value: unknown): value is number {
-  return Number.isInteger(value) && typeof value === "number" && value > 0;
-}
-
-function isString(value: unknown): value is string {
-  return typeof value === "string";
-}
-
-function formatError(error: unknown): string {
+function formatError<Failure>(error: Failure): string {
   return error instanceof Error ? error.message : String(error);
 }
 

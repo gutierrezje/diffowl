@@ -10,15 +10,20 @@ export function loadTypescript(): typeof tsType | undefined {
 
   try {
     const require = createRequire(import.meta.url);
-    cachedTypescript = require("typescript") as typeof tsType;
+    cachedTypescript = requireTypescript(require);
   } catch {
     try {
       const require = createRequire(pathToFileURL(join(process.cwd(), "package.json")));
-      cachedTypescript = require("typescript") as typeof tsType;
+      cachedTypescript = requireTypescript(require);
     } catch {
       cachedTypescript = undefined;
     }
   }
 
   return cachedTypescript;
+}
+
+function requireTypescript(require: NodeJS.Require): typeof tsType {
+  // SAFETY: Node resolves the installed `typescript` package whose export owns the imported type.
+  return require("typescript") as typeof tsType;
 }

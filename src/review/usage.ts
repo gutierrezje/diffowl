@@ -14,20 +14,19 @@ export const ReviewUsageSchema = z.object({
   tokens: ReviewUsageTokensSchema,
   cost: z.number().nullable(),
 });
+const AssistantUsagePayloadSchema = z.object({
+  role: z.literal("assistant"),
+  tokens: ReviewUsageTokensSchema,
+  cost: z.number().nullable().catch(null),
+});
 
 export type ReviewUsageTokens = z.output<typeof ReviewUsageTokensSchema>;
 export type ReviewUsage = z.output<typeof ReviewUsageSchema>;
 
-export function parseAssistantUsage(info: unknown): ReviewUsage | undefined {
-  if (!info || typeof info !== "object") return undefined;
-  const value = info as Record<string, unknown>;
-  if (value["role"] !== "assistant") return undefined;
-
-  const tokens = ReviewUsageTokensSchema.safeParse(value["tokens"]);
-  if (!tokens.success) return undefined;
-
-  const cost = typeof value["cost"] === "number" ? value["cost"] : null;
-  return { tokens: tokens.data, cost };
+export function parseAssistantUsage<Message>(info: Message): ReviewUsage | undefined {
+  const parsed = AssistantUsagePayloadSchema.safeParse(info);
+  if (!parsed.success) return undefined;
+  return { tokens: parsed.data.tokens, cost: parsed.data.cost };
 }
 
 export function aggregateReviewUsage(entries: ReviewUsage[]): ReviewUsage | undefined {

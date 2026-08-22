@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { execa } from "execa";
@@ -742,12 +742,19 @@ describe("buildReviewContext", () => {
       cwd: root,
     });
     const oid = stdout.match(/^\d+ ([0-9a-f]{40}) 0\t/)?.[1];
-    expect(oid).toBeDefined();
+    if (!oid) throw new Error("expected cached consumer blob oid");
     const blobPath = join(root, ".diffowl", "impact", "blobs", `${oid}.json`);
-    const cached = JSON.parse(await readFile(blobPath, "utf-8")) as Record<string, unknown>;
-    cached["parserVersion"] = "0.0.0-mismatch";
-    cached["imports"] = [];
-    await writeFile(blobPath, `${JSON.stringify(cached)}\n`, "utf-8");
+    await writeFile(
+      blobPath,
+      `${JSON.stringify({
+        version: 2,
+        parserVersion: "0.0.0-mismatch",
+        oid,
+        exports: [],
+        imports: [],
+      })}\n`,
+      "utf-8",
+    );
 
     const second = await buildReviewContext({ kind: "staged" }, config);
 

@@ -155,8 +155,8 @@ describe("ReviewContextSource.readModules", () => {
       content: "export const first = true;\n",
     });
 
-    const unhandled: unknown[] = [];
-    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    const unhandled: Parameters<NodeJS.UnhandledRejectionListener>[0][] = [];
+    const onUnhandled: NodeJS.UnhandledRejectionListener = (reason) => unhandled.push(reason);
     process.on("unhandledRejection", onUnhandled);
     try {
       controller.abort();

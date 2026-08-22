@@ -2,7 +2,18 @@ import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { execa } from "execa";
+import { z } from "zod";
 import { isTsModulePath } from "./ast/module-bindings.js";
+
+const GitExitErrorSchema = z.object({
+  exitCode: z.unknown(),
+});
+
+type GitListOptions = {
+  cwd: string;
+  stripFinalNewline: false;
+  cancelSignal?: AbortSignal;
+};
 
 export type ContextSourceRead =
   | { status: "loaded"; content: string }
@@ -137,10 +148,9 @@ function tooLarge(size: number, maxBytes: number): ContextSourceRead {
   };
 }
 
-function formatReadError(err: unknown): string {
-  if (err && typeof err === "object" && "exitCode" in err) {
-    return `Git object unavailable (exit code ${String(err.exitCode)})`;
-  }
+function formatReadError<Failure>(err: Failure): string {
+  const parsed = GitExitErrorSchema.safeParse(err);
+  if (parsed.success) return `Git object unavailable (exit code ${parsed.data.exitCode})`;
   return err instanceof Error ? err.message : String(err);
 }
 
@@ -149,12 +159,13 @@ function formatBytes(bytes: number): string {
   return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`;
 }
 
-function gitListOptions(root: string, signal?: AbortSignal) {
-  return {
+function gitListOptions(root: string, signal?: AbortSignal): GitListOptions {
+  const options: GitListOptions = {
     cwd: root,
     stripFinalNewline: false,
-    ...(signal ? { cancelSignal: signal } : {}),
   };
+  if (signal) options.cancelSignal = signal;
+  return options;
 }
 
 async function listTrackedPaths(root: string, signal?: AbortSignal): Promise<string[]> {

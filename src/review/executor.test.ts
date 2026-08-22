@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CodexReviewExecutorOptions } from "../codex/executor.js";
-import type { ReviewExecutor } from "./types.js";
+import type { ReviewExecutionResult, ReviewExecutor } from "./types.js";
 import { createSelectedReviewExecutor } from "./executor.js";
 import { createSingleReviewAssignment } from "./provenance.js";
 
@@ -111,14 +111,17 @@ describe("createSelectedReviewExecutor", () => {
 
 function completedExecutor(input: { effectiveModel?: string }): ReviewExecutor {
   return {
-    execute: vi.fn(async () => ({
-      review: {
-        report: { summary: "No findings.", findings: [] },
-        sessionId: "review-session",
-      },
-      timings: [],
-      ...(input.effectiveModel === undefined ? {} : { effectiveModel: input.effectiveModel }),
-    })),
+    execute: vi.fn(async () => {
+      const result: ReviewExecutionResult = {
+        review: {
+          report: { summary: "No findings.", findings: [] },
+          sessionId: "review-session",
+        },
+        timings: [],
+      };
+      if (input.effectiveModel !== undefined) result.effectiveModel = input.effectiveModel;
+      return result;
+    }),
   };
 }
 

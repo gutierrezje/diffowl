@@ -32,12 +32,20 @@ export const REVIEW_DOCUMENT_OUTPUT_SCHEMA = {
   },
   required: ["summary", "findings"],
   additionalProperties: false,
-} as const satisfies Record<string, unknown>;
+} as const;
 
 export type SchemaIssue = {
   locator: string;
   message: string;
 };
+
+export type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly JsonValue[]
+  | { readonly [key: string]: JsonValue };
 
 export type ReviewTextInspection =
   | { kind: "open"; ifFinished: ClosedReview }
@@ -70,25 +78,27 @@ export class SchemaValidationError extends Error {
   }
 }
 
-const ReviewSeveritySchema = z.preprocess(
-  (value) => (typeof value === "string" ? value.toLowerCase() : value),
-  z.enum(["error", "warning", "info"]),
-);
+const ReviewSeveritySchema = z
+  .string({ error: "must be error, warning, or info" })
+  .transform((value) => value.toLowerCase())
+  .pipe(z.enum(["error", "warning", "info"], { error: "must be error, warning, or info" }));
 
 const ReviewConfidenceSchema = z
-  .preprocess(
-    (value) => (typeof value === "string" ? value.toLowerCase() : value),
-    ConfigReviewConfidenceSchema,
-  )
+  .string()
+  .transform((value) => value.toLowerCase())
+  .pipe(ConfigReviewConfidenceSchema)
   .catch("low");
 
-const ReviewFindingLineSchema = z.preprocess(
-  (value) => (typeof value === "string" ? Number(value) : value),
-  z
-    .number({ error: "must be a positive integer" })
-    .int("must be a positive integer")
-    .positive("must be a positive integer"),
-);
+const ReviewFindingLineSchema = z
+  .union([z.number(), z.string().transform((value) => Number(value))], {
+    error: "must be a positive integer",
+  })
+  .pipe(
+    z
+      .number({ error: "must be a positive integer" })
+      .int("must be a positive integer")
+      .positive("must be a positive integer"),
+  );
 
 const ReviewFindingPathSchema = z
   .string({ error: "must be a relative path without .. or a drive prefix" })
@@ -130,6 +140,7 @@ const ReviewDocumentSchema = z.object({
 const NativeReviewDocumentSchema = ReviewDocumentSchema.extend({
   findings: z.array(NativeReviewFindingSchema),
 }).strict();
+const ZodArrayIndexSchema = z.number();
 
 const MARKER_ISSUE: SchemaIssue = {
   locator: "marker",
@@ -138,10 +149,10 @@ const MARKER_ISSUE: SchemaIssue = {
 
 type ExtractedCandidate =
   | { kind: "no-marker-incomplete"; issues: readonly SchemaIssue[] }
-  | { kind: "no-marker-object"; issues: readonly SchemaIssue[]; value: unknown }
+  | { kind: "no-marker-object"; issues: readonly SchemaIssue[]; value: JsonValue }
   | { kind: "no-marker-invalid-json"; issues: readonly SchemaIssue[] }
   | { kind: "marked-incomplete"; issues: readonly SchemaIssue[] }
-  | { kind: "marked-object"; value: unknown }
+  | { kind: "marked-object"; value: JsonValue }
   | { kind: "marked-invalid-json"; issues: readonly SchemaIssue[] };
 
 export function inspectReviewText(text: string): ReviewTextInspection {
@@ -169,7 +180,7 @@ export function inspectReviewText(text: string): ReviewTextInspection {
 }
 
 export function inspectNativeReviewText(text: string): ClosedReview {
-  let value: unknown;
+  let value: JsonValue;
   try {
     value = JSON.parse(text);
   } catch (error) {
@@ -300,7 +311,7 @@ function extractJsonCandidate(text: string): ExtractedCandidate {
       : { kind: "no-marker-incomplete", issues: [MARKER_ISSUE] };
   }
 
-  let value: unknown;
+  let value: JsonValue;
   try {
     value = JSON.parse(extracted.jsonText);
   } catch (err) {
@@ -368,7 +379,7 @@ function extractBalancedJson(text: string): { jsonText: string; complete: boolea
 }
 
 export function validateReviewDocument(
-  value: unknown,
+  value: JsonValue,
   mode: ReviewDocumentMode = "marker",
 ): ClosedReview {
   const parsed = (mode === "native-json" ? NativeReviewDocumentSchema : ReviewDocumentSchema).safeParse(
@@ -384,15 +395,16 @@ export function validateReviewDocument(
     const key = `${finding.severity}:${finding.file}:${finding.line}:${finding.title}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    findings.push({
+    const normalizedFinding: ReviewFinding = {
       severity: finding.severity,
       file: finding.file,
       line: finding.line,
-      ...(finding.evidence != null ? { evidence: finding.evidence } : {}),
       title: finding.title,
       body: finding.body,
       confidence: finding.confidence,
-    });
+    };
+    if (finding.evidence != null) normalizedFinding.evidence = finding.evidence;
+    findings.push(normalizedFinding);
   }
 
   return {
@@ -422,8 +434,9 @@ function formatLocator(path: readonly PropertyKey[]): string {
   if (path.length === 0) return "root";
   let result = "";
   for (const segment of path) {
-    if (typeof segment === "number") {
-      result += `[${segment}]`;
+    const index = ZodArrayIndexSchema.safeParse(segment);
+    if (index.success) {
+      result += `[${index.data}]`;
     } else if (result.length === 0) {
       result += String(segment);
     } else {
@@ -435,10 +448,11 @@ function formatLocator(path: readonly PropertyKey[]): string {
 
 function formatZodIssueMessage(issue: { path: readonly PropertyKey[]; message: string }): string {
   const path = issue.path;
-  if (path[0] === "findings" && typeof path[1] === "number") {
+  const findingIndex = ZodArrayIndexSchema.safeParse(path[1]);
+  if (path[0] === "findings" && findingIndex.success) {
     const field = path.length > 2 ? String(path[path.length - 1]) : "finding";
-    if (field === "finding") return `finding ${path[1]}: ${issue.message}`;
-    return `finding ${path[1]}: ${field} ${issue.message}`;
+    if (field === "finding") return `finding ${findingIndex.data}: ${issue.message}`;
+    return `finding ${findingIndex.data}: ${field} ${issue.message}`;
   }
   if (path.length === 0) return issue.message;
   return `${formatLocator(path)}: ${issue.message}`;

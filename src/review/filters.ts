@@ -4,7 +4,7 @@ import type { ReviewFinding } from "./types.js";
 export function filterFindingsByConfidence(
   findings: ReviewFinding[],
   minConfidence: ReviewConfidence,
-): { findings: ReviewFinding[]; dropped: number } {
+) {
   const levels = ["low", "medium", "high"];
   const minIndex = levels.indexOf(minConfidence);
 
@@ -18,7 +18,7 @@ export function filterFindingsByConfidence(
 export function filterFindingsByChangedFiles(
   findings: ReviewFinding[],
   changedFiles: Set<string>,
-): { findings: ReviewFinding[]; suppressed: ReviewFinding[] } {
+) {
   const kept: ReviewFinding[] = [];
   const suppressed: ReviewFinding[] = [];
   for (const finding of findings) {

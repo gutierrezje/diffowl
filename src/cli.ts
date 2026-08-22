@@ -1643,7 +1643,7 @@ async function loadConfigOrExit(): Promise<DiffOwlConfig> {
 }
 
 async function loadEffectiveReviewConfigOrExit(
-  overrides: { backend?: unknown; model?: unknown },
+  overrides: { backend?: string; model?: string },
   format: ReviewOutputFormat,
 ) {
   try {

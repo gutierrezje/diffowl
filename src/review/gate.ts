@@ -30,7 +30,7 @@ export function resolveCompletedReviewExit(input: {
   configEnabled: boolean;
   hook: boolean;
   jsonMode: boolean;
-}): { exitCode: 0 | 1; announceFailure: boolean } {
+}) {
   const exitCode = decideGateExit(
     input.status,
     resolveGateEnabled(input.cliFlag, input.configEnabled),

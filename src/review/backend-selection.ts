@@ -31,11 +31,11 @@ export type ReviewSelection = {
   };
 };
 
-export function parseReviewBackend(value: unknown): ReviewBackend {
+export function parseReviewBackend(value: string): ReviewBackend {
   return ReviewBackendSchema.parse(value);
 }
 
-export function parseBackendModel(backend: ReviewBackend, value: unknown): string {
+export function parseBackendModel(backend: ReviewBackend, value: string): string {
   switch (backend) {
     case "opencode":
       return OpenCodeModelSchema.parse(value);

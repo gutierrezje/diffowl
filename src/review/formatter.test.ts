@@ -9,6 +9,7 @@ import {
   renderMarkdown,
   writeMarkdownReport,
 } from "./formatter.js";
+import type { ReviewMetadata } from "./formatter.js";
 import type { ReviewReport } from "./types.js";
 import { resetSharedDiffOwlDirForTests } from "../git/state-root.js";
 
@@ -395,6 +396,27 @@ diffowl:
       session_id: "ses_123",
       project_root: "/work/repo",
     });
+  });
+
+  it("preserves a positive schema version from a compatible report", () => {
+    const expected: ReviewMetadata = {
+      schema_version: 2,
+      review_id: "rev_future",
+      session_id: "ses_future",
+      project_root: "/work/repo",
+    };
+    const content = `---
+diffowl:
+  schema_version: 2
+  review_id: rev_future
+  session_id: ses_future
+  project_root: /work/repo
+---
+
+# DiffOwl Review
+`;
+
+    expect(parseReviewMetadata(content)).toEqual(expected);
   });
 
   it("returns undefined for reports without complete metadata", () => {
