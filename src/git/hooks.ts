@@ -492,8 +492,26 @@ export async function runHookWorker(options: RunPendingHookReviewsOptions = {}):
     await runPendingHookReviews(options);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await writeHookStatus(1, undefined, `Hook worker failed: ${message}`, null);
+    await persistHookWorkerFailure(message);
     throw error;
+  }
+}
+
+async function persistHookWorkerFailure(message: string): Promise<void> {
+  try {
+    const dir = await ensureDiffOwlDir();
+    const existing = await readHookResult(join(dir, "last-hook-status.json"));
+    const existingPending =
+      existing !== undefined &&
+      existing.exitCode !== 0 &&
+      existing.commit !== undefined &&
+      existsSync(join(dir, "pending-reviews", existing.commit));
+    if (existingPending) return;
+
+    const [next] = await listPendingReviews(dir);
+    await writeHookStatus(1, next?.sha, `Hook worker failed: ${message}`, null, dir);
+  } catch {
+    // Failure reporting is advisory and must not replace the original worker error.
   }
 }
 

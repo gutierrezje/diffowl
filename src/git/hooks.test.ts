@@ -238,6 +238,23 @@ describe("runHookWorker", () => {
     ).resolves.toContain("Hook worker failed");
     await expect(checkRecentHookFailure()).resolves.toMatchObject({ exitCode: 1 });
   });
+
+  it("preserves an actionable failure already recorded for a pending commit", async () => {
+    const root = await createGitRepo();
+    await writeFile(join(root, ".diffowl.yml"), "model: provider/model\n", "utf-8");
+    const dir = join(root, ".diffowl");
+    await enqueuePendingReview(dir, "failed-a");
+    await writeHookStatus(1, "failed-a", "Specific review failure.", null, dir);
+    await mkdir(join(dir, "hook.log"));
+    process.chdir(root);
+
+    await expect(runHookWorker()).rejects.toThrow(/directory|EISDIR/i);
+
+    const failure = await checkRecentHookFailure();
+    expect(failure).toMatchObject({ commit: "failed-a", message: "Specific review failure." });
+    if (!failure) throw new Error("Expected the specific hook failure to remain available.");
+    expect(formatHookFailure(failure)).toContain("diffowl review --commit failed-a");
+  });
 });
 
 describe("checkRecentHookFailure", () => {
