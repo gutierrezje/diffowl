@@ -187,17 +187,11 @@ describe("renderFindingListJson", () => {
     process.stdout.columns = 40;
     try {
       const output = renderFindingListJson(items);
-      const parsed = JSON.parse(output) as {
-        schema_version: number;
-        count: number;
-        findings: FindingListItem[];
-      };
-      expect(parsed.schema_version).toBe(1);
-      expect(parsed.count).toBe(2);
-      expect(parsed.findings[0]?.finding.id).toBe(baseFinding.id);
-      expect(parsed.findings[0]?.occurrence_count).toBe(3);
-      expect(parsed.findings[1]?.finding.id).toBe("fnd_bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee");
-      expect(parsed.findings[1]?.observation?.file).toBe("src/other.ts");
+      expect(JSON.parse(output)).toEqual({
+        schema_version: 1,
+        count: 2,
+        findings: items,
+      });
     } finally {
       process.stdout.columns = previousColumns;
     }
@@ -236,12 +230,7 @@ describe("renderFindingSummaryJson", () => {
     // D-08 is rated one-way: this document is the contract MCP handlers and user scripts read, so
     // an added key is as much a change to it as a renamed one. Asserted as a whole-key-set equality
     // rather than per-field so a future field cannot be introduced without editing this line.
-    const document = JSON.parse(renderFindingSummaryJson(populatedSummary)) as Record<
-      string,
-      unknown
-    >;
-
-    expect(Object.keys(document).sort()).toEqual([
+    expect(Object.keys(JSON.parse(renderFindingSummaryJson(populatedSummary))).sort()).toEqual([
       "inspect_command",
       "open_count",
       "regressed_count",
