@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildReviewJsonDocument,
   parseReviewOutputFormat,
@@ -609,17 +609,13 @@ describe("writeReviewJsonSuccess", () => {
       occurrenceCounts: new Map([["fnd_test", 1]]),
       suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
     });
-    const originalWrite = process.stdout.write;
     let writeCallback: ((error?: Error | null) => void) | undefined;
-    process.stdout.write = ((
-      _chunk: string | Uint8Array,
-      encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
-      maybeCallback?: (error?: Error | null) => void,
-    ) => {
-      writeCallback =
-        typeof encodingOrCallback === "function" ? encodingOrCallback : maybeCallback;
-      return false;
-    }) as typeof process.stdout.write;
+    const writeSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((_chunk, _encoding, callback) => {
+        writeCallback = callback;
+        return false;
+      });
 
     try {
       let resolved = false;
@@ -633,7 +629,7 @@ describe("writeReviewJsonSuccess", () => {
       await pending;
       expect(resolved).toBe(true);
     } finally {
-      process.stdout.write = originalWrite;
+      writeSpy.mockRestore();
     }
   });
 });

@@ -14,11 +14,10 @@ export async function removeTempDir(dir: string): Promise<void> {
   }
 }
 
-export function isRetryableFsError(error: unknown): boolean {
+export function isRetryableFsError(cause: unknown): boolean {
   return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error.code === "EBUSY" || error.code === "EPERM")
+    cause instanceof Error &&
+    "code" in cause &&
+    (cause.code === "EBUSY" || cause.code === "EPERM")
   );
 }

@@ -193,7 +193,7 @@ function formatPossibleDuplicateLines(item: PossibleDuplicateDetail): string[] {
   return lines;
 }
 
-function possibleDuplicateJson(item: PossibleDuplicateDetail): Record<string, unknown> {
+function possibleDuplicateJson(item: PossibleDuplicateDetail) {
   return {
     id: item.id,
     status: item.status,
@@ -225,7 +225,7 @@ function possibleDuplicateJson(item: PossibleDuplicateDetail): Record<string, un
   };
 }
 
-function duplicateEventJson(event: PossibleDuplicateDetail["sourceDispositionEvent"]): Record<string, unknown> {
+function duplicateEventJson(event: PossibleDuplicateDetail["sourceDispositionEvent"]) {
   return {
     id: event.id,
     finding_id: event.findingId,
@@ -252,17 +252,7 @@ function duplicateFindingJson(
   id: string,
   status: string,
   observation: PossibleDuplicateDetail["candidateObservation"],
-): {
-  id: string;
-  status: string;
-  observation_id: number;
-  location: { file: string; line: number };
-  title: string;
-  body: string;
-  severity: string;
-  confidence: string;
-  evidence: string | null;
-} {
+) {
   return {
     id,
     status,

@@ -1,18 +1,23 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
+
+const PackageMetadataSchema = z.object({
+  files: z.array(z.string()).optional(),
+  engines: z.object({ node: z.string().optional() }).optional(),
+  dependencies: z.record(z.string(), z.string()).optional(),
+  devDependencies: z.record(z.string(), z.string()).optional(),
+  scripts: z.record(z.string(), z.string()).optional(),
+  repository: z.object({ type: z.string().optional(), url: z.string().optional() }).optional(),
+  homepage: z.string().optional(),
+  bugs: z.object({ url: z.string().optional() }).optional(),
+});
 
 describe("npm package metadata", () => {
   it("defines the public package and release contract", async () => {
-    const packageJson = JSON.parse(await readFile("package.json", "utf-8")) as {
-      files?: string[];
-      engines?: { node?: string };
-      dependencies?: Record<string, string>;
-      devDependencies?: Record<string, string>;
-      scripts?: Record<string, string>;
-      repository?: { type?: string; url?: string };
-      homepage?: string;
-      bugs?: { url?: string };
-    };
+    const packageJson = PackageMetadataSchema.parse(
+      JSON.parse(await readFile("package.json", "utf-8")),
+    );
 
     expect(packageJson.files).toEqual(["dist"]);
     expect(packageJson.engines?.node).toBe(">=22.14.0");

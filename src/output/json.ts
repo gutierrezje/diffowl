@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { ReviewFinding, ReviewTiming, ReviewUsage } from "../review/types.js";
 import type { ReviewSelection } from "../review/backend-selection.js";
 import type {
@@ -17,7 +18,12 @@ import type {
 
 export const JSON_OUTPUT_SCHEMA_VERSION = 5 as const;
 
-export type ReviewOutputFormat = "text" | "json";
+const ReviewOutputFormatSchema = z.preprocess(
+  (value) => (value === undefined ? "text" : value),
+  z.enum(["text", "json"]),
+);
+
+export type ReviewOutputFormat = z.output<typeof ReviewOutputFormatSchema>;
 
 export type ReviewJsonStatus = "open" | "advisory" | "resolved" | "skipped";
 
@@ -151,12 +157,12 @@ export interface BuildReviewJsonInput {
   execution?: ReviewExecutionProvenance | null;
 }
 
-export function parseReviewOutputFormat(value: unknown): ReviewOutputFormat {
-  if (value === undefined || value === "text") {
-    return "text";
-  }
-  if (value === "json") {
-    return "json";
+export function parseReviewOutputFormat(
+  value: z.input<typeof ReviewOutputFormatSchema>,
+): ReviewOutputFormat {
+  const result = ReviewOutputFormatSchema.safeParse(value);
+  if (result.success) {
+    return result.data;
   }
   throw new Error(`Invalid output format: ${String(value)}. Expected text or json.`);
 }
@@ -168,7 +174,7 @@ export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJson
   );
   const untracked = untrackedActionableFindings(input.persisted.actionableFindings);
 
-  return {
+  const document: ReviewJsonDocumentV5 = {
     schema_version: JSON_OUTPUT_SCHEMA_VERSION,
     review: {
       id: input.review.id,
@@ -206,8 +212,11 @@ export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJson
     },
     diagnostics: input.review.diagnostics,
     timings: input.timings ?? input.review.timings,
-    ...(input.usage !== undefined ? { usage: input.usage } : {}),
   };
+  if (input.usage !== undefined) {
+    document.usage = input.usage;
+  }
+  return document;
 }
 
 export function renderReviewJsonDocument(document: ReviewJsonDocumentV5): string {
@@ -289,7 +298,7 @@ function mapJsonInputIdentity(input: ReviewInputIdentity): ReviewJsonInputIdenti
 
 function writeFully(stream: NodeJS.WritableStream, chunk: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    stream.write(chunk, (error) => {
+    stream.write(chunk, "utf8", (error) => {
       if (error) {
         reject(error);
         return;
