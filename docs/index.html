@@ -3,40 +3,47 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DiffOwl — the verification layer for agent-written code</title>
+    <title>DiffOwl — an independent reviewer for agent-written code</title>
     <meta
       name="description"
-      content="DiffOwl is the independent, provider-neutral verification layer for agent-written code. It reviews every commit on the model you already use — whichever agent wrote it — with no account and no service of its own in the loop."
+      content="DiffOwl reviews every commit from your terminal, on the model provider you already pay for. Findings live in SQLite in your repo with IDs that survive re-review. No account, no dashboard."
     />
-    <meta name="theme-color" content="#000000" />
+    <meta name="theme-color" content="#f8fafc" />
     <link rel="canonical" href="https://gutierrezje.github.io/diffowl/" />
     <!-- Open Graph / social -->
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="DiffOwl — the verification layer for agent-written code" />
+    <meta property="og:title" content="DiffOwl — an independent reviewer for agent-written code" />
     <meta
       property="og:description"
-      content="The independent reviewer for code your agents write — provider-neutral, durable findings, on the model you already use. No account, no dashboard."
+      content="Coding agents approve their own work. DiffOwl is the second reviewer: every commit, from your terminal, on the model you already pay for. No account, no dashboard."
     />
     <meta property="og:url" content="https://gutierrezje.github.io/diffowl/" />
     <!-- TODO: add docs/og-image.png (1200x630) then uncomment:
 <meta property="og:image" content="https://gutierrezje.github.io/diffowl/og-image.png"> -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="DiffOwl — the verification layer for agent-written code" />
+    <meta name="twitter:title" content="DiffOwl — an independent reviewer for agent-written code" />
     <meta
       name="twitter:description"
-      content="The independent reviewer for code your agents write — provider-neutral, durable findings, on the model you already use."
+      content="Coding agents approve their own work. DiffOwl is the second reviewer: every commit, from your terminal, on the model you already pay for."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
     />
     <style>
       :root {
-        --bg: #000;
+        --page: #f8fafc;
+        --bg: #030406;
         --fg: #fff;
-        --mut: #8a8a8a;
-        --dim: #5a5a5a;
-        --line: #1c1c1c;
-        --line-2: #2a2a2a;
-        --panel: #0a0a0a;
-        --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        --mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", monospace;
+        --mut: #a1a1aa;
+        --dim: #71717a;
+        --line: rgba(39, 39, 42, 0.6);
+        --line-2: rgba(63, 63, 70, 0.6);
+        --panel: rgba(9, 9, 11, 0.4);
+        --sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --mono: "Space Mono", ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;
       }
       * {
         margin: 0;
@@ -45,12 +52,15 @@
       }
       html {
         scroll-behavior: smooth;
+        background: var(--page);
+        overscroll-behavior: none;
       }
       body {
-        background: var(--bg);
+        background: var(--page);
+        overscroll-behavior: none;
         color: var(--fg);
         font-family: var(--sans);
-        font-weight: 300;
+        font-weight: 400;
         line-height: 1.6;
         -webkit-font-smoothing: antialiased;
         overflow-x: hidden;
@@ -60,28 +70,53 @@
         text-decoration: none;
       }
       .wrap {
-        max-width: 1080px;
+        width: 100%;
         margin: 0 auto;
-        padding: 0 28px;
+        padding: 0 32px;
+      }
+      @media (max-width: 680px) {
+        .wrap {
+          padding: 0 22px;
+        }
       }
 
-      /* 3D canvas background */
+      /* 3D canvas background — sits on the light page, outside the column */
       #bg {
         position: fixed;
         inset: 0;
         z-index: 0;
-        opacity: 0.55;
+        pointer-events: none;
       }
       .veil {
         position: fixed;
         inset: 0;
         z-index: 1;
         pointer-events: none;
-        background: radial-gradient(70% 60% at 50% 40%, transparent 30%, rgba(0, 0, 0, 0.7) 100%);
+        background: radial-gradient(
+          ellipse at center,
+          transparent 32%,
+          rgba(255, 255, 255, 0.38) 68%,
+          rgba(255, 255, 255, 0.96) 100%
+        );
       }
+
+      /* dark glass column — the page lives inside this */
       .content {
         position: relative;
         z-index: 2;
+        max-width: 896px;
+        margin: 0 auto;
+        min-height: 100vh;
+        isolation: isolate;
+        background:
+          linear-gradient(145deg, rgba(255, 255, 255, 0.024), transparent 28%), rgba(3, 4, 6, 0.97);
+        border-inline: 1px solid rgba(255, 255, 255, 0.07);
+        box-shadow:
+          inset 1px 0 rgba(255, 255, 255, 0.024),
+          inset -1px 0 rgba(255, 255, 255, 0.024),
+          0 0 80px rgba(0, 0, 0, 0.8);
+        backdrop-filter: blur(3px);
+        -webkit-backdrop-filter: blur(3px);
       }
 
       /* nav */
@@ -89,49 +124,55 @@
         position: sticky;
         top: 0;
         z-index: 50;
-        border-bottom: 1px solid var(--line);
+        background: rgba(0, 0, 0, 0.85);
         backdrop-filter: blur(12px);
-        background: rgba(0, 0, 0, 0.6);
+        -webkit-backdrop-filter: blur(12px);
       }
       nav .wrap {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        height: 62px;
+        height: 64px;
       }
       .brand {
-        font-family: var(--mono);
-        font-weight: 600;
-        font-size: 16px;
-        letter-spacing: -0.01em;
+        font-family: var(--sans);
+        font-weight: 700;
+        font-size: 17px;
+        letter-spacing: -0.02em;
         display: flex;
         align-items: center;
         gap: 10px;
+        transition: opacity 0.2s;
       }
-      .brand .m {
-        color: var(--mut);
-        font-weight: 400;
+      .brand:hover {
+        opacity: 0.8;
       }
       .navlinks {
         display: flex;
-        gap: 30px;
-        font-family: var(--mono);
-        font-size: 13px;
+        gap: 26px;
+        font-size: 14px;
+        font-weight: 500;
         color: var(--mut);
+      }
+      .navlinks a {
+        transition: color 0.2s;
       }
       .navlinks a:hover {
         color: var(--fg);
       }
       .nav-cta {
         font-family: var(--mono);
-        font-size: 13px;
-        border: 1px solid var(--line-2);
-        padding: 7px 14px;
-        border-radius: 2px;
-        transition: 0.18s;
+        font-size: 12px;
+        border: 1px solid rgba(63, 63, 70, 0.8);
+        background: rgba(24, 24, 27, 0.2);
+        color: var(--mut);
+        padding: 6px 14px;
+        border-radius: 100px;
+        transition: 0.2s;
       }
       .nav-cta:hover {
-        border-color: var(--fg);
+        border-color: var(--mut);
+        color: var(--fg);
       }
       @media (max-width: 720px) {
         .navlinks {
@@ -141,15 +182,16 @@
 
       /* hero */
       header {
-        padding: 140px 0 120px;
+        padding: 110px 0 100px;
         text-align: center;
       }
       .tag {
         font-family: var(--mono);
-        font-size: 12.5px;
+        font-size: 12px;
         letter-spacing: 0.04em;
         color: var(--mut);
-        border: 1px solid var(--line);
+        border: 1px solid rgba(39, 39, 42, 0.8);
+        background: rgba(24, 24, 27, 0.2);
         border-radius: 100px;
         padding: 6px 16px;
         display: inline-block;
@@ -158,11 +200,11 @@
         animation: fade 0.8s 0.1s forwards;
       }
       h1 {
-        font-weight: 300;
-        font-size: clamp(38px, 6.4vw, 76px);
-        line-height: 1.04;
-        letter-spacing: -0.035em;
-        margin-bottom: 30px;
+        font-weight: 700;
+        font-size: clamp(38px, 6.4vw, 72px);
+        line-height: 1.05;
+        letter-spacing: -0.025em;
+        margin-bottom: 28px;
       }
       h1 .l {
         display: block;
@@ -176,21 +218,24 @@
         animation-delay: 0.3s;
       }
       h1 strong {
-        font-weight: 600;
+        font-weight: 700;
+        background: linear-gradient(to bottom, #fff, #f4f4f5 45%, #a1a1aa);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
       }
       .sub {
-        font-size: 18px;
+        font-size: 17px;
         color: var(--mut);
         max-width: 540px;
         margin: 0 auto 42px;
-        line-height: 1.6;
+        line-height: 1.65;
         opacity: 0;
         animation: rise 0.9s 0.46s forwards;
-        font-weight: 300;
       }
       .sub b {
         color: var(--fg);
-        font-weight: 400;
+        font-weight: 500;
       }
       .cta-row {
         display: flex;
@@ -202,10 +247,10 @@
       }
       .btn {
         font-family: var(--mono);
-        font-size: 14px;
-        padding: 13px 22px;
-        border-radius: 2px;
-        transition: 0.18s;
+        font-size: 13.5px;
+        padding: 12px 22px;
+        border-radius: 10px;
+        transition: 0.2s;
         cursor: pointer;
         display: inline-flex;
         align-items: center;
@@ -213,18 +258,21 @@
       }
       .btn-p {
         background: var(--fg);
-        color: var(--bg);
-        font-weight: 500;
+        color: #09090b;
+        font-weight: 700;
       }
       .btn-p:hover {
         transform: translateY(-2px);
+        box-shadow: 0 0 30px rgba(255, 255, 255, 0.15);
       }
       .btn-g {
         border: 1px solid var(--line-2);
+        background: var(--panel);
         color: var(--fg);
       }
       .btn-g:hover {
-        border-color: var(--fg);
+        border-color: rgba(113, 113, 122, 0.6);
+        background: rgba(24, 24, 27, 0.4);
         transform: translateY(-2px);
       }
 
@@ -247,45 +295,50 @@
       /* section scaffold */
       section {
         padding: 90px 0;
-        border-top: 1px solid var(--line);
+        border-top: 1px solid rgba(39, 39, 42, 0.5);
       }
       .eyebrow {
         font-family: var(--mono);
         font-size: 12px;
-        letter-spacing: 0.16em;
+        letter-spacing: 0.25em;
         text-transform: uppercase;
         color: var(--dim);
         margin-bottom: 18px;
       }
       .h2 {
-        font-weight: 300;
-        font-size: clamp(28px, 4vw, 42px);
-        letter-spacing: -0.03em;
-        line-height: 1.1;
-        max-width: 680px;
+        font-weight: 700;
+        font-size: clamp(26px, 4vw, 38px);
+        letter-spacing: -0.02em;
+        line-height: 1.15;
+        max-width: 640px;
         margin-bottom: 16px;
       }
       .h2 strong {
-        font-weight: 600;
+        font-weight: 700;
+        background: linear-gradient(to bottom, #fff, #f4f4f5 45%, #a1a1aa);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
       }
       .lede {
         color: var(--mut);
         max-width: 520px;
         font-size: 16px;
-        font-weight: 300;
       }
 
       /* terminal */
       .term {
-        background: var(--panel);
-        border: 1px solid var(--line-2);
-        border-radius: 6px;
+        background: rgba(9, 9, 11, 0.6);
+        border: 1px solid var(--line);
+        border-radius: 12px;
         font-family: var(--mono);
-        font-size: 13.5px;
+        font-size: 13px;
         max-width: 560px;
         margin: 48px auto 0;
         text-align: left;
         overflow: hidden;
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
       }
       .term-bar {
         display: flex;
@@ -343,13 +396,11 @@
         }
       }
 
-      /* pillars — clean list, no decoration */
+      /* pillars — glass cards */
       .pillars {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
-        gap: 1px;
-        background: var(--line);
-        border: 1px solid var(--line);
+        gap: 16px;
         margin-top: 54px;
       }
       @media (max-width: 680px) {
@@ -358,8 +409,19 @@
         }
       }
       .pillar {
-        background: var(--bg);
-        padding: 34px 32px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 30px 28px;
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        transition: all 0.3s;
+      }
+      .pillar:hover {
+        border-color: var(--line-2);
+        background: rgba(24, 24, 27, 0.4);
+        transform: translateY(-4px);
+        box-shadow: 0 0 30px rgba(255, 255, 255, 0.05);
       }
       .pillar .n {
         font-family: var(--mono);
@@ -368,20 +430,19 @@
         margin-bottom: 16px;
       }
       .pillar h3 {
-        font-weight: 500;
-        font-size: 20px;
+        font-weight: 600;
+        font-size: 19px;
         letter-spacing: -0.01em;
         margin-bottom: 10px;
       }
       .pillar p {
         font-size: 14.5px;
         color: var(--mut);
-        font-weight: 300;
         line-height: 1.6;
       }
       .pillar p b {
         color: var(--fg);
-        font-weight: 400;
+        font-weight: 500;
       }
 
       /* loop */
@@ -397,10 +458,19 @@
         }
       }
       .step {
-        border: 1px solid var(--line-2);
-        border-radius: 4px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        border-radius: 12px;
         padding: 24px 20px;
         position: relative;
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        transition: all 0.3s;
+      }
+      .step:hover {
+        border-color: var(--line-2);
+        transform: translateY(-4px);
+        box-shadow: 0 0 30px rgba(255, 255, 255, 0.05);
       }
       .step .si {
         font-family: var(--mono);
@@ -409,22 +479,21 @@
         margin-bottom: 12px;
       }
       .step h4 {
-        font-weight: 500;
-        font-size: 17px;
+        font-weight: 600;
+        font-size: 16px;
         margin-bottom: 7px;
       }
       .step p {
         font-size: 13px;
         color: var(--mut);
-        font-weight: 300;
         line-height: 1.55;
       }
       .step.v {
-        border-color: var(--fg);
+        border-color: rgba(255, 255, 255, 0.4);
       }
       .step .ar {
         position: absolute;
-        right: -19px;
+        right: -16px;
         top: 50%;
         transform: translateY(-50%);
         color: var(--dim);
@@ -441,7 +510,7 @@
       .qs {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 46px;
+        gap: 40px;
         align-items: center;
         margin-top: 50px;
       }
@@ -461,7 +530,7 @@
       }
       .qs-list li {
         padding: 18px 0 18px 46px;
-        border-bottom: 1px solid var(--line);
+        border-bottom: 1px solid rgba(39, 39, 42, 0.5);
         position: relative;
       }
       .qs-list li:last-child {
@@ -478,31 +547,33 @@
         color: var(--dim);
       }
       .qs-list h4 {
-        font-weight: 500;
+        font-weight: 600;
         font-size: 15px;
         margin-bottom: 3px;
       }
       .qs-list p {
         font-size: 13.5px;
         color: var(--mut);
-        font-weight: 300;
       }
       .qs-list code {
         font-family: var(--mono);
         font-size: 12.5px;
-        background: var(--panel);
+        background: rgba(24, 24, 27, 0.5);
         border: 1px solid var(--line);
         padding: 1px 6px;
-        border-radius: 3px;
+        border-radius: 5px;
         color: var(--fg);
       }
 
       /* compare */
       .cmp {
         margin-top: 48px;
-        border: 1px solid var(--line-2);
-        border-radius: 6px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        border-radius: 12px;
         overflow: hidden;
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
       }
       table {
         width: 100%;
@@ -512,13 +583,12 @@
       th,
       td {
         text-align: left;
-        padding: 16px 20px;
-        border-bottom: 1px solid var(--line);
-        font-weight: 300;
+        padding: 15px 18px;
+        border-bottom: 1px solid rgba(39, 39, 42, 0.5);
       }
       thead th {
         font-family: var(--mono);
-        font-size: 11.5px;
+        font-size: 11px;
         letter-spacing: 0.08em;
         text-transform: uppercase;
         color: var(--dim);
@@ -529,7 +599,7 @@
       }
       tbody td:first-child {
         color: var(--fg);
-        font-weight: 400;
+        font-weight: 500;
       }
       td {
         color: var(--mut);
@@ -557,7 +627,6 @@
         margin-top: 14px;
         font-size: 12.5px;
         color: var(--dim);
-        font-weight: 300;
       }
       @media (max-width: 680px) {
         .cmp {
@@ -575,7 +644,7 @@
           display: none;
         }
         .cmp tr {
-          border-bottom: 1px solid var(--line);
+          border-bottom: 1px solid rgba(39, 39, 42, 0.5);
           padding: 14px 0;
         }
         .cmp tr:last-child {
@@ -611,107 +680,108 @@
         }
       }
 
-      /* roadmap */
-      .road {
+      /* features */
+      .feats {
         display: grid;
-        grid-template-columns: repeat(5, 1fr);
-        margin-top: 50px;
-        border: 1px solid var(--line);
-        border-radius: 6px;
-        overflow: hidden;
+        grid-template-columns: 1fr 1fr;
+        gap: 0 44px;
+        margin-top: 40px;
+        max-width: 780px;
+        list-style: none;
       }
       @media (max-width: 680px) {
-        .road {
-          grid-template-columns: 1fr 1fr;
+        .feats {
+          grid-template-columns: 1fr;
         }
       }
-      .ri {
-        padding: 24px 20px;
-        border-right: 1px solid var(--line);
-      }
-      .ri:last-child {
-        border-right: none;
-      }
-      .ri .v {
-        font-family: var(--mono);
-        font-size: 22px;
-        font-weight: 500;
-      }
-      .ri .tg {
-        font-family: var(--mono);
-        font-size: 10.5px;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-        color: var(--dim);
-        margin: 8px 0 12px;
-      }
-      .ri.done .tg {
-        color: var(--fg);
-      }
-      .ri h4 {
-        font-weight: 500;
-        font-size: 14px;
-        margin-bottom: 5px;
-      }
-      .ri p {
-        font-size: 12.5px;
+      .feats li {
+        display: flex;
+        gap: 12px;
+        align-items: baseline;
+        padding: 14px 0;
+        border-bottom: 1px solid rgba(39, 39, 42, 0.5);
+        font-size: 14.5px;
         color: var(--mut);
-        font-weight: 300;
         line-height: 1.5;
+      }
+      .feats li::before {
+        content: "✓";
+        font-family: var(--mono);
+        color: var(--fg);
+        flex-shrink: 0;
+      }
+      .feats li b {
+        color: var(--fg);
+        font-weight: 500;
+      }
+      .feats code {
+        font-family: var(--mono);
+        font-size: 12.5px;
+        background: rgba(24, 24, 27, 0.5);
+        border: 1px solid var(--line);
+        padding: 1px 6px;
+        border-radius: 5px;
+        color: var(--fg);
       }
 
       /* final */
       .final {
         padding: 120px 0;
         text-align: center;
-        border-top: 1px solid var(--line);
+        border-top: 1px solid rgba(39, 39, 42, 0.5);
       }
       .final .big {
-        font-weight: 300;
-        font-size: clamp(30px, 5vw, 56px);
-        letter-spacing: -0.03em;
-        line-height: 1.05;
-        max-width: 720px;
+        font-weight: 700;
+        font-size: clamp(30px, 5vw, 52px);
+        letter-spacing: -0.02em;
+        line-height: 1.08;
+        max-width: 700px;
         margin: 0 auto 18px;
       }
       .final .big strong {
-        font-weight: 600;
+        font-weight: 700;
+        background: linear-gradient(to bottom, #fff, #f4f4f5 45%, #a1a1aa);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
       }
       .final p {
         color: var(--mut);
         margin-bottom: 34px;
-        font-weight: 300;
       }
       .pill {
         display: inline-flex;
         align-items: center;
         gap: 16px;
         font-family: var(--mono);
-        font-size: 14px;
+        font-size: 13.5px;
         border: 1px solid var(--line-2);
-        border-radius: 5px;
+        background: var(--panel);
+        border-radius: 10px;
         padding: 12px 12px 12px 20px;
         margin-bottom: 30px;
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
       }
       .pill .p {
         color: var(--mut);
       }
       .copy {
         background: var(--fg);
-        color: var(--bg);
+        color: #09090b;
         border: none;
         font-family: var(--mono);
         font-size: 11px;
-        font-weight: 600;
+        font-weight: 700;
         letter-spacing: 0.06em;
         text-transform: uppercase;
         padding: 7px 13px;
-        border-radius: 3px;
+        border-radius: 7px;
         cursor: pointer;
       }
 
       footer {
-        border-top: 1px solid var(--line);
+        border-top: 1px solid rgba(39, 39, 42, 0.5);
         padding: 42px 0;
       }
       footer .wrap {
@@ -725,7 +795,6 @@
         max-width: 420px;
         font-size: 13px;
         color: var(--mut);
-        font-weight: 300;
         line-height: 1.6;
       }
       footer a {
@@ -848,8 +917,8 @@
             >diffowl</a
           >
           <div class="navlinks">
-            <a href="#why">Why</a><a href="#loop">Loop</a><a href="#start">Start</a
-            ><a href="#compare">Compare</a><a href="#roadmap">Roadmap</a>
+            <a href="#why">Why</a><a href="#loop">How</a><a href="#start">Start</a
+            ><a href="#compare">Compare</a><a href="#features">Features</a>
           </div>
           <a class="nav-cta" href="https://github.com/gutierrezje/diffowl">GitHub ↗</a>
         </div>
@@ -871,8 +940,9 @@
             <span class="l"><strong>DiffOwl reviews it.</strong></span>
           </h1>
           <p class="sub">
-            The independent <b>verification layer</b> for agent-written code. Reviews every commit on
-            the model you already use — <b>whichever agent (or human) wrote it</b>. No account, no
+            An agent that reviews its own patch will approve it. DiffOwl is the
+            <b>second reviewer</b>: it checks every commit from your terminal, on the model
+            subscription you already pay for, and keeps its findings in your repo. No account, no
             dashboard, no per-seat bill.
           </p>
           <div class="cta-row">
@@ -892,9 +962,9 @@
               <div class="o ok">commit complete — review started</div>
               <div><span class="p">$</span> <span class="c">diffowl review</span></div>
               <div class="o wa">
-                <span class="fid">fnd_a91c</span> unvalidated path in resolve()
+                <span class="fid">fnd_a91c</span> swallowed error hides corrupt config
               </div>
-              <div class="o wa"><span class="fid">fnd_4f02</span> missing await on db write</div>
+              <div class="o wa"><span class="fid">fnd_4f02</span> unbounded directory walk</div>
               <div class="o ok">2 findings stored — .diffowl/state.db<span class="cur"></span></div>
             </div>
           </div>
@@ -904,42 +974,40 @@
       <!-- WHY -->
       <section id="why">
         <div class="wrap reveal">
-          <div class="eyebrow">The case for it</div>
+          <div class="eyebrow">Why</div>
           <div class="h2">The author shouldn't be the <strong>only reviewer.</strong></div>
-          <p class="lede">Four reasons — each provable today, not a roadmap promise.</p>
+          <p class="lede">Everything below works today. Nothing here is a roadmap item.</p>
           <div class="pillars">
             <div class="pillar">
               <div class="n">01</div>
               <h3>Independent eyes</h3>
               <p>
-                The agent that wrote the patch is biased toward approving it. DiffOwl is a
-                <b>separate review loop</b> — implementer and reviewer stay distinct roles.
+                The model that wrote the patch never gets the final word on it. DiffOwl runs as a
+                separate reviewer, so implementer and reviewer stay distinct roles.
               </p>
             </div>
             <div class="pillar">
               <div class="n">02</div>
               <h3>Nothing to sign up for</h3>
               <p>
-                No account, no dashboard, no third party in the loop. The CLI runs
-                on your machine and talks straight to the model provider you already use — DiffOwl
-                adds nothing in between.
+                No account, no dashboard, no third party between you and the review. The CLI runs on
+                your machine and talks straight to the model provider you already use.
               </p>
             </div>
             <div class="pillar">
               <div class="n">03</div>
-              <h3>Any model, no new bill</h3>
+              <h3>Use the backend you already have</h3>
               <p>
-                Rides on your existing OpenCode providers — Copilot, OpenAI, Ollama.
-                <b>No separate keys, no per-seat SaaS.</b> You own the cost-vs-quality dial.
+                Review through your existing OpenCode providers or the signed-in Codex CLI. You pick
+                the backend and model, so you decide what a review costs.
               </p>
             </div>
             <div class="pillar">
               <div class="n">04</div>
-              <h3>Findings that remember</h3>
+              <h3>Quality you can measure</h3>
               <p>
-                Stable <code style="font-family: var(--mono); font-size: 13px">fnd_*</code> IDs in
-                SQLite, deduped across commits, with a real lifecycle: fix, dismiss, defer,
-                <b>reopen on regression</b>.
+                DiffOwl ships with a replayable eval suite that scores its own reviews on precision,
+                recall, and cost. You don't have to take the review quality on faith.
               </p>
             </div>
           </div>
@@ -949,11 +1017,16 @@
       <!-- LOOP -->
       <section id="loop">
         <div class="wrap reveal">
-          <div class="eyebrow">The closed loop</div>
+          <div class="eyebrow">How it works</div>
           <div class="h2">
             Most tools leave a comment. DiffOwl <strong>remembers the outcome.</strong>
           </div>
-          <p class="lede">Reviewer and implementer stay separate — and every finding has a lifecycle.</p>
+          <p class="lede">
+            Every finding gets a stable
+            <code style="font-family: var(--mono); font-size: 14px">fnd_*</code>
+            ID in SQLite, deduped across commits and tracked from first sighting to fix, dismissal,
+            or regression.
+          </p>
           <div class="loop">
             <div class="step">
               <div class="si">01</div>
@@ -970,15 +1043,15 @@
             <div class="step">
               <div class="si">03</div>
               <h4>Agent resolves</h4>
-              <p>Confirmed issues fixed; dismissals recorded with reasons.</p>
+              <p>Fixes record the command that verified them; dismissals carry a reason.</p>
               <span class="ar">→</span>
             </div>
             <div class="step v">
               <div class="si">04</div>
               <h4>DiffOwl remembers</h4>
               <p>
-                Dismissed findings stay quiet on re-review; regressions reopen the original
-                finding automatically.
+                Dismissed findings stay quiet on re-review; regressions reopen the original finding
+                automatically.
               </p>
             </div>
           </div>
@@ -988,8 +1061,9 @@
       <!-- START -->
       <section id="start">
         <div class="wrap reveal">
-          <div class="eyebrow">Sixty seconds to first review</div>
+          <div class="eyebrow">Quickstart</div>
           <div class="h2">Install. Init. <strong>Review.</strong></div>
+          <p class="lede">From npm install to your first review report in about sixty seconds.</p>
           <div class="qs">
             <div class="term">
               <div class="term-bar">
@@ -1004,21 +1078,21 @@
                 <div class="o ok">.diffowl.yml created</div>
                 <div class="o"># review the latest change</div>
                 <div><span class="p">$</span> <span class="c">diffowl review</span></div>
-                <div class="o ok">report → .diffowl/reviews/latest.md</div>
+                <div class="o ok">report → .diffowl/reviews/review-*.md</div>
               </div>
             </div>
             <ol class="qs-list">
               <li>
-                <h4>Bring your own provider</h4>
+                <h4>Use your existing setup</h4>
                 <p>
-                  DiffOwl uses OpenCode's existing credentials — <code>opencode</code> connects
-                  Copilot, OpenAI, or local Ollama.
+                  Choose OpenCode with its connected providers or your signed-in Codex CLI. DiffOwl
+                  keeps that choice local to your machine.
                 </p>
               </li>
               <li>
                 <h4>Hook it into git</h4>
                 <p>
-                  Reviews fire automatically on every commit and stay out of your way — read the
+                  Reviews fire automatically on every commit and stay out of your way. Read the
                   report whenever you're ready.
                 </p>
               </li>
@@ -1034,10 +1108,58 @@
         </div>
       </section>
 
+      <!-- FEATURES -->
+      <section id="features">
+        <div class="wrap reveal">
+          <div class="eyebrow">Features</div>
+          <div class="h2">What's in the box <strong>today.</strong></div>
+          <ul class="feats">
+            <li>
+              <span><b>Reviews on every commit</b> via a git hook that stays out of your way</span>
+            </li>
+            <li>
+              <span><b>Branch review</b> with <code>--base</code> to cover a whole PR at once</span>
+            </li>
+            <li>
+              <span
+                ><b>Markdown reports</b> in <code>.diffowl/reviews/</code>, readable whenever you
+                are</span
+              >
+            </li>
+            <li>
+              <span><b>Durable findings</b> in SQLite, deduped across commits</span>
+            </li>
+            <li>
+              <span
+                ><b>A full lifecycle</b>: fix, dismiss, defer, reopen — a fix isn't recorded without
+                the command that verified it</span
+              >
+            </li>
+            <li>
+              <span
+                ><b>No nitpicks by design</b>: style gripes get suppressed, so reports stay
+                small</span
+              >
+            </li>
+            <li>
+              <span
+                ><b>JSON output</b> and <code>--fail-on-findings</code> for scripting and CI</span
+              >
+            </li>
+            <li>
+              <span
+                ><b>Agent handoff</b>: the <code>diffowl-resolve</code> skill fixes what the owl
+                finds</span
+              >
+            </li>
+          </ul>
+        </div>
+      </section>
+
       <!-- COMPARE -->
       <section id="compare">
         <div class="wrap reveal">
-          <div class="eyebrow">Honest comparison</div>
+          <div class="eyebrow">vs. alternatives</div>
           <div class="h2">Different from <strong>hosted PR review.</strong></div>
           <div class="cmp">
             <table>
@@ -1057,7 +1179,7 @@
                   <td data-label="Agent self-review"><span class="y"></span>Yes</td>
                 </tr>
                 <tr>
-                  <td>Choose any model</td>
+                  <td>Choose your review model</td>
                   <td class="us" data-label="DiffOwl"><span class="y"></span>Yes</td>
                   <td data-label="Hosted bots"><span class="n"></span>Vendor-locked</td>
                   <td data-label="Agent self-review"><span class="n"></span>Same model</td>
@@ -1075,7 +1197,7 @@
                   <td data-label="Agent self-review"><span class="n"></span>No</td>
                 </tr>
                 <tr>
-                  <td>Account required</td>
+                  <td>DiffOwl account required</td>
                   <td class="us" data-label="DiffOwl"><span class="y"></span>No</td>
                   <td data-label="Hosted bots"><span class="n"></span>Yes</td>
                   <td data-label="Agent self-review"><span class="y"></span>No</td>
@@ -1087,58 +1209,18 @@
                   <td data-label="Agent self-review">Your provider's</td>
                 </tr>
                 <tr>
-                  <td>Subscription model</td>
-                  <td class="us" data-label="DiffOwl">None (Your keys)</td>
+                  <td>Review subscription</td>
+                  <td class="us" data-label="DiffOwl">Your existing provider</td>
                   <td data-label="Hosted bots">Per-seat SaaS</td>
-                  <td data-label="Agent self-review">None (Agent keys)</td>
+                  <td data-label="Agent self-review">Your agent plan</td>
                 </tr>
               </tbody>
             </table>
           </div>
           <p class="cmp-note">
-            DiffOwl is built around practical control: local execution, model choice, and findings
-            that stay traceable after the first review.
+            Hosted bots give you a dashboard. DiffOwl gives you the review itself: run from your
+            machine, on a model you chose, with findings you can still trace weeks later.
           </p>
-        </div>
-      </section>
-
-      <!-- ROADMAP -->
-      <section id="roadmap">
-        <div class="wrap reveal">
-          <div class="eyebrow">Where it's going</div>
-          <div class="h2">What's <strong>next?</strong></div>
-          <div class="road">
-            <div class="ri done">
-              <div class="v">01</div>
-              <div class="tg">Shipped</div>
-              <h4>Reliable runner</h4>
-              <p>Stable hooks, context, execution.</p>
-            </div>
-            <div class="ri done">
-              <div class="v">02</div>
-              <div class="tg">Shipped</div>
-              <h4>Durable findings</h4>
-              <p>Stable IDs, SQLite, JSON, lifecycle.</p>
-            </div>
-            <div class="ri done">
-              <div class="v">03</div>
-              <div class="tg">Shipped</div>
-              <h4>Measured quality</h4>
-              <p>Replayable eval — precision, recall, cost.</p>
-            </div>
-            <div class="ri">
-              <div class="v">04</div>
-              <div class="tg">In progress</div>
-              <h4>Branch review</h4>
-              <p>Review the branch, not the commit — plus a pre-PR gate.</p>
-            </div>
-            <div class="ri">
-              <div class="v">05</div>
-              <div class="tg">Planned</div>
-              <h4>Agent & CI loop</h4>
-              <p>Impact graph, MCP, SARIF, GitHub Action.</p>
-            </div>
-          </div>
         </div>
       </section>
 
@@ -1147,8 +1229,8 @@
         <div class="wrap reveal">
           <div class="big">Stop merging code <strong>nobody reviewed.</strong></div>
           <p>
-            An independent reviewer for the code your agent wrote — local, on the model you choose,
-            with nothing to sign up for.
+            One install gets you an independent reviewer on every commit. Your model, your machine,
+            nothing to sign up for.
           </p>
           <div class="pill">
             <span class="p">$</span> <span id="cmd">npm install -g diffowl</span>
@@ -1171,8 +1253,9 @@
             >diffowl</a
           >
           <div class="d">
-            The local, provider-neutral verification layer for agent-generated code. MIT licensed.
-            Runs on your OpenCode providers. No service in the loop, no account required.
+            An independent, provider-neutral reviewer for agent-written code. MIT licensed. Runs
+            through OpenCode or the Codex CLI, with no service of its own in the loop and no DiffOwl
+            account required.
           </div>
           <div style="font-family: var(--mono); font-size: 12.5px; color: var(--mut)">
             © 2026 ·
@@ -1247,7 +1330,7 @@
       );
       document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
 
-      /* ---- minimal 3D wireframe: rotating icosahedron, monochrome ---- */
+      /* ---- minimal 3D wireframe: rotating icosahedron on the light page ---- */
       const cv = document.getElementById("bg"),
         x = cv.getContext("2d");
       let W, H, DPR;
@@ -1326,7 +1409,7 @@
         x.clearRect(0, 0, W, H);
         const cx = W / 2,
           cy = H / 2,
-          R = Math.min(W, H) * 0.34,
+          R = Math.min(W, H) * 0.42,
           F = 2.6;
         const pts = V.map((p) => {
           const r = rot(p, f * 0.9, f);
@@ -1338,16 +1421,16 @@
           const pa = pts[a],
             pb = pts[b];
           const depth = (pa[2] + pb[2]) / 2; // -1..1
-          const op = 0.12 + ((depth + 1) / 2) * 0.5;
-          x.strokeStyle = "rgba(255,255,255," + op.toFixed(3) + ")";
+          const op = 0.08 + ((depth + 1) / 2) * 0.3;
+          x.strokeStyle = "rgba(51,65,85," + op.toFixed(3) + ")";
           x.beginPath();
           x.moveTo(pa[0], pa[1]);
           x.lineTo(pb[0], pb[1]);
           x.stroke();
         }
         for (const p of pts) {
-          const op = 0.2 + ((p[2] + 1) / 2) * 0.6;
-          x.fillStyle = "rgba(255,255,255," + op.toFixed(3) + ")";
+          const op = 0.15 + ((p[2] + 1) / 2) * 0.4;
+          x.fillStyle = "rgba(51,65,85," + op.toFixed(3) + ")";
           x.beginPath();
           x.arc(p[0], p[1], 1.6 * DPR, 0, 7);
           x.fill();
