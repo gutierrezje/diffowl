@@ -110,20 +110,20 @@ const ProjectConfigSchema = DiffOwlConfigSchema.omit({ model: true });
 
 export type DiffOwlConfig = z.output<typeof DiffOwlConfigSchema>;
 
-export function parseModel(value: unknown): string {
+export function parseModel(value: Parameters<typeof ModelSchema.parse>[0]): string {
   return ModelSchema.parse(value);
 }
 
-export function parseReviewContextDepth(value: unknown): ReviewContextDepth {
+export function parseReviewContextDepth(
+  value: Parameters<typeof ReviewContextDepthSchema.parse>[0],
+): ReviewContextDepth {
   return ReviewContextDepthSchema.parse(value);
 }
 
-export function parseReasoningEffort(value: unknown): ReasoningEffort {
+export function parseReasoningEffort(
+  value: Parameters<typeof ReasoningEffortSchema.parse>[0],
+): ReasoningEffort {
   return ReasoningEffortSchema.parse(value);
-}
-
-function parseConfigInput(value: unknown): DiffOwlConfig {
-  return DiffOwlConfigSchema.parse(value ?? {});
 }
 
 function formatZodError(err: ZodError): string {
@@ -155,11 +155,11 @@ export async function loadConfig(): Promise<DiffOwlConfig> {
 export async function loadConfigFromRoot(root: string): Promise<DiffOwlConfig> {
   const configPath = join(root, CONFIG_FILENAME);
   if (!existsSync(configPath)) {
-    return parseConfigInput({});
+    return DiffOwlConfigSchema.parse({});
   }
   try {
     const raw = await readFile(configPath, "utf-8");
-    return parseConfigInput(parse(raw));
+    return DiffOwlConfigSchema.parse(parse(raw) ?? {});
   } catch (err) {
     const message =
       err instanceof ZodError

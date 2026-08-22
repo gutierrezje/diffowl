@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { execa } from "execa";
+import { execa, ExecaError } from "execa";
 
 const tsc = fileURLToPath(import.meta.resolve("typescript/bin/tsc"));
 
@@ -8,12 +8,14 @@ try {
     stdio: "inherit",
   });
 } catch (error) {
-  if (typeof error.exitCode === "number") {
-    process.exit(error.exitCode);
-  }
+  if (error instanceof ExecaError) {
+    if (error.exitCode !== undefined) {
+      process.exit(error.exitCode);
+    }
 
-  if (typeof error.signal === "string") {
-    process.kill(process.pid, error.signal);
+    if (error.signal !== undefined) {
+      process.kill(process.pid, error.signal);
+    }
   }
 
   console.error(error instanceof Error ? error.message : String(error));
