@@ -33,6 +33,11 @@ export type AgentPathResult = {
   instruction: AgentPathInstructionResult;
 };
 
+type AgentInstructionChange = {
+  content: string;
+  kind: Extract<AgentPathInstructionResult, { path: string }>["kind"];
+};
+
 export type YesNoChoice = { kind: "yes" } | { kind: "no" } | { kind: "invalid" };
 
 export function detectAgentClients(input: {
@@ -117,10 +122,7 @@ async function upsertAgentInstruction(projectRoot: string): Promise<AgentPathIns
   return { kind: next.kind, path };
 }
 
-function mergeAgentInstruction(existing: string | null): {
-  content: string;
-  kind: "created" | "updated";
-} {
+function mergeAgentInstruction(existing: string | null): AgentInstructionChange {
   const block = renderInstructionBlock();
   if (existing === null) {
     return { content: block, kind: "created" };
@@ -155,7 +157,7 @@ async function readOptionalFile(path: string): Promise<string | null> {
   try {
     return await readFile(path, "utf-8");
   } catch (error) {
-    if (isMissingFileError(error)) return null;
+    if (error instanceof Error && isMissingFileError(error)) return null;
     throw error;
   }
 }
@@ -171,6 +173,6 @@ async function writeFileAtomic(path: string, content: string): Promise<void> {
   }
 }
 
-function isMissingFileError(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+function isMissingFileError(error: Error): boolean {
+  return "code" in error && error.code === "ENOENT";
 }

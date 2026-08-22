@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 import { rmSync } from "node:fs";
 import {
   AGENT_PATH_INSTRUCTION,
@@ -119,9 +120,9 @@ describe("enableAgentPath", () => {
     expect(markdown).toContain("`diffowl review --base`");
     expect(markdown).toContain("`diffowl findings`");
     expect(markdown).toContain(AGENT_PATH_INSTRUCTION_END);
-    await expect(readFile(join(projectRoot, ".claude", "settings.json"), "utf-8")).rejects.toMatchObject(
-      { code: "ENOENT" },
-    );
+    await expect(
+      readFile(join(projectRoot, ".claude", "settings.json"), "utf-8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("writes nothing when both prompts are declined", async () => {
@@ -138,9 +139,9 @@ describe("enableAgentPath", () => {
     expect(result.instruction).toEqual({ kind: "skipped" });
     expect(result.hook).toEqual({ kind: "skipped" });
     expect(agentInstructionExists(projectRoot)).toBe(false);
-    await expect(readFile(join(projectRoot, ".claude", "settings.json"), "utf-8")).rejects.toMatchObject(
-      { code: "ENOENT" },
-    );
+    await expect(
+      readFile(join(projectRoot, ".claude", "settings.json"), "utf-8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("appends a managed block to an existing AGENTS.md", async () => {
@@ -217,9 +218,15 @@ describe("enableAgentPath", () => {
     expect(result.hook).toMatchObject({ kind: "claude", action: "installed" });
     expect(agentInstructionExists(projectRoot)).toBe(false);
     const settingsPath = join(projectRoot, ".claude", "settings.json");
-    const settings = JSON.parse(await readFile(settingsPath, "utf-8")) as {
-      hooks: { SessionStart: { hooks: { args: string[] }[] }[] };
-    };
+    const settings = z
+      .object({
+        hooks: z.object({
+          SessionStart: z.array(
+            z.object({ hooks: z.array(z.object({ args: z.array(z.string()) })) }),
+          ),
+        }),
+      })
+      .parse(JSON.parse(await readFile(settingsPath, "utf-8")));
     const args = settings.hooks.SessionStart[0]?.hooks[0]?.args ?? [];
     expect(args.slice(-CLAUDE_HOOK_ARGS_SIGNATURE.length)).toEqual([...CLAUDE_HOOK_ARGS_SIGNATURE]);
   });
@@ -238,9 +245,9 @@ describe("enableAgentPath", () => {
 
     expect(result.clients).toEqual({ claude: true, cursor: true });
     expect(result.hook).toEqual({ kind: "skipped" });
-    await expect(readFile(join(projectRoot, ".claude", "settings.json"), "utf-8")).rejects.toMatchObject(
-      { code: "ENOENT" },
-    );
+    await expect(
+      readFile(join(projectRoot, ".claude", "settings.json"), "utf-8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("writes AGENTS.md before failing on malformed Claude settings", async () => {

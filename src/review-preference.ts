@@ -13,6 +13,10 @@ import {
 } from "./review/backend-selection.js";
 
 const PREFERENCES_FILENAME = "preferences.yml";
+const MODEL_PREFERENCE_ORDER = {
+  opencode: 0,
+  codex: 1,
+} satisfies Record<ReviewBackend, number>;
 const LegacyPreferenceFileSchema = z.object({ model: OpenCodeModelSchema }).strict();
 const CurrentPreferenceFileSchema = z
   .object({
@@ -47,14 +51,18 @@ export type ReviewPreferences =
       models: BackendModelSelection[];
     };
 
+type CurrentReviewPreferences = Omit<Extract<ReviewPreferences, { kind: "current" }>, "kind">;
+type CurrentPreferenceFile = z.output<typeof CurrentPreferenceFileSchema>;
+
 export async function loadReviewPreferences(): Promise<ReviewPreferences> {
   const path = await getReviewPreferencesPath();
   let value: unknown;
   try {
     value = parse(await readFile(path, "utf8"));
   } catch (error) {
-    if (isMissingFile(error)) return { kind: "none", models: [] };
-    throw preferenceError(path, error);
+    if (error instanceof Error && isMissingFile(error)) return { kind: "none", models: [] };
+    const failure = error instanceof Error ? error : new Error(String(error));
+    throw preferenceError(path, failure);
   }
 
   const legacy = LegacyPreferenceFileSchema.safeParse(value);
@@ -68,13 +76,14 @@ export async function loadReviewPreferences(): Promise<ReviewPreferences> {
 
   try {
     const current = CurrentPreferenceFileSchema.parse(value);
-    return {
-      kind: "current",
-      ...(current.backend === undefined ? {} : { selectedBackend: current.backend }),
+    const preferences: CurrentReviewPreferences = {
       models: canonicalizeModels(current.models),
     };
+    if (current.backend !== undefined) preferences.selectedBackend = current.backend;
+    return { kind: "current", ...preferences };
   } catch (error) {
-    throw preferenceError(path, error);
+    const failure = error instanceof Error ? error : new Error(String(error));
+    throw preferenceError(path, failure);
   }
 }
 
@@ -121,10 +130,7 @@ export async function getReviewPreferencesPath(): Promise<string> {
   return join(await getSharedDiffOwlDir(), PREFERENCES_FILENAME);
 }
 
-function toCurrentPreferences(preferences: ReviewPreferences): {
-  selectedBackend?: ReviewBackend;
-  models: BackendModelSelection[];
-} {
+function toCurrentPreferences(preferences: ReviewPreferences): CurrentReviewPreferences {
   switch (preferences.kind) {
     case "none":
       return { models: [] };
@@ -134,19 +140,15 @@ function toCurrentPreferences(preferences: ReviewPreferences): {
         models: [...preferences.models],
       };
     case "current":
-      return {
-        ...(preferences.selectedBackend === undefined
-          ? {}
-          : { selectedBackend: preferences.selectedBackend }),
-        models: [...preferences.models],
-      };
+      const current: CurrentReviewPreferences = { models: [...preferences.models] };
+      if (preferences.selectedBackend !== undefined) {
+        current.selectedBackend = preferences.selectedBackend;
+      }
+      return current;
   }
 }
 
-async function writeReviewPreferences(preferences: {
-  selectedBackend?: ReviewBackend;
-  models: BackendModelSelection[];
-}): Promise<string> {
+async function writeReviewPreferences(preferences: CurrentReviewPreferences): Promise<string> {
   const path = await getReviewPreferencesPath();
   const models = canonicalizeModels(preferences.models);
   if (preferences.selectedBackend === undefined && models.length === 0) {
@@ -156,10 +158,9 @@ async function writeReviewPreferences(preferences: {
 
   const dir = await getSharedDiffOwlDir();
   const temporaryPath = `${path}.${process.pid}.tmp`;
-  const value = CurrentPreferenceFileSchema.parse({
-    ...(preferences.selectedBackend === undefined ? {} : { backend: preferences.selectedBackend }),
-    models,
-  });
+  const input: CurrentPreferenceFile = { models };
+  if (preferences.selectedBackend !== undefined) input.backend = preferences.selectedBackend;
+  const value = CurrentPreferenceFileSchema.parse(input);
   await mkdir(dir, { recursive: true });
   await writeFile(temporaryPath, stringify(value), { encoding: "utf8", mode: 0o600 });
   await rename(temporaryPath, path);
@@ -167,15 +168,15 @@ async function writeReviewPreferences(preferences: {
 }
 
 function canonicalizeModels(models: BackendModelSelection[]): BackendModelSelection[] {
-  const order: Record<ReviewBackend, number> = { opencode: 0, codex: 1 };
-  return [...models].sort((left, right) => order[left.backend] - order[right.backend]);
+  return [...models].sort(
+    (left, right) => MODEL_PREFERENCE_ORDER[left.backend] - MODEL_PREFERENCE_ORDER[right.backend],
+  );
 }
 
-function preferenceError(path: string, error: unknown): Error {
-  const message = error instanceof Error ? error.message : String(error);
-  return new Error(`Failed to load ${path}: ${message}`);
+function preferenceError(path: string, error: Error): Error {
+  return new Error(`Failed to load ${path}: ${error.message}`);
 }
 
-function isMissingFile(error: unknown): boolean {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
+function isMissingFile(error: Error): boolean {
+  return "code" in error && error.code === "ENOENT";
 }

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { z } from "zod";
 import { getHookCommand } from "../git/hooks.js";
 
 /**
@@ -26,7 +27,19 @@ const SESSION_START_MATCHER = "startup|resume";
  */
 const HOOK_TIMEOUT_SECONDS = 5;
 
+const JsonValueSchema = z.json();
+const JsonObjectSchema = z.record(z.string(), JsonValueSchema);
+const JsonArraySchema = z.array(JsonValueSchema);
+const ClaudeSessionStartGroupSchema = z
+  .object({ hooks: JsonArraySchema })
+  .catchall(JsonValueSchema);
+const ClaudeHookCandidateSchema = z.object({ args: JsonArraySchema }).catchall(JsonValueSchema);
+
 type HookCommand = Awaited<ReturnType<typeof getHookCommand>>;
+type JsonValue = z.output<typeof JsonValueSchema>;
+type JsonObject = z.output<typeof JsonObjectSchema>;
+type JsonArray = z.output<typeof JsonArraySchema>;
+type ClaudeSessionStartGroup = z.output<typeof ClaudeSessionStartGroupSchema>;
 
 export class ClaudeCodeSettingsError extends Error {
   override name = "ClaudeCodeSettingsError";
@@ -73,7 +86,7 @@ export async function installClaudeCodeHook(
   const sessionStart = requireSessionStartContainer(hooks, settingsPath);
 
   const entry = buildClaudeSessionStartEntry(await getHookCommand());
-  const action = reconcileManagedEntries(sessionStart, entry);
+  const action = reconcileManagedEntries(sessionStart, JsonValueSchema.parse(entry));
 
   await mkdir(dirname(settingsPath), { recursive: true });
   await writeSettingsAtomic(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
@@ -100,60 +113,59 @@ async function writeSettingsAtomic(settingsPath: string, content: string): Promi
   }
 }
 
-async function readSettings(settingsPath: string): Promise<Record<string, unknown>> {
+async function readSettings(settingsPath: string): Promise<JsonObject> {
   let content: string;
   try {
     content = await readFile(settingsPath, "utf-8");
   } catch (error) {
-    if (isMissingFileError(error)) return {};
-    throw new ClaudeCodeSettingsError(`Could not read ${settingsPath}: ${describeError(error)}`);
+    if (error instanceof Error && isMissingFileError(error)) return {};
+    const failure = error instanceof Error ? error : new Error(String(error));
+    throw new ClaudeCodeSettingsError(`Could not read ${settingsPath}: ${failure.message}`);
   }
 
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(content);
+    const parsed = JsonObjectSchema.safeParse(JSON.parse(content));
+    if (!parsed.success) {
+      throw new ClaudeCodeSettingsError(`Expected a JSON object in ${settingsPath}.`);
+    }
+    return parsed.data;
   } catch (error) {
-    throw new ClaudeCodeSettingsError(`Could not parse ${settingsPath}: ${describeError(error)}`);
+    if (error instanceof ClaudeCodeSettingsError) throw error;
+    const failure = error instanceof Error ? error : new Error(String(error));
+    throw new ClaudeCodeSettingsError(`Could not parse ${settingsPath}: ${failure.message}`);
   }
-
-  if (!isPlainObject(parsed)) {
-    throw new ClaudeCodeSettingsError(`Expected a JSON object in ${settingsPath}.`);
-  }
-  return parsed;
 }
 
-function requireHooksContainer(
-  settings: Record<string, unknown>,
-  settingsPath: string,
-): Record<string, unknown> {
+function requireHooksContainer(settings: JsonObject, settingsPath: string): JsonObject {
   const hooks = settings["hooks"];
   if (hooks === undefined) {
-    const created: Record<string, unknown> = {};
+    const created: JsonObject = {};
     settings["hooks"] = created;
     return created;
   }
-  if (!isPlainObject(hooks)) {
+  const parsed = JsonObjectSchema.safeParse(hooks);
+  if (!parsed.success) {
     throw new ClaudeCodeSettingsError(`Expected "hooks" to be an object in ${settingsPath}.`);
   }
-  return hooks;
+  settings["hooks"] = parsed.data;
+  return parsed.data;
 }
 
-function requireSessionStartContainer(
-  hooks: Record<string, unknown>,
-  settingsPath: string,
-): unknown[] {
+function requireSessionStartContainer(hooks: JsonObject, settingsPath: string): JsonArray {
   const sessionStart = hooks["SessionStart"];
   if (sessionStart === undefined) {
-    const created: unknown[] = [];
+    const created: JsonArray = [];
     hooks["SessionStart"] = created;
     return created;
   }
-  if (!Array.isArray(sessionStart)) {
+  const parsed = JsonArraySchema.safeParse(sessionStart);
+  if (!parsed.success) {
     throw new ClaudeCodeSettingsError(
       `Expected "hooks.SessionStart" to be an array in ${settingsPath}.`,
     );
   }
-  return sessionStart;
+  hooks["SessionStart"] = parsed.data;
+  return parsed.data;
 }
 
 /**
@@ -173,21 +185,23 @@ function requireSessionStartContainer(
  * users reach for to fix a broken hook, so it has to converge rather than preserve the mess.
  */
 function reconcileManagedEntries(
-  sessionStart: unknown[],
-  entry: ClaudeSessionStartEntry,
+  sessionStart: JsonArray,
+  entry: JsonValue,
 ): ClaudeCodeHookInstallResult["action"] {
   let existed = false;
-  let canonicalGroup: Record<string, unknown> | null = null;
+  let canonicalGroup: ClaudeSessionStartGroup | null = null;
 
   // Reverse order so splicing a drained group cannot skip the next one.
   for (let groupIndex = sessionStart.length - 1; groupIndex >= 0; groupIndex--) {
-    const group = sessionStart[groupIndex];
-    if (!isPlainObject(group)) continue;
-    const groupHooks = group["hooks"];
-    if (!Array.isArray(groupHooks)) continue;
+    const parsed = ClaudeSessionStartGroupSchema.safeParse(sessionStart[groupIndex]);
+    if (!parsed.success) continue;
+    const group = parsed.data;
+    const groupHooks = group.hooks;
+    sessionStart[groupIndex] = group;
 
     for (let hookIndex = groupHooks.length - 1; hookIndex >= 0; hookIndex--) {
-      if (!isManagedEntry(groupHooks[hookIndex])) continue;
+      const hook = groupHooks[hookIndex];
+      if (hook === undefined || !isManagedEntry(hook)) continue;
       groupHooks.splice(hookIndex, 1);
       existed = true;
     }
@@ -204,7 +218,7 @@ function reconcileManagedEntries(
   }
 
   if (canonicalGroup) {
-    (canonicalGroup["hooks"] as unknown[]).push(entry);
+    canonicalGroup.hooks.push(entry);
   } else {
     sessionStart.push({ matcher: SESSION_START_MATCHER, hooks: [entry] });
   }
@@ -212,22 +226,14 @@ function reconcileManagedEntries(
   return existed ? "updated" : "installed";
 }
 
-function isManagedEntry(hook: unknown): boolean {
-  if (!isPlainObject(hook)) return false;
-  const args = hook["args"];
-  if (!Array.isArray(args) || args.length < CLAUDE_HOOK_ARGS_SIGNATURE.length) return false;
+function isManagedEntry(hook: JsonValue): boolean {
+  const parsed = ClaudeHookCandidateSchema.safeParse(hook);
+  if (!parsed.success || parsed.data.args.length < CLAUDE_HOOK_ARGS_SIGNATURE.length) return false;
+  const args = parsed.data.args;
   const suffix = args.slice(-CLAUDE_HOOK_ARGS_SIGNATURE.length);
   return CLAUDE_HOOK_ARGS_SIGNATURE.every((value, index) => suffix[index] === value);
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isMissingFileError(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
-}
-
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function isMissingFileError(error: Error): boolean {
+  return "code" in error && error.code === "ENOENT";
 }
