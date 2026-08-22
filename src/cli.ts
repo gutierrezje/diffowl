@@ -204,7 +204,9 @@ program
   .action(async (options: ReviewCommandOptions) => {
     const format = resolveReviewOutputFormat(options.format);
     const jsonMode = format === "json";
-    const hookCommit = options.hook && options.commit ? String(options.commit) : undefined;
+    const commitRef = options.commit;
+    const commitRequested = commitRef !== undefined;
+    const hookCommit = options.hook && commitRequested ? commitRef : undefined;
     const hookLock = options.hook ? process.env["DIFFOWL_HOOK_LOCK"] : undefined;
     if (hookLock) {
       process.once("exit", () => releaseHookReviewLock(hookLock));
@@ -243,7 +245,7 @@ program
     const projectRoot = getProjectRoot();
     const diffOwlDir = await getSharedDiffOwlDir();
     const baseRequested = options.base !== undefined;
-    if (options.staged && options.commit) {
+    if (options.staged && commitRequested) {
       await failReview(format, "Cannot use --staged and --commit together", {
         hook: options.hook,
         hookCommit,
@@ -255,7 +257,7 @@ program
         hookCommit,
       });
     }
-    if (options.commit && baseRequested) {
+    if (commitRequested && baseRequested) {
       await failReview(format, "Cannot use --commit and --base together", {
         hook: options.hook,
         hookCommit,
@@ -265,8 +267,8 @@ program
     let target: ReviewTarget;
     if (options.staged) {
       target = { kind: "staged" };
-    } else if (options.commit !== undefined) {
-      target = { kind: "commit", ref: options.commit };
+    } else if (commitRequested) {
+      target = { kind: "commit", ref: commitRef };
     } else if (options.base !== undefined) {
       target = { kind: "base" };
       if (options.base !== true) {

@@ -500,6 +500,7 @@ describe("diffowl CLI", () => {
     { args: ["--staged", "--commit", "HEAD"], message: "--staged and --commit" },
     { args: ["--staged", "--base"], message: "--staged and --base" },
     { args: ["--commit", "HEAD", "--base"], message: "--commit and --base" },
+    { args: ["--commit", "", "--base"], message: "--commit and --base" },
   ])("rejects conflicting review targets: $message", async ({ args, message }) => {
     const repo = await createRepo("diffowl-cli-conflict-");
 
