@@ -16,6 +16,7 @@ import {
   installHook,
   isHookInstalled,
   listPendingReviews,
+  runHookReview,
   writeHookStatus,
   releaseHookReviewLock,
   uninstallHook,
@@ -124,6 +125,36 @@ describe("installHook", () => {
     expect(existsSync(join(root, ".git", "hooks", "post-commit"))).toBe(true);
   });
 }, 20_000);
+
+describe("runHookReview", () => {
+  it("hands native log descriptors to the detached worker", async () => {
+    const root = await createGitRepo();
+    await writeFile(join(root, ".diffowl.yml"), "model: provider/model\n", "utf-8");
+    process.chdir(root);
+
+    let workerStdio: unknown;
+    let unrefCalled = false;
+    await runHookReview({
+      workerProcess: {
+        start(request) {
+          workerStdio = request.options.stdio;
+          return {
+            unref() {
+              unrefCalled = true;
+            },
+          };
+        },
+      },
+    });
+
+    expect(Array.isArray(workerStdio)).toBe(true);
+    if (!Array.isArray(workerStdio)) throw new Error("Worker stdio was not an array.");
+    expect(workerStdio[0]).toBe("ignore");
+    expect(workerStdio[1]).toEqual(expect.any(Number));
+    expect(workerStdio[2]).toBe(workerStdio[1]);
+    expect(unrefCalled).toBe(true);
+  });
+});
 
 describe("checkRecentHookFailure", () => {
   it("prefers a pending failed result over a newer global success", async () => {

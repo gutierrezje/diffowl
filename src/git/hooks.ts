@@ -22,8 +22,9 @@ const HOOK_MARKER = "# diffowl-managed";
 const HOOK_END_MARKER = "# end-diffowl";
 const HOOK_SHEBANG = "#!/bin/sh";
 
-function loggedStdio(logFile: string): ExecaOptions["stdio"] {
-  return ["ignore", { file: logFile, append: true }, { file: logFile, append: true }];
+function loggedStdio(outFd: number): ExecaOptions["stdio"] {
+  // SAFETY: Node accepts any open file descriptor here; Execa's async tuple type lists literals.
+  return ["ignore", outFd, outFd] as ExecaOptions["stdio"];
 }
 
 /**
@@ -135,6 +136,25 @@ export interface HookReviewProcessRequest {
   options: ExecaOptions;
 }
 
+export interface HookWorkerProcessRequest {
+  command: string;
+  args: readonly string[];
+  options: ExecaOptions;
+}
+
+export interface HookWorker {
+  pid?: number;
+  unref(): void;
+}
+
+export interface HookWorkerProcess {
+  start(request: HookWorkerProcessRequest): HookWorker;
+}
+
+export interface RunHookReviewOptions {
+  workerProcess?: HookWorkerProcess;
+}
+
 export interface HookReviewProcess {
   run(request: HookReviewProcessRequest): Promise<void>;
 }
@@ -146,6 +166,20 @@ export interface RunPendingHookReviewsOptions {
 const execaHookReviewProcess: HookReviewProcess = {
   async run({ command, args, options }) {
     await execa(command, args, options);
+  },
+};
+
+const execaHookWorkerProcess: HookWorkerProcess = {
+  start({ command, args, options }) {
+    const subprocess = execa(command, args, options);
+    void subprocess.catch(() => {});
+    const worker: HookWorker = {
+      unref() {
+        subprocess.unref();
+      },
+    };
+    if (subprocess.pid !== undefined) worker.pid = subprocess.pid;
+    return worker;
   },
 };
 
@@ -288,7 +322,7 @@ export function isHookQueueStopFailure(message: string | undefined): boolean {
   return false;
 }
 
-export async function runHookReview(): Promise<void> {
+export async function runHookReview(options: RunHookReviewOptions = {}): Promise<void> {
   const dir = await ensureDiffOwlDir();
   const logFile = join(dir, "hook.log");
   const reviewsDir = join(await getSharedDiffOwlDir(), "reviews");
@@ -318,18 +352,22 @@ export async function runHookReview(): Promise<void> {
     const existingPath = process.env["PATH"] ?? "";
     const envPath = prefix ? `${prefix}:${existingPath}` : existingPath;
 
-    const subprocess = execa(command.node, [fileURLToPath(import.meta.url), "hook-worker"], {
-      detached: true,
-      cleanup: false,
-      cwd: process.cwd(),
-      stdio: loggedStdio(logFile),
-      env: {
-        ...process.env,
-        PATH: envPath,
-        DIFFOWL_HOOK_LOCK: lockFile,
+    const workerProcess = options.workerProcess ?? execaHookWorkerProcess;
+    const subprocess = workerProcess.start({
+      command: command.node,
+      args: [fileURLToPath(import.meta.url), "hook-worker"],
+      options: {
+        detached: true,
+        cleanup: false,
+        cwd: process.cwd(),
+        stdio: loggedStdio(outFd),
+        env: {
+          ...process.env,
+          PATH: envPath,
+          DIFFOWL_HOOK_LOCK: lockFile,
+        },
       },
     });
-    void subprocess.catch(() => {});
     if (subprocess.pid) {
       writeFileSync(lockFile, String(subprocess.pid), "utf-8");
     }
@@ -377,7 +415,7 @@ export async function runPendingHookReviews(
           args: [cli, "review", "--hook", "--commit", next.sha],
           options: {
             cwd: process.cwd(),
-            stdio: loggedStdio(logFile),
+            stdio: loggedStdio(outFd),
             env,
           },
         });
