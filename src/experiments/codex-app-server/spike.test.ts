@@ -5,7 +5,12 @@ import { basename, join } from "node:path";
 import { execa } from "execa";
 import { describe, expect, it } from "vitest";
 import type { DiffOwlConfig } from "../../config.js";
-import { commandProvenanceFor, runCodexAppServerSpike } from "./spike.js";
+import {
+  COMMAND_MODE_FIELD,
+  commandProvenanceFor,
+  runCodexAppServerSpike,
+  type SpikeInput,
+} from "./spike.js";
 
 const codexFixture = fileURLToPath(new URL("../../codex/fixtures/mock-codex-cli.mjs", import.meta.url));
 const serverFixture = fileURLToPath(new URL("../../codex/fixtures/mock-app-server.mjs", import.meta.url));
@@ -49,6 +54,16 @@ function input(
   protocolEnv?: NodeJS.ProcessEnv,
   appMode = "spike-marker",
 ) {
+  const protocol: SpikeInput["codex"]["protocol"] = {
+    executable: process.execPath,
+    prefixArgs: [codexFixture],
+  };
+  if (protocolEnv !== undefined) protocol.env = protocolEnv;
+  const appServer: SpikeInput["codex"]["appServer"] = {
+    executable: appExecutable,
+    args: [serverFixture],
+    env: { MOCK_APP_SERVER_MODE: appMode, MOCK_APP_SERVER_MODEL: "gpt-5-codex" },
+  };
   return {
     review: {
       target: { kind: "staged" as const },
@@ -61,16 +76,8 @@ function input(
       persistEmptyDiff: false,
     },
     codex: {
-      protocol: {
-        executable: process.execPath,
-        prefixArgs: [codexFixture],
-        ...(protocolEnv === undefined ? {} : { env: protocolEnv }),
-      },
-      appServer: {
-        executable: appExecutable,
-        args: [serverFixture],
-        env: { MOCK_APP_SERVER_MODE: appMode, MOCK_APP_SERVER_MODEL: "gpt-5-codex" },
-      },
+      protocol,
+      appServer,
       model: "gpt-5-codex",
       artifactDirectory,
       timeoutMs: 15_000,
@@ -102,12 +109,12 @@ describe("runCodexAppServerSpike", () => {
       configuredExecutablesMatch: true,
       protocol: {
         executableBasename: expectedNodeExecutableBasename,
-        shape: "standard",
+        [COMMAND_MODE_FIELD]: "standard",
         argCount: 0,
       },
       appServer: {
         executableBasename: expectedNodeExecutableBasename,
-        shape: "standard",
+        [COMMAND_MODE_FIELD]: "standard",
         args: ["app-server", "--stdio"],
         argCount: 2,
       },
@@ -125,8 +132,17 @@ describe("runCodexAppServerSpike", () => {
     expect(JSON.stringify(custom)).not.toContain("token");
     expect(custom).toMatchObject({
       configuredExecutablesMatch: false,
-      protocol: { executableBasename: "custom-codex", shape: "custom", argCount: 2 },
-      appServer: { executableBasename: "custom", shape: "custom", args: null, argCount: 2 },
+      protocol: {
+        executableBasename: "custom-codex",
+        [COMMAND_MODE_FIELD]: "custom",
+        argCount: 2,
+      },
+      appServer: {
+        executableBasename: "custom",
+        [COMMAND_MODE_FIELD]: "custom",
+        args: null,
+        argCount: 2,
+      },
     });
   });
 

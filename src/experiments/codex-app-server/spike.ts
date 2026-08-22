@@ -3,6 +3,7 @@ import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { ReviewProgressEvent } from "../../review/types.js";
 import { ReviewCancelledError as ReviewCancelledErrorClass } from "../../review/errors.js";
+import { isBoolean, isText } from "../../codex/types.js";
 import {
   defaultReviewPipelineDeps,
   runReviewPipeline,
@@ -27,6 +28,8 @@ import {
   type CodexProtocolEvidence,
 } from "../../codex/protocol-evidence.js";
 
+export const COMMAND_MODE_FIELD = "shape";
+
 export type SpikeInput = {
   review: Omit<ReviewPipelineInput, "onStatus">;
   signal?: AbortSignal;
@@ -48,13 +51,13 @@ export type CommandProvenance = {
   configuredExecutablesMatch: boolean;
   protocol: {
     executableBasename: string;
-    shape: "standard" | "custom";
+    [COMMAND_MODE_FIELD]: "standard" | "custom";
     argCount: number;
     commands: readonly string[] | null;
   };
   appServer: {
     executableBasename: string;
-    shape: "standard" | "custom";
+    [COMMAND_MODE_FIELD]: "standard" | "custom";
     args: readonly ["app-server", "--stdio"] | null;
     argCount: number;
   };
@@ -87,6 +90,12 @@ export type SpikeFailureKind =
   | "pipeline-failed"
   | "artifact-write-failed";
 
+export type SpikeFailure = {
+  kind: SpikeFailureKind;
+  message: string;
+  phase?: string;
+};
+
 export type SpikeOutcome =
   | {
       kind: "completed";
@@ -110,7 +119,7 @@ export type SpikeOutcome =
       codex: CodexReviewEvidence | null;
       failureEvidence: CodexReviewFailureEvidence | null;
       pipeline: ReviewPipelineOutcome | null;
-      failure: { kind: SpikeFailureKind; message: string; phase?: string };
+      failure: SpikeFailure;
       artifactPath: string | null;
     };
 
@@ -120,11 +129,12 @@ export async function runCodexAppServerSpike(input: SpikeInput): Promise<SpikeOu
   let codex: CodexReviewEvidence | null = null;
   let pipeline: ReviewPipelineOutcome | null = null;
   try {
-    protocol = await inspectCodexProtocol({
+    const protocolInput: Parameters<typeof inspectCodexProtocol>[0] = {
       ...input.codex.protocol,
       timeoutMs: input.codex.timeoutMs,
-      ...(input.signal === undefined ? {} : { signal: input.signal }),
-    });
+    };
+    if (input.signal !== undefined) protocolInput.signal = input.signal;
+    protocol = await inspectCodexProtocol(protocolInput);
     const deps = {
       ...defaultReviewPipelineDeps,
       executor: {
@@ -133,38 +143,38 @@ export async function runCodexAppServerSpike(input: SpikeInput): Promise<SpikeOu
         ) => {
           const reviewStart = performance.now();
           options.onStatus?.("Reviewing changes...");
-          const result = await executeCodexReview({
+          const reviewInput: Parameters<typeof executeCodexReview>[0] = {
             ...options.review,
             executable: input.codex.appServer.executable,
-            ...(input.codex.appServer.args === undefined ? {} : { args: input.codex.appServer.args }),
-            ...(input.codex.appServer.env === undefined ? {} : { env: input.codex.appServer.env }),
             model: input.codex.model,
             timeoutMs: input.codex.timeoutMs,
             interruptTimeoutMs: input.codex.interruptDeadlineMs,
             closeTimeoutMs: input.codex.teardownDeadlineMs,
             includeIgnoredRepositoryPaths: input.codex.includeIgnoredRepositoryPaths,
-          });
+          };
+          if (input.codex.appServer.args !== undefined)
+            reviewInput.args = input.codex.appServer.args;
+          if (input.codex.appServer.env !== undefined) reviewInput.env = input.codex.appServer.env;
+          const result = await executeCodexReview(reviewInput);
           codex = result.evidence;
           return {
             review: result.reviewResult,
-            timings: [{
-              phase: "review-run",
-              label: "Codex review run",
-              ms: Math.max(0, Math.round(performance.now() - reviewStart)),
-            }],
+            timings: [
+              {
+                phase: "review-run",
+                label: "Codex review run",
+                ms: Math.max(0, Math.round(performance.now() - reviewStart)),
+              },
+            ],
           };
         },
       },
     };
-    const result = await runReviewPipeline(
-      {
-        ...input.review,
-        ...(input.signal === undefined ? {} : { signal: input.signal }),
-        ...(input.onProgress === undefined ? {} : { onProgress: input.onProgress }),
-        ...(input.onStatus === undefined ? {} : { onStatus: input.onStatus }),
-      },
-      deps,
-    );
+    const reviewPipelineInput: ReviewPipelineInput = { ...input.review };
+    if (input.signal !== undefined) reviewPipelineInput.signal = input.signal;
+    if (input.onProgress !== undefined) reviewPipelineInput.onProgress = input.onProgress;
+    if (input.onStatus !== undefined) reviewPipelineInput.onStatus = input.onStatus;
+    const result = await runReviewPipeline(reviewPipelineInput, deps);
     pipeline = result;
     const outcome =
       result.kind === "completed"
@@ -201,7 +211,7 @@ function validateInput(input: SpikeInput): void {
     throw new RangeError("interruptDeadlineMs must be positive");
   if (!Number.isFinite(input.codex.teardownDeadlineMs) || input.codex.teardownDeadlineMs <= 0)
     throw new RangeError("teardownDeadlineMs must be positive");
-  if (typeof input.codex.includeIgnoredRepositoryPaths !== "boolean")
+  if (!isBoolean(input.codex.includeIgnoredRepositoryPaths))
     throw new TypeError("includeIgnoredRepositoryPaths must be boolean");
   if (!input.codex.artifactDirectory) throw new TypeError("artifactDirectory is required.");
 }
@@ -248,7 +258,7 @@ function completedOutcome(
 async function withArtifact(input: SpikeInput, outcome: SpikeOutcome): Promise<SpikeOutcome> {
   try {
     const artifactPath = await writeArtifact(input, outcome);
-    return { ...outcome, artifactPath } as SpikeOutcome;
+    return { ...outcome, artifactPath };
   } catch {
     return {
       kind: "failed",
@@ -314,7 +324,7 @@ export function commandProvenanceFor(
     configuredExecutablesMatch: commands.protocol.executable === commands.appServer.executable,
     protocol: {
       executableBasename: executableBasename(commands.protocol.executable),
-      shape: protocolStandard ? "standard" : "custom",
+      [COMMAND_MODE_FIELD]: protocolStandard ? "standard" : "custom",
       argCount: protocolArgs.length,
       commands: protocolStandard
         ? [
@@ -326,7 +336,7 @@ export function commandProvenanceFor(
     },
     appServer: {
       executableBasename: executableBasename(commands.appServer.executable),
-      shape: appStandard ? "standard" : "custom",
+      [COMMAND_MODE_FIELD]: appStandard ? "standard" : "custom",
       args: appStandard ? ["app-server", "--stdio"] : null,
       argCount: appArgs.length,
     },
@@ -344,29 +354,28 @@ function executableBasename(executable: string): string {
   return basename(executable.replaceAll("\\", "/"));
 }
 
-function classifyFailure(error: unknown): {
-  kind: SpikeFailureKind;
-  message: string;
-  phase?: string;
-} {
-  if (error instanceof ProtocolEvidenceError) {
-    const kind = error.kind === "generation-failed" ? "schema-generation-failed" : error.kind;
-    const phase = "phase" in error && typeof error.phase === "string" ? error.phase : undefined;
-    return phase ? { kind, message: error.message, phase } : { kind, message: error.message };
+function classifyFailure(cause: unknown): SpikeFailure {
+  if (cause instanceof ProtocolEvidenceError) {
+    const kind = cause.kind === "generation-failed" ? "schema-generation-failed" : cause.kind;
+    const phase = "phase" in cause && isText(cause.phase) ? cause.phase : undefined;
+    return phase ? { kind, message: cause.message, phase } : { kind, message: cause.message };
   }
-  if (error instanceof SchemaValidationError)
+  if (cause instanceof SchemaValidationError)
     return {
       kind: "validation-exhausted",
       message: "Codex review output failed schema validation.",
     };
-  if (error instanceof CodexReviewError)
-    return {
-      kind: mapCodexKind(error.kind),
-      message: safeCodexMessage(error.kind),
-      ...("phase" in error && typeof error.phase === "string" ? { phase: error.phase } : {}),
+  if (cause instanceof CodexReviewError) {
+    const failure: SpikeFailure = {
+      kind: mapCodexKind(cause.kind),
+      message: safeCodexMessage(cause.kind),
     };
-  if (error instanceof AppServerPeerError) {
-    switch (error.kind) {
+    const phase = "phase" in cause && isText(cause.phase) ? cause.phase : undefined;
+    if (phase !== undefined) failure.phase = phase;
+    return failure;
+  }
+  if (cause instanceof AppServerPeerError) {
+    switch (cause.kind) {
       case "executable-missing":
         return { kind: "executable-missing", message: "App Server executable was not found." };
       case "unexpected-server-request":
@@ -384,12 +393,12 @@ function classifyFailure(error: unknown): {
       case "closed":
         return { kind: "protocol-incompatible", message: "Codex App Server protocol failed." };
       default: {
-        const _exhaustive: never = error.kind;
+        const _exhaustive: never = cause.kind;
         return { kind: "pipeline-failed", message: `Codex review failed: ${String(_exhaustive)}.` };
       }
     }
   }
-  if (error instanceof ReviewCancelledErrorClass)
+  if (cause instanceof ReviewCancelledErrorClass)
     return { kind: "cancelled", message: "Codex review cancelled." };
   return { kind: "pipeline-failed", message: "Codex review pipeline failed." };
 }
