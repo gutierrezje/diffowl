@@ -299,8 +299,9 @@ describe("executeCodexReview", () => {
     { timeout: 10_000 },
     async () => {
       const directory = await temporaryRepository();
-      // Hosted Windows needs enough startup time to reach the fixture's mutation before timing out.
-      const timeoutMs = process.platform === "win32" ? 5_000 : 200;
+      // The deadline must leave enough startup time for the fixture to mutate the repository.
+      // Otherwise this tests handshake speed instead of mutation detection during a turn timeout.
+      const timeoutMs = 5_000;
       try {
         await expect(
           executeCodexReview({

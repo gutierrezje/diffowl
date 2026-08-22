@@ -1,43 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ensureServer, getServerHealth, stopServer, type ServerDependencies } from "./server.js";
 
-const mocks = vi.hoisted(() => ({
-  execa: vi.fn(),
-  fetch: vi.fn(),
-  writeFile: vi.fn(),
-  readFile: vi.fn(),
-  unlink: vi.fn(),
-  existsSync: vi.fn(),
-  ensureDiffOwlDir: vi.fn(),
-  getDiffOwlDir: vi.fn(),
-  kill: vi.fn(),
-}));
+const mocks = {
+  execa: vi.fn<ServerDependencies["execa"]>(),
+  fetch: vi.fn<ServerDependencies["fetch"]>(),
+  writeFile: vi.fn<ServerDependencies["writeFile"]>(),
+  readFile: vi.fn<ServerDependencies["readFile"]>(),
+  unlink: vi.fn<ServerDependencies["unlink"]>(),
+  existsSync: vi.fn<ServerDependencies["existsSync"]>(),
+  ensureDiffOwlDir: vi.fn<ServerDependencies["ensureDiffOwlDir"]>(),
+  getDiffOwlDir: vi.fn<ServerDependencies["getDiffOwlDir"]>(),
+  kill: vi.fn<ServerDependencies["kill"]>(),
+};
 
-vi.mock("execa", () => ({
+const dependencies: ServerDependencies = {
   execa: mocks.execa,
-}));
-
-vi.mock("node:fs", () => ({
+  fetch: mocks.fetch,
+  writeFile: mocks.writeFile,
+  readFile: mocks.readFile,
+  unlink: mocks.unlink,
   existsSync: mocks.existsSync,
-}));
-
-vi.mock("node:fs/promises", async () => {
-  const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
-  return {
-    ...actual,
-    writeFile: mocks.writeFile,
-    readFile: mocks.readFile,
-    unlink: mocks.unlink,
-  };
-});
-
-vi.mock("../config.js", async () => {
-  const actual = await vi.importActual<typeof import("../config.js")>("../config.js");
-  return {
-    ...actual,
-    ensureDiffOwlDir: mocks.ensureDiffOwlDir,
-    getDiffOwlDir: mocks.getDiffOwlDir,
-  };
-});
+  ensureDiffOwlDir: mocks.ensureDiffOwlDir,
+  getDiffOwlDir: mocks.getDiffOwlDir,
+  kill: mocks.kill,
+};
 
 /**
  * Build a netstat -ano line that `findOpencodeListenerPidWindows` will parse.
@@ -51,7 +37,10 @@ function netstatLine(port: number, pid: number): string {
  * promise (so its `.catch` wiring is exercised, not mocked away) carrying the
  * `pid` and `unref` members the production code touches.
  */
-function fakeServeChild(pid: number, outcome: Promise<unknown> = Promise.resolve()) {
+function fakeServeChild(
+  pid: number,
+  outcome: Promise<{ stdout: string | undefined }> = Promise.resolve({ stdout: undefined }),
+) {
   return Object.assign(outcome, { pid, unref: vi.fn() });
 }
 
@@ -62,14 +51,13 @@ describe("getServerHealth", () => {
   });
 
   it("returns health and version from the server endpoint", async () => {
-    const { getServerHealth } = await import("./server.js");
     mocks.fetch.mockResolvedValue({
       ok: true,
       json: async () => ({ healthy: true, version: "1.17.7" }),
     });
     vi.stubGlobal("fetch", mocks.fetch);
 
-    await expect(getServerHealth(4096)).resolves.toEqual({
+    await expect(getServerHealth(4096, dependencies)).resolves.toEqual({
       healthy: true,
       version: "1.17.7",
     });
@@ -78,7 +66,6 @@ describe("getServerHealth", () => {
 
 describe("ensureServer", () => {
   beforeEach(() => {
-    vi.resetModules();
     mocks.execa.mockReset();
     mocks.fetch.mockReset();
     mocks.writeFile.mockReset();
@@ -99,7 +86,6 @@ describe("ensureServer", () => {
 
   it("handles fast detached server exits through the health-check failure path", async () => {
     vi.useFakeTimers();
-    const { ensureServer } = await import("./server.js");
     const rejection = Promise.reject(new Error("serve failed"));
     rejection.catch(() => {});
     const child = fakeServeChild(12345, rejection);
@@ -121,7 +107,7 @@ describe("ensureServer", () => {
     mocks.fetch.mockRejectedValue(new Error("not running"));
     vi.stubGlobal("fetch", mocks.fetch);
 
-    const result = expect(ensureServer(4096)).rejects.toThrow(
+    const result = expect(ensureServer(4096, dependencies)).rejects.toThrow(
       "Failed to start OpenCode server on port 4096",
     );
     await vi.runAllTimersAsync();
@@ -132,7 +118,6 @@ describe("ensureServer", () => {
 
   it("clears an unhealthy opencode listener before spawning a replacement", async () => {
     vi.useFakeTimers();
-    const { ensureServer } = await import("./server.js");
     const child = fakeServeChild(22222);
 
     mocks.ensureDiffOwlDir.mockResolvedValue("/tmp/diffowl");
@@ -180,16 +165,9 @@ describe("ensureServer", () => {
       return Promise.resolve({ stdout: "" });
     });
 
-    const originalKill = process.kill.bind(process);
-    vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
-      mocks.kill(pid, signal);
-      if (signal === "SIGTERM") {
-        return true;
-      }
-      return originalKill(pid, 0);
-    });
+    mocks.kill.mockReturnValue(true);
 
-    const result = ensureServer(4096);
+    const result = ensureServer(4096, dependencies);
     await vi.runAllTimersAsync();
     await expect(result).resolves.toBe("http://127.0.0.1:4096");
 
@@ -203,8 +181,6 @@ describe("ensureServer", () => {
   });
 
   it("fails clearly when a non-opencode process occupies the port", async () => {
-    const { ensureServer } = await import("./server.js");
-
     mocks.fetch.mockRejectedValue(new Error("connection reset"));
     vi.stubGlobal("fetch", mocks.fetch);
 
@@ -226,7 +202,7 @@ describe("ensureServer", () => {
       return Promise.resolve({ stdout: "" });
     });
 
-    await expect(ensureServer(4096)).rejects.toThrow(
+    await expect(ensureServer(4096, dependencies)).rejects.toThrow(
       "Port 4096 is already in use by a non-OpenCode process.",
     );
     expect(mocks.execa).not.toHaveBeenCalledWith(
@@ -237,8 +213,6 @@ describe("ensureServer", () => {
   });
 
   it("fails clearly when an unhealthy opencode listener cannot be stopped", async () => {
-    const { ensureServer } = await import("./server.js");
-
     mocks.fetch.mockRejectedValue(new Error("connection reset"));
     vi.stubGlobal("fetch", mocks.fetch);
 
@@ -260,11 +234,11 @@ describe("ensureServer", () => {
       return Promise.resolve({ stdout: "" });
     });
 
-    vi.spyOn(process, "kill").mockImplementation(() => {
+    mocks.kill.mockImplementation(() => {
       throw new Error("operation not permitted");
     });
 
-    await expect(ensureServer(4096)).rejects.toThrow(
+    await expect(ensureServer(4096, dependencies)).rejects.toThrow(
       "Could not stop unhealthy OpenCode server on port 4096: operation not permitted",
     );
     expect(mocks.execa).not.toHaveBeenCalledWith(
@@ -276,7 +250,6 @@ describe("ensureServer", () => {
 
   it("spawns when an unhealthy listener exits before signal delivery", async () => {
     vi.useFakeTimers();
-    const { ensureServer } = await import("./server.js");
     const child = fakeServeChild(22222);
 
     mocks.ensureDiffOwlDir.mockResolvedValue("/tmp/diffowl");
@@ -325,11 +298,11 @@ describe("ensureServer", () => {
       return Promise.resolve({ stdout: "" });
     });
 
-    vi.spyOn(process, "kill").mockImplementation(() => {
+    mocks.kill.mockImplementation(() => {
       throw Object.assign(new Error("no such process"), { code: "ESRCH" });
     });
 
-    const result = ensureServer(4096);
+    const result = ensureServer(4096, dependencies);
     await vi.runAllTimersAsync();
     await expect(result).resolves.toBe("http://127.0.0.1:4096");
     expect(mocks.execa).toHaveBeenCalledWith(
@@ -340,7 +313,6 @@ describe("ensureServer", () => {
   });
 
   it("reuses a healthy server when versions match", async () => {
-    const { ensureServer } = await import("./server.js");
     mocks.fetch.mockResolvedValue({
       ok: true,
       json: async () => ({ healthy: true, version: "1.17.7" }),
@@ -353,7 +325,7 @@ describe("ensureServer", () => {
     });
     vi.stubGlobal("fetch", mocks.fetch);
 
-    await expect(ensureServer(4096)).resolves.toBe("http://127.0.0.1:4096");
+    await expect(ensureServer(4096, dependencies)).resolves.toBe("http://127.0.0.1:4096");
     expect(mocks.execa).toHaveBeenCalledWith("opencode", ["--version"], { timeout: 5000 });
     expect(mocks.execa).not.toHaveBeenCalledWith(
       "opencode",
@@ -364,7 +336,6 @@ describe("ensureServer", () => {
 
   it("restarts a stale server when health and CLI versions differ", async () => {
     vi.useFakeTimers();
-    const { ensureServer } = await import("./server.js");
     const child = fakeServeChild(22222);
 
     mocks.ensureDiffOwlDir.mockResolvedValue("/tmp/diffowl");
@@ -382,7 +353,7 @@ describe("ensureServer", () => {
         };
       }
       if (healthChecks <= 3) {
-        return { ok: false };
+        return { ok: false, json: async () => ({}) };
       }
       return {
         ok: true,
@@ -425,16 +396,9 @@ describe("ensureServer", () => {
       return Promise.resolve({ stdout: "" });
     });
 
-    const originalKill = process.kill.bind(process);
-    vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
-      mocks.kill(pid, signal);
-      if (signal === "SIGTERM") {
-        return true;
-      }
-      return originalKill(pid, 0);
-    });
+    mocks.kill.mockReturnValue(true);
 
-    const result = ensureServer(4096);
+    const result = ensureServer(4096, dependencies);
     await vi.runAllTimersAsync();
     await expect(result).resolves.toBe("http://127.0.0.1:4096");
 
@@ -448,7 +412,6 @@ describe("ensureServer", () => {
 
   it("fails when a stale server does not release its port in time", async () => {
     vi.useFakeTimers();
-    const { ensureServer } = await import("./server.js");
 
     mocks.getDiffOwlDir.mockReturnValue("/tmp/diffowl");
     mocks.existsSync.mockReturnValue(false);
@@ -481,16 +444,9 @@ describe("ensureServer", () => {
       return Promise.resolve({ stdout: "" });
     });
 
-    const originalKill = process.kill.bind(process);
-    vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
-      mocks.kill(pid, signal);
-      if (signal === "SIGTERM") {
-        return true;
-      }
-      return originalKill(pid, 0);
-    });
+    mocks.kill.mockReturnValue(true);
 
-    const result = expect(ensureServer(4096)).rejects.toThrow(
+    const result = expect(ensureServer(4096, dependencies)).rejects.toThrow(
       "OpenCode server on port 4096 did not stop within",
     );
     await vi.runAllTimersAsync();
@@ -498,8 +454,6 @@ describe("ensureServer", () => {
   });
 
   it("fails clearly when a stale server cannot be stopped", async () => {
-    const { ensureServer } = await import("./server.js");
-
     mocks.getDiffOwlDir.mockReturnValue("/tmp/diffowl");
     mocks.existsSync.mockReturnValue(false);
     mocks.fetch.mockResolvedValue({
@@ -518,7 +472,7 @@ describe("ensureServer", () => {
       return Promise.resolve({ stdout: "" });
     });
 
-    await expect(ensureServer(4096)).rejects.toThrow(
+    await expect(ensureServer(4096, dependencies)).rejects.toThrow(
       "Could not locate or stop stale OpenCode server on port 4096.",
     );
   });
@@ -526,7 +480,6 @@ describe("ensureServer", () => {
 
 describe("stopServer", () => {
   beforeEach(() => {
-    vi.resetModules();
     mocks.execa.mockReset();
     mocks.existsSync.mockReset();
     mocks.readFile.mockReset();
@@ -540,10 +493,9 @@ describe("stopServer", () => {
   });
 
   it("falls back to the port listener when no managed pid file exists", async () => {
-    const { stopServer } = await import("./server.js");
     mocks.getDiffOwlDir.mockReturnValue("/tmp/diffowl");
     mocks.existsSync.mockReturnValue(false);
-    mocks.fetch.mockResolvedValue({ ok: false });
+    mocks.fetch.mockResolvedValue({ ok: false, json: async () => ({}) });
     vi.stubGlobal("fetch", mocks.fetch);
     let lsofCalls = 0;
     let netstatCalls = 0;
@@ -569,26 +521,18 @@ describe("stopServer", () => {
       return Promise.resolve({ stdout: "" });
     });
 
-    const originalKill = process.kill.bind(process);
-    const killSpy = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
-      mocks.kill(pid, signal);
-      if (signal === 0) {
-        return originalKill(pid, 0);
-      }
-      return true;
-    });
+    mocks.kill.mockReturnValue(true);
 
-    await expect(stopServer(4096)).resolves.toBe(true);
-    expect(killSpy).toHaveBeenCalledWith(33333, "SIGTERM");
+    await expect(stopServer(4096, dependencies)).resolves.toBe(true);
+    expect(mocks.kill).toHaveBeenCalledWith(33333, "SIGTERM");
   });
 
   it("returns true when managed server kill succeeds but pid file cleanup fails", async () => {
-    const { stopServer } = await import("./server.js");
     mocks.getDiffOwlDir.mockReturnValue("/tmp/diffowl");
     mocks.existsSync.mockReturnValue(true);
     mocks.readFile.mockResolvedValue("44444");
     mocks.unlink.mockRejectedValue(new Error("permission denied"));
-    mocks.fetch.mockResolvedValue({ ok: false });
+    mocks.fetch.mockResolvedValue({ ok: false, json: async () => ({}) });
     vi.stubGlobal("fetch", mocks.fetch);
     mocks.execa.mockImplementation((command: string) => {
       // isOpencodeProcess: Unix
@@ -602,15 +546,9 @@ describe("stopServer", () => {
       return Promise.resolve({ stdout: "" });
     });
 
-    const originalKill = process.kill.bind(process);
-    vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
-      if (signal === 0 || signal === "SIGTERM") {
-        return true;
-      }
-      return originalKill(pid, signal);
-    });
+    mocks.kill.mockReturnValue(true);
 
-    await expect(stopServer(4096)).resolves.toBe(true);
+    await expect(stopServer(4096, dependencies)).resolves.toBe(true);
     expect(mocks.unlink).toHaveBeenCalled();
   });
 });
