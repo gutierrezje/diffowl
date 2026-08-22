@@ -9,8 +9,10 @@ import {
   StateDatabaseError,
 } from "./db.js";
 import { getFindingByFingerprint, insertFinding } from "./repositories/findings.js";
+import { insertFindingEvent, listFindingEvents } from "./repositories/events.js";
 import { getReviewById, insertReview } from "./repositories/reviews.js";
 import { removeTempStateDir } from "./test-helpers.js";
+import { z } from "zod";
 
 let tempDirs: string[] = [];
 
@@ -137,10 +139,90 @@ describe("finding repository", () => {
       ).toThrow("abort persistence");
 
       expect(getFindingByFingerprint(state.db, "fp_rollback_probe")).toBeUndefined();
-      const reviews = state.db.prepare("SELECT COUNT(*) AS count FROM reviews").get() as {
-        count: number;
-      };
+      const reviews = z
+        .object({ count: z.number() })
+        .parse(state.db.prepare("SELECT COUNT(*) AS count FROM reviews").get());
       expect(reviews.count).toBe(0);
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+});
+
+describe("finding event repository", () => {
+  it("treats a legacy null verification payload as an empty list", async () => {
+    const dir = await createTempDir();
+    const state = await openStateDatabase(dir);
+
+    try {
+      const review = insertReview(state.db, {
+        targetKind: "staged",
+        diffHash: "event-null-verification",
+        model: "provider/model",
+        reasoning: "auto",
+        depth: "default",
+        sessionId: "session-event-null-verification",
+        summary: "One issue found.",
+      });
+      const finding = insertFinding(state.db, {
+        fingerprint: "fp_event_null_verification",
+        status: "open",
+        firstReviewId: review.id,
+        lastReviewId: review.id,
+      });
+      const event = insertFindingEvent(state.db, {
+        findingId: finding.id,
+        reviewId: review.id,
+        eventType: "observed",
+        actor: "agent",
+        verification: ["pnpm run test"],
+      });
+
+      state.db
+        .prepare("UPDATE finding_events SET verification_json = NULL WHERE id = ?")
+        .run(event.id);
+
+      expect(listFindingEvents(state.db, finding.id)).toMatchObject([{ verification: [] }]);
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
+  it("wraps a malformed verification payload in StateDatabaseError", async () => {
+    const dir = await createTempDir();
+    const state = await openStateDatabase(dir);
+
+    try {
+      const review = insertReview(state.db, {
+        targetKind: "staged",
+        diffHash: "event-malformed-verification",
+        model: "provider/model",
+        reasoning: "auto",
+        depth: "default",
+        sessionId: "session-event-malformed-verification",
+        summary: "One issue found.",
+      });
+      const finding = insertFinding(state.db, {
+        fingerprint: "fp_event_malformed_verification",
+        status: "open",
+        firstReviewId: review.id,
+        lastReviewId: review.id,
+      });
+      const event = insertFindingEvent(state.db, {
+        findingId: finding.id,
+        reviewId: review.id,
+        eventType: "observed",
+        actor: "agent",
+      });
+
+      state.db
+        .prepare("UPDATE finding_events SET verification_json = ? WHERE id = ?")
+        .run("{not-json", event.id);
+
+      expect(() => listFindingEvents(state.db, finding.id)).toThrow(StateDatabaseError);
+      expect(() => listFindingEvents(state.db, finding.id)).toThrow(
+        "Finding event contains invalid verification JSON.",
+      );
     } finally {
       closeStateDatabase(state);
     }

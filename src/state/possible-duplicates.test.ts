@@ -12,7 +12,11 @@ import {
   rejectPossibleDuplicate,
   suggestPossibleDuplicates,
 } from "./possible-duplicates.js";
-import { persistReviewRun, type PersistReviewRunResult } from "./persist.js";
+import {
+  persistReviewRun,
+  type PersistReviewRunInput,
+  type PersistReviewRunResult,
+} from "./persist.js";
 import { getFindingById } from "./repositories/findings.js";
 import { listFindingEvents } from "./repositories/events.js";
 import { insertReview } from "./repositories/reviews.js";
@@ -75,7 +79,7 @@ async function persistFinding(
   symbolKey?: string | null,
 ): Promise<PersistReviewRunResult> {
   reviewNumber++;
-  return persistReviewRun(dir, {
+  const input: PersistReviewRunInput = {
     ...persistDefaults,
     reviewInput: {
       targetKind: "staged",
@@ -87,8 +91,9 @@ async function persistFinding(
     sessionId: `session-${reviewNumber}`,
     summary: "test",
     findings: [finding],
-    ...(symbolKey !== undefined ? { symbolKeys: [symbolKey] } : {}),
-  });
+  };
+  if (symbolKey !== undefined) input.symbolKeys = [symbolKey];
+  return persistReviewRun(dir, input);
 }
 
 async function seedResolvedFinding(
@@ -162,16 +167,16 @@ describe("possible duplicate suggestions", () => {
 
   it("does not treat two punctuation-only observations as lexically similar", async () => {
     const dir = await createStateDir();
-    await seedResolvedFinding(
+    await seedResolvedFinding(dir, makeFinding({ title: "!!!", body: "???" }), null);
+    const result = await persistQuoteDrift(
       dir,
-      makeFinding({ title: "!!!", body: "???" }),
+      {
+        title: "@@@",
+        body: "###",
+        evidence: "if (payload === undefined) return;",
+      },
       null,
     );
-    const result = await persistQuoteDrift(dir, {
-      title: "@@@",
-      body: "###",
-      evidence: "if (payload === undefined) return;",
-    }, null);
 
     expect(result.possibleDuplicateSuggestions).toEqual([]);
   });
@@ -232,13 +237,16 @@ describe("possible duplicate suggestions", () => {
       historicalSymbol: "ts-v1|function:handle",
       candidateSymbol: undefined,
     },
-  ])("does not suggest for $name", async ({ historical, candidate, historicalSymbol, candidateSymbol }) => {
-    const dir = await createStateDir();
-    await seedResolvedFinding(dir, historical, historicalSymbol);
-    const result = await persistFinding(dir, candidate, candidateSymbol);
+  ])(
+    "does not suggest for $name",
+    async ({ historical, candidate, historicalSymbol, candidateSymbol }) => {
+      const dir = await createStateDir();
+      await seedResolvedFinding(dir, historical, historicalSymbol);
+      const result = await persistFinding(dir, candidate, candidateSymbol);
 
-    expect(result.possibleDuplicateSuggestions).toEqual([]);
-  });
+      expect(result.possibleDuplicateSuggestions).toEqual([]);
+    },
+  );
 
   it("selects the highest similarity match and persists only one", async () => {
     const dir = await createStateDir();
@@ -267,102 +275,117 @@ describe("possible duplicate suggestions", () => {
     expect(result.possibleDuplicateSuggestions[0]?.matchedFindingId).not.toBe(weakerId);
   });
 
-  it("does not consider same-file historical matches beyond the 200-row bound", { timeout: 15_000 }, async () => {
-    const dir = await createStateDir();
-    const state = await openStateDatabase(dir);
-    try {
-      const historicalReview = insertReview(state.db, {
-        targetKind: "staged",
-        diffHash: "bound-history",
-        model: "model",
-        reasoning: "medium",
-        depth: "default",
-        sessionId: "bound-history",
-        summary: "history",
-      });
-      const history = reconcileReviewFindings(
-        state.db,
-        historicalReview.id,
-        Array.from({ length: 201 }, (_, index) =>
-          makeCandidate({
-            title: index === 0 ? "Missing null check" : `Filler ${index}`,
-            body: index === 0 ? "The handler does not validate the payload." : "Unrelated filler.",
-            evidence: `evidence-${index}();`,
-            symbolKey: "ts-v1|function:handle",
-          }),
-        ),
-      );
-      markHistoricalFindingsDismissed(state.db, historicalReview.id, "bound fixture");
-      const targetId = history.observations[0]!.finding.id;
-      state.db.prepare("UPDATE findings SET updated_at = ? WHERE id = ?").run("2000-01-01", targetId);
+  it(
+    "does not consider same-file historical matches beyond the 200-row bound",
+    { timeout: 15_000 },
+    async () => {
+      const dir = await createStateDir();
+      const state = await openStateDatabase(dir);
+      try {
+        const historicalReview = insertReview(state.db, {
+          targetKind: "staged",
+          diffHash: "bound-history",
+          model: "model",
+          reasoning: "medium",
+          depth: "default",
+          sessionId: "bound-history",
+          summary: "history",
+        });
+        const history = reconcileReviewFindings(
+          state.db,
+          historicalReview.id,
+          Array.from({ length: 201 }, (_, index) =>
+            makeCandidate({
+              title: index === 0 ? "Missing null check" : `Filler ${index}`,
+              body:
+                index === 0 ? "The handler does not validate the payload." : "Unrelated filler.",
+              evidence: `evidence-${index}();`,
+              symbolKey: "ts-v1|function:handle",
+            }),
+          ),
+        );
+        markHistoricalFindingsDismissed(state.db, historicalReview.id, "bound fixture");
+        const targetId = history.observations[0]!.finding.id;
+        state.db
+          .prepare("UPDATE findings SET updated_at = ? WHERE id = ?")
+          .run("2000-01-01", targetId);
 
-      const candidateReview = insertReview(state.db, {
-        targetKind: "staged",
-        diffHash: "bound-candidate",
-        model: "model",
-        reasoning: "medium",
-        depth: "default",
-        sessionId: "bound-candidate",
-        summary: "candidate",
-      });
-      const candidate = reconcileReviewFindings(state.db, candidateReview.id, [
-        makeCandidate({ evidence: "new-quote();", symbolKey: "ts-v1|function:handle" }),
-      ]);
+        const candidateReview = insertReview(state.db, {
+          targetKind: "staged",
+          diffHash: "bound-candidate",
+          model: "model",
+          reasoning: "medium",
+          depth: "default",
+          sessionId: "bound-candidate",
+          summary: "candidate",
+        });
+        const candidate = reconcileReviewFindings(state.db, candidateReview.id, [
+          makeCandidate({ evidence: "new-quote();", symbolKey: "ts-v1|function:handle" }),
+        ]);
 
-      expect(suggestPossibleDuplicates(state.db, candidateReview.id, candidate.observations)).toEqual([]);
-    } finally {
-      closeStateDatabase(state);
-    }
-  });
+        expect(
+          suggestPossibleDuplicates(state.db, candidateReview.id, candidate.observations),
+        ).toEqual([]);
+      } finally {
+        closeStateDatabase(state);
+      }
+    },
+  );
 
-  it("applies structural eligibility before bounding the candidate pool", { timeout: 15_000 }, async () => {
-    const dir = await createStateDir();
-    const state = await openStateDatabase(dir);
-    try {
-      const historicalReview = insertReview(state.db, {
-        targetKind: "staged",
-        diffHash: "prefilter-history",
-        model: "model",
-        reasoning: "medium",
-        depth: "default",
-        sessionId: "prefilter-history",
-        summary: "history",
-      });
-      const history = reconcileReviewFindings(state.db, historicalReview.id, [
-        makeCandidate({ evidence: "eligible-old-quote();", symbolKey: "ts-v1|function:handle" }),
-        ...Array.from({ length: 200 }, (_, index) =>
-          makeCandidate({
-            title: `Filler ${index}`,
-            body: "Unrelated filler.",
-            evidence: `ineligible-${index}();`,
-            symbolKey: `ts-v1|function:other${index}`,
-          }),
-        ),
-      ]);
-      markHistoricalFindingsDismissed(state.db, historicalReview.id, "prefilter fixture");
-      const targetId = history.observations[0]!.finding.id;
-      state.db.prepare("UPDATE findings SET updated_at = ? WHERE id = ?").run("2000-01-01", targetId);
+  it(
+    "applies structural eligibility before bounding the candidate pool",
+    { timeout: 15_000 },
+    async () => {
+      const dir = await createStateDir();
+      const state = await openStateDatabase(dir);
+      try {
+        const historicalReview = insertReview(state.db, {
+          targetKind: "staged",
+          diffHash: "prefilter-history",
+          model: "model",
+          reasoning: "medium",
+          depth: "default",
+          sessionId: "prefilter-history",
+          summary: "history",
+        });
+        const history = reconcileReviewFindings(state.db, historicalReview.id, [
+          makeCandidate({ evidence: "eligible-old-quote();", symbolKey: "ts-v1|function:handle" }),
+          ...Array.from({ length: 200 }, (_, index) =>
+            makeCandidate({
+              title: `Filler ${index}`,
+              body: "Unrelated filler.",
+              evidence: `ineligible-${index}();`,
+              symbolKey: `ts-v1|function:other${index}`,
+            }),
+          ),
+        ]);
+        markHistoricalFindingsDismissed(state.db, historicalReview.id, "prefilter fixture");
+        const targetId = history.observations[0]!.finding.id;
+        state.db
+          .prepare("UPDATE findings SET updated_at = ? WHERE id = ?")
+          .run("2000-01-01", targetId);
 
-      const candidateReview = insertReview(state.db, {
-        targetKind: "staged",
-        diffHash: "prefilter-candidate",
-        model: "model",
-        reasoning: "medium",
-        depth: "default",
-        sessionId: "prefilter-candidate",
-        summary: "candidate",
-      });
-      const candidate = reconcileReviewFindings(state.db, candidateReview.id, [
-        makeCandidate({ evidence: "eligible-new-quote();", symbolKey: "ts-v1|function:handle" }),
-      ]);
+        const candidateReview = insertReview(state.db, {
+          targetKind: "staged",
+          diffHash: "prefilter-candidate",
+          model: "model",
+          reasoning: "medium",
+          depth: "default",
+          sessionId: "prefilter-candidate",
+          summary: "candidate",
+        });
+        const candidate = reconcileReviewFindings(state.db, candidateReview.id, [
+          makeCandidate({ evidence: "eligible-new-quote();", symbolKey: "ts-v1|function:handle" }),
+        ]);
 
-      expect(suggestPossibleDuplicates(state.db, candidateReview.id, candidate.observations)).toMatchObject([
-        { matchedFindingId: targetId },
-      ]);
-    } finally {
-      closeStateDatabase(state);
-    }
-  });
+        expect(
+          suggestPossibleDuplicates(state.db, candidateReview.id, candidate.observations),
+        ).toMatchObject([{ matchedFindingId: targetId }]);
+      } finally {
+        closeStateDatabase(state);
+      }
+    },
+  );
 
   it("displays and scores pinned observations after later source observations", async () => {
     const dir = await createStateDir();
@@ -455,25 +478,31 @@ describe("possible duplicate suggestions", () => {
       historicalSymbol: "ts-v1|function:handle",
       candidateSymbol: "function:handle",
     },
-  ])("uses line-distance fallback when exactly one symbol is known", async ({ historicalSymbol, candidateSymbol }) => {
-    const dir = await createStateDir();
-    const matchedId = await seedResolvedFinding(dir, makeFinding(), historicalSymbol);
-    const result = await persistQuoteDrift(dir, {}, candidateSymbol);
+  ])(
+    "uses line-distance fallback when exactly one symbol is known",
+    async ({ historicalSymbol, candidateSymbol }) => {
+      const dir = await createStateDir();
+      const matchedId = await seedResolvedFinding(dir, makeFinding(), historicalSymbol);
+      const result = await persistQuoteDrift(dir, {}, candidateSymbol);
 
-    expect(result.possibleDuplicateSuggestions).toMatchObject([
-      {
-        matchedFindingId: matchedId,
-        signals: {
-          matchKind: "line-distance",
+      expect(result.possibleDuplicateSuggestions).toMatchObject([
+        {
+          matchedFindingId: matchedId,
+          signals: {
+            matchKind: "line-distance",
+          },
         },
-      },
-    ]);
-  });
+      ]);
+    },
+  );
 
   it.each([
     {
       name: "score and lexical similarity disagree",
-      mutate: (db: SqliteDatabase, link: PersistReviewRunResult["possibleDuplicateSuggestions"][number]) => {
+      mutate: (
+        db: SqliteDatabase,
+        link: PersistReviewRunResult["possibleDuplicateSuggestions"][number],
+      ) => {
         db.prepare("UPDATE finding_possible_duplicates SET score = ? WHERE id = ?").run(
           link.score === 0 ? 1 : 0,
           link.id,
@@ -482,10 +511,15 @@ describe("possible duplicate suggestions", () => {
     },
     {
       name: "current matcher rejects mutually consistent but wrong score and signals",
-      mutate: (db: SqliteDatabase, link: PersistReviewRunResult["possibleDuplicateSuggestions"][number]) => {
+      mutate: (
+        db: SqliteDatabase,
+        link: PersistReviewRunResult["possibleDuplicateSuggestions"][number],
+      ) => {
         expect(link.matcherVersion).toBe(POSSIBLE_DUPLICATE_MATCHER_VERSION);
         const wrongScore = link.score === 0 ? 1 : 0;
-        db.prepare("UPDATE finding_possible_duplicates SET score = ?, signals_json = ? WHERE id = ?").run(
+        db.prepare(
+          "UPDATE finding_possible_duplicates SET score = ?, signals_json = ? WHERE id = ?",
+        ).run(
           wrongScore,
           JSON.stringify({ ...link.signals, lexicalSimilarity: wrongScore }),
           link.id,
@@ -494,7 +528,10 @@ describe("possible duplicate suggestions", () => {
     },
     {
       name: "line distance disagrees with pinned observations",
-      mutate: (db: SqliteDatabase, link: PersistReviewRunResult["possibleDuplicateSuggestions"][number]) => {
+      mutate: (
+        db: SqliteDatabase,
+        link: PersistReviewRunResult["possibleDuplicateSuggestions"][number],
+      ) => {
         db.prepare("UPDATE finding_possible_duplicates SET signals_json = ? WHERE id = ?").run(
           JSON.stringify({ ...link.signals, lineDistance: link.signals.lineDistance + 1 }),
           link.id,
@@ -503,7 +540,10 @@ describe("possible duplicate suggestions", () => {
     },
     {
       name: "candidate symbol disagrees with the pinned observation",
-      mutate: (db: SqliteDatabase, link: PersistReviewRunResult["possibleDuplicateSuggestions"][number]) => {
+      mutate: (
+        db: SqliteDatabase,
+        link: PersistReviewRunResult["possibleDuplicateSuggestions"][number],
+      ) => {
         db.prepare("UPDATE finding_possible_duplicates SET signals_json = ? WHERE id = ?").run(
           JSON.stringify({ ...link.signals, candidateSymbol: "ts-v1|function:other" }),
           link.id,
@@ -512,7 +552,10 @@ describe("possible duplicate suggestions", () => {
     },
     {
       name: "matched symbol disagrees with the pinned observation",
-      mutate: (db: SqliteDatabase, link: PersistReviewRunResult["possibleDuplicateSuggestions"][number]) => {
+      mutate: (
+        db: SqliteDatabase,
+        link: PersistReviewRunResult["possibleDuplicateSuggestions"][number],
+      ) => {
         db.prepare("UPDATE finding_possible_duplicates SET signals_json = ? WHERE id = ?").run(
           JSON.stringify({ ...link.signals, matchedSymbol: "ts-v1|function:other" }),
           link.id,
@@ -521,7 +564,10 @@ describe("possible duplicate suggestions", () => {
     },
     {
       name: "symbol match lacks two equal symbols",
-      mutate: (db: SqliteDatabase, link: PersistReviewRunResult["possibleDuplicateSuggestions"][number]) => {
+      mutate: (
+        db: SqliteDatabase,
+        link: PersistReviewRunResult["possibleDuplicateSuggestions"][number],
+      ) => {
         db.prepare("UPDATE finding_possible_duplicates SET signals_json = ? WHERE id = ?").run(
           JSON.stringify({ ...link.signals, matchKind: "symbol", matchedSymbol: null }),
           link.id,
@@ -530,7 +576,10 @@ describe("possible duplicate suggestions", () => {
     },
     {
       name: "locator version disagrees with the persisted symbol prefix",
-      mutate: (db: SqliteDatabase, link: PersistReviewRunResult["possibleDuplicateSuggestions"][number]) => {
+      mutate: (
+        db: SqliteDatabase,
+        link: PersistReviewRunResult["possibleDuplicateSuggestions"][number],
+      ) => {
         db.prepare("UPDATE finding_possible_duplicates SET locator_version = ? WHERE id = ?").run(
           link.locatorVersion + 1,
           link.id,
@@ -561,7 +610,9 @@ describe("possible duplicate suggestions", () => {
     try {
       const persistedScore = 1;
       state.db
-        .prepare("UPDATE finding_possible_duplicates SET matcher_version = ?, score = ?, signals_json = ? WHERE id = ?")
+        .prepare(
+          "UPDATE finding_possible_duplicates SET matcher_version = ?, score = ?, signals_json = ? WHERE id = ?",
+        )
         .run(
           POSSIBLE_DUPLICATE_MATCHER_VERSION + 1,
           persistedScore,
@@ -589,45 +640,63 @@ describe("possible duplicate decisions", () => {
     const link = result.possibleDuplicateSuggestions[0]!;
     const state = await openStateDatabase(dir);
     try {
-      expect(rejectPossibleDuplicate(state.db, link.id, { actor: "user", reason: "not same" }).status).toBe("rejected");
-      expect(suggestPossibleDuplicates(state.db, result.reviewId, result.reconcile.observations)).toEqual([]);
-      expect(() => rejectPossibleDuplicate(state.db, link.id, { actor: "user", reason: "again" })).toThrow();
-      expect(() => confirmPossibleDuplicate(state.db, link.id, { actor: "user", reason: "again" })).toThrow();
+      expect(
+        rejectPossibleDuplicate(state.db, link.id, { actor: "user", reason: "not same" }).status,
+      ).toBe("rejected");
+      expect(
+        suggestPossibleDuplicates(state.db, result.reviewId, result.reconcile.observations),
+      ).toEqual([]);
+      expect(() =>
+        rejectPossibleDuplicate(state.db, link.id, { actor: "user", reason: "again" }),
+      ).toThrow();
+      expect(() =>
+        confirmPossibleDuplicate(state.db, link.id, { actor: "user", reason: "again" }),
+      ).toThrow();
       expect(listPossibleDuplicates(state.db, "rejected")[0]?.id).toBe(link.id);
     } finally {
       closeStateDatabase(state);
     }
   });
 
-  it.each(["dismissed", "deferred"] as const)("inherits %s with an audited lifecycle event", async (status) => {
-    const dir = await createStateDir();
-    const matchedId = await seedResolvedFinding(dir, makeFinding(), "ts-v1|function:handle", status);
-    const result = await persistQuoteDrift(dir);
-    const link = result.possibleDuplicateSuggestions[0]!;
-    const candidateId = result.reconcile.observations[0]!.finding.id;
-    const state = await openStateDatabase(dir);
-    try {
-      const beforeCandidate = getFindingById(state.db, candidateId)!;
-      const beforeMatched = getFindingById(state.db, matchedId)!;
-      const confirmed = confirmPossibleDuplicate(state.db, link.id, {
-        actor: "user",
-        reason: "confirmed",
-      });
-      expect(confirmed.status).toBe("confirmed");
-      expect(confirmed.sourceDispositionEvent.id).toBe(link.sourceDispositionEventId);
-      expect(confirmed.inheritedDispositionEvent?.id).toBe(confirmed.inheritedDispositionEventId);
-      expect(getFindingById(state.db, candidateId)?.fingerprint).toBe(beforeCandidate.fingerprint);
-      expect(getFindingById(state.db, matchedId)?.fingerprint).toBe(beforeMatched.fingerprint);
-      expect(getFindingById(state.db, candidateId)?.status).toBe(status);
-      const event = listFindingEvents(state.db, candidateId).at(-1)!;
-      expect(event.eventType).toBe(status);
-      expect(event.reason).toContain(matchedId);
-      expect(event.reason).toContain(link.id);
-      expect(listPossibleDuplicates(state.db, "confirmed")[0]?.inheritedStatus).toBe(status);
-    } finally {
-      closeStateDatabase(state);
-    }
-  });
+  it.each(["dismissed", "deferred"] as const)(
+    "inherits %s with an audited lifecycle event",
+    async (status) => {
+      const dir = await createStateDir();
+      const matchedId = await seedResolvedFinding(
+        dir,
+        makeFinding(),
+        "ts-v1|function:handle",
+        status,
+      );
+      const result = await persistQuoteDrift(dir);
+      const link = result.possibleDuplicateSuggestions[0]!;
+      const candidateId = result.reconcile.observations[0]!.finding.id;
+      const state = await openStateDatabase(dir);
+      try {
+        const beforeCandidate = getFindingById(state.db, candidateId)!;
+        const beforeMatched = getFindingById(state.db, matchedId)!;
+        const confirmed = confirmPossibleDuplicate(state.db, link.id, {
+          actor: "user",
+          reason: "confirmed",
+        });
+        expect(confirmed.status).toBe("confirmed");
+        expect(confirmed.sourceDispositionEvent.id).toBe(link.sourceDispositionEventId);
+        expect(confirmed.inheritedDispositionEvent?.id).toBe(confirmed.inheritedDispositionEventId);
+        expect(getFindingById(state.db, candidateId)?.fingerprint).toBe(
+          beforeCandidate.fingerprint,
+        );
+        expect(getFindingById(state.db, matchedId)?.fingerprint).toBe(beforeMatched.fingerprint);
+        expect(getFindingById(state.db, candidateId)?.status).toBe(status);
+        const event = listFindingEvents(state.db, candidateId).at(-1)!;
+        expect(event.eventType).toBe(status);
+        expect(event.reason).toContain(matchedId);
+        expect(event.reason).toContain(link.id);
+        expect(listPossibleDuplicates(state.db, "confirmed")[0]?.inheritedStatus).toBe(status);
+      } finally {
+        closeStateDatabase(state);
+      }
+    },
+  );
 
   it.each(["dismissed", "deferred", "fixed"] as const)(
     "automatically expires suggested links when the candidate is %s",
@@ -681,9 +750,14 @@ describe("possible duplicate decisions", () => {
     const candidateId = result.reconcile.observations[0]!.finding.id;
     const state = await openStateDatabase(dir);
     try {
-      dismissFinding(state.db, candidateId, { actor: "user", reason: "resolved before confirmation" });
+      dismissFinding(state.db, candidateId, {
+        actor: "user",
+        reason: "resolved before confirmation",
+      });
       const eventCount = listFindingEvents(state.db, candidateId).length;
-      expect(() => confirmPossibleDuplicate(state.db, link.id, { actor: "user", reason: "stale" })).toThrow();
+      expect(() =>
+        confirmPossibleDuplicate(state.db, link.id, { actor: "user", reason: "stale" }),
+      ).toThrow();
       expect(listPossibleDuplicates(state.db, "suggested")).toEqual([]);
       expect(listPossibleDuplicates(state.db, "expired")[0]?.id).toBe(link.id);
       expect(listFindingEvents(state.db, candidateId)).toHaveLength(eventCount);
@@ -709,9 +783,9 @@ describe("possible duplicate decisions", () => {
           WHERE id = '${link.id}';
         END;
       `);
-      expect(() => confirmPossibleDuplicate(state.db, link.id, { actor: "user", reason: "race" })).toThrow(
-        /no longer suggested/,
-      );
+      expect(() =>
+        confirmPossibleDuplicate(state.db, link.id, { actor: "user", reason: "race" }),
+      ).toThrow(/no longer suggested/);
       expect(getFindingById(state.db, candidateId)?.status).toBe("open");
       expect(listPossibleDuplicates(state.db, "suggested")[0]?.id).toBe(link.id);
     } finally {

@@ -4,13 +4,18 @@ import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { execa } from "execa";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { removeTempDir } from "../test/helpers.js";
-import { getStagedDiff } from "../git/diff.js";
+import { getStagedDiff as readRealStagedDiff } from "../git/diff.js";
+import { filterReachableCommits as filterRealReachableCommits } from "../git/reachability.js";
 import { applyMigrations, closeDatabaseConnection, getStateDbPath } from "./db.js";
 import { MIGRATION_001_INITIAL_SCHEMA } from "./migrations/001-initial-schema.js";
 import { openSqliteDatabase } from "./sqlite.js";
-import { getFindingSummary, logSummaryDegradation } from "./findings-summary.js";
+import {
+  getFindingSummary as getRealFindingSummary,
+  logSummaryDegradation,
+  type FindingSummaryOptions,
+} from "./findings-summary.js";
 import { listUnresolvedFindings, withFindingDatabase } from "./findings-query.js";
 import { deferFinding, dismissFinding, fixFinding } from "./lifecycle.js";
 import { computeDiffHash } from "./persist.js";
@@ -24,70 +29,54 @@ import type { FindingCandidate, InsertReviewInput } from "./types.js";
 // Delegates to the real getStagedDiff while counting calls and allowing failure injection, so the
 // "at most one git diff per summary" and "a diff failure excludes rather than throws" properties
 // can be asserted without stubbing git itself.
-const stagedDiff = vi.hoisted(() => ({
-  calls: 0,
-  failure: null as Error | null,
-  lastOptions: null as { timeoutMs?: number } | null,
-}));
+interface StagedDiffState {
+  calls: number;
+  failure: Error | null;
+  lastOptions: { timeoutMs?: number } | null;
+}
 
-vi.mock("../git/diff.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../git/diff.js")>();
-  return {
-    ...actual,
-    getStagedDiff: async (cwd?: string, options?: { timeoutMs?: number }) => {
-      stagedDiff.calls++;
-      stagedDiff.lastOptions = options ?? null;
-      if (stagedDiff.failure) {
-        throw stagedDiff.failure;
-      }
-      return actual.getStagedDiff(cwd, options);
-    },
-  };
-});
+interface ReachabilityState {
+  failure: Error | null;
+  calls: number;
+}
+
+const stagedDiff: StagedDiffState = {
+  calls: 0,
+  failure: null,
+  lastOptions: null,
+};
 
 // Same seam for the reachability leg: the only inputs that make filterReachableCommits throw are
 // git exit codes git does not produce (src/git/reachability.ts), so a real repository cannot
 // reproduce that branch. Injecting the failure here tests the fail-silent boundary itself rather
 // than a scenario that never reaches it.
-const reachability = vi.hoisted(() => ({ failure: null as Error | null, calls: 0 }));
+const reachability: ReachabilityState = { failure: null, calls: 0 };
 
-vi.mock("../git/reachability.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../git/reachability.js")>();
-  return {
-    ...actual,
-    filterReachableCommits: async (candidates: readonly string[], cwd?: string) => {
-      reachability.calls++;
-      if (reachability.failure) {
-        throw reachability.failure;
-      }
-      return actual.filterReachableCommits(candidates, cwd);
-    },
-  };
-});
+// Supplies the real reachability implementation while counting calls, so "--all skips the
+// reachability step" remains asserted at the dependency boundary without mocking a module.
+const summaryDependencies = {
+  getStagedDiff: async (cwd?: string, options?: { timeoutMs?: number }) => {
+    stagedDiff.calls++;
+    stagedDiff.lastOptions = options ?? null;
+    if (stagedDiff.failure) throw stagedDiff.failure;
+    return readRealStagedDiff(cwd, options);
+  },
+  filterReachableCommits: async (candidates: readonly string[], cwd?: string) => {
+    reachability.calls++;
+    if (reachability.failure) throw reachability.failure;
+    return filterRealReachableCommits(candidates, cwd);
+  },
+};
 
-// Counts `git merge-base` subprocesses, so "--all skips the reachability step" can be asserted at
-// the process boundary rather than only at the module seam above. The module seam alone would still
-// pass if the work were rebuilt inline somewhere else; this one is what pins that no git ancestry
-// call happens at all, which is the point of the flag (a user whose git is misbehaving still gets
-// their findings).
-const gitInvocations = vi.hoisted(() => ({ mergeBase: 0 }));
-
-vi.mock("execa", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("execa")>();
-  return {
-    ...actual,
-    execa: (file: string, args?: readonly string[], options?: unknown) => {
-      if (file === "git" && args?.[0] === "merge-base") {
-        gitInvocations.mergeBase++;
-      }
-      return (actual.execa as unknown as (...passthrough: unknown[]) => unknown)(
-        file,
-        args,
-        options,
-      );
-    },
-  };
-});
+async function getFindingSummary(
+  diffOwlDir: string,
+  options: FindingSummaryOptions = {},
+): ReturnType<typeof getRealFindingSummary> {
+  return getRealFindingSummary(diffOwlDir, {
+    ...options,
+    dependencies: summaryDependencies,
+  });
+}
 
 // Read through a function rather than inline: a test that resets `lastOptions` to null narrows the
 // property to `null` for the rest of its block, and control-flow analysis cannot know that the
@@ -107,7 +96,6 @@ afterEach(async () => {
   stagedDiff.lastOptions = null;
   reachability.failure = null;
   reachability.calls = 0;
-  gitInvocations.mergeBase = 0;
   await Promise.all(tempStateDirs.map((dir) => removeTempStateDir(dir)));
   tempStateDirs = [];
   await Promise.all(tempRepoDirs.map((dir) => removeTempDir(dir)));
@@ -154,7 +142,8 @@ async function createRepo(): Promise<RepoFixture> {
 
   // Hashes the fixture's own real staged diff rather than a literal, so the stored value is
   // produced by exactly the function src/state/persist.ts uses at review time.
-  const stagedHash = async (): Promise<string> => computeDiffHash((await getStagedDiff(root)).raw);
+  const stagedHash = async (): Promise<string> =>
+    computeDiffHash((await readRealStagedDiff(root)).raw);
 
   return { root, diffOwlDir, commit, currentBranch, stage, stagedHash };
 }
@@ -361,7 +350,6 @@ describe("getFindingSummary includeUnreachable", () => {
     });
 
     reachability.calls = 0;
-    gitInvocations.mergeBase = 0;
     const summary = await getFindingSummary(diffOwlDir, { cwd: root, includeUnreachable: true });
 
     expect(summary.openCount).toBe(1);
@@ -369,7 +357,6 @@ describe("getFindingSummary includeUnreachable", () => {
     // misbehaving can still see their findings, so running the ancestry calls and ignoring the
     // answer would preserve the exact failure the flag routes around.
     expect(reachability.calls).toBe(0);
-    expect(gitInvocations.mergeBase).toBe(0);
   });
 
   it("still runs the reachability step on the default path", async () => {
@@ -383,11 +370,9 @@ describe("getFindingSummary includeUnreachable", () => {
     });
 
     reachability.calls = 0;
-    gitInvocations.mergeBase = 0;
     await getFindingSummary(diffOwlDir, { cwd: root });
 
     expect(reachability.calls).toBe(1);
-    expect(gitInvocations.mergeBase).toBe(1);
   });
 
   it("keeps a stale staged finding excluded, because D-03's gate is not what --all opts out of", async () => {

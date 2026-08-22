@@ -2,7 +2,9 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { resolveReasoningVariant } from "./client.js";
 import { listAvailableModels } from "./models.js";
-import { parseProviderPayload } from "./provider-payload.js";
+import { parseProviderPayload, type ProviderResponseInput } from "./provider-payload.js";
+
+type ProviderClient = Parameters<typeof resolveReasoningVariant>[0];
 
 describe("provider payload contracts", () => {
   it("discovers active Codex models and preserves reasoning variants", async () => {
@@ -44,7 +46,7 @@ describe("provider payload contracts", () => {
   });
 });
 
-function providerClient(response: unknown): unknown {
+function providerClient(response: ProviderResponseInput): ProviderClient {
   return {
     provider: {
       list: async () => response,
@@ -52,8 +54,6 @@ function providerClient(response: unknown): unknown {
   };
 }
 
-async function readFixture(name: string): Promise<unknown> {
-  return JSON.parse(
-    await readFile(new URL(`./fixtures/${name}`, import.meta.url), "utf-8"),
-  ) as unknown;
+async function readFixture(name: string): Promise<ProviderResponseInput> {
+  return JSON.parse(await readFile(new URL(`./fixtures/${name}`, import.meta.url), "utf-8"));
 }

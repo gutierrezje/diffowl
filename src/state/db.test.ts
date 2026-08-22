@@ -22,6 +22,7 @@ import { getReviewById, insertReview } from "./repositories/reviews.js";
 import { reconcileReviewFindings } from "./reconcile.js";
 import { removeTempStateDir } from "./test-helpers.js";
 import { CURRENT_SCHEMA_VERSION } from "./types.js";
+import { z } from "zod";
 
 const EXPECTED_TABLES = [
   "schema_migrations",
@@ -61,12 +62,13 @@ describe("openStateDatabase", () => {
         state.db
           .prepare("PRAGMA table_info(finding_observations)")
           .all()
-          .some((column) => typeof column === "object" && column !== null && "name" in column && column.name === "symbol_key"),
+          .some((column) => column["name"] === "symbol_key"),
       ).toBe(true);
 
       const migrations = state.db
         .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
-        .all() as Array<{ version: number }>;
+        .all()
+        .map((row) => z.object({ version: z.number() }).parse(row));
       expect(migrations).toEqual([
         { version: 1 },
         { version: 2 },
@@ -88,7 +90,8 @@ describe("openStateDatabase", () => {
     try {
       const migrations = second.db
         .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
-        .all() as Array<{ version: number }>;
+        .all()
+        .map((row) => z.object({ version: z.number() }).parse(row));
       expect(migrations).toEqual([
         { version: 1 },
         { version: 2 },
@@ -215,7 +218,8 @@ describe("openStateDatabase", () => {
 
     try {
       expect(() =>
-        state.db.prepare(`
+        state.db
+          .prepare(`
           INSERT INTO reviews (
             id, created_at, target_kind, target_ref, base_commit, merge_base_commit,
             target_commit, diff_hash, model, reasoning, depth, session_id, summary,
@@ -225,9 +229,10 @@ describe("openStateDatabase", () => {
             'malformed-input', 'provider/model', 'medium', 'default', 'session-malformed',
             'Malformed input probe', '[]', '[]'
           )
-        `).run({
-          createdAt: new Date().toISOString(),
-        }),
+        `)
+          .run({
+            createdAt: new Date().toISOString(),
+          }),
       ).toThrow("Review contains invalid input identity.");
     } finally {
       closeStateDatabase(state);
@@ -295,7 +300,7 @@ describe("openStateDatabase", () => {
       `INSERT INTO reviews (
         id, created_at, target_kind, target_ref, target_commit, diff_hash, model, reasoning,
         depth, session_id, summary, diagnostics_json, timings_json, skipped_reason
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       "rev_skipped",
       "2026-07-12T00:00:00.000Z",
@@ -425,7 +430,8 @@ describe("openStateDatabase", () => {
 
       const versions = db
         .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
-        .all() as Array<{ version: number }>;
+        .all()
+        .map((row) => z.object({ version: z.number() }).parse(row));
       expect(versions).toEqual([
         { version: 1 },
         { version: 2 },
