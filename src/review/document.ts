@@ -39,6 +39,14 @@ export type SchemaIssue = {
   message: string;
 };
 
+export type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly JsonValue[]
+  | { readonly [key: string]: JsonValue };
+
 export type ReviewTextInspection =
   | { kind: "open"; ifFinished: ClosedReview }
   | ClosedReview;
@@ -71,9 +79,9 @@ export class SchemaValidationError extends Error {
 }
 
 const ReviewSeveritySchema = z
-  .string()
+  .string({ error: "must be error, warning, or info" })
   .transform((value) => value.toLowerCase())
-  .pipe(z.enum(["error", "warning", "info"]));
+  .pipe(z.enum(["error", "warning", "info"], { error: "must be error, warning, or info" }));
 
 const ReviewConfidenceSchema = z
   .string()
@@ -82,7 +90,9 @@ const ReviewConfidenceSchema = z
   .catch("low");
 
 const ReviewFindingLineSchema = z
-  .union([z.number(), z.string().transform((value) => Number(value))])
+  .union([z.number(), z.string().transform((value) => Number(value))], {
+    error: "must be a positive integer",
+  })
   .pipe(
     z
       .number({ error: "must be a positive integer" })
@@ -130,10 +140,7 @@ const ReviewDocumentSchema = z.object({
 const NativeReviewDocumentSchema = ReviewDocumentSchema.extend({
   findings: z.array(NativeReviewFindingSchema),
 }).strict();
-const ReviewDocumentInputSchema = z.unknown();
 const ZodArrayIndexSchema = z.number();
-
-type ReviewDocumentInput = z.input<typeof ReviewDocumentInputSchema>;
 
 const MARKER_ISSUE: SchemaIssue = {
   locator: "marker",
@@ -142,10 +149,10 @@ const MARKER_ISSUE: SchemaIssue = {
 
 type ExtractedCandidate =
   | { kind: "no-marker-incomplete"; issues: readonly SchemaIssue[] }
-  | { kind: "no-marker-object"; issues: readonly SchemaIssue[]; value: ReviewDocumentInput }
+  | { kind: "no-marker-object"; issues: readonly SchemaIssue[]; value: JsonValue }
   | { kind: "no-marker-invalid-json"; issues: readonly SchemaIssue[] }
   | { kind: "marked-incomplete"; issues: readonly SchemaIssue[] }
-  | { kind: "marked-object"; value: ReviewDocumentInput }
+  | { kind: "marked-object"; value: JsonValue }
   | { kind: "marked-invalid-json"; issues: readonly SchemaIssue[] };
 
 export function inspectReviewText(text: string): ReviewTextInspection {
@@ -173,7 +180,7 @@ export function inspectReviewText(text: string): ReviewTextInspection {
 }
 
 export function inspectNativeReviewText(text: string): ClosedReview {
-  let value: ReviewDocumentInput;
+  let value: JsonValue;
   try {
     value = JSON.parse(text);
   } catch (error) {
@@ -304,7 +311,7 @@ function extractJsonCandidate(text: string): ExtractedCandidate {
       : { kind: "no-marker-incomplete", issues: [MARKER_ISSUE] };
   }
 
-  let value: ReviewDocumentInput;
+  let value: JsonValue;
   try {
     value = JSON.parse(extracted.jsonText);
   } catch (err) {
@@ -372,7 +379,7 @@ function extractBalancedJson(text: string): { jsonText: string; complete: boolea
 }
 
 export function validateReviewDocument(
-  value: ReviewDocumentInput,
+  value: JsonValue,
   mode: ReviewDocumentMode = "marker",
 ): ClosedReview {
   const parsed = (mode === "native-json" ? NativeReviewDocumentSchema : ReviewDocumentSchema).safeParse(

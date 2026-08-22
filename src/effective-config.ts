@@ -28,8 +28,8 @@ export type EffectiveConfig = {
 };
 
 export type EffectiveReviewOverrides = {
-  backend?: unknown;
-  model?: unknown;
+  backend?: string;
+  model?: string;
 };
 
 export async function loadEffectiveReviewConfig(

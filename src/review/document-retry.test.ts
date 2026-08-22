@@ -6,15 +6,8 @@ import {
   resolveReviewDocument,
   SchemaValidationError,
   REVIEW_JSON_MARKER,
+  type JsonValue,
 } from "./document.js";
-
-type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | readonly JsonValue[]
-  | { readonly [key: string]: JsonValue };
 
 function markedDocument(payload: JsonValue): string {
   return `${REVIEW_JSON_MARKER}\n${JSON.stringify(payload)}`;

@@ -1,15 +1,14 @@
 import { z } from "zod";
 import { getOpenCodeFailureGuidance } from "../opencode/guidance.js";
 import type { ReviewBackend } from "./backend-selection.js";
-import type { ReviewFailureInput } from "./errors.js";
 
 const RpcFailureSchema = z.object({
   rpcError: z.object({ message: z.string() }),
 });
 
-export function getReviewBackendFailureGuidance(
+export function getReviewBackendFailureGuidance<Failure>(
   backend: ReviewBackend,
-  error: ReviewFailureInput,
+  error: Failure,
 ): string[] {
   const message = searchableErrorText(error);
   if (backend === "opencode") return getOpenCodeFailureGuidance(message);
@@ -53,7 +52,7 @@ export function getReviewBackendFailureGuidance(
   return ["Codex review failed. Run `codex` directly to verify the local runtime, then retry."];
 }
 
-function searchableErrorText(error: ReviewFailureInput): string {
+function searchableErrorText<Failure>(error: Failure): string {
   const primary = error instanceof Error ? error.message : String(error);
   const parsed = RpcFailureSchema.safeParse(error);
   return parsed.success ? `${primary}\n${parsed.data.rpcError.message}` : primary;

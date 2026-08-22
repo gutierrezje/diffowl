@@ -10,17 +10,10 @@ import {
   REVIEW_DOCUMENT_OUTPUT_SCHEMA,
   REVIEW_JSON_MARKER,
   SchemaValidationError,
+  type JsonValue,
 } from "./document.js";
 
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
-
-type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | readonly JsonValue[]
-  | { readonly [key: string]: JsonValue };
 
 async function readFixture(name: string): Promise<string> {
   return readFile(join(fixturesDir, name), "utf-8");
@@ -154,6 +147,31 @@ describe("parseStructuredReview", () => {
       "finding 0: line must be a positive integer",
     );
     expect(error.issues.map((issue) => issue.locator)).toContain("findings[0].line");
+  });
+
+  it("reports actionable messages when severity and line have the wrong primitive types", () => {
+    const error = schemaValidationError(
+      markedDocument({
+        summary: "Wrong primitive types.",
+        findings: [
+          {
+            severity: 42,
+            file: "src/config.ts",
+            line: null,
+            title: "Invalid primitive types",
+            body: "The retry prompt should name the required values.",
+            confidence: "low",
+          },
+        ],
+      }),
+    );
+
+    expect(error.issues.map((issue) => issue.message)).toEqual(
+      expect.arrayContaining([
+        "finding 0: severity must be error, warning, or info",
+        "finding 0: line must be a positive integer",
+      ]),
+    );
   });
 
   it("defaults missing or invalid finding confidence to low", () => {

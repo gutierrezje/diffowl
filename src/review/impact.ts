@@ -45,7 +45,6 @@ const TreeCacheRecordSchema = z.object({
   key: z.string(),
   files: z.record(z.string(), BlobOidSchema),
 });
-const ImpactErrorInputSchema = z.unknown();
 
 type ImpactCacheRecord =
   | z.input<typeof BlobCacheRecordSchema>
@@ -610,7 +609,7 @@ function mapsEqual(
   return true;
 }
 
-function formatError(error: z.input<typeof ImpactErrorInputSchema>): string {
+function formatError<Failure>(error: Failure): string {
   return error instanceof Error ? error.message : String(error);
 }
 

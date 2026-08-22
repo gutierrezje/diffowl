@@ -19,13 +19,11 @@ const AssistantUsagePayloadSchema = z.object({
   tokens: ReviewUsageTokensSchema,
   cost: z.number().nullable().catch(null),
 });
-const AssistantUsageInputSchema = z.unknown();
 
 export type ReviewUsageTokens = z.output<typeof ReviewUsageTokensSchema>;
 export type ReviewUsage = z.output<typeof ReviewUsageSchema>;
-type AssistantUsageInput = z.input<typeof AssistantUsageInputSchema>;
 
-export function parseAssistantUsage(info: AssistantUsageInput): ReviewUsage | undefined {
+export function parseAssistantUsage<Message>(info: Message): ReviewUsage | undefined {
   const parsed = AssistantUsagePayloadSchema.safeParse(info);
   if (!parsed.success) return undefined;
   return { tokens: parsed.data.tokens, cost: parsed.data.cost };

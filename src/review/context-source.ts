@@ -4,10 +4,9 @@ import { join } from "node:path";
 import { execa } from "execa";
 import { z } from "zod";
 import { isTsModulePath } from "./ast/module-bindings.js";
-import type { ReviewFailureInput } from "./errors.js";
 
 const GitExitErrorSchema = z.object({
-  exitCode: z.union([z.string(), z.number()]),
+  exitCode: z.unknown(),
 });
 
 type GitListOptions = {
@@ -149,7 +148,7 @@ function tooLarge(size: number, maxBytes: number): ContextSourceRead {
   };
 }
 
-function formatReadError(err: ReviewFailureInput): string {
+function formatReadError<Failure>(err: Failure): string {
   const parsed = GitExitErrorSchema.safeParse(err);
   if (parsed.success) return `Git object unavailable (exit code ${parsed.data.exitCode})`;
   return err instanceof Error ? err.message : String(err);
