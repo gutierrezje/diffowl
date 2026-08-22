@@ -187,15 +187,20 @@ describe("runHookReview", () => {
     );
   });
 
-  it("surfaces and preserves immediate worker spawn failures", async () => {
-    const worker = execaHookWorkerProcess.start({
-      command: join(tmpdir(), "missing-diffowl-node"),
-      args: [],
-      options: { detached: true, cleanup: false, stdio: "ignore" },
-    });
+  // Windows command normalization can spawn a wrapper for a missing path, so this is not an OS
+  // spawn failure there. The injected runHookReview case below covers persistence on every OS.
+  it.skipIf(process.platform === "win32")(
+    "surfaces and preserves immediate worker spawn failures",
+    async () => {
+      const worker = execaHookWorkerProcess.start({
+        command: join(tmpdir(), "missing-diffowl-node"),
+        args: [],
+        options: { detached: true, cleanup: false, stdio: "ignore" },
+      });
 
-    await expect(worker.spawned).rejects.toThrow(/ENOENT|not found/i);
-  });
+      await expect(worker.spawned).rejects.toThrow(/ENOENT|not found/i);
+    },
+  );
 
   it("persists detached worker failures for the next CLI run", async () => {
     const root = await createGitRepo();

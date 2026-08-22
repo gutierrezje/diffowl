@@ -174,18 +174,13 @@ const execaHookReviewProcess: HookReviewProcess = {
 export const execaHookWorkerProcess: HookWorkerProcess = {
   start({ command, args, options }) {
     const subprocess = execa(command, args, options);
-    const spawned = new Promise<void>((resolve, reject) => {
-      const resolveSpawn = () => {
-        subprocess.off("error", rejectSpawn);
-        resolve();
-      };
-      const rejectSpawn = (error: Error) => {
-        subprocess.off("spawn", resolveSpawn);
-        reject(error);
-      };
-      subprocess.once("spawn", resolveSpawn);
-      subprocess.once("error", rejectSpawn);
-    });
+    const spawned =
+      subprocess.pid === undefined
+        ? new Promise<void>((resolve, reject) => {
+            subprocess.once("spawn", resolve);
+            subprocess.once("error", reject);
+          })
+        : Promise.resolve();
     // After spawn, the detached worker owns its log and status; the launcher ignores its exit.
     void subprocess.catch(() => {});
     const worker: HookWorker = {
