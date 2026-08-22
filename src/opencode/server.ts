@@ -12,13 +12,11 @@ const MAX_RETRIES = 10;
 const PORT_RELEASE_WAIT_MS = 5000;
 const PORT_RELEASE_POLL_MS = 200;
 
-const ServerHealthResponseSchema = z
-  .object({
-    healthy: BoundaryValueSchema.optional(),
-    version: BoundaryValueSchema.optional(),
-  })
-  .passthrough();
-const ProcessErrorSchema = z.object({ code: BoundaryValueSchema.optional() }).passthrough();
+const ServerHealthResponseSchema = z.object({
+  healthy: BoundaryValueSchema.optional(),
+  version: BoundaryValueSchema.optional(),
+});
+const ProcessErrorSchema = z.object({ code: BoundaryValueSchema.optional() });
 
 export interface ServerDependencies {
   fetch: (input: string, init?: { signal: AbortSignal }) => Promise<ServerResponse>;
@@ -45,7 +43,13 @@ type ServerCommandResult = Promise<{ stdout: string | undefined }> & {
 };
 
 const defaultDependencies: ServerDependencies = {
-  fetch: (input, init) => fetch(input, init),
+  fetch: async (input, init) => {
+    const response = await fetch(input, init);
+    return {
+      ok: response.ok,
+      json: async () => BoundaryValueSchema.parse(await response.json()),
+    };
+  },
   execa: (command, args, options) => execa(command, args, options),
   existsSync: (path) => existsSync(path),
   readFile: (path, encoding) => readFile(path, encoding),
@@ -473,14 +477,14 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function describeError(error: BoundaryValue): string {
+function describeError<Failure>(error: Failure): string {
   const parsedError = z.instanceof(Error).safeParse(error);
   if (parsedError.success) return parsedError.data.message;
 
   return String(error);
 }
 
-function isProcessMissingError(error: BoundaryValue): boolean {
+function isProcessMissingError<Failure>(error: Failure): boolean {
   const parsedError = ProcessErrorSchema.safeParse(error);
   if (!parsedError.success) return false;
 

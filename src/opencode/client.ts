@@ -49,19 +49,19 @@ type OpenCodePromptBody = {
   parts: Array<{ type: "text"; text: string }>;
 };
 
-const ToolStateSchema = z
-  .object({
-    status: BoundaryValueSchema.optional(),
-    title: BoundaryValueSchema.optional(),
-  })
-  .passthrough();
-const TextPartSchema = z
-  .object({ type: z.literal("text"), id: z.string(), messageID: z.string(), text: z.string() })
-  .passthrough();
-const SessionTextPartSchema = z.object({ type: z.literal("text"), text: z.string() }).passthrough();
-const ErrorDataSchema = z.object({ message: BoundaryValueSchema.optional() }).passthrough();
-const ErrorWithCauseSchema = z.object({ cause: BoundaryValueSchema.optional() }).passthrough();
-const SessionDataSchema = z.object({ id: BoundaryValueSchema.optional() }).passthrough();
+const ToolStateSchema = z.object({
+  status: BoundaryValueSchema.optional(),
+  title: BoundaryValueSchema.optional(),
+});
+const TextPartSchema = z.object({
+  type: z.literal("text"),
+  id: z.string(),
+  messageID: z.string(),
+  text: z.string(),
+});
+const SessionTextPartSchema = z.object({ type: z.literal("text"), text: z.string() });
+const ErrorDataSchema = z.object({ message: BoundaryValueSchema.optional() });
+const SessionDataSchema = z.object({ id: BoundaryValueSchema.optional() });
 
 type OpenCodeEvent =
   | { type: "permission"; request: PermissionRequest }
@@ -169,7 +169,7 @@ export function normalizeOpenCodeEvent(
 }
 
 function normalizeMessagePart(
-  part: BoundaryValue,
+  part: BoundaryValue | undefined,
   expectedSessionId?: string,
 ): OpenCodeEvent | undefined {
   const parsedPart = MessagePartSchema.safeParse(part);
@@ -211,7 +211,7 @@ function normalizeMessagePart(
 }
 
 function normalizeAssistantMessage(
-  info: BoundaryValue,
+  info: BoundaryValue | undefined,
   expectedSessionId?: string,
 ): OpenCodeEvent | undefined {
   const parsedInfo = AssistantInfoSchema.safeParse(info);
@@ -614,12 +614,12 @@ async function reconcileSessionMessages(
   }
 }
 
-function describeSessionError(error: BoundaryValue): string {
+function describeSessionError(error: BoundaryValue | undefined): string {
   const parsedError = ErrorValueSchema.safeParse(error);
   if (!parsedError.success) return "unknown session error";
 
-  const directMessage = nonEmptyString(parsedError.data);
-  if (directMessage) return directMessage;
+  const directMessage = z.string().safeParse(parsedError.data);
+  if (directMessage.success && directMessage.data.trim() !== "") return directMessage.data;
 
   const details = ErrorDetailsSchema.safeParse(parsedError.data);
   if (!details.success) return "unknown session error";
@@ -729,8 +729,8 @@ async function withOpenCodeDiagnostics<T>(
   }
 }
 
-function describeOpenCodeError(
-  err: BoundaryValue,
+function describeOpenCodeError<Failure>(
+  err: Failure,
   phase: string,
   context: OpenCodeDiagnosticContext,
 ): Error {
@@ -749,8 +749,7 @@ function describeOpenCodeError(
 
 function describeErrorCause(err: Error): string {
   const parts = [err.name, err.message].filter(Boolean);
-  const parsedError = ErrorWithCauseSchema.safeParse(err);
-  const cause = parsedError.success ? parsedError.data.cause : undefined;
+  const cause = err.cause;
   if (cause instanceof Error) {
     parts.push(`cause=${cause.name}: ${cause.message}`);
   } else if (cause) {

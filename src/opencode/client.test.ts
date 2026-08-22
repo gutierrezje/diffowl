@@ -28,6 +28,15 @@ describe("normalizeOpenCodeEvent", () => {
     ).toBeUndefined();
     expect(normalizeOpenCodeEvent({ payload: "invalid" })).toBeUndefined();
     expect(normalizeOpenCodeEvent(null)).toBeUndefined();
+    expect(
+      normalizeOpenCodeEvent({
+        payload: {
+          type: "session.idle",
+          properties: { sessionID: "session-1" },
+          nonJsonValue: new Date("2026-08-21T00:00:00.000Z"),
+        },
+      }),
+    ).toBeUndefined();
   });
 
   it("normalizes message updates into distinct local variants", () => {
@@ -434,11 +443,15 @@ describe("extractSessionMessageResult", () => {
           data: [
             {
               info: { role: "assistant", id: "msg-1" },
-              parts: [{ type: "text", text: 'FINAL_REVIEW_JSON\n{"summary":"attempt 1","findings":[]}' }],
+              parts: [
+                { type: "text", text: 'FINAL_REVIEW_JSON\n{"summary":"attempt 1","findings":[]}' },
+              ],
             },
             {
               info: { role: "assistant", id: "msg-2" },
-              parts: [{ type: "text", text: 'FINAL_REVIEW_JSON\n{"summary":"attempt 2","findings":[]}' }],
+              parts: [
+                { type: "text", text: 'FINAL_REVIEW_JSON\n{"summary":"attempt 2","findings":[]}' },
+              ],
             },
           ],
         },
@@ -455,7 +468,9 @@ describe("extractSessionMessageResult", () => {
           data: [
             {
               info: { role: "assistant", id: "msg-1" },
-              parts: [{ type: "text", text: 'FINAL_REVIEW_JSON\n{"summary":"attempt 1","findings":[]}' }],
+              parts: [
+                { type: "text", text: 'FINAL_REVIEW_JSON\n{"summary":"attempt 1","findings":[]}' },
+              ],
             },
           ],
         },
