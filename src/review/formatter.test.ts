@@ -5,11 +5,9 @@ import { execa } from "execa";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   formatExcludedCandidateSummary,
-  parseReviewMetadata,
   renderMarkdown,
   writeMarkdownReport,
 } from "./formatter.js";
-import type { ReviewMetadata } from "./formatter.js";
 import type { ReviewReport } from "./types.js";
 import { resetSharedDiffOwlDirForTests } from "../git/state-root.js";
 
@@ -348,90 +346,38 @@ describe("renderMarkdown", () => {
 });
 
 describe("formatExcludedCandidateSummary", () => {
-  it("summarizes excluded candidates and points users to chat", () => {
+  it("summarizes excluded candidates and points users to a fresh review", () => {
     expect(formatExcludedCandidateSummary(1, 2)).toBe(
-      "3 candidates excluded from findings: 1 below the confidence threshold and 2 outside changed files. Run `diffowl chat` to investigate.",
+      "3 candidates excluded from findings: 1 below the confidence threshold and 2 outside changed files. Run a new review if you need more model analysis.",
     );
   });
 
   it("uses singular wording and omits empty reasons", () => {
     expect(formatExcludedCandidateSummary(1, 0)).toBe(
-      "1 candidate excluded from findings: 1 below the confidence threshold. Run `diffowl chat` to investigate.",
+      "1 candidate excluded from findings: 1 below the confidence threshold. Run a new review if you need more model analysis.",
     );
   });
 });
 
-describe("parseReviewMetadata", () => {
-  it("reads DiffOwl session metadata from YAML frontmatter", () => {
-    const content = `---
-diffowl:
-  session_id: ses_123
-  project_root: /work/repo
----
-
-# DiffOwl Review
-`;
-
-    expect(parseReviewMetadata(content)).toEqual({
-      session_id: "ses_123",
-      project_root: "/work/repo",
-    });
-  });
-
-  it("reads durable report metadata when present", () => {
-    const content = `---
-diffowl:
-  schema_version: 1
-  review_id: rev_123
-  session_id: ses_123
-  project_root: /work/repo
----
-
-# DiffOwl Review
-`;
-
-    expect(parseReviewMetadata(content)).toEqual({
-      schema_version: 1,
-      review_id: "rev_123",
-      session_id: "ses_123",
-      project_root: "/work/repo",
-    });
-  });
-
-  it("preserves a positive schema version from a compatible report", () => {
-    const expected: ReviewMetadata = {
-      schema_version: 2,
-      review_id: "rev_future",
-      session_id: "ses_future",
-      project_root: "/work/repo",
-    };
-    const content = `---
-diffowl:
-  schema_version: 2
-  review_id: rev_future
-  session_id: ses_future
-  project_root: /work/repo
----
-
-# DiffOwl Review
-`;
-
-    expect(parseReviewMetadata(content)).toEqual(expected);
-  });
-
-  it("returns undefined for reports without complete metadata", () => {
-    expect(parseReviewMetadata("# DiffOwl Review")).toBeUndefined();
-    expect(
-      parseReviewMetadata(`---
-diffowl:
-  session_id: ses_123
----
-`),
-    ).toBeUndefined();
-  });
-});
-
 describe("writeMarkdownReport", () => {
+  it("keeps review and session identifiers in report frontmatter", async () => {
+    const repo = await createGitProject();
+    process.chdir(repo);
+
+    const reportPath = await writeMarkdownReport("### Summary\nAuditable report", {
+      schema_version: 1,
+      review_id: "rev_test",
+      session_id: "ses_test",
+      project_root: repo,
+    });
+
+    await expect(readFile(reportPath, "utf-8")).resolves.toContain(`diffowl:
+  schema_version: 1
+  review_id: rev_test
+  session_id: ses_test
+  project_root: ${repo}`);
+  });
+
   it("writes linked-worktree reports to the primary checkout reviews directory", async () => {
     const repo = await createGitProject();
     const worktree = await createWorktree(repo);
