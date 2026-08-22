@@ -5,9 +5,9 @@
   "keywords": [
     "ai",
     "code-review",
+    "codex",
     "git",
     "opencode",
-    "codex",
     "pre-commit"
   ],
   "homepage": "https://github.com/gutierrezje/diffowl#readme",
@@ -36,7 +36,7 @@
     "test": "vitest run",
     "pretypecheck": "pnpm run check:runtime",
     "typecheck": "node scripts/typecheck.mjs --noEmit",
-    "lint": "oxlint . && pnpm run typecheck",
+    "lint": "oxlint . --max-warnings 660 && pnpm run typecheck",
     "test:codex": "vitest run src/codex",
     "spike:codex:test": "vitest run src/codex src/experiments/codex-app-server",
     "spike:codex:protocol-live": "vitest run src/codex/protocol-evidence.test.ts",
@@ -59,10 +59,11 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@oxlint/plugins": "1.79.0",
     "@types/node": "^25.9.1",
     "@types/picomatch": "^4.0.3",
     "oxfmt": "^0.52.0",
-    "oxlint": "^1.67.0",
+    "oxlint": "^1.79.0",
     "tsup": "^8.5.1",
     "vitest": "^4.1.7"
   },
