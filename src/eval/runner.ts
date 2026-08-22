@@ -12,10 +12,16 @@ import { formatExcludedCandidateSummary } from "../review/formatter.js";
 import {
   defaultReviewPipelineDeps,
   runReviewPipeline,
+  type ReviewPipelineInput,
   type ReviewPipelineDeps,
 } from "../review/run.js";
 import type { ReviewTarget } from "../review/target.js";
-import type { ReviewExecutor, ReviewFinding, ReviewTiming } from "../review/types.js";
+import type {
+  ReviewExecutor,
+  ReviewFinding,
+  ReviewOptions,
+  ReviewTiming,
+} from "../review/types.js";
 import type { ReviewUsage } from "../review/usage.js";
 import { BASELINE_AGENT_PROMPT, buildBaselinePrompt, renderBaselineDiff } from "./baseline.js";
 import type { EvalCase } from "./case-types.js";
@@ -229,12 +235,17 @@ export function buildDiffowlGetFindingsForStep(
       dependencies,
     });
 
-    return {
+    const stepResult: EvalIdentityStepReview = {
       findings: review.findings,
       sessionId: review.sessionId,
-      ...(review.preDedupFindings ? { preDedupFindings: review.preDedupFindings } : {}),
-      ...(review.usage ? { usage: review.usage } : {}),
     };
+    if (review.preDedupFindings) {
+      stepResult.preDedupFindings = review.preDedupFindings;
+    }
+    if (review.usage) {
+      stepResult.usage = review.usage;
+    }
+    return stepResult;
   };
 }
 
@@ -263,18 +274,21 @@ async function runReviewForMaterializedCase(
           dependencies,
         });
 
-  return {
+  const result: EvalTrialResult = {
     caseId: evalCase.id,
     trial,
     mode,
     findings: review.findings,
     timings: review.timings,
-    ...(review.usage ? { usage: review.usage } : {}),
     sessionId: review.sessionId,
     summary: review.summary,
     diagnostics: review.diagnostics,
     durationMs: Math.round(performance.now() - startedAt),
   };
+  if (review.usage) {
+    result.usage = review.usage;
+  }
+  return result;
 }
 
 interface EvalReviewOutcome {
@@ -305,18 +319,21 @@ async function runDiffowlReview(params: {
   // that share a fingerprint still exist as two distinct findings; the scorer
   // needs them to tell a genuine collapse apart from a detection miss.
   let preDedupFindings: ReviewFinding[] = [];
+  const pipelineInput: ReviewPipelineInput = {
+    target,
+    config,
+    depth: config.context.depth,
+    verbose: false,
+    projectRoot: workDir,
+    diffOwlDir,
+    timings: [],
+    persistEmptyDiff: false,
+  };
+  if (options.signal) {
+    pipelineInput.signal = options.signal;
+  }
   const outcome = await runReviewPipeline(
-    {
-      target,
-      config,
-      depth: config.context.depth,
-      verbose: false,
-      projectRoot: workDir,
-      diffOwlDir,
-      timings: [],
-      persistEmptyDiff: false,
-      ...(options.signal ? { signal: options.signal } : {}),
-    },
+    pipelineInput,
     buildEvalPipelineDeps(dependencies, (findings) => {
       preDedupFindings = [...findings];
     }),
@@ -327,15 +344,18 @@ async function runDiffowlReview(params: {
     return { findings: [], diagnostics: [], timings: [], sessionId: "", summary: "" };
   }
 
-  return {
+  const result: EvalReviewOutcome = {
     findings: outcome.report.findings,
     diagnostics: outcome.report.diagnostics ?? [],
     timings: outcome.report.timings ?? [],
     sessionId: outcome.sessionId,
     summary: outcome.report.summary,
     preDedupFindings,
-    ...(outcome.usage ? { usage: outcome.usage } : {}),
   };
+  if (outcome.usage) {
+    result.usage = outcome.usage;
+  }
+  return result;
 }
 
 /**
@@ -351,21 +371,22 @@ async function runBaselineReview(
   const depth = config.context.depth;
   const snapshot = await loadReviewSnapshot(materialized.workDir, materialized.target);
 
-  const execution = await dependencies.executor.execute({
-    review: {
-      target: materialized.target,
-      directory: materialized.workDir,
+  const reviewOptions: ReviewOptions = {
+    target: materialized.target,
+    directory: materialized.workDir,
+    config,
+    depth,
+    systemPrompt: BASELINE_AGENT_PROMPT,
+    userPrompt: buildBaselinePrompt(
+      materialized.target,
+      renderBaselineDiff(snapshot, depth),
       config,
-      depth,
-      systemPrompt: BASELINE_AGENT_PROMPT,
-      userPrompt: buildBaselinePrompt(
-        materialized.target,
-        renderBaselineDiff(snapshot, depth),
-        config,
-      ),
-      ...(options.signal ? { signal: options.signal } : {}),
-    },
-  });
+    ),
+  };
+  if (options.signal) {
+    reviewOptions.signal = options.signal;
+  }
+  const execution = await dependencies.executor.execute({ review: reviewOptions });
   const reviewResult = execution.review;
 
   const filtered = applyActionableFindingFilters(
@@ -375,14 +396,17 @@ async function runBaselineReview(
     config.min_confidence,
   );
 
-  return {
+  const result: EvalReviewOutcome = {
     findings: filtered.findings,
     diagnostics: filtered.diagnostics,
     timings: reviewResult.report.timings ?? [],
     sessionId: reviewResult.sessionId,
     summary: reviewResult.report.summary,
-    ...(reviewResult.usage ? { usage: reviewResult.usage } : {}),
   };
+  if (reviewResult.usage) {
+    result.usage = reviewResult.usage;
+  }
+  return result;
 }
 
 /** Trials grade findings, not reports: no markdown is rendered and no report file is written. */
@@ -431,12 +455,17 @@ export function resolveEvalModel(explicitModel?: string): string | undefined {
   return fromEnv || undefined;
 }
 
+interface ActionableFindingFilterResult {
+  findings: ReviewFinding[];
+  diagnostics: string[];
+}
+
 function applyActionableFindingFilters(
   findings: ReviewFinding[],
   diagnostics: string[],
   changedFiles: string[],
   minConfidence: DiffOwlConfig["min_confidence"],
-): { findings: ReviewFinding[]; diagnostics: string[] } {
+): ActionableFindingFilterResult {
   const nextDiagnostics = [...diagnostics];
   const confidenceFilter = filterFindingsByConfidence(findings, minConfidence);
   const changedFileFilter = filterFindingsByChangedFiles(

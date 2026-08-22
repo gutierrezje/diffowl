@@ -16,6 +16,7 @@ import {
 } from "./corpus.js";
 import { applyMaterializedEvalCaseStep, materializeEvalCaseRepo } from "./repo.js";
 import { assertCorpusMatchesManifest, loadCorpusManifest } from "./corpus-manifest.js";
+import type { EvalJsonObject, EvalJsonValue } from "./json-types.js";
 
 const corpusDir = join(import.meta.dirname, "../../eval/corpus");
 const committedCaseIds = [
@@ -376,8 +377,8 @@ async function createTempDir(prefix: string): Promise<string> {
 }
 
 async function createMultiStepCase(overrides?: {
-  expected?: Array<Record<string, unknown>>;
-  steps?: Array<Record<string, unknown>>;
+  expected?: EvalJsonValue[];
+  steps?: EvalJsonValue[];
 }): Promise<string> {
   const root = await createTempDir("eval-multi-");
   const caseDir = join(root, "multi-step");
@@ -434,7 +435,7 @@ async function createMultiStepCase(overrides?: {
 
 async function createMalformedCase(input: {
   dirName: string;
-  caseJson: Record<string, unknown>;
+  caseJson: EvalJsonObject;
   patch?: string;
   baseFiles?: Record<string, string>;
 }): Promise<string> {

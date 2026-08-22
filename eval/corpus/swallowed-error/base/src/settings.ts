@@ -24,11 +24,11 @@ export function loadSettings(path: string): Settings {
 function readSettingsFile(path: string): string | undefined {
   try {
     return readFileSync(path, "utf8");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+  } catch (cause) {
+    if (isMissingSettingsFileError(cause)) {
       return undefined;
     }
-    throw err;
+    throw cause;
   }
 }
 
@@ -36,11 +36,35 @@ export function parseSettings(raw: string, path: string): Partial<Settings> {
   let value: unknown;
   try {
     value = JSON.parse(raw);
-  } catch (err) {
-    throw new Error(`Invalid settings JSON at ${path}: ${(err as Error).message}`);
+  } catch (cause) {
+    throw new Error(`Invalid settings JSON at ${path}: ${describeError(cause)}`);
   }
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+  if (!isSettingsObject(value)) {
     throw new Error(`Settings at ${path} must be a JSON object.`);
   }
-  return value as Partial<Settings>;
+  return value;
+}
+
+function isMissingSettingsFileError(cause: unknown): cause is NodeJS.ErrnoException {
+  return cause instanceof Error && "code" in cause && cause.code === "ENOENT";
+}
+
+function isSettingsObject(cause: unknown): cause is Partial<Settings> {
+  if (cause === null || typeof cause !== "object" || Array.isArray(cause)) {
+    return false;
+  }
+  if ("apiBaseUrl" in cause && typeof cause.apiBaseUrl !== "string") {
+    return false;
+  }
+  if ("timeoutMs" in cause && typeof cause.timeoutMs !== "number") {
+    return false;
+  }
+  if ("retries" in cause && typeof cause.retries !== "number") {
+    return false;
+  }
+  return true;
+}
+
+function describeError(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }

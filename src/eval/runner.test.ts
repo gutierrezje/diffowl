@@ -49,6 +49,11 @@ function withExecutor(runReview: (options: ReviewOptions) => Promise<ReviewResul
   };
 }
 
+interface ExtendedEvalConfig extends DiffOwlConfig {
+  context: DiffOwlConfig["context"] & { max_files: number };
+  reasoning: DiffOwlConfig["reasoning"] & { model_variant: string };
+}
+
 describe("resolveEvalRunnerConfig", () => {
   it("applies explicit runner overrides", () => {
     expect(
@@ -68,22 +73,21 @@ describe("resolveEvalRunnerConfig", () => {
   });
 
   it("preserves nested config fields while applying runner overrides", () => {
-    const config = {
+    const config: ExtendedEvalConfig = {
       ...baseConfig,
       context: { ...baseConfig.context, max_files: 25 },
       reasoning: { ...baseConfig.reasoning, model_variant: "balanced" },
-    } as unknown as DiffOwlConfig;
+    };
 
     const resolved = resolveEvalRunnerConfig(config, {
       depth: "shallow",
       reasoning: "low",
-    }) as DiffOwlConfig & {
-      context: { max_files?: number };
-      reasoning: { model_variant?: string };
-    };
+    });
 
-    expect(resolved.context).toMatchObject({ depth: "shallow", max_files: 25 });
-    expect(resolved.reasoning).toMatchObject({ effort: "low", model_variant: "balanced" });
+    expect(resolved).toMatchObject({
+      context: { depth: "shallow", max_files: 25 },
+      reasoning: { effort: "low", model_variant: "balanced" },
+    });
   });
 
   it("reads DIFFOWL_EVAL_MODEL when no explicit model is provided", () => {

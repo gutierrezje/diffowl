@@ -6,6 +6,7 @@ import { EvalCaseMetricsSchema, EvalCorpusMetricsSchema } from "./metrics-types.
 import { EvalRunManifestSchema } from "./manifest-types.js";
 import { EvalCaseRunResultSchema } from "./runner-types.js";
 import { EvalCaseScoreSchema, EvalIdentityScoreSchema } from "./score-types.js";
+import type { EvalJsonValue } from "./json-types.js";
 
 export const EVAL_RESULTS_SCHEMA_VERSION = 1 as const;
 
@@ -47,7 +48,7 @@ export type EvalCaseResultV1 = z.output<typeof EvalCaseResultV1Schema>;
 export type EvalResultsAggregateV1 = z.output<typeof EvalResultsAggregateV1Schema>;
 export type EvalResultsDocumentV1 = z.output<typeof EvalResultsDocumentV1Schema>;
 
-export function parseEvalResultsDocument(raw: unknown): EvalResultsDocumentV1 {
+export function parseEvalResultsDocument(raw: EvalJsonValue): EvalResultsDocumentV1 {
   return EvalResultsDocumentV1Schema.parse(raw);
 }
 

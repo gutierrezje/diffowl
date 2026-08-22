@@ -12,15 +12,16 @@ import {
   type EvalCaseStep,
   type EvalCorpus,
 } from "./case-types.js";
+import { parseEvalJson, type EvalJsonValue } from "./json-types.js";
 
 export async function loadEvalCase(caseDir: string): Promise<EvalCase> {
   const caseJsonPath = join(caseDir, "case.json");
   const baseDir = join(caseDir, "base");
   const id = basename(caseDir);
 
-  let raw: unknown;
+  let raw: EvalJsonValue;
   try {
-    raw = JSON.parse(await readFile(caseJsonPath, "utf8"));
+    raw = parseEvalJson(await readFile(caseJsonPath, "utf8"));
   } catch (error) {
     throw new Error(`Failed to read case.json for "${id}": ${describeError(error)}`);
   }
@@ -162,9 +163,9 @@ async function assertExpectedAnchor(
 
 export async function hashCase(caseDir: string): Promise<EvalCaseHashes> {
   const caseJsonBytes = await readFile(join(caseDir, "case.json"));
-  let raw: unknown;
+  let raw: EvalJsonValue;
   try {
-    raw = JSON.parse(caseJsonBytes.toString("utf8"));
+    raw = parseEvalJson(caseJsonBytes.toString("utf8"));
   } catch (error) {
     throw new Error(`Failed to read case.json for hash in "${caseDir}": ${describeError(error)}`);
   }
@@ -301,6 +302,6 @@ function resolveEvalCaseSteps(caseDir: string, caseJson: EvalCaseJson): EvalCase
   }));
 }
 
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function describeError(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }

@@ -15,11 +15,11 @@ import {
 } from "./score-types.js";
 import type { EvalTrialResult } from "./runner-types.js";
 
-const SEVERITY_RANK: Record<ReviewSeverity, number> = {
+const SEVERITY_RANK = {
   error: 3,
   warning: 2,
   info: 1,
-};
+} satisfies Record<ReviewSeverity, number>;
 
 export function severityRank(severity: ReviewSeverity): number {
   return SEVERITY_RANK[severity];

@@ -23,11 +23,13 @@ import {
 } from "./command-types.js";
 import { loadEvalCorpus } from "./corpus.js";
 import { parseEvalGateThresholds } from "./gates-types.js";
+import { parseEvalJson } from "./json-types.js";
 import { readDiffOwlVersion } from "./manifest.js";
 import {
   buildEvalReport,
   dualRunToBundles,
   writeEvalResults,
+  type BuildEvalReportInput,
   type EvalCaseRunBundle,
 } from "./report.js";
 import { compareEvalResults, renderEvalComparisonSummary } from "./compare.js";
@@ -186,7 +188,7 @@ export async function runEvalCommand(
 
     const bundles = await runEvalCases(cases, options, runnerOptions, deps, spinner);
     const finishedAt = deps.now();
-    const document = await buildEvalReport({
+    const reportInput: BuildEvalReportInput = {
       corpus,
       config,
       options: runnerOptions,
@@ -200,15 +202,16 @@ export async function runEvalCommand(
         opencodeVersion: await deps.getOpencodeVersion(),
       },
       trials: options.trials,
-      ...(options.gatePath
-        ? { gateThresholds: await loadEvalGateThresholds(options.gatePath) }
-        : {}),
-    });
+    };
+    if (options.gatePath) {
+      reportInput.gateThresholds = await loadEvalGateThresholds(options.gatePath);
+    }
+    const document = await buildEvalReport(reportInput);
 
     const gatePassed = document.gates?.passed ?? true;
     let comparison: EvalResultsComparison | undefined;
     if (options.comparePath) {
-      const referenceRaw = JSON.parse(await readFile(options.comparePath, "utf8")) as unknown;
+      const referenceRaw = parseEvalJson(await readFile(options.comparePath, "utf8"));
       const reference = parseEvalResultsDocument(referenceRaw);
       comparison = compareEvalResults(reference, document);
     }
@@ -298,16 +301,16 @@ async function runEvalCases(
 }
 
 async function loadEvalGateThresholds(gatePath: string) {
-  const raw = JSON.parse(await readFile(gatePath, "utf8")) as unknown;
+  const raw = parseEvalJson(await readFile(gatePath, "utf8"));
   return parseEvalGateThresholds(raw);
 }
 
 function failEval(
   deps: EvalCommandDependencies,
   format: EvalOutputFormat,
-  error: unknown,
+  cause: unknown,
 ): void {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = cause instanceof Error ? cause.message : String(cause);
   if (format === "json") {
     deps.stderrWrite(`${message}\n`);
     return;
