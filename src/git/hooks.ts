@@ -169,16 +169,21 @@ const execaHookReviewProcess: HookReviewProcess = {
   },
 };
 
-const execaHookWorkerProcess: HookWorkerProcess = {
+export const execaHookWorkerProcess: HookWorkerProcess = {
   start({ command, args, options }) {
     const subprocess = execa(command, args, options);
+    if (subprocess.pid === undefined) {
+      void subprocess.catch(() => {});
+      throw new Error(`Failed to spawn hook worker with ${command}.`);
+    }
+    // After spawn, the detached worker owns its log and status; hook-run must not await its exit.
     void subprocess.catch(() => {});
     const worker: HookWorker = {
+      pid: subprocess.pid,
       unref() {
         subprocess.unref();
       },
     };
-    if (subprocess.pid !== undefined) worker.pid = subprocess.pid;
     return worker;
   },
 };

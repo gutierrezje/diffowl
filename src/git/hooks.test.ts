@@ -1,8 +1,9 @@
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { closeSync, existsSync, openSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { execa } from "execa";
+import type { Options as ExecaOptions } from "execa";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { removeTempDir } from "../test/helpers.js";
 import {
@@ -11,6 +12,7 @@ import {
   checkHookStale,
   clearHookFailure,
   enqueuePendingReview,
+  execaHookWorkerProcess,
   formatHookFailure,
   generateManagedSection,
   installHook,
@@ -153,6 +155,43 @@ describe("runHookReview", () => {
     expect(workerStdio[1]).toEqual(expect.any(Number));
     expect(workerStdio[2]).toBe(workerStdio[1]);
     expect(unrefCalled).toBe(true);
+  });
+
+  it("preserves detached output after the parent closes its log descriptor", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-hook-worker-"));
+    tempDirs.push(root);
+    const logFile = join(root, "hook.log");
+    const outFd = openSync(logFile, "a");
+    // SAFETY: The descriptors are open for the duration of synchronous process creation.
+    const stdio = ["ignore", outFd, outFd] as ExecaOptions["stdio"];
+
+    const worker = execaHookWorkerProcess.start({
+      command: process.execPath,
+      args: [
+        "-e",
+        'setTimeout(() => process.stdout.write("detached output\\n"), 50)',
+      ],
+      options: { detached: true, cleanup: false, stdio },
+    });
+    worker.unref();
+    closeSync(outFd);
+
+    await vi.waitFor(
+      async () => {
+        await expect(readFile(logFile, "utf-8")).resolves.toContain("detached output");
+      },
+      { timeout: 2_000 },
+    );
+  });
+
+  it("surfaces immediate worker spawn failures", () => {
+    expect(() =>
+      execaHookWorkerProcess.start({
+        command: join(tmpdir(), "missing-diffowl-node"),
+        args: [],
+        options: { detached: true, cleanup: false, stdio: "ignore" },
+      }),
+    ).toThrow(/spawn/i);
   });
 });
 
