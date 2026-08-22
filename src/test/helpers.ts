@@ -1,7 +1,4 @@
 import { rm } from "node:fs/promises";
-import { z } from "zod";
-
-const RetryableFsErrorSchema = z.object({ code: z.enum(["EBUSY", "EPERM"]) });
 
 export async function removeTempDir(dir: string): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -18,5 +15,9 @@ export async function removeTempDir(dir: string): Promise<void> {
 }
 
 export function isRetryableFsError(cause: unknown): boolean {
-  return RetryableFsErrorSchema.safeParse(cause).success;
+  return (
+    cause instanceof Error &&
+    "code" in cause &&
+    (cause.code === "EBUSY" || cause.code === "EPERM")
+  );
 }
