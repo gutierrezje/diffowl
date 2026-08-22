@@ -34,6 +34,7 @@ import {
   type CodexJsonValue,
   type ThrownValue,
 } from "./types.js";
+import packageJson from "../../package.json" with { type: "json" };
 
 export type CodexReviewInput = ReviewOptions & {
   executable: string;
@@ -421,7 +422,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
           peer,
           "initialize",
           {
-            clientInfo: { name: "diffowl", title: "DiffOwl", version: "0.4.0" },
+            clientInfo: { name: "diffowl", title: "DiffOwl", version: packageJson.version },
             capabilities: null,
           },
           deadline,
