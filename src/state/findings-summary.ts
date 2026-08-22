@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
+import { z } from "zod";
 import { getStagedDiff } from "../git/diff.js";
 import { filterReachableCommits } from "../git/reachability.js";
 import { closeStateDatabase, getStateDbPath, openStateDatabaseForRead } from "./db.js";
@@ -59,11 +60,11 @@ const SUMMARY_LOG_MAX_BYTES = 1024 * 1024;
 // Duplicated locally rather than imported from src/eval/score.ts: .planning/codebase/
 // ARCHITECTURE.md places eval/ as a sibling layer to state/, so importing it here would create a
 // backwards layer dependency for a three-line constant.
-const SEVERITY_RANK: Record<ReviewSeverity, number> = {
+const SEVERITY_RANK = {
   error: 3,
   warning: 2,
   info: 1,
-};
+} satisfies Record<ReviewSeverity, number>;
 
 export interface FindingSummary {
   openCount: number;
@@ -74,6 +75,7 @@ export interface FindingSummary {
 
 export interface FindingSummaryOptions {
   cwd?: string;
+  dependencies?: FindingSummaryDependencies;
   /**
    * Counts every unresolved finding regardless of whether its reviews' target commits are reachable
    * from HEAD (D-09, `findings summary --all`). Skips the reachability step entirely rather than
@@ -91,6 +93,11 @@ export interface FindingSummaryOptions {
    * stays out of the summary here and remains visible through `findings list`.
    */
   includeUnreachable?: boolean;
+}
+
+export interface FindingSummaryDependencies {
+  getStagedDiff: typeof getStagedDiff;
+  filterReachableCommits: typeof filterReachableCommits;
 }
 
 interface SummaryRow {
@@ -150,6 +157,10 @@ async function computeFindingSummary(
   diffOwlDir: string,
   options: FindingSummaryOptions,
 ): Promise<FindingSummary> {
+  const dependencies = options.dependencies ?? {
+    getStagedDiff,
+    filterReachableCommits,
+  };
   const rows = await readUnresolvedObservationRows(diffOwlDir);
   if (rows === null || rows.length === 0) {
     return EMPTY_FINDING_SUMMARY;
@@ -161,11 +172,8 @@ async function computeFindingSummary(
   const committedRows: CommittedSummaryRow[] = [];
   const stagedRows: SummaryRow[] = [];
   for (const row of rows) {
-    if (row.targetCommit === null) {
-      stagedRows.push(row);
-    } else {
-      committedRows.push(row as CommittedSummaryRow);
-    }
+    if (isCommittedSummaryRow(row)) committedRows.push(row);
+    else stagedRows.push(row);
   }
 
   const admittedRows: SummaryRow[] = [];
@@ -174,7 +182,12 @@ async function computeFindingSummary(
     // why skipping is the requirement rather than filtering with an always-true predicate.
     admittedRows.push(...committedRows);
   } else {
-    const reachableCommits = await resolveReachableCommits(diffOwlDir, committedRows, options.cwd);
+    const reachableCommits = await resolveReachableCommits(
+      diffOwlDir,
+      committedRows,
+      options.cwd,
+      dependencies.filterReachableCommits,
+    );
     if (reachableCommits === null) {
       // Empty, never partial: a summary built from staged rows alone would report a lower count than
       // reality and read as reassuring, which is worse than reporting nothing (D-17).
@@ -184,7 +197,9 @@ async function computeFindingSummary(
   }
 
   if (stagedRows.length > 0) {
-    admittedRows.push(...(await admitStagedRows(diffOwlDir, stagedRows, options.cwd)));
+    admittedRows.push(
+      ...(await admitStagedRows(diffOwlDir, stagedRows, options.cwd, dependencies.getStagedDiff)),
+    );
   }
 
   return summarizeRows(admittedRows);
@@ -218,9 +233,10 @@ async function resolveReachableCommits(
   diffOwlDir: string,
   committedRows: readonly CommittedSummaryRow[],
   cwd: string | undefined,
+  filterCommits: typeof filterReachableCommits,
 ): Promise<Set<string> | null> {
   try {
-    return await filterReachableCommits(
+    return await filterCommits(
       committedRows.map((row) => row.targetCommit),
       cwd,
     );
@@ -256,8 +272,9 @@ async function admitStagedRows(
   diffOwlDir: string,
   stagedRows: readonly SummaryRow[],
   cwd: string | undefined,
+  readStagedDiff: typeof getStagedDiff,
 ): Promise<SummaryRow[]> {
-  const stagedHash = await computeStagedDiffHash(diffOwlDir, cwd);
+  const stagedHash = await computeStagedDiffHash(diffOwlDir, cwd, readStagedDiff);
   if (stagedHash === null) {
     return [];
   }
@@ -267,9 +284,10 @@ async function admitStagedRows(
 async function computeStagedDiffHash(
   diffOwlDir: string,
   cwd: string | undefined,
+  readStagedDiff: typeof getStagedDiff,
 ): Promise<string | null> {
   try {
-    const staged = await getStagedDiff(cwd, { timeoutMs: STAGED_DIFF_TIMEOUT_MS });
+    const staged = await readStagedDiff(cwd, { timeoutMs: STAGED_DIFF_TIMEOUT_MS });
     // Must be computeDiffHash over DiffResult.raw — the same function over the same input that
     // src/state/persist.ts hashed at review time. Any renormalization here would compare two
     // different things and make the gate meaningless.
@@ -313,9 +331,9 @@ async function computeStagedDiffHash(
 export async function logSummaryDegradation(
   diffOwlDir: string,
   reason: string,
-  error: unknown,
+  cause: unknown,
 ): Promise<void> {
-  const message = describeSummaryError(error);
+  const message = describeSummaryError(cause);
   try {
     // Trim before appending, the same order src/git/hooks.ts uses. trimHookLog swallows its own
     // errors and no-ops on a missing file, so it cannot break property 1 below or create the
@@ -338,9 +356,9 @@ export async function logSummaryDegradation(
  * Falling back to a placeholder rather than rethrowing keeps the reason, which is the half of the
  * line that actually identifies the failure, in the log.
  */
-function describeSummaryError(error: unknown): string {
+function describeSummaryError(cause: unknown): string {
   try {
-    return error instanceof Error ? error.message : String(error);
+    return cause instanceof Error ? cause.message : String(cause);
   } catch {
     return "<error value could not be stringified>";
   }
@@ -368,7 +386,23 @@ function queryUnresolvedObservationRows(db: SqliteDatabase): SummaryRow[] {
       JOIN reviews r ON r.id = o.review_id
       WHERE f.status IN ('open', 'regressed')
     `)
-    .all() as SummaryRow[];
+    .all()
+    .map((row) =>
+      z
+        .object({
+          findingId: z.string(),
+          status: z.enum(["open", "deferred", "dismissed", "fixed", "regressed"]),
+          severity: z.enum(["error", "warning", "info"]),
+          observationId: z.number(),
+          targetCommit: z.string().nullable(),
+          diffHash: z.string(),
+        })
+        .parse(row),
+    );
+}
+
+function isCommittedSummaryRow(row: SummaryRow): row is CommittedSummaryRow {
+  return row.targetCommit !== null;
 }
 
 function summarizeRows(rows: SummaryRow[]): FindingSummary {

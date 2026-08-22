@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { SqliteDatabase } from "../sqlite.js";
 import { StateDatabaseError } from "../db.js";
 import type { FindingRecord, FindingStatus, InsertFindingInput } from "../types.js";
@@ -52,6 +53,16 @@ const getFindingByFingerprintStatement = (db: SqliteDatabase) =>
     WHERE fingerprint = ?
   `);
 
+const FindingRowSchema = z.object({
+  id: z.string(),
+  fingerprint: z.string(),
+  status: z.enum(["open", "deferred", "dismissed", "fixed", "regressed"]),
+  firstReviewId: z.string(),
+  lastReviewId: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
 export function insertFinding(db: SqliteDatabase, input: InsertFindingInput): FindingRecord {
   const timestamp = input.createdAt ?? new Date().toISOString();
   const record: FindingRecord = {
@@ -78,16 +89,16 @@ export function insertFinding(db: SqliteDatabase, input: InsertFindingInput): Fi
 }
 
 export function getFindingById(db: SqliteDatabase, id: string): FindingRecord | undefined {
-  const row = getFindingByIdStatement(db).get(id) as FindingRecord | undefined;
-  return row;
+  const row = getFindingByIdStatement(db).get(id);
+  return row === undefined ? undefined : FindingRowSchema.parse(row);
 }
 
 export function getFindingByFingerprint(
   db: SqliteDatabase,
   fingerprint: string,
 ): FindingRecord | undefined {
-  const row = getFindingByFingerprintStatement(db).get(fingerprint) as FindingRecord | undefined;
-  return row;
+  const row = getFindingByFingerprintStatement(db).get(fingerprint);
+  return row === undefined ? undefined : FindingRowSchema.parse(row);
 }
 
 export function listFindingsByStatuses(
@@ -113,7 +124,8 @@ export function listFindingsByStatuses(
       WHERE status IN (${placeholders})
       ORDER BY updated_at DESC, id ASC
     `)
-    .all(...statuses) as FindingRecord[];
+    .all(...statuses)
+    .map((row) => FindingRowSchema.parse(row));
 }
 
 export function listAllFindings(db: SqliteDatabase): FindingRecord[] {
@@ -130,7 +142,8 @@ export function listAllFindings(db: SqliteDatabase): FindingRecord[] {
       FROM findings
       ORDER BY updated_at DESC, id ASC
     `)
-    .all() as FindingRecord[];
+    .all()
+    .map((row) => FindingRowSchema.parse(row));
 }
 
 const updateFindingStatement = (db: SqliteDatabase) =>

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { SqliteDatabase } from "../sqlite.js";
 import { StateDatabaseError } from "../db.js";
 import type { InsertReviewInput, ReviewRecord } from "../types.js";
@@ -68,25 +69,25 @@ const getReviewByIdStatement = (db: SqliteDatabase) =>
     WHERE id = ?
   `);
 
-type ReviewRow = {
-  id: string;
-  createdAt: string;
-  targetKind: ReviewRecord["targetKind"];
-  targetRef: string | null;
-  baseCommit: string | null;
-  mergeBaseCommit: string | null;
-  targetCommit: string | null;
-  diffHash: string;
-  model: string;
-  reasoning: string;
-  depth: string;
-  sessionId: string;
-  summary: string;
-  reportPath: string | null;
-  diagnosticsJson: string;
-  timingsJson: string;
-  skippedReason: string | null;
-};
+const ReviewRowSchema = z.object({
+  id: z.string(),
+  createdAt: z.string(),
+  targetKind: z.enum(["staged", "commit", "last-commit", "base"]),
+  targetRef: z.string().nullable(),
+  baseCommit: z.string().nullable(),
+  mergeBaseCommit: z.string().nullable(),
+  targetCommit: z.string().nullable(),
+  diffHash: z.string(),
+  model: z.string(),
+  reasoning: z.string(),
+  depth: z.string(),
+  sessionId: z.string(),
+  summary: z.string(),
+  reportPath: z.string().nullable(),
+  diagnosticsJson: z.string(),
+  timingsJson: z.string(),
+  skippedReason: z.string().nullable(),
+});
 
 export function insertReview(db: SqliteDatabase, input: InsertReviewInput): ReviewRecord {
   const record: ReviewRecord = {
@@ -133,7 +134,8 @@ export function insertReview(db: SqliteDatabase, input: InsertReviewInput): Revi
 }
 
 export function getReviewById(db: SqliteDatabase, id: string): ReviewRecord | undefined {
-  const row = getReviewByIdStatement(db).get(id) as ReviewRow | undefined;
+  const rawRow = getReviewByIdStatement(db).get(id);
+  const row = rawRow === undefined ? undefined : ReviewRowSchema.parse(rawRow);
   if (!row) {
     return undefined;
   }
@@ -142,7 +144,7 @@ export function getReviewById(db: SqliteDatabase, id: string): ReviewRecord | un
 }
 
 export function getLatestReview(db: SqliteDatabase): ReviewRecord | undefined {
-  const row = db
+  const rawRow = db
     .prepare(`
       SELECT
         id,
@@ -166,7 +168,8 @@ export function getLatestReview(db: SqliteDatabase): ReviewRecord | undefined {
       ORDER BY created_at DESC, id DESC
       LIMIT 1
     `)
-    .get() as ReviewRow | undefined;
+    .get();
+  const row = rawRow === undefined ? undefined : ReviewRowSchema.parse(rawRow);
 
   if (!row) {
     return undefined;
@@ -210,7 +213,7 @@ export function updateReview(
   return record;
 }
 
-function mapReviewRow(row: ReviewRow): ReviewRecord {
+function mapReviewRow(row: z.infer<typeof ReviewRowSchema>): ReviewRecord {
   return {
     id: row.id,
     createdAt: row.createdAt,
@@ -226,16 +229,26 @@ function mapReviewRow(row: ReviewRow): ReviewRecord {
     sessionId: row.sessionId,
     summary: row.summary,
     reportPath: row.reportPath,
-    diagnostics: parseReviewJsonField(row.diagnosticsJson, "diagnostics_json", row.id),
-    timings: parseReviewJsonField(row.timingsJson, "timings_json", row.id),
+    diagnostics: parseDiagnostics(row.diagnosticsJson, row.id),
+    timings: parseTimings(row.timingsJson, row.id),
     skippedReason: row.skippedReason,
   };
 }
 
-function parseReviewJsonField<T>(raw: string, field: string, reviewId: string): T {
+function parseDiagnostics(raw: string, reviewId: string): string[] {
   try {
-    return JSON.parse(raw) as T;
+    return z.array(z.string()).parse(JSON.parse(raw));
   } catch {
-    throw new StateDatabaseError(`Review ${reviewId} contains invalid JSON in ${field}.`);
+    throw new StateDatabaseError(`Review ${reviewId} contains invalid JSON in diagnostics_json.`);
+  }
+}
+
+function parseTimings(raw: string, reviewId: string): ReviewRecord["timings"] {
+  try {
+    return z
+      .array(z.object({ phase: z.string(), label: z.string(), ms: z.number() }))
+      .parse(JSON.parse(raw));
+  } catch {
+    throw new StateDatabaseError(`Review ${reviewId} contains invalid JSON in timings_json.`);
   }
 }

@@ -2,8 +2,9 @@ import type { DatabaseSync, StatementSync } from "node:sqlite";
 
 type SqliteModule = typeof import("node:sqlite");
 
-export type SqliteValue = string | number | bigint | Buffer | null;
-export type SqliteParams = SqliteValue | Record<string, SqliteValue>;
+export type SqliteValue = string | number | bigint | NodeJS.NonSharedUint8Array | null;
+export type SqliteRow = Record<string, SqliteValue>;
+export type SqliteParams = SqliteValue | SqliteRow;
 
 export interface SqliteRunResult {
   changes: number;
@@ -11,27 +12,21 @@ export interface SqliteRunResult {
 }
 
 export interface SqliteStatement {
-  get(...params: SqliteParams[]): unknown;
-  all(...params: SqliteParams[]): unknown[];
-  run(...params: SqliteParams[]): SqliteRunResult;
+  get(...params: SqliteValue[]): SqliteRow | undefined;
+  get(namedParameters: SqliteRow, ...params: SqliteValue[]): SqliteRow | undefined;
+  all(...params: SqliteValue[]): SqliteRow[];
+  all(namedParameters: SqliteRow, ...params: SqliteValue[]): SqliteRow[];
+  run(...params: SqliteValue[]): SqliteRunResult;
+  run(namedParameters: SqliteRow, ...params: SqliteValue[]): SqliteRunResult;
 }
 
 export interface SqliteDatabase {
   readonly open: boolean;
   exec(sql: string): void;
   prepare(sql: string): SqliteStatement;
-  pragma(sql: string, options?: { simple?: boolean }): unknown;
-  transaction<T extends (...args: never[]) => unknown>(fn: T): T;
+  pragma(sql: string, options?: { simple?: boolean }): SqliteRow[] | SqliteValue | undefined;
+  transaction<TResult>(fn: () => TResult): () => TResult;
   close(): void;
-}
-
-interface NodeSqliteStatementWithNamedParams {
-  get(...params: SqliteParams[]): unknown;
-  all(...params: SqliteParams[]): unknown[];
-  run(...params: SqliteParams[]): {
-    changes: number | bigint;
-    lastInsertRowid: number | bigint;
-  };
 }
 
 let sqliteModule: Promise<SqliteModule> | undefined;
@@ -48,13 +43,14 @@ async function loadSqliteModule(): Promise<SqliteModule> {
 
 async function importNodeSqliteWithoutWarning(): Promise<SqliteModule> {
   const emitWarning = process.emitWarning;
+  // SAFETY: The wrapper preserves every process.emitWarning overload while filtering one known Node warning.
   process.emitWarning = function suppressNodeSqliteExperimentalWarning(
     warning: string | Error,
     ...args: Parameters<typeof process.emitWarning> extends [string | Error, ...infer Rest]
       ? Rest
       : never
   ): void {
-    const message = typeof warning === "string" ? warning : warning.message;
+    const message = warning instanceof Error ? warning.message : warning;
     if (message.includes("SQLite is an experimental feature")) {
       return;
     }
@@ -87,28 +83,28 @@ class NodeSqliteDatabase implements SqliteDatabase {
     return new NodeSqliteStatement(this.db.prepare(sql));
   }
 
-  pragma(sql: string, options: { simple?: boolean } = {}): unknown {
+  pragma(sql: string, options: { simple?: boolean } = {}): SqliteRow[] | SqliteValue | undefined {
     const rows = this.prepare(`PRAGMA ${sql}`).all();
     if (!options.simple) {
       return rows;
     }
 
     const first = rows[0];
-    if (!first || typeof first !== "object") {
+    if (!first) {
       return undefined;
     }
     return Object.values(first)[0];
   }
 
-  transaction<T extends (...args: never[]) => unknown>(fn: T): T {
-    return ((...args: Parameters<T>) => {
+  transaction<TResult>(fn: () => TResult): () => TResult {
+    return () => {
       const depth = this.#transactionDepth;
       const savepoint = `diffowl_tx_${depth}`;
       this.#transactionDepth++;
 
       try {
         this.exec(depth === 0 ? "BEGIN" : `SAVEPOINT ${savepoint}`);
-        const result = fn(...args);
+        const result = fn();
         this.exec(depth === 0 ? "COMMIT" : `RELEASE SAVEPOINT ${savepoint}`);
         return result;
       } catch (error) {
@@ -124,7 +120,7 @@ class NodeSqliteDatabase implements SqliteDatabase {
       } finally {
         this.#transactionDepth--;
       }
-    }) as T;
+    };
   }
 
   close(): void {
@@ -136,29 +132,75 @@ class NodeSqliteDatabase implements SqliteDatabase {
 class NodeSqliteStatement implements SqliteStatement {
   constructor(private readonly statement: StatementSync) {}
 
-  get(...params: SqliteParams[]): unknown {
-    return normalizeRow(this.namedStatement.get(...params));
+  get(...params: SqliteValue[]): SqliteRow | undefined;
+  get(namedParameters: SqliteRow, ...params: SqliteValue[]): SqliteRow | undefined;
+  get(...params: SqliteParams[]): SqliteRow | undefined {
+    const [first, ...rest] = params;
+    const row = isSqliteRow(first)
+      ? this.statement.get(first, ...readSqliteValues(rest))
+      : first === undefined
+        ? this.statement.get()
+        : this.statement.get(first, ...readSqliteValues(rest));
+    return normalizeRow(row);
   }
 
-  all(...params: SqliteParams[]): unknown[] {
-    return this.namedStatement.all(...params).map(normalizeRow);
+  all(...params: SqliteValue[]): SqliteRow[];
+  all(namedParameters: SqliteRow, ...params: SqliteValue[]): SqliteRow[];
+  all(...params: SqliteParams[]): SqliteRow[] {
+    const [first, ...rest] = params;
+    const rows = isSqliteRow(first)
+      ? this.statement.all(first, ...readSqliteValues(rest))
+      : first === undefined
+        ? this.statement.all()
+        : this.statement.all(first, ...readSqliteValues(rest));
+    return rows.map(normalizeRow).filter((row): row is SqliteRow => row !== undefined);
   }
 
+  run(...params: SqliteValue[]): SqliteRunResult;
+  run(namedParameters: SqliteRow, ...params: SqliteValue[]): SqliteRunResult;
   run(...params: SqliteParams[]): SqliteRunResult {
-    const result = this.namedStatement.run(...params);
+    const [first, ...rest] = params;
+    const result = isSqliteRow(first)
+      ? this.statement.run(first, ...readSqliteValues(rest))
+      : first === undefined
+        ? this.statement.run()
+        : this.statement.run(first, ...readSqliteValues(rest));
     return {
       changes: Number(result.changes),
       lastInsertRowid: result.lastInsertRowid,
     };
   }
-
-  private get namedStatement(): NodeSqliteStatementWithNamedParams {
-    return this.statement as unknown as NodeSqliteStatementWithNamedParams;
-  }
 }
 
-function normalizeRow(row: unknown): unknown {
-  if (!row || typeof row !== "object" || Object.getPrototypeOf(row) !== null) {
+function isSqliteRow(value: SqliteParams | undefined): value is SqliteRow {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    !Buffer.isBuffer(value) &&
+    Object.values(value).every(isSqliteValue)
+  );
+}
+
+function isSqliteValue(value: SqliteParams): value is SqliteValue {
+  return (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "bigint" ||
+    value instanceof Uint8Array
+  );
+}
+
+function readSqliteValues(values: SqliteParams[]): SqliteValue[] {
+  if (!values.every(isSqliteValue)) {
+    throw new TypeError("SQLite parameters must be scalar values after named parameters.");
+  }
+  return values;
+}
+
+function normalizeRow(row: SqliteRow | undefined): SqliteRow | undefined {
+  if (!row || Object.getPrototypeOf(row) !== null) {
     return row;
   }
 

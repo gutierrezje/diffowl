@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { SqliteDatabase } from "../sqlite.js";
 import type { FindingObservationRecord, InsertObservationInput } from "../types.js";
 
@@ -52,7 +53,21 @@ const getObservationStatement = (db: SqliteDatabase) =>
     WHERE review_id = ? AND finding_id = ?
   `);
 
-type ObservationRow = FindingObservationRecord;
+const ObservationRowSchema = z.object({
+  id: z.number(),
+  reviewId: z.string(),
+  findingId: z.string(),
+  file: z.string(),
+  line: z.number(),
+  severity: z.enum(["error", "warning", "info"]),
+  confidence: z.enum(["low", "medium", "high"]),
+  title: z.string(),
+  body: z.string(),
+  evidence: z.string().nullable(),
+  symbolKey: z.string().nullable(),
+  ordinal: z.number(),
+  classification: z.enum(["new", "existing", "regressed"]),
+});
 
 export function insertObservation(
   db: SqliteDatabase,
@@ -73,9 +88,8 @@ export function insertObservation(
     classification: input.classification,
   });
 
-  const observation = getObservationStatement(db).get(input.reviewId, input.findingId) as
-    | ObservationRow
-    | undefined;
+  const row = getObservationStatement(db).get(input.reviewId, input.findingId);
+  const observation = row === undefined ? undefined : ObservationRowSchema.parse(row);
   if (!observation) {
     throw new Error(`Failed to load observation for review ${input.reviewId}.`);
   }
@@ -107,14 +121,15 @@ export function listObservationsForReview(
       WHERE review_id = ?
       ORDER BY ordinal ASC
     `)
-    .all(reviewId) as FindingObservationRecord[];
+    .all(reviewId)
+    .map((row) => ObservationRowSchema.parse(row));
 }
 
 export function getObservationById(
   db: SqliteDatabase,
   observationId: number,
 ): FindingObservationRecord | undefined {
-  return db
+  const row = db
     .prepare(`
       SELECT
         id,
@@ -133,7 +148,8 @@ export function getObservationById(
       FROM finding_observations
       WHERE id = ?
     `)
-    .get(observationId) as FindingObservationRecord | undefined;
+    .get(observationId);
+  return row === undefined ? undefined : ObservationRowSchema.parse(row);
 }
 
 export function countObservationsByFindingIds(
@@ -153,7 +169,8 @@ export function countObservationsByFindingIds(
       WHERE finding_id IN (${placeholders})
       GROUP BY finding_id
     `)
-    .all(...findingIds) as Array<{ findingId: string; count: number }>;
+    .all(...findingIds)
+    .map((row) => z.object({ findingId: z.string(), count: z.number() }).parse(row));
 
   for (const row of rows) {
     counts.set(row.findingId, row.count);
@@ -165,7 +182,7 @@ export function getLatestObservationForFinding(
   db: SqliteDatabase,
   findingId: string,
 ): FindingObservationRecord | undefined {
-  return db
+  const row = db
     .prepare(`
       SELECT
         id,
@@ -186,5 +203,6 @@ export function getLatestObservationForFinding(
       ORDER BY id DESC
       LIMIT 1
     `)
-    .get(findingId) as FindingObservationRecord | undefined;
+    .get(findingId);
+  return row === undefined ? undefined : ObservationRowSchema.parse(row);
 }
