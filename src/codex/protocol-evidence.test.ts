@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, extname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { inspectCodexProtocol } from "./protocol-evidence.js";
+import { isErrorDetails, isText } from "./types.js";
 
 const fixture = fileURLToPath(new URL("./fixtures/mock-codex-cli.mjs", import.meta.url));
 const HUMAN_GATED_TEST_TIMEOUT_MS = 900_000;
@@ -165,9 +166,9 @@ describe("inspectCodexProtocol", () => {
       prefixArgs: [fixture],
       env: { MOCK_CLI_MODE: "fail-generate", MOCK_CLI_STDERR_VALUE: "secret-token" },
       timeoutMs: 5_000,
-    }).catch((value: unknown) => value);
+    }).catch((cause: unknown) => cause);
     expect(error).toMatchObject({ kind: "generation-failed", phase: "generate-ts" });
-    if (!isRecord(error) || typeof error["stderr"] !== "string")
+    if (!isErrorDetails(error) || !isText(error["stderr"]))
       throw new Error("missing bounded stderr");
     expect(error["stderr"]).not.toContain("secret-token");
     expect(error["stderr"].length).toBeLessThanOrEqual(4_096);
@@ -184,7 +185,7 @@ describe("inspectCodexProtocol", () => {
         env: { MOCK_CLI_MODE: "hang-generate", MOCK_CLI_PID_FILE: pidFile },
         timeoutMs: 3_000,
         signal: controller.signal,
-      }).catch((value: unknown) => value);
+      }).catch((cause: unknown) => cause);
       expect(error).toMatchObject({ kind: "timeout", phase: "generate-ts" });
       const pid = Number(await readFile(pidFile, "utf8"));
       expect(() => process.kill(pid, 0)).toThrow();
@@ -219,13 +220,14 @@ describe("inspectCodexProtocol", () => {
     "matches the installed Codex 0.147.0 manifest",
     { timeout: HUMAN_GATED_TEST_TIMEOUT_MS },
     async () => {
-      const evidence = await inspectCodexProtocol({
+      const protocolOptions = {
         executable: process.env["DIFFOWL_CODEX_EXECUTABLE"] ?? "codex",
-        ...(process.env["DIFFOWL_CODEX_PREFIX_ARGS"] === undefined
-          ? {}
-          : { prefixArgs: process.env["DIFFOWL_CODEX_PREFIX_ARGS"].split(" ").filter(Boolean) }),
         timeoutMs: 30_000,
-      });
+      };
+      const prefixArgs = process.env["DIFFOWL_CODEX_PREFIX_ARGS"];
+      if (prefixArgs !== undefined)
+        Object.assign(protocolOptions, { prefixArgs: prefixArgs.split(" ").filter(Boolean) });
+      const evidence = await inspectCodexProtocol(protocolOptions);
       expect(evidence.codexCliVersion).toBe("codex-cli 0.147.0");
       expect(evidence.typesFileCount).toBe(642);
       expect(evidence.jsonSchemaFileCount).toBe(285);
@@ -234,7 +236,3 @@ describe("inspectCodexProtocol", () => {
     },
   );
 });
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}

@@ -1,7 +1,11 @@
 import type { ReviewExecutor, ReviewTiming } from "../review/types.js";
 import { ReviewCancelledError } from "../review/errors.js";
-import { inspectCodexProtocol, ProtocolCancelledError } from "./protocol-evidence.js";
-import { CodexTimeoutError, executeCodexReview } from "./review-runner.js";
+import {
+  inspectCodexProtocol,
+  ProtocolCancelledError,
+  type ProtocolEvidenceOptions,
+} from "./protocol-evidence.js";
+import { CodexTimeoutError, executeCodexReview, type CodexReviewInput } from "./review-runner.js";
 
 export type CodexCommandOptions = {
   executable: string;
@@ -25,18 +29,18 @@ export function createCodexReviewExecutor(options: CodexReviewExecutorOptions): 
       const deadline = performance.now() + input.review.config.timeout * 1_000;
       const protocolStart = performance.now();
       try {
-        await inspectCodexProtocol({
+        const protocolOptions: ProtocolEvidenceOptions = {
           executable: options.command.executable,
-          ...(options.command.prefixArgs === undefined
-            ? {}
-            : { prefixArgs: options.command.prefixArgs }),
-          ...(options.command.env === undefined ? {} : { env: options.command.env }),
           timeoutMs: Math.min(
             options.protocolTimeoutMs,
             remainingTimeout(deadline, "protocol-check"),
           ),
-          ...(input.review.signal === undefined ? {} : { signal: input.review.signal }),
-        });
+        };
+        if (options.command.prefixArgs !== undefined)
+          protocolOptions.prefixArgs = options.command.prefixArgs;
+        if (options.command.env !== undefined) protocolOptions.env = options.command.env;
+        if (input.review.signal !== undefined) protocolOptions.signal = input.review.signal;
+        await inspectCodexProtocol(protocolOptions);
       } catch (error) {
         if (error instanceof ProtocolCancelledError && input.review.signal?.aborted) {
           throw new ReviewCancelledError("Review cancelled by user.");
@@ -52,17 +56,18 @@ export function createCodexReviewExecutor(options: CodexReviewExecutorOptions): 
       input.onStatus?.("Reviewing changes with Codex...");
       const reviewStart = performance.now();
       const reviewTimeoutMs = remainingTimeout(deadline, "review-startup");
-      const outcome = await executeCodexReview({
+      const reviewOptions: CodexReviewInput = {
         ...input.review,
         executable: options.command.executable,
         args: [...(options.command.prefixArgs ?? []), "app-server", "--stdio"],
-        ...(options.command.env === undefined ? {} : { env: options.command.env }),
         model: options.model,
         timeoutMs: reviewTimeoutMs,
         interruptTimeoutMs: options.interruptTimeoutMs,
         closeTimeoutMs: options.closeTimeoutMs,
         includeIgnoredRepositoryPaths: options.includeIgnoredRepositoryPaths ?? false,
-      });
+      };
+      if (options.command.env !== undefined) reviewOptions.env = options.command.env;
+      const outcome = await executeCodexReview(reviewOptions);
       const reviewTiming = createTiming("review-run", "Codex review run", reviewStart);
 
       return {

@@ -161,7 +161,7 @@ function send(message) {
 }
 
 function markerError(message) {
-  if (typeof message.id === "number") {
+  if (isNumber(message.id)) {
     send({
       id: message.id,
       error: { code: -32602, message: "invalid marker protocol", data: null },
@@ -170,7 +170,15 @@ function markerError(message) {
 }
 
 function isRecord(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return Object.prototype.toString.call(value) === "[object Object]";
+}
+
+function isText(value) {
+  return Object.prototype.toString.call(value) === "[object String]";
+}
+
+function isNumber(value) {
+  return Number.isFinite(value);
 }
 
 function isOutputSchema(value) {
@@ -213,13 +221,13 @@ function isOutputSchema(value) {
 
 function handleMarker(message) {
   const params = message.params;
-  if (markerStep === 0 && message.method === "initialize" && typeof message.id === "number") {
+  if (markerStep === 0 && message.method === "initialize" && isNumber(message.id)) {
     const clientInfo = isRecord(params) ? params.clientInfo : undefined;
     if (
       !isRecord(clientInfo) ||
-      typeof clientInfo.name !== "string" ||
-      typeof clientInfo.title !== "string" ||
-      typeof clientInfo.version !== "string" ||
+      !isText(clientInfo.name) ||
+      !isText(clientInfo.title) ||
+      !isText(clientInfo.version) ||
       params.capabilities !== null ||
       Object.hasOwn(params, "experimental")
     )
@@ -240,7 +248,7 @@ function handleMarker(message) {
     markerStep = 2;
     return;
   }
-  if (markerStep === 2 && message.method === "account/read" && typeof message.id === "number") {
+  if (markerStep === 2 && message.method === "account/read" && isNumber(message.id)) {
     if (!isRecord(params) || params.refreshToken !== false) return markerError(message);
     markerStep = 3;
     const account =
@@ -250,11 +258,11 @@ function handleMarker(message) {
     send({ id: message.id, result: { account, requiresOpenaiAuth: true } });
     return;
   }
-  if (markerStep === 3 && message.method === "thread/start" && typeof message.id === "number") {
+  if (markerStep === 3 && message.method === "thread/start" && isNumber(message.id)) {
     if (["auth-null", "auth-apikey"].includes(mode)) return markerError(message);
     const systemPromptOk =
       isRecord(params) &&
-      typeof params.developerInstructions === "string" &&
+      isText(params.developerInstructions) &&
       (["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode)
         ? params.developerInstructions.includes("DiffOwl")
         : expectedSystem
@@ -265,7 +273,7 @@ function handleMarker(message) {
             params.developerInstructions.includes("JSON-only"));
     const developerInstructionsOk = outputSchemaModes
       ? isRecord(params) &&
-        typeof params.developerInstructions === "string" &&
+        isText(params.developerInstructions) &&
         systemPromptOk &&
         !params.developerInstructions.includes("FINAL_REVIEW_JSON")
       : ["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode)
@@ -278,9 +286,9 @@ function handleMarker(message) {
       ) &&
         params.cwd !== process.cwd()) ||
       (mode === "canonical-cwd" &&
-        (typeof params.cwd !== "string" || realpathSync(params.cwd) !== process.cwd())) ||
+        (!isText(params.cwd) || realpathSync(params.cwd) !== process.cwd())) ||
       (["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode) &&
-        typeof params.cwd !== "string") ||
+        !isText(params.cwd)) ||
       params.model !== expectedModel ||
       params.approvalPolicy !== "never" ||
       params.sandbox !== "read-only" ||
@@ -336,9 +344,9 @@ function handleMarker(message) {
     ].includes(mode) &&
     markerStep === 5 &&
     message.method === "turn/interrupt" &&
-    typeof message.id === "number"
+    isNumber(message.id)
   ) {
-    if (!isRecord(params) || params.threadId !== "thread-1" || typeof params.turnId !== "string")
+    if (!isRecord(params) || params.threadId !== "thread-1" || !isText(params.turnId))
       return markerError(message);
     send({ id: message.id, result: {} });
     send({
@@ -353,7 +361,7 @@ function handleMarker(message) {
   if (
     (markerStep === 4 || (markerStep === 5 && retryModes)) &&
     message.method === "turn/start" &&
-    typeof message.id === "number"
+    isNumber(message.id)
   ) {
     if (mode === "turn-start-mutates") {
       writeFileSync("codex-mutated.txt", "provider mutation\n");
@@ -367,14 +375,14 @@ function handleMarker(message) {
       attempt === 1
         ? isRecord(item) &&
           (["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode)
-            ? typeof item.text === "string" && item.text.length > 0
+            ? isText(item.text) && item.text.length > 0
             : item.text === expectedUser)
         : isRecord(item) &&
           (outputSchemaModes
-            ? typeof item.text === "string" &&
+            ? isText(item.text) &&
               !item.text.includes("FINAL_REVIEW_JSON") &&
               item.text.includes("replacement JSON object")
-            : typeof item.text === "string" && item.text.includes("FINAL_REVIEW_JSON"));
+            : isText(item.text) && item.text.includes("FINAL_REVIEW_JSON"));
     const outputSchemaOk = outputSchemaModes
       ? isRecord(params) && isOutputSchema(params.outputSchema)
       : isRecord(params) && !Object.hasOwn(params, "outputSchema");
@@ -384,7 +392,7 @@ function handleMarker(message) {
       (!["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode) &&
         params.cwd !== process.cwd()) ||
       (["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode) &&
-        typeof params.cwd !== "string") ||
+        !isText(params.cwd)) ||
       params.model !== expectedModel ||
       params.approvalPolicy !== "never" ||
       !isRecord(policy) ||
@@ -623,28 +631,28 @@ input.on("line", (line) => {
     handleMarker(message);
     return;
   }
-  if (["malformed-json", "malformed-envelope"].includes(mode) && typeof message.id === "number") {
+  if (["malformed-json", "malformed-envelope"].includes(mode) && isNumber(message.id)) {
     if (mode === "malformed-json") process.stdout.write("{not-json}\n");
     else send({ id: message.id });
     return;
   }
-  if (mode === "premature-eof" && typeof message.id === "number") {
+  if (mode === "premature-eof" && isNumber(message.id)) {
     setImmediate(() => process.exit(0));
     return;
   }
-  if (mode === "stdout-eof-hung" && typeof message.id === "number") {
+  if (mode === "stdout-eof-hung" && isNumber(message.id)) {
     process.stdout.end();
     return;
   }
-  if (mode === "server-request" && typeof message.id === "number") {
+  if (mode === "server-request" && isNumber(message.id)) {
     send({ id: "server-request-1", method: "server.ask", params: { question: "?" } });
     return;
   }
-  if (["immediate", "ignores-sigterm"].includes(mode) && typeof message.id === "number") {
+  if (["immediate", "ignores-sigterm"].includes(mode) && isNumber(message.id)) {
     send({ id: message.id, result: { request: message.method } });
     return;
   }
-  if (!["basic", "rpc-error"].includes(mode) || typeof message.id !== "number") return;
+  if (!["basic", "rpc-error"].includes(mode) || !isNumber(message.id)) return;
   requests.push(message);
   if (requests.length !== 2) return;
   if (mode === "rpc-error") {

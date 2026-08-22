@@ -147,7 +147,7 @@ describe("executeCodexReview", () => {
 
   it("exhausts output-schema validation after exactly three turns", async () => {
     const error = await executeCodexReview(makeInput("output-schema-three-invalid", false)).catch(
-      (value: unknown) => value,
+      (cause: unknown) => cause,
     );
     expect(error).toBeInstanceOf(SchemaValidationError);
     expect(error).toMatchObject({ attempts: 3 });
@@ -275,7 +275,7 @@ describe("executeCodexReview", () => {
       const error = await executeCodexReview({
         ...makeInput("timeout-active", true, directory),
         timeoutMs: 5_000,
-      }).catch((value: unknown) => value);
+      }).catch((cause: unknown) => cause);
       expect(error).toMatchObject({
         kind: "timeout",
         phase: "turn",
@@ -372,7 +372,7 @@ describe("executeCodexReview", () => {
     try {
       const error = await executeCodexReview(
         makeInput("repository-mutates", true, directory),
-      ).catch((value: unknown) => value);
+      ).catch((cause: unknown) => cause);
       expect(error).toBeInstanceOf(CodexRepositoryMutatedError);
       expect(error).toMatchObject({
         kind: "repository-mutated",
@@ -389,7 +389,7 @@ describe("executeCodexReview", () => {
     const directory = await temporaryRepository();
     try {
       const error = await executeCodexReview(makeInput("teardown-mutates", true, directory)).catch(
-        (value: unknown) => value,
+        (cause: unknown) => cause,
       );
       expect(error).toBeInstanceOf(CodexRepositoryMutatedError);
       expect(error).toMatchObject({
@@ -417,7 +417,7 @@ describe("executeCodexReview", () => {
         onProgress: (event) => {
           if (event.type === "output") controller.abort();
         },
-      }).catch((value: unknown) => value);
+      }).catch((cause: unknown) => cause);
       expect(error).toMatchObject({ kind: "repository-mutated" });
       expect(getCodexReviewFailureEvidence(error)).toMatchObject({
         interrupt: {
@@ -478,7 +478,7 @@ describe("executeCodexReview", () => {
           onProgress: (event) => {
             if (event.type === "output") controller.abort();
           },
-        }).catch((value: unknown) => value);
+        }).catch((cause: unknown) => cause);
 
         expect(error).toBeInstanceOf(CodexTeardownError);
         expect(error).toMatchObject({
@@ -507,29 +507,31 @@ function makeInput(
   withSystemPrompt = true,
   directory = process.cwd(),
 ): Parameters<typeof executeCodexReview>[0] {
-  return {
+  const env = {
+    MOCK_APP_SERVER_MODE: mode,
+    MOCK_APP_SERVER_MODEL: "gpt-5-codex",
+    MOCK_APP_SERVER_USER: userPrompt,
+    OPENAI_API_KEY: "fake-openai-key",
+    CODEX_API_KEY: "fake-codex-key",
+  };
+  if (withSystemPrompt) Object.assign(env, { MOCK_APP_SERVER_SYSTEM: systemPrompt });
+  const input = {
     target: { kind: "staged" },
     directory,
     config,
     depth: "default",
-    ...(withSystemPrompt ? { systemPrompt } : {}),
     userPrompt,
     executable: process.execPath,
     args: [fixture],
-    env: {
-      MOCK_APP_SERVER_MODE: mode,
-      MOCK_APP_SERVER_MODEL: "gpt-5-codex",
-      ...(withSystemPrompt ? { MOCK_APP_SERVER_SYSTEM: systemPrompt } : {}),
-      MOCK_APP_SERVER_USER: userPrompt,
-      OPENAI_API_KEY: "fake-openai-key",
-      CODEX_API_KEY: "fake-codex-key",
-    },
+    env,
     model: "gpt-5-codex",
     timeoutMs: 2_000,
     closeTimeoutMs: 500,
     interruptTimeoutMs: 300,
     includeIgnoredRepositoryPaths: false,
-  };
+  } satisfies Parameters<typeof executeCodexReview>[0];
+  if (withSystemPrompt) Object.assign(input, { systemPrompt });
+  return input;
 }
 
 async function temporaryRepository(): Promise<string> {

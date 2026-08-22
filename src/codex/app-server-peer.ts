@@ -1,7 +1,16 @@
 import { accessSync, constants, statSync } from "node:fs";
 import { delimiter, extname, isAbsolute, join, resolve } from "node:path";
-import { execa } from "execa";
+import { execa, type Options as ExecaOptions } from "execa";
 import { createInterface } from "node:readline";
+import {
+  isFiniteNumber,
+  isErrorDetails,
+  isRecord,
+  isText,
+  type CodexEnvelope,
+  type CodexJsonPayload,
+  type CodexJsonValue,
+} from "./types.js";
 
 const DEFAULT_STDERR_MAX_BYTES = 64 * 1024;
 const DEFAULT_CLOSE_TIMEOUT_MS = 1_000;
@@ -20,11 +29,11 @@ export type AppServerPeerOptions = {
 export type AppServerNotification = {
   kind: "notification";
   method: string;
-  params: unknown;
+  params: CodexJsonPayload;
 };
 
 type AppServerResponse =
-  | { kind: "response"; id: AppServerRequestId; result: unknown }
+  | { kind: "response"; id: AppServerRequestId; result: CodexJsonPayload }
   | { kind: "rpc-error"; id: AppServerRequestId; error: AppServerRpcError };
 
 export type AppServerRequestId = string | number;
@@ -32,14 +41,14 @@ export type AppServerRequestId = string | number;
 export type AppServerRpcError = {
   code: number;
   message: string;
-  data?: unknown;
+  data?: CodexJsonPayload;
 };
 
 type AppServerRequest = {
   kind: "request";
   id: AppServerRequestId;
   method: string;
-  params: unknown;
+  params: CodexJsonPayload;
 };
 
 type AppServerMessage = AppServerResponse | AppServerNotification | AppServerRequest;
@@ -82,17 +91,25 @@ export type AppServerCloseResult = {
 
 export type AppServerPeer = {
   readonly pid: number | undefined;
-  request(method: string, params?: unknown, options?: { signal?: AbortSignal }): Promise<unknown>;
-  notify(method: string, params?: unknown): void;
+  request(
+    method: string,
+    params?: CodexJsonValue,
+    options?: { signal?: AbortSignal },
+  ): Promise<CodexJsonPayload>;
+  notify(method: string, params?: CodexJsonValue): void;
   nextNotification(): Promise<AppServerNotification | undefined>;
   getStderr(): string;
   close(): Promise<AppServerCloseResult>;
 };
 
-type Pending = { method: string; resolve(value: unknown): void; reject(reason: unknown): void };
+type Pending = {
+  method: string;
+  resolve(value: CodexJsonPayload): void;
+  reject(cause: unknown): void;
+};
 type NotificationWaiter = {
   resolve(value: AppServerNotification | undefined): void;
-  reject(reason: unknown): void;
+  reject(cause: unknown): void;
 };
 type Exit = { code: number | null; signal: NodeJS.Signals | null };
 
@@ -118,16 +135,17 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
     options.cwd ?? process.cwd(),
   );
 
-  const child = execa(executable, [...(options.args ?? [])], {
-    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-    ...(options.env === undefined ? {} : { env: childEnv, extendEnv: false }),
+  const childOptions = {
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
     buffer: false,
     stripFinalNewline: false,
     reject: false,
-  });
+  } satisfies ExecaOptions;
+  if (options.cwd !== undefined) Object.assign(childOptions, { cwd: options.cwd });
+  if (options.env !== undefined) Object.assign(childOptions, { env: childEnv, extendEnv: false });
+  const child = execa(executable, [...(options.args ?? [])], childOptions);
   const pending = new Map<AppServerRequestId, Pending>();
   const ignoredResponseIds = new Set<AppServerRequestId>();
   const notificationQueue: AppServerNotification[] = [];
@@ -158,13 +176,13 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
   };
   const closedError = (): AppServerPeerError =>
     terminalError ?? new AppServerPeerError("closed", "App Server peer is closed.");
-  const write = (message: Record<string, unknown>): void => {
+  const write = (message: CodexEnvelope): void => {
     if (terminalError !== undefined || closing) throw closedError();
     const stdin = child.stdin;
     if (stdin === null) throw new AppServerPeerError("process", "App Server stdin is unavailable.");
     stdin.write(`${JSON.stringify(message)}\n`);
   };
-  const parse = (raw: unknown): AppServerMessage => {
+  const parse = (raw: CodexJsonPayload): AppServerMessage => {
     if (!isRecord(raw)) {
       throw new AppServerPeerError("malformed-envelope", "App Server message must be an object.");
     }
@@ -173,7 +191,7 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
     const id = hasId ? parseId(message["id"]) : undefined;
     if (Object.hasOwn(message, "method")) {
       const method = message["method"];
-      if (typeof method !== "string") {
+      if (!isText(method)) {
         throw new AppServerPeerError("malformed-envelope", "App Server method is invalid.");
       }
       if (id !== undefined) {
@@ -263,7 +281,7 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
     );
   });
   child.stderr?.on("data", (chunk: Buffer | string) => {
-    const bytes = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     if (stderr.length < stderrMaxBytes)
       stderr = Buffer.concat([stderr, bytes.subarray(0, stderrMaxBytes - stderr.length)]);
   });
@@ -359,13 +377,13 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
       return new Promise((resolve, reject) => {
         const signal = requestOptions?.signal;
         const cleanup = (): void => signal?.removeEventListener("abort", onAbort);
-        const settleResolve = (value: unknown): void => {
+        const settleResolve = (value: CodexJsonPayload): void => {
           cleanup();
           resolve(value);
         };
-        const settleReject = (reason: unknown): void => {
+        const settleReject = (cause: unknown): void => {
           cleanup();
-          reject(reason);
+          reject(cause);
         };
         const onAbort = (): void => {
           pending.delete(id);
@@ -379,7 +397,9 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
         }
         signal?.addEventListener("abort", onAbort, { once: true });
         try {
-          write({ id, method, ...(params === undefined ? {} : { params }) });
+          const requestMessage = { id, method };
+          if (params === undefined) write(requestMessage);
+          else write({ ...requestMessage, params });
         } catch (error) {
           pending.delete(id);
           settleReject(error);
@@ -392,7 +412,9 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
       });
     },
     notify(method, params) {
-      write({ method, ...(params === undefined ? {} : { params }) });
+      const notification = { method };
+      if (params === undefined) write(notification);
+      else write({ ...notification, params });
     },
     nextNotification() {
       const next = notificationQueue.shift();
@@ -408,23 +430,19 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
   };
 }
 
-function isRpcError(value: unknown): value is AppServerRpcError {
-  if (!isRecord(value)) return false;
-  const code = value["code"];
-  const message = value["message"];
+function isRpcError(cause: unknown): cause is AppServerRpcError {
+  if (!isRecord(cause)) return false;
+  const code = cause["code"];
+  const message = cause["message"];
   return typeof code === "number" && Number.isFinite(code) && typeof message === "string";
 }
 
-function parseId(value: unknown): AppServerRequestId {
-  if (typeof value === "string" && value !== "") return value;
-  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
+function parseId(cause: unknown): AppServerRequestId {
+  if (isText(cause) && cause !== "") return cause;
+  if (!isFiniteNumber(cause) || !Number.isSafeInteger(cause)) {
     throw new AppServerPeerError("malformed-envelope", "App Server message id is invalid.");
   }
-  return value;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return cause;
 }
 
 function redact(value: string, secrets: readonly string[]): string {
@@ -516,10 +534,10 @@ function environmentValue(env: NodeJS.ProcessEnv, key: string): string | undefin
   return found ? value : undefined;
 }
 
-function hasErrorCode(value: unknown, code: string): boolean {
-  let current: unknown = value;
+function hasErrorCode(cause: unknown, code: string): boolean {
+  let current: unknown = cause;
   const seen = new Set<object>();
-  while (isRecord(current)) {
+  while (isErrorDetails(current)) {
     if (seen.has(current)) return false;
     seen.add(current);
     if (current["code"] === code) return true;

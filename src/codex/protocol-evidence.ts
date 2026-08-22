@@ -3,8 +3,9 @@ import { constants } from "node:fs";
 import { access, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, extname, isAbsolute, join, relative } from "node:path";
-import { execa } from "execa";
+import { execa, type Options as ExecaOptions } from "execa";
 import { buildCodexEnvironment } from "./environment.js";
+import { isErrorDetails, isRecord, isText, type CodexJsonObject } from "./types.js";
 
 export type ProtocolEvidenceOptions = {
   executable: string;
@@ -72,7 +73,7 @@ export class ProtocolCancelledError extends ProtocolEvidenceError {
   }
 }
 
-const REQUIRED_TS_TOKENS: Readonly<Record<string, readonly string[]>> = {
+const REQUIRED_TS_TOKENS = {
   "ClientNotification.ts": ["initialized"],
   "ClientRequest.ts": [
     "initialize",
@@ -124,9 +125,9 @@ const REQUIRED_TS_TOKENS: Readonly<Record<string, readonly string[]>> = {
   "v2/SandboxPolicy.ts": ["readOnly"],
   "v2/Turn.ts": ["id", "status", "error", "items"],
   "v2/TurnStatus.ts": ["completed", "interrupted", "failed", "inProgress"],
-};
+} satisfies Readonly<Record<string, readonly string[]>>;
 
-const REQUIRED_JSON_TOKENS: Readonly<Record<string, readonly string[]>> = {
+const REQUIRED_JSON_TOKENS = {
   "ClientNotification.json": ["initialized"],
   "ClientRequest.json": [
     "initialize",
@@ -208,7 +209,7 @@ const REQUIRED_JSON_TOKENS: Readonly<Record<string, readonly string[]>> = {
     "fromModel",
     "toModel",
   ],
-};
+} satisfies Readonly<Record<string, readonly string[]>>;
 
 type JsonSchemaType = "array" | "boolean" | "null" | "number" | "object" | "string";
 type JsonSchemaExpectation =
@@ -216,9 +217,7 @@ type JsonSchemaExpectation =
   | { kind: "property-enum"; path: readonly string[]; value: string }
   | { kind: "property-type"; path: readonly string[]; type: JsonSchemaType };
 
-const REQUIRED_JSON_SCHEMA_EXPECTATIONS: Readonly<
-  Record<string, readonly JsonSchemaExpectation[]>
-> = {
+const REQUIRED_JSON_SCHEMA_EXPECTATIONS = {
   "ClientNotification.json": [propertyEnum(["method"], "initialized")],
   "ClientRequest.json": [
     propertyEnum(["method"], "initialize"),
@@ -314,7 +313,7 @@ const REQUIRED_JSON_SCHEMA_EXPECTATIONS: Readonly<
     propertyType(["toModel"], "string"),
     propertyType(["reason"], "string"),
   ],
-};
+} satisfies Readonly<Record<string, readonly JsonSchemaExpectation[]>>;
 
 export async function inspectCodexProtocol(
   options: ProtocolEvidenceOptions,
@@ -390,24 +389,25 @@ async function runCodex(
   const commandRemaining = deadline - performance.now();
   if (commandRemaining <= 0) throw new ProtocolTimeoutError(phase);
   try {
-    const result = await execa(executable, args, {
+    const childOptions = {
       env: childEnv,
       extendEnv: false,
       reject: true,
       timeout: commandRemaining,
       killSignal: "SIGTERM",
       forceKillAfterDelay: 100,
-      ...(options.signal === undefined ? {} : { cancelSignal: options.signal }),
-    });
+    } satisfies ExecaOptions;
+    if (options.signal !== undefined) Object.assign(childOptions, { cancelSignal: options.signal });
+    const result = await execa(executable, args, childOptions);
     return result.stdout;
   } catch (error) {
-    if (isRecord(error) && error["timedOut"] === true) throw new ProtocolTimeoutError(phase);
+    if (isErrorDetails(error) && error["timedOut"] === true) throw new ProtocolTimeoutError(phase);
     if (options.signal?.aborted) throw new ProtocolCancelledError(phase);
     if (isMissingExecutableError(error)) {
       throw new ProtocolEvidenceError("executable-missing", "Codex CLI executable was not found.");
     }
     const stderr = redactStderr(
-      isRecord(error) && typeof error["stderr"] === "string" ? error["stderr"] : "",
+      isErrorDetails(error) && isText(error["stderr"]) ? error["stderr"] : "",
       childEnv,
     );
     throw new ProtocolGenerationError(phase, stderr);
@@ -524,7 +524,7 @@ async function inspectTree(
       }
     }
     if (extension === ".json") {
-      validateGeneratedJsonSchema(path, bytes, REQUIRED_JSON_SCHEMA_EXPECTATIONS[path] ?? []);
+      validateGeneratedJsonSchema(path, bytes, jsonSchemaExpectations(path));
     }
     const pathBytes = Buffer.from(path);
     hash.update(`${pathBytes.byteLength}:`);
@@ -583,12 +583,12 @@ function validateGeneratedJsonSchema(
 }
 
 function schemasAtPropertyPath(
-  document: Record<string, unknown>,
+  document: CodexJsonObject,
   path: readonly string[],
-): Record<string, unknown>[] {
+): CodexJsonObject[] {
   let schemas = [document];
   for (const propertyName of path) {
-    const next: Record<string, unknown>[] = [];
+    const next: CodexJsonObject[] = [];
     for (const schema of schemas) {
       for (const candidate of expandSchema(document, schema)) {
         const properties = candidate["properties"];
@@ -603,8 +603,8 @@ function schemasAtPropertyPath(
 }
 
 function schemaAllowsType(
-  document: Record<string, unknown>,
-  schema: Record<string, unknown>,
+  document: CodexJsonObject,
+  schema: CodexJsonObject,
   expected: JsonSchemaType,
 ): boolean {
   return expandSchema(document, schema).some((candidate) => {
@@ -619,8 +619,8 @@ function schemaAllowsType(
 }
 
 function schemaAllowsEnum(
-  document: Record<string, unknown>,
-  schema: Record<string, unknown>,
+  document: CodexJsonObject,
+  schema: CodexJsonObject,
   expected: string,
 ): boolean {
   return expandSchema(document, schema).some((candidate) => {
@@ -631,13 +631,13 @@ function schemaAllowsEnum(
 }
 
 function expandSchema(
-  document: Record<string, unknown>,
-  schema: Record<string, unknown>,
+  document: CodexJsonObject,
+  schema: CodexJsonObject,
   visitedReferences = new Set<string>(),
-): Record<string, unknown>[] {
+): CodexJsonObject[] {
   const schemas = [schema];
   const reference = schema["$ref"];
-  if (typeof reference === "string" && !visitedReferences.has(reference)) {
+  if (isText(reference) && !visitedReferences.has(reference)) {
     const referenced = resolveLocalReference(document, reference);
     if (referenced !== undefined) {
       const nextVisited = new Set(visitedReferences);
@@ -656,9 +656,9 @@ function expandSchema(
 }
 
 function resolveLocalReference(
-  document: Record<string, unknown>,
+  document: CodexJsonObject,
   reference: string,
-): Record<string, unknown> | undefined {
+): CodexJsonObject | undefined {
   if (!reference.startsWith("#/")) return undefined;
   let current: unknown = document;
   for (const rawPart of reference.slice(2).split("/")) {
@@ -674,6 +674,13 @@ function incompatibleJsonSchema(path: string, detail: string): ProtocolEvidenceE
     "protocol-incompatible",
     `Generated .json path ${path} ${detail}.`,
   );
+}
+
+function jsonSchemaExpectations(path: string): readonly JsonSchemaExpectation[] {
+  for (const [knownPath, expectations] of Object.entries(REQUIRED_JSON_SCHEMA_EXPECTATIONS)) {
+    if (knownPath === path) return expectations;
+  }
+  return [];
 }
 
 function property(path: readonly string[]): JsonSchemaExpectation {
@@ -748,7 +755,7 @@ async function withDeadline<T>(
     if (signal?.aborted) onAbort();
     promise.then(
       (value) => finish(() => resolve(value)),
-      (error: unknown) => finish(() => reject(error)),
+      (cause: unknown) => finish(() => reject(cause)),
     );
   });
 }
@@ -761,14 +768,10 @@ function redactStderr(stderr: string, env: NodeJS.ProcessEnv | undefined): strin
   return redacted.slice(0, 4_096);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isMissingExecutableError(error: unknown): boolean {
-  let current: unknown = error;
+function isMissingExecutableError(cause: unknown): boolean {
+  let current: unknown = cause;
   const seen = new Set<object>();
-  while (isRecord(current)) {
+  while (isErrorDetails(current)) {
     if (seen.has(current)) return false;
     seen.add(current);
     if (current["code"] === "ENOENT") return true;
