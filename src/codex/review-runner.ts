@@ -23,6 +23,17 @@ import {
   type RepositoryState,
 } from "./repository-guard.js";
 import { buildCodexEnvironment } from "./environment.js";
+import {
+  ensureThrownValue,
+  isBoolean,
+  isFiniteNumber,
+  isObjectValue,
+  isRecord,
+  isText,
+  type CodexJsonObject,
+  type CodexJsonValue,
+  type ThrownValue,
+} from "./types.js";
 
 export type CodexReviewInput = ReviewOptions & {
   executable: string;
@@ -159,7 +170,7 @@ export class CodexAuthenticationError extends CodexReviewError {
 export class CodexTurnFailedError extends CodexReviewError {
   readonly turnId: string;
   readonly errorMessage: string;
-  readonly codexErrorInfo: string | Record<string, unknown> | null;
+  readonly codexErrorInfo: string | CodexJsonObject | null;
   readonly additionalDetails: string | null;
 
   constructor(turnId: string, error: TurnError) {
@@ -175,13 +186,13 @@ export class CodexTurnFailedError extends CodexReviewError {
 const failureEvidenceStore = new WeakMap<object, CodexReviewFailureEvidence>();
 
 export function getCodexReviewFailureEvidence(
-  error: unknown,
+  cause: unknown,
 ): CodexReviewFailureEvidence | undefined {
-  return typeof error === "object" && error !== null ? failureEvidenceStore.get(error) : undefined;
+  return isObjectValue(cause) ? failureEvidenceStore.get(cause) : undefined;
 }
 
-export function isCodexReviewFailure(error: unknown): error is Error {
-  return getCodexReviewFailureEvidence(error) !== undefined;
+export function isCodexReviewFailure(cause: unknown): cause is Error {
+  return getCodexReviewFailureEvidence(cause) !== undefined;
 }
 
 export class CodexTimeoutError extends CodexReviewError {
@@ -258,7 +269,7 @@ type TokenUsageTotal = {
 
 type TurnError = {
   message: string;
-  codexErrorInfo: string | Record<string, unknown> | null;
+  codexErrorInfo: string | CodexJsonObject | null;
   additionalDetails: string | null;
 };
 
@@ -301,20 +312,20 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
   const deadline = performance.now() + input.timeoutMs;
   const directory = await withDeadline(realpath(input.directory), deadline, "repository-directory");
   const executionInput = { ...input, directory } satisfies CodexReviewInput;
-  const prompts = resolveReviewPrompts({
+  const promptOptions: Parameters<typeof resolveReviewPrompts>[0] = {
     target: input.target,
     config: input.config,
     depth: input.depth,
-    ...(input.localContext === undefined ? {} : { localContext: input.localContext }),
-    ...(input.systemPrompt === undefined ? {} : { systemPrompt: input.systemPrompt }),
-    ...(input.userPrompt === undefined ? {} : { userPrompt: input.userPrompt }),
     documentMode: "native-json",
-  });
+  };
+  if (input.localContext !== undefined) promptOptions.localContext = input.localContext;
+  if (input.systemPrompt !== undefined) promptOptions.systemPrompt = input.systemPrompt;
+  if (input.userPrompt !== undefined) promptOptions.userPrompt = input.userPrompt;
+  const prompts = resolveReviewPrompts(promptOptions);
   const developerInstructions = prompts.system;
   const peerEnv = buildCodexEnvironment(input.env);
-  const peer = startAppServerPeer({
+  const peerOptions: Parameters<typeof startAppServerPeer>[0] = {
     executable: input.executable,
-    ...(input.args === undefined ? {} : { args: input.args }),
     cwd: directory,
     env: peerEnv,
     extendEnv: false,
@@ -322,10 +333,12 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
       (value): value is string => value !== undefined,
     ),
     closeTimeoutMs: input.closeTimeoutMs,
-  });
+  };
+  if (input.args !== undefined) peerOptions.args = input.args;
+  const peer = startAppServerPeer(peerOptions);
   const reader = new NotificationReader(peer);
   let close: AppServerCloseResult | undefined;
-  let failure: unknown;
+  let failure: ThrownValue | undefined;
   let cancelled: ActiveCancellation | undefined;
   let interruptEvidence: CodexInterruptEvidence | undefined;
   let authKind: "chatgpt" | null = null;
@@ -341,7 +354,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
   let repositoryCheckedAfterTurn = false;
   let repositoryAfterClose: RepositoryState | undefined;
   let repositoryStatus: "unchanged" | "changed" | null = null;
-  let repositoryDiagnostic: unknown;
+  let repositoryDiagnostic: ThrownValue | undefined;
   const pid = peer.pid;
   const timings: Array<{ phase: string; ms: number }> = [];
   const events: string[] = [];
@@ -362,7 +375,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
       timings.push({ phase, ms: finiteMs(performance.now() - started) });
     }
   };
-  const checkRepositoryAfterTurn = async (primary?: unknown): Promise<void> => {
+  const checkRepositoryAfterTurn = async (primary?: ThrownValue): Promise<void> => {
     if (repositoryBefore === undefined) return;
     try {
       const now = performance.now();
@@ -388,12 +401,12 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     } catch (error) {
       if (primary !== undefined) {
         if (error instanceof CodexRepositoryMutatedError) {
-          if (primary instanceof Error) attachErrorCause(error, primary);
+          if (primary instanceof Error) attachErrorCause(error, { diagnostic: primary });
           else repositoryDiagnostic = primary;
           throw error;
         }
-        if (primary instanceof Error) attachErrorCause(primary, error);
-        else repositoryDiagnostic = error;
+        if (primary instanceof Error) attachErrorCause(primary, { diagnostic: error });
+        else repositoryDiagnostic = ensureThrownValue(error);
         return;
       }
       throw error;
@@ -460,8 +473,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     );
     requiredString(accountValue, "planType", "account/read.account.planType");
     const email = accountValue["email"];
-    if (email !== null && typeof email !== "string")
-      throw protocolError("account/read.account.email");
+    if (email !== null && !isText(email)) throw protocolError("account/read.account.email");
 
     events.push("sent:thread/start");
     const thread = asRecord(
@@ -494,8 +506,8 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
       realpath(reportedDirectory),
       deadline,
       "thread/start.cwd",
-    ).catch((error: unknown) => {
-      if (error instanceof CodexTimeoutError) throw error;
+    ).catch((cause: unknown) => {
+      if (cause instanceof CodexTimeoutError) throw cause;
       return null;
     });
     if (canonicalReportedDirectory !== directory) {
@@ -534,7 +546,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
           startTurn(peer, executionInput, threadId, prompt, deadline, events),
         );
       } catch (error) {
-        await checkRepositoryAfterTurn(error);
+        await checkRepositoryAfterTurn(ensureThrownValue(error));
         throw error;
       }
       turnIds.push(turnId);
@@ -563,7 +575,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
           } else if (isActiveCancellation(error)) {
             interruptEvidence = error.interrupt;
           }
-          await checkRepositoryAfterTurn(error);
+          await checkRepositoryAfterTurn(ensureThrownValue(error));
           throw error;
         }
         await timed("repository-after", () => checkRepositoryAfterTurn());
@@ -609,16 +621,16 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
         try {
           await checkRepositoryAfterTurn(failure);
         } catch (guardError) {
-          failure = guardError;
+          failure = ensureThrownValue(guardError);
         }
       }
     } else {
-      let primary = error;
+      let primary = ensureThrownValue(error);
       if (!repositoryCheckedAfterTurn) {
         try {
           await checkRepositoryAfterTurn(primary);
         } catch (guardError) {
-          primary = guardError;
+          primary = ensureThrownValue(guardError);
         }
       }
       failure = primary;
@@ -631,12 +643,12 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     events.push(`received:close:${close.kind}`);
   } catch (closeError) {
     const teardown = new CodexTeardownError(null);
-    attachErrorCause(teardown, closeError);
+    attachErrorCause(teardown, { diagnostic: closeError });
     if (failure === undefined && cancelled === undefined) failure = teardown;
     else if (cancelled !== undefined && failure === undefined) {
-      attachErrorCause(closeError, cancelled);
+      attachErrorCause(closeError, { diagnostic: cancelled });
       failure = teardown;
-    } else attachErrorCause(failure ?? cancelled, teardown);
+    } else attachErrorCause(failure ?? cancelled, { diagnostic: teardown });
   }
   const closeFailure =
     close === undefined
@@ -648,8 +660,8 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     if (failure === undefined && cancelled === undefined) failure = closeFailure;
     else if (cancelled !== undefined && failure === undefined) {
       failure = closeFailure;
-      attachErrorCause(failure, cancelled);
-    } else attachErrorCause(failure ?? cancelled, closeFailure);
+      attachErrorCause(failure, { diagnostic: cancelled });
+    } else attachErrorCause(failure ?? cancelled, { diagnostic: closeFailure });
   }
   if (repositoryBefore !== undefined) {
     try {
@@ -670,17 +682,17 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
           repositoryAfterClose.sha256,
           comparison.changedPaths,
         );
-        if (failure !== undefined) attachErrorCause(mutation, failure);
-        if (cancelled !== undefined) attachErrorCause(mutation, cancelled);
+        if (failure !== undefined) attachErrorCause(mutation, { diagnostic: failure });
+        if (cancelled !== undefined) attachErrorCause(mutation, { diagnostic: cancelled });
         failure = mutation;
         cancelled = undefined;
       } else if (repositoryStatus !== "changed") {
         repositoryStatus = "unchanged";
       }
     } catch (error) {
-      if (failure !== undefined) attachErrorCause(failure, error);
-      else if (cancelled !== undefined) attachErrorCause(cancelled, error);
-      else failure = error;
+      if (failure !== undefined) attachErrorCause(failure, { diagnostic: error });
+      else if (cancelled !== undefined) attachErrorCause(cancelled, { diagnostic: error });
+      else failure = ensureThrownValue(error);
     }
   }
   const buildFailureEvidence = (): CodexReviewFailureEvidence => ({
@@ -720,12 +732,12 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
           ? "completed"
           : "failed",
   });
-  const attachFailure = (error: unknown): void => {
-    if (typeof error === "object" && error !== null)
-      failureEvidenceStore.set(error, buildFailureEvidence());
+  const attachFailure = (cause: unknown): void => {
+    if (isObjectValue(cause)) failureEvidenceStore.set(cause, buildFailureEvidence());
   };
   if (failure !== undefined) {
-    if (repositoryDiagnostic !== undefined) attachErrorCause(failure, repositoryDiagnostic);
+    if (repositoryDiagnostic !== undefined)
+      attachErrorCause(failure, { diagnostic: repositoryDiagnostic });
     attachFailure(failure);
     throw failure;
   }
@@ -740,7 +752,8 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
       pid,
       cancelled.interrupt,
     );
-    if (repositoryDiagnostic !== undefined) attachErrorCause(error, repositoryDiagnostic);
+    if (repositoryDiagnostic !== undefined)
+      attachErrorCause(error, { diagnostic: repositoryDiagnostic });
     attachFailure(error);
     throw error;
   }
@@ -767,12 +780,10 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     attachFailure(error);
     throw error;
   }
+  const reviewResult: ReviewResult = { report, sessionId: threadId };
+  if (usage !== undefined) reviewResult.usage = usage;
   return {
-    reviewResult: {
-      report,
-      sessionId: threadId,
-      ...(usage === undefined ? {} : { usage }),
-    },
+    reviewResult,
     evidence: {
       authKind,
       requiresOpenaiAuth,
@@ -902,11 +913,10 @@ async function collectTurn(
             [...completedTextByItem.values()].at(-1) ??
             [...deltaTextByItem.values()].at(-1);
           if (text === undefined) throw protocolError("turn/completed agentMessage");
-          return {
-            text,
-            ...(usage === undefined ? {} : { usage }),
-            ...(modelReroute === undefined ? {} : { modelReroute }),
-          };
+          const result = { text };
+          if (usage !== undefined) Object.assign(result, { usage });
+          if (modelReroute !== undefined) Object.assign(result, { modelReroute });
+          return result;
         }
         default: {
           const _exhaustive: never = event;
@@ -935,11 +945,11 @@ async function collectTurn(
       try {
         interrupt = await interruptTurn(peer, reader, threadId, turnId, input.interruptTimeoutMs);
       } catch (interruptError) {
-        attachErrorCause(error, interruptError);
+        attachErrorCause(error, { diagnostic: interruptError });
         throw error;
       }
       const interruptedError = new CodexInterruptedTimeoutError(interrupt);
-      attachErrorCause(interruptedError, error);
+      attachErrorCause(interruptedError, { diagnostic: error });
       throw interruptedError;
     }
     throw error;
@@ -985,11 +995,11 @@ async function interruptTurn(
 function requestWithin(
   peer: AppServerPeer,
   method: string,
-  params: unknown,
+  params: CodexJsonValue,
   deadline: number,
   phase: string,
   signal?: AbortSignal,
-): Promise<unknown> {
+): Promise<CodexJsonValue | undefined> {
   if (signal?.aborted) {
     return Promise.reject(new ReviewCancelledError("Review cancelled by user."));
   }
@@ -1016,9 +1026,9 @@ function withDeadline<T>(promise: Promise<T>, deadline: number, phase: string): 
         clearTimeout(timer);
         resolve(value);
       },
-      (error: unknown) => {
+      (cause: unknown) => {
         clearTimeout(timer);
-        reject(error);
+        reject(cause);
       },
     );
   });
@@ -1034,7 +1044,7 @@ function validateInput(input: CodexReviewInput): void {
   if (!Number.isFinite(input.interruptTimeoutMs) || input.interruptTimeoutMs <= 0) {
     throw new RangeError("interruptTimeoutMs must be positive");
   }
-  if (typeof input.includeIgnoredRepositoryPaths !== "boolean") {
+  if (!isBoolean(input.includeIgnoredRepositoryPaths)) {
     throw new TypeError("includeIgnoredRepositoryPaths must be boolean");
   }
 }
@@ -1139,14 +1149,14 @@ function parseMarkerEvent(notification: AppServerNotification): MarkerEvent | un
   }
 }
 
-function parseTurnError(value: unknown): TurnError {
+function parseTurnError(value: CodexJsonValue): TurnError {
   const error = asRecord(value, "turn/completed.turn.error");
   const codexErrorInfo = error["codexErrorInfo"];
-  if (codexErrorInfo !== null && typeof codexErrorInfo !== "string" && !isRecord(codexErrorInfo)) {
+  if (codexErrorInfo !== null && !isText(codexErrorInfo) && !isRecord(codexErrorInfo)) {
     throw protocolError("turn/completed.turn.error.codexErrorInfo");
   }
   const additionalDetails = error["additionalDetails"];
-  if (additionalDetails !== null && typeof additionalDetails !== "string") {
+  if (additionalDetails !== null && !isText(additionalDetails)) {
     throw protocolError("turn/completed.turn.error.additionalDetails");
   }
   return {
@@ -1176,42 +1186,38 @@ function reportOutput(onProgress: ReviewOptions["onProgress"], text: string): vo
   });
 }
 
-function asRecord(value: unknown, context: string): Record<string, unknown> {
+function asRecord(value: CodexJsonValue | undefined, context: string): CodexJsonObject {
   if (!isRecord(value)) throw protocolError(`${context} must be an object`);
   return value;
 }
 
-function requiredString(value: Record<string, unknown>, key: string, context: string): string {
+function requiredString(value: CodexJsonObject, key: string, context: string): string {
   const result = value[key];
-  if (typeof result !== "string" || result === "")
+  if (!isText(result) || result === "")
     throw protocolError(`${context} must be a non-empty string`);
   return result;
 }
 
-function requiredStringAllowEmpty(
-  value: Record<string, unknown>,
-  key: string,
-  context: string,
-): string {
+function requiredStringAllowEmpty(value: CodexJsonObject, key: string, context: string): string {
   const result = value[key];
-  if (typeof result !== "string") throw protocolError(`${context} must be a string`);
+  if (!isText(result)) throw protocolError(`${context} must be a string`);
   return result;
 }
 
-function requiredBoolean(value: Record<string, unknown>, key: string, context: string): boolean {
+function requiredBoolean(value: CodexJsonObject, key: string, context: string): boolean {
   const result = value[key];
-  if (typeof result !== "boolean") throw protocolError(`${context} must be a boolean`);
+  if (!isBoolean(result)) throw protocolError(`${context} must be a boolean`);
   return result;
 }
 
-function requiredNumber(value: Record<string, unknown>, key: string, context: string): number {
+function requiredNumber(value: CodexJsonObject, key: string, context: string): number {
   const result = value[key];
-  if (typeof result !== "number" || !Number.isFinite(result) || result < 0)
+  if (!isFiniteNumber(result) || result < 0)
     throw protocolError(`${context} must be a non-negative number`);
   return result;
 }
 
-function optionalNumber(value: Record<string, unknown>, key: string, context: string): number {
+function optionalNumber(value: CodexJsonObject, key: string, context: string): number {
   if (value[key] === undefined) return 0;
   return requiredNumber(value, key, context);
 }
@@ -1227,7 +1233,7 @@ function policyError(context: string): CodexReviewError {
   );
 }
 
-function parseItem(value: Record<string, unknown>, context: string): MarkerItem {
+function parseItem(value: CodexJsonObject, context: string): MarkerItem {
   const type = requiredString(value, "type", `${context}.type`);
   const id = requiredString(value, "id", `${context}.id`);
   if (type === "fileChange") throw policyError("fileChange item");
@@ -1237,38 +1243,35 @@ function parseItem(value: Record<string, unknown>, context: string): MarkerItem 
   return { type, id };
 }
 
-function isActiveCancellation(value: unknown): value is ActiveCancellation {
-  const interrupt = isRecord(value) ? value["interrupt"] : undefined;
+function isActiveCancellation(cause: unknown): cause is ActiveCancellation {
+  const interrupt = isRecord(cause) ? cause["interrupt"] : undefined;
   return (
-    isRecord(value) &&
-    value["kind"] === "active-cancellation" &&
-    typeof value["threadId"] === "string" &&
-    typeof value["turnId"] === "string" &&
+    isRecord(cause) &&
+    cause["kind"] === "active-cancellation" &&
+    isText(cause["threadId"]) &&
+    isText(cause["turnId"]) &&
     isRecord(interrupt) &&
-    typeof interrupt["deadlineMs"] === "number" &&
-    Number.isFinite(interrupt["deadlineMs"]) &&
+    isFiniteNumber(interrupt["deadlineMs"]) &&
     interrupt["deadlineMs"] > 0 &&
     interrupt["acknowledgementReceived"] === true &&
-    typeof interrupt["acknowledgementDurationMs"] === "number" &&
-    Number.isFinite(interrupt["acknowledgementDurationMs"]) &&
+    isFiniteNumber(interrupt["acknowledgementDurationMs"]) &&
     interrupt["acknowledgementDurationMs"] >= 0 &&
-    typeof interrupt["totalDurationMs"] === "number" &&
-    Number.isFinite(interrupt["totalDurationMs"]) &&
+    isFiniteNumber(interrupt["totalDurationMs"]) &&
     interrupt["totalDurationMs"] >= 0 &&
     interrupt["terminalStatus"] === "interrupted"
   );
 }
 
-function attachErrorCause(primary: unknown, diagnostic: unknown): void {
-  if (primary instanceof Error)
-    Object.defineProperty(primary, "cause", { value: diagnostic, configurable: true });
+function attachErrorCause(cause: unknown, details: { readonly diagnostic: unknown }): void {
+  if (cause instanceof Error)
+    Object.defineProperty(cause, "cause", { value: details.diagnostic, configurable: true });
 }
 
 class NotificationReader {
   private readonly queue: AppServerNotification[] = [];
   private readonly waiters: NotificationWaiter[] = [];
   private done = false;
-  private failure: unknown;
+  private failure: ThrownValue | undefined;
   private cancellationHardDeadline: number | undefined;
 
   constructor(private readonly peer: AppServerPeer) {
@@ -1299,20 +1302,20 @@ class NotificationReader {
         cleanup();
         resolve(value);
       };
-      const settleReject = (error: unknown): void => {
+      const settleReject = (cause: unknown): void => {
         if (settled) return;
         settled = true;
         cleanup();
-        reject(error);
+        reject(cause);
       };
-      const scheduleRejection = (rejectionDeadline: number, error: unknown): void => {
+      const scheduleRejection = (rejectionDeadline: number, cause: unknown): void => {
         if (timer !== undefined) clearTimeout(timer);
         const remaining = rejectionDeadline - performance.now();
         if (remaining <= 0) {
-          settleReject(error);
+          settleReject(cause);
           return;
         }
-        timer = setTimeout(() => settleReject(error), remaining);
+        timer = setTimeout(() => settleReject(cause), remaining);
       };
       const onAbort = (): void => {
         // The peer and this reader both buffer; allow already-emitted terminal events to cross.
@@ -1352,7 +1355,7 @@ class NotificationReader {
       }
     } catch (error) {
       this.done = true;
-      this.failure = error;
+      this.failure = ensureThrownValue(error);
       for (const waiter of this.waiters.splice(0)) waiter.reject(error);
     }
   }
@@ -1360,7 +1363,7 @@ class NotificationReader {
 
 type NotificationWaiter = {
   resolve(value: AppServerNotification | undefined): void;
-  reject(error: unknown): void;
+  reject(cause: unknown): void;
 };
 
 function sha256(value: string): string {
@@ -1386,8 +1389,4 @@ function isPidAlive(pid: number): boolean {
 
 function invalidClose(close: AppServerCloseResult): boolean {
   return close.kind !== "eof" || close.code !== 0 || close.signal !== null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

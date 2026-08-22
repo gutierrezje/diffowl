@@ -38,7 +38,7 @@
     "typecheck": "node scripts/typecheck.mjs --noEmit",
     "build:anti-slop": "tsup --entry.plugin tools/oxlint/anti-slop/index.ts --format esm --target node22 --external @oxlint/plugins --out-dir tools/oxlint/anti-slop --no-config --silent",
     "check:anti-slop": "pnpm run build:anti-slop && git diff --exit-code HEAD -- tools/oxlint/anti-slop/plugin.js",
-    "lint": "pnpm run check:anti-slop && oxlint . --max-warnings 366 && pnpm run typecheck",
+    "lint": "pnpm run check:anti-slop && oxlint . --max-warnings 226 && pnpm run typecheck",
     "test:codex": "vitest run src/codex",
     "spike:codex:test": "vitest run src/codex src/experiments/codex-app-server",
     "spike:codex:protocol-live": "vitest run src/codex/protocol-evidence.test.ts",

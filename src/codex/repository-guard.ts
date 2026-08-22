@@ -155,6 +155,6 @@ function digest(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function isMissingFile(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
+function isMissingFile(cause: unknown): cause is NodeJS.ErrnoException {
+  return cause instanceof Error && "code" in cause && cause.code === "ENOENT";
 }

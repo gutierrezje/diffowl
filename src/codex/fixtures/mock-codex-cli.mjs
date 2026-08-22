@@ -209,7 +209,7 @@ async function generate(output, extension = ".ts") {
         `${relativePath.replace(/\.json$/, ".ts")}` === process.env.MOCK_CLI_MISSING)
     )
       continue;
-    const shapeChangedContent =
+    const contentWithWrongPropertyType =
       extension === ".json" &&
       process.env.MOCK_CLI_MODE === "incompatible-shape" &&
       relativePath === "v2/TurnStartParams.json"
@@ -223,14 +223,14 @@ async function generate(output, extension = ".ts") {
       process.env.MOCK_CLI_MODE === "incompatible-nesting" &&
       relativePath === "v2/TurnStartParams.json"
         ? {
-            ...shapeChangedContent,
+            ...contentWithWrongPropertyType,
             properties: {
-              ...shapeChangedContent.properties,
+              ...contentWithWrongPropertyType.properties,
               threadId: undefined,
               wrapper: objectSchema("threadId", { threadId: stringSchema }),
             },
           }
-        : shapeChangedContent;
+        : contentWithWrongPropertyType;
     const incompatibleContent =
       extension === ".json" &&
       process.env.MOCK_CLI_MODE === "const-schema" &&
