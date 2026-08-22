@@ -3,23 +3,18 @@ import { rename, unlink, writeFile, mkdir } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { parse, stringify } from "yaml";
-import { z } from "zod";
+import { stringify } from "yaml";
 import type { ReviewFinding, ReviewReport } from "./types.js";
 import { getSharedDiffOwlDir } from "../git/state-root.js";
 
 export const REPORT_SCHEMA_VERSION = 1 as const;
 
-const NonBlankMetadataStringSchema = z.string().refine((value) => value.trim() !== "");
-const ReviewMetadataSchema = z.object({
-  schema_version: z.number().int().positive().optional().catch(undefined),
-  review_id: NonBlankMetadataStringSchema.optional().catch(undefined),
-  session_id: NonBlankMetadataStringSchema,
-  project_root: NonBlankMetadataStringSchema,
-});
-const ReviewFrontmatterSchema = z.object({ diffowl: ReviewMetadataSchema });
-
-export type ReviewMetadata = z.output<typeof ReviewMetadataSchema>;
+type ReviewMetadata = {
+  schema_version: typeof REPORT_SCHEMA_VERSION;
+  review_id: string;
+  session_id: string;
+  project_root: string;
+};
 
 function formatFindingHeading(index: number, finding: ReviewFinding): string {
   const ordinal = `Finding ${index + 1}`;
@@ -153,16 +148,6 @@ async function writeFileAtomic(filepath: string, content: string): Promise<void>
   }
 }
 
-export function parseReviewMetadata(content: string): ReviewMetadata | undefined {
-  if (!content.startsWith("---\n")) return undefined;
-
-  const end = content.indexOf("\n---\n", 4);
-  if (end === -1) return undefined;
-
-  const result = ReviewFrontmatterSchema.safeParse(parse(content.slice(4, end)));
-  return result.success ? result.data.diffowl : undefined;
-}
-
 function renderReviewFrontmatter(metadata: ReviewMetadata): string {
   return `---\n${stringify({ diffowl: metadata }, { lineWidth: 0 })}---\n\n`;
 }
@@ -249,5 +234,5 @@ export function formatExcludedCandidateSummary(
     outsideChangedFiles > 0 ? `${outsideChangedFiles} outside changed files` : undefined,
   ].filter((reason): reason is string => reason !== undefined);
 
-  return `${total} candidate${total === 1 ? "" : "s"} excluded from findings: ${reasons.join(" and ")}. Run \`diffowl chat\` to investigate.`;
+  return `${total} candidate${total === 1 ? "" : "s"} excluded from findings: ${reasons.join(" and ")}. Run a new review if you need more model analysis.`;
 }

@@ -23,7 +23,7 @@ DiffOwl adds an independent pass between writing code and shipping it:
 - Review through OpenCode or a local Codex CLI authenticated with ChatGPT.
 - Give the reviewer bounded local context instead of dumping the entire repository into a prompt.
 - Keep findings after the review ends, with stable IDs and lifecycle states.
-- Reopen the review session when a finding needs more investigation.
+- Inspect and disposition durable findings after the review ends.
 - Run reviews automatically after commits without blocking them.
 
 TypeScript reviews can include changed AST symbols, related tests, file excerpts, and bounded import references. The structured import-reference section is TypeScript-only; non-TypeScript changes still get diff-centered review with targeted repository exploration.
@@ -34,7 +34,7 @@ TypeScript reviews can include changed AST symbols, related tests, file excerpts
 2. It filters files and assembles relevant local context.
 3. A separate model reviews the change through your selected local backend.
 4. DiffOwl writes a Markdown report and persists findings in SQLite.
-5. You inspect the findings, continue the review chat, or hand them to a coding agent for resolution.
+5. You inspect the findings, record their disposition, or hand them to a coding agent for resolution.
 
 The orchestration and state stay in your repository. Review context goes only to the backend and model you selected.
 
@@ -131,12 +131,7 @@ diffowl findings reopen fnd_abc --reason "The bug returned in a new path."
 
 Use `--format json` with `findings list`, `show`, or `summary` when another tool needs the backlog.
 
-To continue the conversation behind a review:
-
-```bash
-diffowl chat
-diffowl chat .diffowl/reviews/review-<timestamp>.md
-```
+Inspect a finding with `diffowl findings show`, then record its disposition with `fix`, `dismiss`, `defer`, or `reopen`. Run a new review when you need new model analysis.
 
 ## Resolve findings with a coding agent
 
@@ -245,7 +240,6 @@ Linked Git worktrees share the durable backlog and review reports from the prima
 | `diffowl backend`    | Inspect or change the local review backend  |
 | `diffowl model`      | View or change the selected model           |
 | `diffowl findings`   | Inspect and update durable findings         |
-| `diffowl chat`       | Reopen an OpenCode review session           |
 | `diffowl hook`       | Manage the post-commit hook                 |
 | `diffowl agent-hook` | Manage supported agent client hooks         |
 | `diffowl server`     | Manage the local OpenCode server            |

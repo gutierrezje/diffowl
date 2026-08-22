@@ -496,6 +496,18 @@ describe("diffowl CLI", () => {
     expect(stdout).toContain("--fail-on-findings");
   });
 
+  it("treats the removed chat command as unknown", async () => {
+    const { stdout } = await execa("node", [cliPath, "--help"]);
+    const chatResult = await execa("node", [cliPath, "chat"], { reject: false });
+    const unknownResult = await execa("node", [cliPath, "not-a-command"], { reject: false });
+
+    expect(stdout).not.toMatch(/^\s+chat(?:\s|$)/m);
+    expect(chatResult).toMatchObject({
+      exitCode: unknownResult.exitCode,
+      stderr: unknownResult.stderr,
+    });
+  });
+
   it.each([
     { args: ["--staged", "--commit", "HEAD"], message: "--staged and --commit" },
     { args: ["--staged", "--base"], message: "--staged and --base" },

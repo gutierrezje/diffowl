@@ -17,6 +17,12 @@ All notable changes to DiffOwl are documented here. This project adheres to
   head, and diff identity; completed execution provenance includes the same immutable input.
   Consumers must negotiate `schema_version` rather than assuming version 4.
 
+### Removed
+
+- `diffowl chat` and its OpenCode session-reopening path. Inspect durable findings with
+  `diffowl findings show`, record their disposition with the finding lifecycle commands,
+  and run a new review when new model analysis is needed.
+
 ## [0.4.0] - 2026-08-14
 
 The **Reliable Review Automation** release. DiffOwl now carries findings across

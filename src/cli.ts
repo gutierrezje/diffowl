@@ -76,13 +76,7 @@ import {
 } from "./integrations/agent-path.js";
 import { installClaudeCodeHook } from "./integrations/claude-code.js";
 import { getSharedDiffOwlDir } from "./git/state-root.js";
-import { printHeader, printFooter, parseReviewMetadata } from "./review/formatter.js";
-import {
-  canSelectReviewInteractively,
-  listReviewReportPaths,
-  resolveReviewReportPath,
-  selectReviewReportPath,
-} from "./review/report-path.js";
+import { printHeader, printFooter } from "./review/formatter.js";
 import {
   getPersistedReview,
   loadFindingOccurrenceCounts,
@@ -148,8 +142,6 @@ import type { ReviewTarget } from "./review/target.js";
 import { inspectReviewRuntimes } from "./review/runtime.js";
 import { getReviewBackendFailureGuidance } from "./review/guidance.js";
 
-import { readFile } from "node:fs/promises";
-import { basename, dirname } from "node:path";
 import { execa } from "execa";
 import { z } from "zod";
 import packageJson from "../package.json" with { type: "json" };
@@ -514,95 +506,6 @@ program
       process.exit(1);
     }
   });
-
-program
-  .command("chat")
-  .description("Open the OpenCode session for a review")
-  .argument("[report]", "Review report path or filename")
-  .action(async (report?: string) => {
-    const reportPath = report
-      ? await resolveReviewReportPath(report)
-      : await selectReviewInteractively();
-
-    let content: string;
-    try {
-      content = await readFile(reportPath, "utf-8");
-    } catch {
-      console.error(chalk.red(`Review report not found: ${reportPath}`));
-      process.exit(1);
-    }
-
-    let metadata;
-    try {
-      metadata = parseReviewMetadata(content);
-    } catch {
-      console.error(chalk.red(`Invalid review metadata: ${reportPath}`));
-      process.exit(1);
-    }
-
-    if (!metadata) {
-      console.error(
-        chalk.red(`Review report does not contain chat session metadata: ${reportPath}`),
-      );
-      process.exit(1);
-    }
-
-    try {
-      await execa("opencode", [metadata.project_root, "--session", metadata.session_id], {
-        stdio: "inherit",
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(chalk.red(`Failed to open review session: ${message}`));
-      for (const line of getOpenCodeFailureGuidance(message)) {
-        console.log(chalk.dim(line));
-      }
-      process.exit(1);
-    }
-  });
-
-async function selectReviewInteractively(): Promise<string> {
-  if (!canSelectReviewInteractively(process.stdin.isTTY, process.stdout.isTTY)) {
-    console.error(
-      chalk.red(
-        "Interactive review selection requires a terminal. Pass a report filename or path instead.",
-      ),
-    );
-    process.exit(1);
-  }
-
-  const reports = await listReviewReportPaths();
-  if (reports.length === 0) {
-    console.error(chalk.red("No review reports available. Run `diffowl review` first."));
-    process.exit(1);
-  }
-
-  console.log(chalk.bold("\nSelect a review:\n"));
-  for (const [index, report] of reports.entries()) {
-    const resolved = basename(dirname(report)) === "resolved";
-    console.log(
-      `  ${chalk.cyan(`${index + 1}.`)} ${basename(report)}${resolved ? chalk.dim(" (resolved)") : ""}`,
-    );
-  }
-
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  try {
-    while (true) {
-      const selected = selectReviewReportPath(
-        reports,
-        await rl.question(chalk.yellow("\nReview number: ")),
-      );
-      if (selected) return selected;
-      console.log(chalk.red(`Enter a number between 1 and ${reports.length}.`));
-    }
-  } finally {
-    rl.close();
-  }
-}
 
 function formatReviewProgress(event: ReviewProgressEvent): string {
   switch (event.type) {
