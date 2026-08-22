@@ -7,7 +7,7 @@ import { ReviewCancelledError } from "../review/errors.js";
 import { createReviewSettlementCoordinator, type ReconciliationResult } from "./settlement.js";
 import {
   buildToolPolicy,
-  extractPermissionRequest,
+  extractPermissionRequestFromPayload,
   replyToPermissionRequest,
   type PermissionRequest,
 } from "./tools.js";
@@ -120,7 +120,7 @@ export function normalizeOpenCodeEvent(
   if (!parsedPayload.success) return undefined;
   const { type, properties } = parsedPayload.data;
 
-  const permission = extractPermissionRequest(parsedPayload.data, expectedSessionId);
+  const permission = extractPermissionRequestFromPayload(parsedPayload.data, expectedSessionId);
   if (permission) return { type: "permission", request: permission };
 
   const parsedSessionId = z.string().safeParse(properties["sessionID"]);

@@ -1,7 +1,12 @@
 import { z } from "zod";
 import type { ReviewContextDepth } from "../config.js";
 import type { ReviewOptions } from "../review/types.js";
-import { BoundaryValueSchema, OpenCodePayloadSchema, type OpenCodePayloadInput } from "./wire.js";
+import {
+  BoundaryValueSchema,
+  OpenCodePayloadSchema,
+  type OpenCodePayload,
+  type OpenCodePayloadInput,
+} from "./wire.js";
 
 type ToolPolicy = Record<string, boolean>;
 type PermissionResponse = "once" | "always" | "reject";
@@ -135,7 +140,15 @@ export function extractPermissionRequest(
     return undefined;
   }
 
-  const { type, properties } = parsedPayload.data;
+  return extractPermissionRequestFromPayload(parsedPayload.data, expectedSessionId);
+}
+
+export function extractPermissionRequestFromPayload(
+  payload: OpenCodePayload,
+  expectedSessionId?: string,
+): PermissionRequest | undefined {
+  const { type, properties } = payload;
+
   const parsedSessionId = z.string().safeParse(properties["sessionID"]);
   if (!parsedSessionId.success) {
     return undefined;

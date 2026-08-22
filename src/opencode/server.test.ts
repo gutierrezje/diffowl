@@ -353,7 +353,7 @@ describe("ensureServer", () => {
         };
       }
       if (healthChecks <= 3) {
-        return { ok: false };
+        return { ok: false, json: async () => ({}) };
       }
       return {
         ok: true,
@@ -495,7 +495,7 @@ describe("stopServer", () => {
   it("falls back to the port listener when no managed pid file exists", async () => {
     mocks.getDiffOwlDir.mockReturnValue("/tmp/diffowl");
     mocks.existsSync.mockReturnValue(false);
-    mocks.fetch.mockResolvedValue({ ok: false });
+    mocks.fetch.mockResolvedValue({ ok: false, json: async () => ({}) });
     vi.stubGlobal("fetch", mocks.fetch);
     let lsofCalls = 0;
     let netstatCalls = 0;
@@ -532,7 +532,7 @@ describe("stopServer", () => {
     mocks.existsSync.mockReturnValue(true);
     mocks.readFile.mockResolvedValue("44444");
     mocks.unlink.mockRejectedValue(new Error("permission denied"));
-    mocks.fetch.mockResolvedValue({ ok: false });
+    mocks.fetch.mockResolvedValue({ ok: false, json: async () => ({}) });
     vi.stubGlobal("fetch", mocks.fetch);
     mocks.execa.mockImplementation((command: string) => {
       // isOpencodeProcess: Unix

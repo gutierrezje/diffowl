@@ -32,7 +32,7 @@ export interface ServerDependencies {
   kill: (pid: number, signal: NodeJS.Signals | 0) => boolean;
 }
 
-type ServerResponse = { ok: boolean; json?: () => Promise<BoundaryValue> };
+type ServerResponse = { ok: boolean; json: () => Promise<BoundaryValue> };
 type ServerCommandOptions = {
   timeout?: number;
   detached?: boolean;

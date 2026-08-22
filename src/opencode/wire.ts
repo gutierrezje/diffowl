@@ -16,6 +16,7 @@ export const OpenCodePayloadSchema = z
   })
   .passthrough();
 export type OpenCodePayloadInput = z.input<typeof OpenCodePayloadSchema>;
+export type OpenCodePayload = z.output<typeof OpenCodePayloadSchema>;
 
 export const OpenCodeEventEnvelopeSchema = z.object({ payload: BoundaryValueSchema }).passthrough();
 export type OpenCodeEventInput = z.input<typeof OpenCodeEventEnvelopeSchema> | null;
