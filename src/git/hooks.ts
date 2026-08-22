@@ -487,6 +487,16 @@ export async function runPendingHookReviews(
   }
 }
 
+export async function runHookWorker(options: RunPendingHookReviewsOptions = {}): Promise<void> {
+  try {
+    await runPendingHookReviews(options);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await writeHookStatus(1, undefined, `Hook worker failed: ${message}`, null);
+    throw error;
+  }
+}
+
 export async function enqueuePendingReview(dir: string, sha: string): Promise<void> {
   const pendingDir = join(dir, "pending-reviews");
   await mkdir(pendingDir, { recursive: true });

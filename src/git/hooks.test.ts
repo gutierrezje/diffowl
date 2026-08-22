@@ -19,6 +19,7 @@ import {
   isHookInstalled,
   listPendingReviews,
   runHookReview,
+  runHookWorker,
   writeHookStatus,
   releaseHookReviewLock,
   uninstallHook,
@@ -218,6 +219,24 @@ describe("runHookReview", () => {
       readFile(join(root, ".diffowl", "last-hook-status.json"), "utf-8"),
     ).resolves.toContain("spawn EACCES");
     expect(existsSync(join(root, ".diffowl", "hook-review.lock"))).toBe(false);
+  });
+});
+
+describe("runHookWorker", () => {
+  it("persists failures that escape the queue processor", async () => {
+    const root = await createGitRepo();
+    await writeFile(join(root, ".diffowl.yml"), "model: provider/model\n", "utf-8");
+    const dir = join(root, ".diffowl");
+    await enqueuePendingReview(dir, "failed-a");
+    await mkdir(join(dir, "hook.log"));
+    process.chdir(root);
+
+    await expect(runHookWorker()).rejects.toThrow(/directory|EISDIR/i);
+
+    await expect(
+      readFile(join(root, ".diffowl", "last-hook-status.json"), "utf-8"),
+    ).resolves.toContain("Hook worker failed");
+    await expect(checkRecentHookFailure()).resolves.toMatchObject({ exitCode: 1 });
   });
 });
 

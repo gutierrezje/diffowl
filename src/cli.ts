@@ -59,7 +59,7 @@ import {
   checkRecentHookFailure,
   formatHookFailure,
   runHookReview,
-  runPendingHookReviews,
+  runHookWorker,
   releaseHookReviewLock,
   writeHookStatus,
 } from "./git/hooks.js";
@@ -1139,7 +1139,12 @@ program
     if (hookLock) {
       process.once("exit", () => releaseHookReviewLock(hookLock));
     }
-    await runPendingHookReviews();
+    try {
+      await runHookWorker();
+    } catch (error) {
+      console.error(chalk.red(error instanceof Error ? error.message : String(error)));
+      process.exitCode = 1;
+    }
   });
 
 // Agent client hooks. Distinct from the `hook` group above, which is the git post-commit hook.
