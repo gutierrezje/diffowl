@@ -109,8 +109,7 @@
         min-height: 100vh;
         isolation: isolate;
         background:
-          linear-gradient(145deg, rgba(255, 255, 255, 0.024), transparent 28%),
-          rgba(3, 4, 6, 0.97);
+          linear-gradient(145deg, rgba(255, 255, 255, 0.024), transparent 28%), rgba(3, 4, 6, 0.97);
         border-inline: 1px solid rgba(255, 255, 255, 0.07);
         box-shadow:
           inset 1px 0 rgba(255, 255, 255, 0.024),
@@ -991,24 +990,24 @@
               <div class="n">02</div>
               <h3>Nothing to sign up for</h3>
               <p>
-                No account, no dashboard, no third party between you and the review. The CLI runs
-                on your machine and talks straight to the model provider you already use.
+                No account, no dashboard, no third party between you and the review. The CLI runs on
+                your machine and talks straight to the model provider you already use.
               </p>
             </div>
             <div class="pillar">
               <div class="n">03</div>
-              <h3>Any model, no new bill</h3>
+              <h3>Use the backend you already have</h3>
               <p>
-                It rides on the OpenCode providers you already set up: Copilot, OpenAI, or local
-                Ollama. You pick the model, so you decide what a review costs.
+                Review through your existing OpenCode providers or the signed-in Codex CLI. You pick
+                the backend and model, so you decide what a review costs.
               </p>
             </div>
             <div class="pillar">
               <div class="n">04</div>
               <h3>Quality you can measure</h3>
               <p>
-                DiffOwl ships with a replayable eval suite that scores its own reviews on
-                precision, recall, and cost. You don't have to take the review quality on faith.
+                DiffOwl ships with a replayable eval suite that scores its own reviews on precision,
+                recall, and cost. You don't have to take the review quality on faith.
               </p>
             </div>
           </div>
@@ -1023,9 +1022,10 @@
             Most tools leave a comment. DiffOwl <strong>remembers the outcome.</strong>
           </div>
           <p class="lede">
-            Every finding gets a stable <code style="font-family: var(--mono); font-size: 14px">fnd_*</code>
-            ID in SQLite, deduped across commits and tracked from first sighting to fix,
-            dismissal, or regression.
+            Every finding gets a stable
+            <code style="font-family: var(--mono); font-size: 14px">fnd_*</code>
+            ID in SQLite, deduped across commits and tracked from first sighting to fix, dismissal,
+            or regression.
           </p>
           <div class="loop">
             <div class="step">
@@ -1050,8 +1050,8 @@
               <div class="si">04</div>
               <h4>DiffOwl remembers</h4>
               <p>
-                Dismissed findings stay quiet on re-review; regressions reopen the original
-                finding automatically.
+                Dismissed findings stay quiet on re-review; regressions reopen the original finding
+                automatically.
               </p>
             </div>
           </div>
@@ -1078,15 +1078,15 @@
                 <div class="o ok">.diffowl.yml created</div>
                 <div class="o"># review the latest change</div>
                 <div><span class="p">$</span> <span class="c">diffowl review</span></div>
-                <div class="o ok">report → .diffowl/reviews/latest.md</div>
+                <div class="o ok">report → .diffowl/reviews/review-*.md</div>
               </div>
             </div>
             <ol class="qs-list">
               <li>
-                <h4>Bring your own provider</h4>
+                <h4>Use your existing setup</h4>
                 <p>
-                  DiffOwl uses OpenCode's existing credentials — <code>opencode</code> connects
-                  Copilot, OpenAI, or local Ollama.
+                  Choose OpenCode with its connected providers or your signed-in Codex CLI. DiffOwl
+                  keeps that choice local to your machine.
                 </p>
               </li>
               <li>
@@ -1121,24 +1121,36 @@
               <span><b>Branch review</b> with <code>--base</code> to cover a whole PR at once</span>
             </li>
             <li>
-              <span><b>Markdown reports</b> in <code>.diffowl/reviews/</code>, readable whenever you are</span>
+              <span
+                ><b>Markdown reports</b> in <code>.diffowl/reviews/</code>, readable whenever you
+                are</span
+              >
             </li>
             <li>
               <span><b>Durable findings</b> in SQLite, deduped across commits</span>
             </li>
             <li>
-              <span><b>A full lifecycle</b>: fix, dismiss, defer, reopen — a fix isn't recorded
-                without the command that verified it</span>
+              <span
+                ><b>A full lifecycle</b>: fix, dismiss, defer, reopen — a fix isn't recorded without
+                the command that verified it</span
+              >
             </li>
             <li>
-              <span><b>No nitpicks by design</b>: style gripes get suppressed, so reports stay
-                small</span>
+              <span
+                ><b>No nitpicks by design</b>: style gripes get suppressed, so reports stay
+                small</span
+              >
             </li>
             <li>
-              <span><b>JSON output</b> and <code>--fail-on-findings</code> for scripting and CI</span>
+              <span
+                ><b>JSON output</b> and <code>--fail-on-findings</code> for scripting and CI</span
+              >
             </li>
             <li>
-              <span><b>Agent handoff</b>: the <code>diffowl-resolve</code> skill fixes what the owl finds</span>
+              <span
+                ><b>Agent handoff</b>: the <code>diffowl-resolve</code> skill fixes what the owl
+                finds</span
+              >
             </li>
           </ul>
         </div>
@@ -1167,7 +1179,7 @@
                   <td data-label="Agent self-review"><span class="y"></span>Yes</td>
                 </tr>
                 <tr>
-                  <td>Choose any model</td>
+                  <td>Choose your review model</td>
                   <td class="us" data-label="DiffOwl"><span class="y"></span>Yes</td>
                   <td data-label="Hosted bots"><span class="n"></span>Vendor-locked</td>
                   <td data-label="Agent self-review"><span class="n"></span>Same model</td>
@@ -1185,7 +1197,7 @@
                   <td data-label="Agent self-review"><span class="n"></span>No</td>
                 </tr>
                 <tr>
-                  <td>Account required</td>
+                  <td>DiffOwl account required</td>
                   <td class="us" data-label="DiffOwl"><span class="y"></span>No</td>
                   <td data-label="Hosted bots"><span class="n"></span>Yes</td>
                   <td data-label="Agent self-review"><span class="y"></span>No</td>
@@ -1197,10 +1209,10 @@
                   <td data-label="Agent self-review">Your provider's</td>
                 </tr>
                 <tr>
-                  <td>Subscription model</td>
-                  <td class="us" data-label="DiffOwl">None (Your keys)</td>
+                  <td>Review subscription</td>
+                  <td class="us" data-label="DiffOwl">Your existing provider</td>
                   <td data-label="Hosted bots">Per-seat SaaS</td>
-                  <td data-label="Agent self-review">None (Agent keys)</td>
+                  <td data-label="Agent self-review">Your agent plan</td>
                 </tr>
               </tbody>
             </table>
@@ -1217,8 +1229,8 @@
         <div class="wrap reveal">
           <div class="big">Stop merging code <strong>nobody reviewed.</strong></div>
           <p>
-            One install gets you an independent reviewer on every commit. Your model, your
-            machine, nothing to sign up for.
+            One install gets you an independent reviewer on every commit. Your model, your machine,
+            nothing to sign up for.
           </p>
           <div class="pill">
             <span class="p">$</span> <span id="cmd">npm install -g diffowl</span>
@@ -1242,8 +1254,8 @@
           >
           <div class="d">
             An independent, provider-neutral reviewer for agent-written code. MIT licensed. Runs
-            on your OpenCode providers, with no service of its own in the loop and no account
-            required.
+            through OpenCode or the Codex CLI, with no service of its own in the loop and no DiffOwl
+            account required.
           </div>
           <div style="font-family: var(--mono); font-size: 12.5px; color: var(--mut)">
             © 2026 ·
