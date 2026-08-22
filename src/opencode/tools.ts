@@ -1,8 +1,34 @@
+import { z } from "zod";
 import type { ReviewContextDepth } from "../config.js";
 import type { ReviewOptions } from "../review/types.js";
+import {
+  BoundaryValueSchema,
+  OpenCodePayloadSchema,
+  type OpenCodePayload,
+  type OpenCodePayloadInput,
+} from "./wire.js";
 
 type ToolPolicy = Record<string, boolean>;
 type PermissionResponse = "once" | "always" | "reject";
+
+type ToolIdsResult = z.input<typeof ToolIdsResultSchema>;
+type ToolClient = { tool?: { ids?: () => Promise<ToolIdsResult> } };
+type PermissionClient = {
+  postSessionIdPermissionsPermissionId?: (options: {
+    path: { id: string; permissionID: string };
+    body: { response: PermissionResponse };
+  }) => Promise<object>;
+  permission?: {
+    reply?: (
+      path: { requestID: string },
+      options?: { body?: { reply: PermissionResponse; message?: string } },
+    ) => Promise<object>;
+  };
+};
+
+const ToolIdsResultSchema = z
+  .object({ data: z.array(BoundaryValueSchema).optional() })
+  .passthrough();
 
 const FALLBACK_TOOL_IDS = [
   "apply_patch",
@@ -30,16 +56,18 @@ export interface PermissionRequest {
 }
 
 export async function buildToolPolicy(
-  client: { tool?: { ids?: () => Promise<{ data: unknown }> } },
+  client: ToolClient,
   depth: ReviewContextDepth,
 ): Promise<ToolPolicy> {
   const available = new Set(FALLBACK_TOOL_IDS);
   try {
     const result = await client.tool?.ids?.();
-    if (Array.isArray(result?.data)) {
-      for (const id of result.data) {
-        if (typeof id === "string") {
-          available.add(id);
+    const parsedResult = ToolIdsResultSchema.safeParse(result);
+    if (parsedResult.success) {
+      for (const id of parsedResult.data.data ?? []) {
+        const parsedId = z.string().safeParse(id);
+        if (parsedId.success) {
+          available.add(parsedId.data);
         }
       }
     }
@@ -63,18 +91,7 @@ function allowedToolsForDepth(depth: ReviewContextDepth): Set<string> {
 }
 
 export async function replyToPermissionRequest(
-  client: {
-    postSessionIdPermissionsPermissionId?: (options: {
-      path: { id: string; permissionID: string };
-      body: { response: "once" | "always" | "reject" };
-    }) => Promise<unknown>;
-    permission?: {
-      reply?: (
-        path: { requestID: string },
-        options?: { body?: { reply: "once" | "always" | "reject"; message?: string } },
-      ) => Promise<unknown>;
-    };
-  },
+  client: PermissionClient,
   permission: PermissionRequest,
   onProgress: ReviewOptions["onProgress"],
 ): Promise<void> {
@@ -94,18 +111,7 @@ export async function replyToPermissionRequest(
 }
 
 async function replyWithAvailableEndpoint(
-  client: {
-    postSessionIdPermissionsPermissionId?: (options: {
-      path: { id: string; permissionID: string };
-      body: { response: "once" | "always" | "reject" };
-    }) => Promise<unknown>;
-    permission?: {
-      reply?: (
-        path: { requestID: string },
-        options?: { body?: { reply: "once" | "always" | "reject"; message?: string } },
-      ) => Promise<unknown>;
-    };
-  },
+  client: PermissionClient,
   permission: PermissionRequest,
   response: PermissionResponse,
 ): Promise<void> {
@@ -126,69 +132,74 @@ async function replyWithAvailableEndpoint(
 }
 
 export function extractPermissionRequest(
-  payload: unknown,
+  payload: OpenCodePayloadInput,
   expectedSessionId?: string,
 ): PermissionRequest | undefined {
-  if (!payload || typeof payload !== "object") {
+  const parsedPayload = OpenCodePayloadSchema.safeParse(payload);
+  if (!parsedPayload.success) {
     return undefined;
   }
 
-  const event = payload as { type?: unknown; properties?: unknown };
-  if (typeof event.type !== "string" || !event.properties || typeof event.properties !== "object") {
+  return extractPermissionRequestFromPayload(parsedPayload.data, expectedSessionId);
+}
+
+export function extractPermissionRequestFromPayload(
+  payload: OpenCodePayload,
+  expectedSessionId?: string,
+): PermissionRequest | undefined {
+  const { type, properties } = payload;
+
+  const parsedSessionId = z.string().safeParse(properties["sessionID"]);
+  if (!parsedSessionId.success) {
+    return undefined;
+  }
+  const sessionId = parsedSessionId.data;
+  if (expectedSessionId !== undefined && sessionId !== expectedSessionId) {
     return undefined;
   }
 
-  const properties = event.properties as Record<string, unknown>;
-  const sessionId = properties["sessionID"];
-  if (
-    typeof sessionId !== "string" ||
-    (expectedSessionId !== undefined && sessionId !== expectedSessionId)
-  ) {
-    return undefined;
-  }
-
-  if (event.type === "permission.updated") {
-    const id = properties["id"];
-    const type = properties["type"];
+  if (type === "permission.updated") {
+    const id = z.string().safeParse(properties["id"]);
+    const permissionType = z.string().safeParse(properties["type"]);
     if (
-      typeof id !== "string" ||
-      id.trim() === "" ||
-      typeof type !== "string" ||
-      type.trim() === ""
+      !id.success ||
+      id.data.trim() === "" ||
+      !permissionType.success ||
+      permissionType.data.trim() === ""
     ) {
       return undefined;
     }
 
-    const title = properties["title"];
-    return {
-      id,
+    const request: PermissionRequest = {
+      id: id.data,
       sessionID: sessionId,
-      type,
-      ...(typeof title === "string" ? { title } : {}),
+      type: permissionType.data,
     };
+    const title = z.string().safeParse(properties["title"]);
+    if (title.success) request.title = title.data;
+    return request;
   }
 
-  if (event.type === "permission.asked") {
-    const id = properties["id"];
-    const permission = properties["permission"];
+  if (type === "permission.asked") {
+    const id = z.string().safeParse(properties["id"]);
+    const permission = z.string().safeParse(properties["permission"]);
     if (
-      typeof id !== "string" ||
-      id.trim() === "" ||
-      typeof permission !== "string" ||
-      permission.trim() === ""
+      !id.success ||
+      id.data.trim() === "" ||
+      !permission.success ||
+      permission.data.trim() === ""
     ) {
       return undefined;
     }
 
-    const patterns = properties["patterns"];
-    return {
-      id,
+    const request: PermissionRequest = {
+      id: id.data,
       sessionID: sessionId,
-      type: permission,
-      ...(Array.isArray(patterns) && patterns.every((pattern) => typeof pattern === "string")
-        ? { title: patterns.join(", ") }
-        : {}),
+      type: permission.data,
     };
+    const patterns = z.array(z.string()).safeParse(properties["patterns"]);
+    if (patterns.success) request.title = patterns.data.join(", ");
+    return request;
   }
 
   return undefined;

@@ -89,14 +89,15 @@ describe("createReviewSettlementCoordinator", () => {
       timeoutMs: 2500,
       reconcile,
     });
-    const assertion = outcome.promise.catch((error: unknown) => error);
+    const assertion = outcome.promise.catch((error) => error);
 
     await vi.advanceTimersByTimeAsync(2500);
 
     const error = await assertion;
     expect(error).toBeInstanceOf(Error);
-    expect((error as Error).message).toBe("Review timed out.");
-    expect((error as Error).cause).toBeUndefined();
+    if (!(error instanceof Error)) throw new Error("Expected a timeout error.");
+    expect(error.message).toBe("Review timed out.");
+    expect(error.cause).toBeUndefined();
   });
 
   it("resolves complete reconciled review text", async () => {
@@ -371,7 +372,9 @@ describe("createReviewSettlementCoordinator", () => {
     const onText = vi.fn();
     const coordinator = createCoordinator(outcome, { onText });
 
-    coordinator.acceptText('FINAL_REVIEW_JSON\n{"summary":"longer incomplete', { messageId: "msg-1" });
+    coordinator.acceptText('FINAL_REVIEW_JSON\n{"summary":"longer incomplete', {
+      messageId: "msg-1",
+    });
     coordinator.acceptText('FINAL_REVIEW_JSON\n{"s"', { messageId: "msg-1" });
 
     expect(onText).toHaveBeenLastCalledWith('FINAL_REVIEW_JSON\n{"summary":"longer incomplete');
@@ -412,7 +415,7 @@ function createCoordinator(
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
+  let reject!: (reason?: Error | string | null) => void;
   const promise = new Promise<T>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
     reject = rejectPromise;
