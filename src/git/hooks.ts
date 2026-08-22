@@ -140,6 +140,7 @@ export interface HookWorkerProcessRequest {
   command: string;
   args: readonly string[];
   options: ExecaOptions;
+  onFailure(message: string): void;
 }
 
 export interface HookWorker {
@@ -170,14 +171,15 @@ const execaHookReviewProcess: HookReviewProcess = {
 };
 
 export const execaHookWorkerProcess: HookWorkerProcess = {
-  start({ command, args, options }) {
+  start({ command, args, options, onFailure }) {
     const subprocess = execa(command, args, options);
+    const reportFailure = (error: Error): void => onFailure(error.message);
     if (subprocess.pid === undefined) {
-      void subprocess.catch(() => {});
+      void subprocess.catch(reportFailure);
       throw new Error(`Failed to spawn hook worker with ${command}.`);
     }
     // After spawn, the detached worker owns its log and status; hook-run must not await its exit.
-    void subprocess.catch(() => {});
+    void subprocess.catch(reportFailure);
     const worker: HookWorker = {
       pid: subprocess.pid,
       unref() {
@@ -371,6 +373,14 @@ export async function runHookReview(options: RunHookReviewOptions = {}): Promise
           PATH: envPath,
           DIFFOWL_HOOK_LOCK: lockFile,
         },
+      },
+      onFailure(message) {
+        releaseHookReviewLock(lockFile);
+        const detail = `Hook worker failed: ${message}`;
+        void Promise.all([
+          appendFile(logFile, `diffowl: ${detail}\n`, "utf-8"),
+          writeHookStatus(1, commit, detail, null, dir),
+        ]).catch(() => {});
       },
     });
     if (subprocess.pid) {
