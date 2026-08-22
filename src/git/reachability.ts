@@ -1,4 +1,5 @@
 import { execa } from "execa";
+import type { Options as ExecaOptions } from "execa";
 
 /**
  * Filters `candidates` down to the SHAs that are ancestors of (or equal to) HEAD.
@@ -15,10 +16,11 @@ export async function filterReachableCommits(
 
   const results = await Promise.all(
     distinctCandidates.map(async (sha) => {
-      const result = await execa("git", ["merge-base", "--is-ancestor", sha, "HEAD"], {
-        reject: false,
-        ...(cwd ? { cwd } : {}),
-      });
+      const options: ExecaOptions = { reject: false };
+      if (cwd !== undefined) {
+        Object.assign(options, { cwd });
+      }
+      const result = await execa("git", ["merge-base", "--is-ancestor", sha, "HEAD"], options);
       // exitCode 0: ancestor (reachable). exitCode 1: not an ancestor. Those are the only two
       // answers this predicate has; every fatal condition goes through git's die(), which always
       // exits 128. So 128 means "git gave up", not specifically "unknown object" — a rebased-away

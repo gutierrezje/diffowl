@@ -1,5 +1,6 @@
 import { execa } from "execa";
 import { basename, extname } from "node:path";
+import { z } from "zod";
 
 export interface DiffResult {
   files: DiffFile[];
@@ -31,7 +32,23 @@ type DiffFileDraft = DiffFileBase & {
   status: DiffFile["status"];
 };
 
+interface GitDiffSpawnOptions {
+  maxBuffer: number;
+  cwd?: string;
+  timeout?: number;
+  detached?: boolean;
+}
+
+interface TimedSpawnOptions {
+  timeout: number;
+  detached?: boolean;
+}
+
 const MAX_DIFF_OUTPUT_BYTES = 2 * 1024 * 1024;
+const MaxBufferErrorSchema = z.object({
+  isMaxBuffer: z.literal(true),
+  stdout: z.string(),
+});
 
 export async function getLastCommitDiff(): Promise<DiffResult> {
   return getCommitDiff("HEAD");
@@ -174,11 +191,18 @@ async function collectGitDiff(
   cwd?: string,
   timeoutMs?: number,
 ): Promise<{ stdout: string; diagnostics: string[] }> {
-  const subprocess = execa("git", args, {
-    maxBuffer: MAX_DIFF_OUTPUT_BYTES,
-    ...(cwd ? { cwd } : {}),
-    ...(timeoutMs === undefined ? {} : timedSpawnOptions(timeoutMs)),
-  });
+  const spawnOptions: GitDiffSpawnOptions = { maxBuffer: MAX_DIFF_OUTPUT_BYTES };
+  if (cwd !== undefined) {
+    spawnOptions.cwd = cwd;
+  }
+  if (timeoutMs !== undefined) {
+    const timedOptions = timedSpawnOptions(timeoutMs);
+    spawnOptions.timeout = timedOptions.timeout;
+    if (timedOptions.detached !== undefined) {
+      spawnOptions.detached = timedOptions.detached;
+    }
+  }
+  const subprocess = execa("git", args, spawnOptions);
   const backstop =
     timeoutMs === undefined ? undefined : scheduleProcessTreeKill(subprocess, timeoutMs);
 
@@ -186,9 +210,10 @@ async function collectGitDiff(
     const { stdout } = await subprocess;
     return { stdout, diagnostics: [] };
   } catch (err) {
-    if (isMaxBufferError(err)) {
+    const maxBufferError = MaxBufferErrorSchema.safeParse(err);
+    if (maxBufferError.success) {
       return {
-        stdout: err.stdout,
+        stdout: maxBufferError.data.stdout,
         diagnostics: [
           `Git diff output exceeded ${formatBytes(MAX_DIFF_OUTPUT_BYTES)}; review context includes the truncated output captured before the limit.`,
         ],
@@ -226,7 +251,7 @@ const PROCESS_TREE_KILL_GRACE_MS = 250;
  */
 const WINDOWS_TIMEOUT_FALLBACK_MS = 1_000;
 
-function timedSpawnOptions(timeoutMs: number) {
+function timedSpawnOptions(timeoutMs: number): TimedSpawnOptions {
   if (process.platform === "win32") {
     // No `detached` here: on Windows it means DETACHED_PROCESS (a console-less child), which buys
     // nothing because taskkill walks parent PIDs rather than process groups.
@@ -398,7 +423,11 @@ export function parseDiff(raw: string, diagnostics: string[] = []): DiffResult {
     })
     .join("\n");
 
-  return { files, raw, summary, ...(diagnostics.length > 0 ? { diagnostics } : {}) };
+  const result: DiffResult = { files, raw, summary };
+  if (diagnostics.length > 0) {
+    result.diagnostics = diagnostics;
+  }
+  return result;
 }
 
 function finalizeDiffFile(draft: DiffFileDraft): DiffFile {
@@ -407,16 +436,6 @@ function finalizeDiffFile(draft: DiffFileDraft): DiffFile {
     return { oldPath: sourcePath, path, status, additions, deletions };
   }
   return { path, status, additions, deletions };
-}
-
-function isMaxBufferError(err: unknown): err is { stdout: string } {
-  return (
-    err !== null &&
-    typeof err === "object" &&
-    (err as { isMaxBuffer?: unknown }).isMaxBuffer === true &&
-    "stdout" in err &&
-    typeof (err as { stdout?: unknown }).stdout === "string"
-  );
 }
 
 function formatBytes(bytes: number): string {
@@ -508,17 +527,17 @@ export function unescapePath(content: string): string {
 }
 
 function decodeGitQuotedPath(content: string): string {
-  const escapes: Record<string, string> = {
-    '"': '"',
-    "\\": "\\",
-    a: "\x07",
-    b: "\b",
-    t: "\t",
-    n: "\n",
-    v: "\v",
-    f: "\f",
-    r: "\r",
-  };
+  const escapes = new Map([
+    ['"', '"'],
+    ["\\", "\\"],
+    ["a", "\x07"],
+    ["b", "\b"],
+    ["t", "\t"],
+    ["n", "\n"],
+    ["v", "\v"],
+    ["f", "\f"],
+    ["r", "\r"],
+  ]);
   let path = "";
   let i = 0;
 
@@ -539,7 +558,7 @@ function decodeGitQuotedPath(content: string): string {
       continue;
     }
 
-    path += escapes[content[i + 1] ?? ""] ?? content[i + 1] ?? "";
+    path += escapes.get(content[i + 1] ?? "") ?? content[i + 1] ?? "";
     i += 2;
   }
 

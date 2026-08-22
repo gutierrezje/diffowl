@@ -22,10 +22,8 @@ const HOOK_MARKER = "# diffowl-managed";
 const HOOK_END_MARKER = "# end-diffowl";
 const HOOK_SHEBANG = "#!/bin/sh";
 
-function loggedStdio(outFd: number): ExecaOptions["stdio"] {
-  // Execa supports integer file descriptors at runtime, but its async tuple type
-  // only accepts fixed descriptor literals instead of descriptors from openSync.
-  return ["ignore", outFd, outFd] as unknown as ExecaOptions["stdio"];
+function loggedStdio(logFile: string): ExecaOptions["stdio"] {
+  return ["ignore", { file: logFile, append: true }, { file: logFile, append: true }];
 }
 
 /**
@@ -129,6 +127,27 @@ const HookFailureSchema = z.object({
   timestamp: z.string(),
   message: z.string().optional(),
 });
+const PendingReviewSchema = z.object({ sha: z.string(), queuedAt: z.string() });
+
+export interface HookReviewProcessRequest {
+  command: string;
+  args: readonly string[];
+  options: ExecaOptions;
+}
+
+export interface HookReviewProcess {
+  run(request: HookReviewProcessRequest): Promise<void>;
+}
+
+export interface RunPendingHookReviewsOptions {
+  reviewProcess?: HookReviewProcess;
+}
+
+const execaHookReviewProcess: HookReviewProcess = {
+  async run({ command, args, options }) {
+    await execa(command, args, options);
+  },
+};
 
 export async function checkRecentHookFailure(): Promise<HookFailure | undefined> {
   const dir = getDiffOwlDir();
@@ -160,12 +179,10 @@ export async function checkRecentHookFailure(): Promise<HookFailure | undefined>
       return undefined;
     }
 
-    return {
-      ...(commit ? { commit } : {}),
-      exitCode,
-      timestamp,
-      ...(message ? { message } : {}),
-    };
+    const failure: HookFailure = { exitCode, timestamp };
+    if (commit) failure.commit = commit;
+    if (message) failure.message = message;
+    return failure;
   } catch {
     return undefined;
   }
@@ -180,16 +197,10 @@ export async function writeHookStatus(
 ): Promise<void> {
   try {
     const statusDir = dir ?? (await ensureDiffOwlDir());
-    const content = JSON.stringify(
-      {
-        ...(commit ? { commit } : {}),
-        exitCode,
-        timestamp: new Date().toISOString(),
-        ...(message ? { message } : {}),
-      },
-      null,
-      2,
-    );
+    const status: HookFailure = { exitCode, timestamp: new Date().toISOString() };
+    if (commit) status.commit = commit;
+    if (message) status.message = message;
+    const content = JSON.stringify(status, null, 2);
     if (resultPath) {
       await writeFile(resultPath, content, "utf-8");
       return;
@@ -311,7 +322,7 @@ export async function runHookReview(): Promise<void> {
       detached: true,
       cleanup: false,
       cwd: process.cwd(),
-      stdio: loggedStdio(outFd),
+      stdio: loggedStdio(logFile),
       env: {
         ...process.env,
         PATH: envPath,
@@ -335,10 +346,13 @@ export async function runHookReview(): Promise<void> {
   }
 }
 
-export async function runPendingHookReviews(): Promise<void> {
+export async function runPendingHookReviews(
+  options: RunPendingHookReviewsOptions = {},
+): Promise<void> {
   const dir = await ensureDiffOwlDir();
   const logFile = join(dir, "hook.log");
   const cli = fileURLToPath(import.meta.url);
+  const reviewProcess = options.reviewProcess ?? execaHookReviewProcess;
   const attempted = new Set<string>();
 
   while (true) {
@@ -358,10 +372,14 @@ export async function runPendingHookReviews(): Promise<void> {
       delete env["DIFFOWL_HOOK_LOCK"];
       env["DIFFOWL_HOOK_RESULT"] = resultPath;
       try {
-        await execa(process.execPath, [cli, "review", "--hook", "--commit", next.sha], {
-          cwd: process.cwd(),
-          stdio: loggedStdio(outFd),
-          env,
+        await reviewProcess.run({
+          command: process.execPath,
+          args: [cli, "review", "--hook", "--commit", next.sha],
+          options: {
+            cwd: process.cwd(),
+            stdio: loggedStdio(logFile),
+            env,
+          },
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -446,14 +464,9 @@ export async function listPendingReviews(
     [...markerFiles].map(async (file) => {
       const path = join(pendingDir, file);
       try {
-        const parsed = JSON.parse(await readFile(path, "utf-8")) as {
-          sha?: unknown;
-          queuedAt?: unknown;
-        };
-        if (typeof parsed.sha !== "string" || typeof parsed.queuedAt !== "string") {
-          return undefined;
-        }
-        return { sha: parsed.sha, queuedAt: parsed.queuedAt, path };
+        const parsed = PendingReviewSchema.safeParse(JSON.parse(await readFile(path, "utf-8")));
+        if (!parsed.success) return undefined;
+        return { sha: parsed.data.sha, queuedAt: parsed.data.queuedAt, path };
       } catch {
         return undefined;
       }
@@ -474,12 +487,13 @@ async function readHookResult(path: string): Promise<HookFailure | undefined> {
   try {
     const parsed = HookFailureSchema.safeParse(JSON.parse(await readFile(path, "utf-8")));
     if (!parsed.success) return undefined;
-    return {
-      ...(parsed.data.commit ? { commit: parsed.data.commit } : {}),
+    const failure: HookFailure = {
       exitCode: parsed.data.exitCode,
       timestamp: parsed.data.timestamp,
-      ...(parsed.data.message ? { message: parsed.data.message } : {}),
     };
+    if (parsed.data.commit) failure.commit = parsed.data.commit;
+    if (parsed.data.message) failure.message = parsed.data.message;
+    return failure;
   } catch {
     return undefined;
   }
@@ -527,7 +541,7 @@ function isHookReviewLockActive(lockFile: string): boolean {
       return true;
     } catch (err) {
       // EPERM means the PID exists but belongs to a process we cannot signal.
-      return (err as { code?: string }).code === "EPERM";
+      return err instanceof Error && "code" in err && err.code === "EPERM";
     }
   } catch {
     return false;
