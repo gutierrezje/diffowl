@@ -94,6 +94,7 @@ import {
   reviewStatusFromPersisted,
   writeJsonError,
   writeReviewJsonSuccess,
+  type BuildReviewJsonInput,
   type ReviewOutputFormat,
 } from "./output/json.js";
 import {
@@ -143,15 +144,39 @@ import {
   createSingleReviewAssignment,
   type ReviewExecutionProvenance,
 } from "./review/provenance.js";
+import type { ReviewTarget } from "./review/target.js";
 import { inspectReviewRuntimes } from "./review/runtime.js";
 import { getReviewBackendFailureGuidance } from "./review/guidance.js";
 
 import { readFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { execa } from "execa";
+import { z } from "zod";
 import packageJson from "../package.json" with { type: "json" };
 
 const program = new Command();
+const NodeRuntimeDescriptionSchema = z.object({
+  version: z.string(),
+  modules: z.string(),
+});
+const CliErrorSchema = z.preprocess(
+  (value) => (value instanceof Error ? value : new Error(String(value))),
+  z.instanceof(Error),
+);
+
+type ReviewCommandOptions = {
+  staged: boolean;
+  commit?: string;
+  base?: string | true;
+  hook: boolean;
+  failOnFindings: boolean;
+  depth?: string;
+  reasoning?: string;
+  model?: string;
+  backend?: string;
+  verbose: boolean;
+  format: string;
+};
 
 program
   .name("diffowl")
@@ -176,7 +201,7 @@ program
   .option("--backend <backend>", "Review backend override: opencode or codex")
   .option("--verbose", "Include suppressed findings and extra review details")
   .option("--format <format>", "Output format: text or json", "text")
-  .action(async (options) => {
+  .action(async (options: ReviewCommandOptions) => {
     const format = resolveReviewOutputFormat(options.format);
     const jsonMode = format === "json";
     const hookCommit = options.hook && options.commit ? String(options.commit) : undefined;
@@ -206,13 +231,14 @@ program
       await runInit();
     }
 
-    const effective = await loadEffectiveReviewConfigOrExit(
-      {
-        backend: options.backend,
-        model: options.model,
-      },
-      format,
-    );
+    const reviewOverrides: Parameters<typeof loadEffectiveReviewConfigOrExit>[0] = {};
+    if (options.backend !== undefined) {
+      reviewOverrides.backend = options.backend;
+    }
+    if (options.model !== undefined) {
+      reviewOverrides.model = options.model;
+    }
+    const effective = await loadEffectiveReviewConfigOrExit(reviewOverrides, format);
     const { config, selection } = effective;
     const projectRoot = getProjectRoot();
     const diffOwlDir = await getSharedDiffOwlDir();
@@ -236,16 +262,19 @@ program
       });
     }
 
-    const target = options.staged
-      ? ({ kind: "staged" } as const)
-      : options.commit
-        ? ({ kind: "commit", ref: String(options.commit) } as const)
-        : baseRequested
-          ? ({
-              kind: "base",
-              ...(typeof options.base === "string" ? { ref: options.base } : {}),
-            } as const)
-          : ({ kind: "last-commit" } as const);
+    let target: ReviewTarget;
+    if (options.staged) {
+      target = { kind: "staged" };
+    } else if (options.commit !== undefined) {
+      target = { kind: "commit", ref: options.commit };
+    } else if (options.base !== undefined) {
+      target = { kind: "base" };
+      if (options.base !== true) {
+        target.ref = options.base;
+      }
+    } else {
+      target = { kind: "last-commit" };
+    }
     const depth = resolveReviewDepth(options.depth, config);
     config.reasoning.effort = resolveReasoningEffort(options.reasoning, config);
     const verbose = Boolean(config.verbose || options.verbose);
@@ -594,15 +623,18 @@ async function describeNodeRuntime(node: string): Promise<string> {
       "-p",
       "JSON.stringify({ version: process.version, modules: process.versions.modules })",
     ]);
-    const parsed = JSON.parse(stdout) as { version?: unknown; modules?: unknown };
-    if (typeof parsed.version === "string" && typeof parsed.modules === "string") {
-      return `${node} (${parsed.version}, ABI ${parsed.modules})`;
+    const parsed = NodeRuntimeDescriptionSchema.safeParse(JSON.parse(stdout));
+    if (parsed.success) {
+      return `${node} (${parsed.data.version}, ABI ${parsed.data.modules})`;
     }
   } catch {}
   return node;
 }
 
-function resolveReviewDepth(value: unknown, config: DiffOwlConfig): ReviewContextDepth {
+function resolveReviewDepth(
+  value: Parameters<typeof parseReviewContextDepth>[0],
+  config: DiffOwlConfig,
+): ReviewContextDepth {
   if (value === undefined) {
     return config.context.depth;
   }
@@ -616,7 +648,10 @@ function resolveReviewDepth(value: unknown, config: DiffOwlConfig): ReviewContex
   }
 }
 
-function resolveReasoningEffort(value: unknown, config: DiffOwlConfig): ReasoningEffort {
+function resolveReasoningEffort(
+  value: Parameters<typeof parseReasoningEffort>[0],
+  config: DiffOwlConfig,
+): ReasoningEffort {
   if (value === undefined) {
     return config.reasoning.effort;
   }
@@ -670,11 +705,14 @@ async function runInit() {
   const currentModel = preferences.models.find((selection) => selection.backend === backend)?.model;
   console.log(`${chalk.bold("Review backend:")} ${formatReviewBackend(backend)} (${source})`);
   console.log(chalk.dim(`Local preference: ${await getReviewPreferencesPath()}`));
-  await selectModelInteractively(config, {
+  const modelOptions: Parameters<typeof selectModelInteractively>[1] = {
     allowKeepCurrent: false,
     backend,
-    ...(currentModel === undefined ? {} : { currentModel }),
-  });
+  };
+  if (currentModel !== undefined) {
+    modelOptions.currentModel = currentModel;
+  }
+  await selectModelInteractively(config, modelOptions);
   console.log(chalk.green(`✓ Config saved to ${await saveConfig(config)}`));
   await enableAgentPathFromCli();
 }
@@ -825,7 +863,7 @@ program
       try {
         await resetReviewBackendPreference();
       } catch (error) {
-        failConfigError(error);
+        failConfigError(CliErrorSchema.parse(error));
       }
       console.log(chalk.green("✓ Backend preference reset to OpenCode default"));
       console.log(chalk.dim(`Local preference: ${await getReviewPreferencesPath()}`));
@@ -844,7 +882,7 @@ program
       try {
         path = await saveReviewBackendPreference(backend);
       } catch (error) {
-        failConfigError(error);
+        failConfigError(CliErrorSchema.parse(error));
       }
       console.log(chalk.green(`✓ Backend set to ${formatReviewBackend(backend)}`));
       console.log(chalk.dim(`Local preference: ${path}`));
@@ -1190,7 +1228,7 @@ program
   .command("eval", { hidden: true })
   .description("Run measured review quality eval harness")
   .option("--corpus <dir>", "Corpus directory", "eval/corpus")
-  .option("--case <id>", "Run specific case(s) only", collectEvalCaseIds, [] as string[])
+  .option("--case <id>", "Run specific case(s) only", collectEvalCaseIds, Array<string>())
   .option("--trials <n>", "Trials per case", "1")
   .option("--mode <mode>", "Run mode: diffowl, baseline, or both", "diffowl")
   .option("--model <id>", "Review model override")
@@ -1355,7 +1393,7 @@ duplicateCmd
       }
       console.log(formatPossibleDuplicateDetail(detail));
     } catch (err) {
-      failFindingsCommand(format, err);
+      failFindingsCommand(format, CliErrorSchema.parse(err));
     }
   });
 
@@ -1378,7 +1416,7 @@ duplicateCmd
         console.log(formatPossibleDuplicateList(items));
       }
     } catch (err) {
-      failFindingsCommand(format, err);
+      failFindingsCommand(format, CliErrorSchema.parse(err));
     }
   });
 
@@ -1405,7 +1443,7 @@ for (const decision of ["confirm", "reject"] as const) {
           console.log(formatPossibleDuplicateDetail(updated));
         }
       } catch (err) {
-        failFindingsCommand(format, err);
+        failFindingsCommand(format, CliErrorSchema.parse(err));
       }
     });
 }
@@ -1460,7 +1498,9 @@ function containStdoutErrors(): void {
 }
 
 /** Never throws: its whole purpose is to be safe to call from the session-start path. */
-async function reportSummaryFailure(error: unknown): Promise<void> {
+async function reportSummaryFailure(
+  error: Parameters<typeof logSummaryDegradation>[2],
+): Promise<void> {
   try {
     // getDiffOwlDir() is the checkout-local path rather than the shared one, because the shared
     // lookup is itself a thing that can fail here. It also never creates anything, so an unwritable
@@ -1489,7 +1529,7 @@ findingsCmd
       }
       console.log(formatFindingDetail(detail));
     } catch (err) {
-      failFindingsCommand(format, err);
+      failFindingsCommand(format, CliErrorSchema.parse(err));
     }
   });
 
@@ -1552,13 +1592,16 @@ findingsCmd
           new Error("At least one --verified-by command is required."),
         );
       }
+      const input: Parameters<typeof fixFindingByLocator>[2] = {
+        actor: parseFindingActor(options.actor),
+        note: options.note,
+        verifiedBy,
+      };
+      if (options.commit) {
+        input.commitRef = options.commit;
+      }
       await runFindingMutation(locator, options.format, (db) =>
-        fixFindingByLocator(db, locator, {
-          actor: parseFindingActor(options.actor),
-          note: options.note,
-          verifiedBy,
-          ...(options.commit ? { commitRef: options.commit } : {}),
-        }),
+        fixFindingByLocator(db, locator, input),
       );
     },
   );
@@ -1596,19 +1639,17 @@ async function runFindingMutation(
     }
     console.log(formatFindingDetail(detail));
   } catch (err) {
-    failFindingsCommand(format, err);
+    failFindingsCommand(format, CliErrorSchema.parse(err));
   }
 }
 
-function failFindingsCommand(format: ReviewOutputFormat, err: unknown): never {
+function failFindingsCommand(format: ReviewOutputFormat, err: Error): never {
   const message =
     err instanceof LocatorNotFoundError ||
     err instanceof LocatorAmbiguousError ||
     err instanceof InvalidFindingTransitionError
       ? err.message
-      : err instanceof Error
-        ? err.message
-        : String(err);
+      : err.message;
   if (format === "json") {
     writeJsonError(message);
   } else {
@@ -1668,13 +1709,12 @@ async function loadReviewPreferencesOrExit() {
   try {
     return await loadReviewPreferences();
   } catch (err) {
-    failConfigError(err);
+    failConfigError(CliErrorSchema.parse(err));
   }
 }
 
-function failConfigError(error: unknown): never {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(chalk.red(`Config error: ${message}`));
+function failConfigError(error: Error): never {
+  console.error(chalk.red(`Config error: ${error.message}`));
   process.exit(1);
 }
 
@@ -1741,7 +1781,9 @@ function handleReviewInterrupt(input: {
   setTimeout(() => process.exit(input.exitCode), 750).unref();
 }
 
-function resolveReviewOutputFormat(value: unknown): ReviewOutputFormat {
+function resolveReviewOutputFormat(
+  value: Parameters<typeof parseReviewOutputFormat>[0],
+): ReviewOutputFormat {
   try {
     return parseReviewOutputFormat(value);
   } catch (err) {
@@ -1791,7 +1833,7 @@ async function emitReviewJsonSuccess(input: {
 
   const findingIds = input.persisted.reconcile.observations.map((item) => item.finding.id);
   const occurrenceCounts = await loadFindingOccurrenceCounts(input.diffOwlDir, findingIds);
-  const document = buildReviewJsonDocument({
+  const documentInput: BuildReviewJsonInput = {
     review,
     persisted: input.persisted,
     occurrenceCounts,
@@ -1802,9 +1844,16 @@ async function emitReviewJsonSuccess(input: {
     verbose: input.verbose,
     selection: input.selection,
     effectiveModel: input.effectiveModel,
-    ...(input.execution === undefined ? {} : { execution: input.execution }),
-    ...(input.timings ? { timings: input.timings } : {}),
-    ...(input.usage !== undefined ? { usage: input.usage } : {}),
-  });
+  };
+  if (input.execution !== undefined) {
+    documentInput.execution = input.execution;
+  }
+  if (input.timings !== undefined) {
+    documentInput.timings = input.timings;
+  }
+  if (input.usage !== undefined) {
+    documentInput.usage = input.usage;
+  }
+  const document = buildReviewJsonDocument(documentInput);
   await writeReviewJsonSuccess(document);
 }
