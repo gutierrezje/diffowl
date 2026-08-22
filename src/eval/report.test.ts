@@ -134,9 +134,7 @@ describe("buildEvalReport", () => {
       versions: { diffowlVersion: "0.3.1", nodeVersion: "v22.14.0", opencodeVersion: null },
       caseRuns: [{ evalCase: cleanCase!, diffowl: run }],
     });
-    const raw = JSON.parse(JSON.stringify(document)) as {
-      cases: Array<{ diffowl?: { metrics: { precision: unknown } } }>;
-    };
+    const raw = JSON.parse(JSON.stringify(document));
     raw.cases[0]!.diffowl!.metrics.precision = { mean: "bad", stddev: 0, values: [1] };
 
     expect(() => parseEvalResultsDocument(raw)).toThrow();

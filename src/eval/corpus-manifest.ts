@@ -4,11 +4,12 @@ import {
   parseEvalCorpusManifest,
   type EvalCorpusManifest,
 } from "./corpus-manifest-types.js";
+import { parseEvalJson, type EvalJsonValue } from "./json-types.js";
 
 export async function loadCorpusManifest(manifestPath: string): Promise<EvalCorpusManifest> {
-  let raw: unknown;
+  let raw: EvalJsonValue;
   try {
-    raw = JSON.parse(await readFile(manifestPath, "utf8"));
+    raw = parseEvalJson(await readFile(manifestPath, "utf8"));
   } catch (error) {
     throw new Error(
       `Failed to read corpus manifest at ${manifestPath}: ${describeError(error)}`,
@@ -49,6 +50,6 @@ export async function assertCorpusMatchesManifest(
   }
 }
 
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function describeError(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }

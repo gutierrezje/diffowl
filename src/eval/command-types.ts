@@ -36,7 +36,7 @@ export interface ParsedEvalCliOptions {
   format: EvalOutputFormat;
 }
 
-export function parseEvalOutputFormat(value: unknown): EvalOutputFormat {
+export function parseEvalOutputFormat(value: string | undefined): EvalOutputFormat {
   if (value === undefined || value === "text") {
     return "text";
   }
@@ -46,7 +46,7 @@ export function parseEvalOutputFormat(value: unknown): EvalOutputFormat {
   throw new Error(`Invalid output format: ${String(value)}. Expected text or json.`);
 }
 
-export function parseEvalReportMode(value: unknown): EvalReportMode {
+export function parseEvalReportMode(value: string | undefined): EvalReportMode {
   if (value === undefined || value === "diffowl") {
     return "diffowl";
   }
@@ -56,7 +56,7 @@ export function parseEvalReportMode(value: unknown): EvalReportMode {
   throw new Error(`Invalid eval mode: ${String(value)}. Expected diffowl, baseline, or both.`);
 }
 
-export function parseEvalTrials(value: unknown): number {
+export function parseEvalTrials(value: string | undefined): number {
   const parsed = Number(value ?? 1);
   if (!Number.isInteger(parsed) || parsed < 1) {
     throw new Error(`Invalid trial count: ${String(value)}. Expected a positive integer.`);

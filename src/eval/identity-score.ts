@@ -54,14 +54,15 @@ export function tryScoreEvalIdentity(
     return undefined;
   }
 
-  return scoreEvalIdentity({
+  const scoreInput: ScoreEvalIdentityInput = {
     kind,
     evalCase,
     trial,
-    ...(evalCase.identity?.min_distinct !== undefined
-      ? { minDistinct: evalCase.identity.min_distinct }
-      : {}),
-  });
+  };
+  if (evalCase.identity?.min_distinct !== undefined) {
+    scoreInput.minDistinct = evalCase.identity.min_distinct;
+  }
+  return scoreEvalIdentity(scoreInput);
 }
 
 export function resolveEvalIdentityKind(

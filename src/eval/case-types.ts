@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { EvalIdentityKind } from "./score-types.js";
+import type { EvalSchemaInput } from "./json-types.js";
 
 export const EvalCaseCategorySchema = z.enum(["bug", "clean", "mixed"]);
 export const EvalCaseLanguageSchema = z.enum(["typescript"]);
@@ -36,10 +37,13 @@ export const EvalCaseIdentitySchema = z
     min_distinct: z.number().int().positive().optional(),
   })
   .strict()
-  .transform((identity) => ({
-    kind: normalizeEvalIdentityKindInput(identity.kind),
-    ...(identity.min_distinct !== undefined ? { min_distinct: identity.min_distinct } : {}),
-  }));
+  .transform((identity) => {
+    const kind = normalizeEvalIdentityKindInput(identity.kind);
+    if (identity.min_distinct === undefined) {
+      return { kind };
+    }
+    return { kind, min_distinct: identity.min_distinct };
+  });
 
 export const EvalCaseJsonSchema = z.object({
   id: z.string().trim().min(1),
@@ -84,7 +88,7 @@ export interface EvalCaseHashes {
   patchHash: string;
 }
 
-export function parseEvalCaseJson(raw: unknown): EvalCaseJson {
+export function parseEvalCaseJson(raw: EvalSchemaInput): EvalCaseJson {
   return EvalCaseJsonSchema.parse(raw);
 }
 
