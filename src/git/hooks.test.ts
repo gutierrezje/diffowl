@@ -1,8 +1,9 @@
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { closeSync, existsSync, openSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { execa } from "execa";
+import type { Options as ExecaOptions } from "execa";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { removeTempDir } from "../test/helpers.js";
 import {
@@ -11,11 +12,14 @@ import {
   checkHookStale,
   clearHookFailure,
   enqueuePendingReview,
+  execaHookWorkerProcess,
   formatHookFailure,
   generateManagedSection,
   installHook,
   isHookInstalled,
   listPendingReviews,
+  runHookReview,
+  runHookWorker,
   writeHookStatus,
   releaseHookReviewLock,
   uninstallHook,
@@ -124,6 +128,161 @@ describe("installHook", () => {
     expect(existsSync(join(root, ".git", "hooks", "post-commit"))).toBe(true);
   });
 }, 20_000);
+
+describe("runHookReview", () => {
+  it("hands native log descriptors to the detached worker", async () => {
+    const root = await createGitRepo();
+    await writeFile(join(root, ".diffowl.yml"), "model: provider/model\n", "utf-8");
+    process.chdir(root);
+
+    let workerStdio: unknown;
+    let unrefCalled = false;
+    await runHookReview({
+      workerProcess: {
+        start(request) {
+          workerStdio = request.options.stdio;
+          return {
+            spawned: Promise.resolve(),
+            unref() {
+              unrefCalled = true;
+            },
+          };
+        },
+      },
+    });
+
+    expect(Array.isArray(workerStdio)).toBe(true);
+    if (!Array.isArray(workerStdio)) throw new Error("Worker stdio was not an array.");
+    expect(workerStdio[0]).toBe("ignore");
+    expect(workerStdio[1]).toEqual(expect.any(Number));
+    expect(workerStdio[2]).toBe(workerStdio[1]);
+    expect(unrefCalled).toBe(true);
+  });
+
+  it("preserves detached output after the parent closes its log descriptor", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-hook-worker-"));
+    tempDirs.push(root);
+    const logFile = join(root, "hook.log");
+    const outFd = openSync(logFile, "a");
+    // SAFETY: The descriptors are open for the duration of synchronous process creation.
+    const stdio = ["ignore", outFd, outFd] as ExecaOptions["stdio"];
+
+    const worker = execaHookWorkerProcess.start({
+      command: process.execPath,
+      args: [
+        "-e",
+        'setTimeout(() => process.stdout.write("detached output\\n"), 50)',
+      ],
+      options: { detached: true, cleanup: false, stdio },
+    });
+    await worker.spawned;
+    worker.unref();
+    closeSync(outFd);
+
+    await vi.waitFor(
+      async () => {
+        await expect(readFile(logFile, "utf-8")).resolves.toContain("detached output");
+      },
+      { timeout: 2_000 },
+    );
+  });
+
+  // Windows command normalization can spawn a wrapper for a missing path, so this is not an OS
+  // spawn failure there. The injected runHookReview case below covers persistence on every OS.
+  it.skipIf(process.platform === "win32")(
+    "surfaces and preserves immediate worker spawn failures",
+    async () => {
+      const worker = execaHookWorkerProcess.start({
+        command: join(tmpdir(), "missing-diffowl-node"),
+        args: [],
+        options: { detached: true, cleanup: false, stdio: "ignore" },
+      });
+
+      await expect(worker.spawned).rejects.toThrow(/ENOENT|not found/i);
+    },
+  );
+
+  it("persists detached worker failures for the next CLI run", async () => {
+    const root = await createGitRepo();
+    await writeFile(join(root, ".diffowl.yml"), "model: provider/model\n", "utf-8");
+    process.chdir(root);
+
+    await expect(
+      runHookReview({
+        workerProcess: {
+          start() {
+            return {
+              spawned: Promise.reject(new Error("spawn EACCES")),
+              unref() {},
+            };
+          },
+        },
+      }),
+    ).rejects.toThrow("spawn EACCES");
+
+    await expect(
+      readFile(join(root, ".diffowl", "last-hook-status.json"), "utf-8"),
+    ).resolves.toContain("spawn EACCES");
+    expect(existsSync(join(root, ".diffowl", "hook-review.lock"))).toBe(false);
+  });
+});
+
+describe("runHookWorker", () => {
+  it("persists failures that escape the queue processor", async () => {
+    const root = await createGitRepo();
+    await writeFile(join(root, ".diffowl.yml"), "model: provider/model\n", "utf-8");
+    const dir = join(root, ".diffowl");
+    await enqueuePendingReview(dir, "failed-a");
+    await mkdir(join(dir, "hook.log"));
+    process.chdir(root);
+
+    await expect(runHookWorker()).rejects.toThrow(/directory|EISDIR/i);
+
+    await expect(
+      readFile(join(root, ".diffowl", "last-hook-status.json"), "utf-8"),
+    ).resolves.toContain("Hook worker failed");
+    await expect(checkRecentHookFailure()).resolves.toMatchObject({ exitCode: 1 });
+  });
+
+  it("preserves an actionable failure already recorded for a pending commit", async () => {
+    const root = await createGitRepo();
+    await writeFile(join(root, ".diffowl.yml"), "model: provider/model\n", "utf-8");
+    const dir = join(root, ".diffowl");
+    await enqueuePendingReview(dir, "failed-a");
+    await writeHookStatus(1, "failed-a", "Specific review failure.", null, dir);
+    await mkdir(join(dir, "hook.log"));
+    process.chdir(root);
+
+    await expect(runHookWorker()).rejects.toThrow(/directory|EISDIR/i);
+
+    const failure = await checkRecentHookFailure();
+    expect(failure).toMatchObject({ commit: "failed-a", message: "Specific review failure." });
+    if (!failure) throw new Error("Expected the specific hook failure to remain available.");
+    expect(formatHookFailure(failure)).toContain("diffowl review --commit failed-a");
+  });
+
+  it("refreshes a stale failure for a pending commit", async () => {
+    const root = await createGitRepo();
+    await writeFile(join(root, ".diffowl.yml"), "model: provider/model\n", "utf-8");
+    const dir = join(root, ".diffowl");
+    await enqueuePendingReview(dir, "failed-a");
+    await writeGlobalStatus(root, {
+      commit: "failed-a",
+      exitCode: 1,
+      timestamp: "2020-01-01T00:00:00.000Z",
+      message: "Stale review failure.",
+    });
+    await mkdir(join(dir, "hook.log"));
+    process.chdir(root);
+
+    await expect(runHookWorker()).rejects.toThrow(/directory|EISDIR/i);
+
+    await expect(checkRecentHookFailure()).resolves.toMatchObject({
+      commit: "failed-a",
+      message: expect.stringContaining("Hook worker failed"),
+    });
+  });
+});
 
 describe("checkRecentHookFailure", () => {
   it("prefers a pending failed result over a newer global success", async () => {
@@ -543,7 +702,7 @@ async function writePendingResult(
 
 async function writeGlobalStatus(
   root: string,
-  status: { commit: string; exitCode: number; timestamp: string },
+  status: { commit: string; exitCode: number; timestamp: string; message?: string },
 ): Promise<void> {
   await writeFile(join(root, ".diffowl", "last-hook-status.json"), JSON.stringify(status), "utf-8");
 }

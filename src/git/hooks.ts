@@ -21,11 +21,11 @@ import { getSharedDiffOwlDir } from "./state-root.js";
 const HOOK_MARKER = "# diffowl-managed";
 const HOOK_END_MARKER = "# end-diffowl";
 const HOOK_SHEBANG = "#!/bin/sh";
+const HOOK_FAILURE_MAX_AGE_MS = 60 * 60 * 1000;
 
 function loggedStdio(outFd: number): ExecaOptions["stdio"] {
-  // Execa supports integer file descriptors at runtime, but its async tuple type
-  // only accepts fixed descriptor literals instead of descriptors from openSync.
-  return ["ignore", outFd, outFd] as unknown as ExecaOptions["stdio"];
+  // SAFETY: Node accepts any open file descriptor here; Execa's async tuple type lists literals.
+  return ["ignore", outFd, outFd] as ExecaOptions["stdio"];
 }
 
 /**
@@ -129,6 +129,70 @@ const HookFailureSchema = z.object({
   timestamp: z.string(),
   message: z.string().optional(),
 });
+const PendingReviewSchema = z.object({ sha: z.string(), queuedAt: z.string() });
+
+export interface HookReviewProcessRequest {
+  command: string;
+  args: readonly string[];
+  options: ExecaOptions;
+}
+
+export interface HookWorkerProcessRequest {
+  command: string;
+  args: readonly string[];
+  options: ExecaOptions;
+}
+
+export interface HookWorker {
+  pid?: number;
+  spawned: Promise<void>;
+  unref(): void;
+}
+
+export interface HookWorkerProcess {
+  start(request: HookWorkerProcessRequest): HookWorker;
+}
+
+export interface RunHookReviewOptions {
+  workerProcess?: HookWorkerProcess;
+}
+
+export interface HookReviewProcess {
+  run(request: HookReviewProcessRequest): Promise<void>;
+}
+
+export interface RunPendingHookReviewsOptions {
+  reviewProcess?: HookReviewProcess;
+}
+
+const execaHookReviewProcess: HookReviewProcess = {
+  async run({ command, args, options }) {
+    await execa(command, args, options);
+  },
+};
+
+export const execaHookWorkerProcess: HookWorkerProcess = {
+  start({ command, args, options }) {
+    const subprocess = execa(command, args, options);
+    const spawned =
+      subprocess.pid === undefined
+        ? new Promise<void>((resolve, reject) => {
+            subprocess.once("spawn", resolve);
+            subprocess.once("error", reject);
+          })
+        : Promise.resolve();
+    // After spawn, the detached worker owns its log and status; the launcher ignores its exit.
+    void subprocess.catch(() => {});
+    const worker: HookWorker = {
+      spawned,
+      unref() {
+        subprocess.unref();
+      },
+    };
+    if (subprocess.pid !== undefined) worker.pid = subprocess.pid;
+    return worker;
+  },
+};
 
 export async function checkRecentHookFailure(): Promise<HookFailure | undefined> {
   const dir = getDiffOwlDir();
@@ -154,18 +218,14 @@ export async function checkRecentHookFailure(): Promise<HookFailure | undefined>
       return undefined;
     }
 
-    const failureTime = new Date(timestamp).getTime();
-    const oneHourAgo = Date.now() - 60 * 60 * 1000;
-    if (Number.isNaN(failureTime) || failureTime < oneHourAgo) {
+    if (!isRecentHookFailure(parsed.data.timestamp)) {
       return undefined;
     }
 
-    return {
-      ...(commit ? { commit } : {}),
-      exitCode,
-      timestamp,
-      ...(message ? { message } : {}),
-    };
+    const failure: HookFailure = { exitCode, timestamp };
+    if (commit) failure.commit = commit;
+    if (message) failure.message = message;
+    return failure;
   } catch {
     return undefined;
   }
@@ -180,16 +240,10 @@ export async function writeHookStatus(
 ): Promise<void> {
   try {
     const statusDir = dir ?? (await ensureDiffOwlDir());
-    const content = JSON.stringify(
-      {
-        ...(commit ? { commit } : {}),
-        exitCode,
-        timestamp: new Date().toISOString(),
-        ...(message ? { message } : {}),
-      },
-      null,
-      2,
-    );
+    const status: HookFailure = { exitCode, timestamp: new Date().toISOString() };
+    if (commit) status.commit = commit;
+    if (message) status.message = message;
+    const content = JSON.stringify(status, null, 2);
     if (resultPath) {
       await writeFile(resultPath, content, "utf-8");
       return;
@@ -277,7 +331,7 @@ export function isHookQueueStopFailure(message: string | undefined): boolean {
   return false;
 }
 
-export async function runHookReview(): Promise<void> {
+export async function runHookReview(options: RunHookReviewOptions = {}): Promise<void> {
   const dir = await ensureDiffOwlDir();
   const logFile = join(dir, "hook.log");
   const reviewsDir = join(await getSharedDiffOwlDir(), "reviews");
@@ -307,18 +361,33 @@ export async function runHookReview(): Promise<void> {
     const existingPath = process.env["PATH"] ?? "";
     const envPath = prefix ? `${prefix}:${existingPath}` : existingPath;
 
-    const subprocess = execa(command.node, [fileURLToPath(import.meta.url), "hook-worker"], {
-      detached: true,
-      cleanup: false,
-      cwd: process.cwd(),
-      stdio: loggedStdio(outFd),
-      env: {
-        ...process.env,
-        PATH: envPath,
-        DIFFOWL_HOOK_LOCK: lockFile,
+    const workerProcess = options.workerProcess ?? execaHookWorkerProcess;
+    const subprocess = workerProcess.start({
+      command: command.node,
+      args: [fileURLToPath(import.meta.url), "hook-worker"],
+      options: {
+        detached: true,
+        cleanup: false,
+        cwd: process.cwd(),
+        stdio: loggedStdio(outFd),
+        env: {
+          ...process.env,
+          PATH: envPath,
+          DIFFOWL_HOOK_LOCK: lockFile,
+        },
       },
     });
-    void subprocess.catch(() => {});
+    try {
+      await subprocess.spawned;
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error("Unknown hook worker spawn error.");
+      const detail = `Hook worker failed to spawn: ${failure.message}`;
+      await Promise.all([
+        appendFile(logFile, `diffowl: ${detail}\n`, "utf-8").catch(() => {}),
+        writeHookStatus(1, commit, detail, null, dir),
+      ]);
+      throw new Error(detail, { cause: failure });
+    }
     if (subprocess.pid) {
       writeFileSync(lockFile, String(subprocess.pid), "utf-8");
     }
@@ -335,10 +404,13 @@ export async function runHookReview(): Promise<void> {
   }
 }
 
-export async function runPendingHookReviews(): Promise<void> {
+export async function runPendingHookReviews(
+  options: RunPendingHookReviewsOptions = {},
+): Promise<void> {
   const dir = await ensureDiffOwlDir();
   const logFile = join(dir, "hook.log");
   const cli = fileURLToPath(import.meta.url);
+  const reviewProcess = options.reviewProcess ?? execaHookReviewProcess;
   const attempted = new Set<string>();
 
   while (true) {
@@ -358,10 +430,14 @@ export async function runPendingHookReviews(): Promise<void> {
       delete env["DIFFOWL_HOOK_LOCK"];
       env["DIFFOWL_HOOK_RESULT"] = resultPath;
       try {
-        await execa(process.execPath, [cli, "review", "--hook", "--commit", next.sha], {
-          cwd: process.cwd(),
-          stdio: loggedStdio(outFd),
-          env,
+        await reviewProcess.run({
+          command: process.execPath,
+          args: [cli, "review", "--hook", "--commit", next.sha],
+          options: {
+            cwd: process.cwd(),
+            stdio: loggedStdio(outFd),
+            env,
+          },
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -410,6 +486,40 @@ export async function runPendingHookReviews(): Promise<void> {
   }
 }
 
+export async function runHookWorker(options: RunPendingHookReviewsOptions = {}): Promise<void> {
+  try {
+    await runPendingHookReviews(options);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await persistHookWorkerFailure(message);
+    throw error;
+  }
+}
+
+async function persistHookWorkerFailure(message: string): Promise<void> {
+  try {
+    const dir = await ensureDiffOwlDir();
+    const existing = await readHookResult(join(dir, "last-hook-status.json"));
+    const existingPending =
+      existing !== undefined &&
+      existing.exitCode !== 0 &&
+      existing.commit !== undefined &&
+      isRecentHookFailure(existing.timestamp) &&
+      existsSync(join(dir, "pending-reviews", existing.commit));
+    if (existingPending) return;
+
+    const [next] = await listPendingReviews(dir);
+    await writeHookStatus(1, next?.sha, `Hook worker failed: ${message}`, null, dir);
+  } catch {
+    // Failure reporting is advisory and must not replace the original worker error.
+  }
+}
+
+function isRecentHookFailure(timestamp: string): boolean {
+  const failureTime = new Date(timestamp).getTime();
+  return !Number.isNaN(failureTime) && failureTime >= Date.now() - HOOK_FAILURE_MAX_AGE_MS;
+}
+
 export async function enqueuePendingReview(dir: string, sha: string): Promise<void> {
   const pendingDir = join(dir, "pending-reviews");
   await mkdir(pendingDir, { recursive: true });
@@ -446,14 +556,9 @@ export async function listPendingReviews(
     [...markerFiles].map(async (file) => {
       const path = join(pendingDir, file);
       try {
-        const parsed = JSON.parse(await readFile(path, "utf-8")) as {
-          sha?: unknown;
-          queuedAt?: unknown;
-        };
-        if (typeof parsed.sha !== "string" || typeof parsed.queuedAt !== "string") {
-          return undefined;
-        }
-        return { sha: parsed.sha, queuedAt: parsed.queuedAt, path };
+        const parsed = PendingReviewSchema.safeParse(JSON.parse(await readFile(path, "utf-8")));
+        if (!parsed.success) return undefined;
+        return { sha: parsed.data.sha, queuedAt: parsed.data.queuedAt, path };
       } catch {
         return undefined;
       }
@@ -474,12 +579,13 @@ async function readHookResult(path: string): Promise<HookFailure | undefined> {
   try {
     const parsed = HookFailureSchema.safeParse(JSON.parse(await readFile(path, "utf-8")));
     if (!parsed.success) return undefined;
-    return {
-      ...(parsed.data.commit ? { commit: parsed.data.commit } : {}),
+    const failure: HookFailure = {
       exitCode: parsed.data.exitCode,
       timestamp: parsed.data.timestamp,
-      ...(parsed.data.message ? { message: parsed.data.message } : {}),
     };
+    if (parsed.data.commit) failure.commit = parsed.data.commit;
+    if (parsed.data.message) failure.message = parsed.data.message;
+    return failure;
   } catch {
     return undefined;
   }
@@ -527,7 +633,7 @@ function isHookReviewLockActive(lockFile: string): boolean {
       return true;
     } catch (err) {
       // EPERM means the PID exists but belongs to a process we cannot signal.
-      return (err as { code?: string }).code === "EPERM";
+      return err instanceof Error && "code" in err && err.code === "EPERM";
     }
   } catch {
     return false;

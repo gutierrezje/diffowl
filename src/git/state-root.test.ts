@@ -1,6 +1,6 @@
-import { mkdir, mkdtemp, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { execa } from "execa";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -13,6 +13,7 @@ import type { ReviewFinding } from "../review/types.js";
 import {
   getSharedDiffOwlDir,
   isRecoverableGitLookupError,
+  resolveSharedDiffOwlDir,
   resetSharedDiffOwlDirForTests,
 } from "./state-root.js";
 
@@ -185,39 +186,20 @@ describe("getSharedDiffOwlDir", () => {
       await mkdir(join(repo, ".diffowl"), { recursive: true });
       await writeFile(join(repo, ".diffowl", "state.db"), "", "utf8");
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      vi.resetModules();
-      vi.doMock("../config.js", () => ({ getProjectRoot: () => alias }));
-
-      try {
-        const stateRoot = await import("./state-root.js");
-        await expect(stateRoot.getSharedDiffOwlDir()).resolves.toBe(join(repo, ".diffowl"));
-        expect(warn).not.toHaveBeenCalled();
-      } finally {
-        vi.doUnmock("../config.js");
-        vi.resetModules();
-      }
+      await expect(resolveSharedDiffOwlDir(alias)).resolves.toBe(join(repo, ".diffowl"));
+      expect(warn).not.toHaveBeenCalled();
     },
   );
 
   it("retries shared-root resolution after a rejected lookup", async () => {
     const repo = await createGitProject();
     process.chdir(repo);
-    const execaMock = vi
-      .fn()
-      .mockRejectedValueOnce(Object.assign(new Error("permission denied"), { exitCode: 1 }))
-      .mockResolvedValueOnce({ stdout: "false" });
-    vi.resetModules();
-    vi.doMock("execa", () => ({ execa: execaMock }));
+    const wrapper = await createTransientGitFailureWrapper();
 
-    try {
-      const stateRoot = await import("./state-root.js");
-      await expect(stateRoot.getSharedDiffOwlDir()).rejects.toThrow("permission denied");
-      await expect(stateRoot.getSharedDiffOwlDir()).resolves.toBe(join(repo, ".diffowl"));
-      expect(execaMock).toHaveBeenCalledTimes(2);
-    } finally {
-      vi.doUnmock("execa");
-      vi.resetModules();
-    }
+    await withGitWrapper(wrapper, async () => {
+      await expect(getSharedDiffOwlDir()).rejects.toThrow("permission denied");
+      await expect(getSharedDiffOwlDir()).resolves.toBe(join(repo, ".diffowl"));
+    });
   });
 
   it("shares persisted findings and lifecycle mutations across linked worktrees", async () => {
@@ -295,6 +277,86 @@ async function writeConfig(root: string): Promise<void> {
 
 async function git(args: string[], cwd: string): Promise<void> {
   await execa("git", args, { cwd });
+}
+
+interface GitWrapperFixture {
+  binDir: string;
+  counterPath: string;
+}
+
+async function createTransientGitFailureWrapper(): Promise<GitWrapperFixture> {
+  const binDir = await createProject("diffowl-state-root-git-wrapper-");
+  const counterPath = join(binDir, "first-call");
+  const scriptPath = join(binDir, "git");
+  await writeFile(
+    scriptPath,
+    `#!${process.execPath}
+const { existsSync, writeFileSync } = require("node:fs");
+const { spawnSync } = require("node:child_process");
+
+const counterPath = process.env.DIFFOWL_GIT_COUNTER;
+if (counterPath !== undefined && !existsSync(counterPath)) {
+  writeFileSync(counterPath, "failed");
+  process.stderr.write("permission denied\\n");
+  process.exit(1);
+}
+const realGit = process.env.DIFFOWL_REAL_GIT;
+if (realGit === undefined) {
+  process.stderr.write("missing real git path\\n");
+  process.exit(1);
+}
+const result = spawnSync(realGit, process.argv.slice(2), { stdio: "inherit" });
+if (result.error !== undefined) {
+  process.stderr.write(result.error.message + "\\n");
+  process.exit(1);
+}
+process.exit(result.status ?? 1);
+`,
+    "utf-8",
+  );
+  await chmod(scriptPath, 0o755);
+  if (process.platform === "win32") {
+    await writeFile(
+      join(binDir, "git.cmd"),
+      `@echo off\r\n"${process.execPath}" "${scriptPath}" %*\r\n`,
+      "utf-8",
+    );
+  }
+  return { binDir, counterPath };
+}
+
+async function withGitWrapper<T>(
+  wrapper: GitWrapperFixture,
+  callback: () => Promise<T>,
+): Promise<T> {
+  const lookupCommand = process.platform === "win32" ? "where" : "which";
+  const { stdout } = await execa(lookupCommand, ["git"]);
+  const realGit = stdout.trim().split(/\r?\n/)[0];
+  if (realGit === undefined || realGit === "") {
+    throw new Error("Could not locate the real git executable.");
+  }
+
+  const previousPath = process.env["PATH"];
+  const previousRealGit = process.env["DIFFOWL_REAL_GIT"];
+  const previousCounter = process.env["DIFFOWL_GIT_COUNTER"];
+  process.env["PATH"] = `${wrapper.binDir}${delimiter}${previousPath ?? ""}`;
+  process.env["DIFFOWL_REAL_GIT"] = realGit;
+  process.env["DIFFOWL_GIT_COUNTER"] = wrapper.counterPath;
+  try {
+    return await callback();
+  } finally {
+    restoreEnvironment("PATH", previousPath);
+    restoreEnvironment("DIFFOWL_REAL_GIT", previousRealGit);
+    restoreEnvironment("DIFFOWL_GIT_COUNTER", previousCounter);
+  }
+}
+
+function restoreEnvironment(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
 }
 
 function basePersistInput(

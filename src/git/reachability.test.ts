@@ -1,20 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { execa } from "execa";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { removeTempDir } from "../test/helpers.js";
 import { filterReachableCommits } from "./reachability.js";
-
-vi.mock("execa", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("execa")>();
-  return {
-    ...actual,
-    execa: vi.fn(actual.execa),
-  };
-});
 
 const gitIdentity = ["-c", "user.name=DiffOwl Test", "-c", "user.email=diffowl@example.test"];
 
@@ -29,6 +21,14 @@ interface GitFixture {
   root: string;
   commit: (message: string) => Promise<string>;
   currentBranch: () => Promise<string>;
+}
+
+type GitWrapperMode = "fail-merge-base" | "log-merge-base";
+
+interface GitWrapper {
+  binDir: string;
+  logPath: string;
+  mode: GitWrapperMode;
 }
 
 async function createRepo(): Promise<GitFixture> {
@@ -121,7 +121,8 @@ describe("filterReachableCommits", () => {
     await execa("git", ["checkout", "feature"], { cwd: root });
     await execa("git", ["rebase", main], { cwd: root, reject: false });
     expect(
-      existsSync(join(root, ".git", "rebase-merge")) || existsSync(join(root, ".git", "rebase-apply")),
+      existsSync(join(root, ".git", "rebase-merge")) ||
+        existsSync(join(root, ".git", "rebase-apply")),
     ).toBe(true);
 
     try {
@@ -161,14 +162,11 @@ describe("filterReachableCommits", () => {
     // anything else must reject.
     const { root, commit } = await createRepo();
     const a = await commit("A");
+    const wrapper = await createGitWrapper("fail-merge-base");
 
-    vi.mocked(execa).mockResolvedValueOnce({
-      exitCode: 2,
-      stdout: "",
-      stderr: "simulated git failure",
-    } as never);
-
-    await expect(filterReachableCommits([a], root)).rejects.toThrow(/exited 2/);
+    await expect(withGitWrapper(wrapper, () => filterReachableCommits([a], root))).rejects.toThrow(
+      /exited 2/,
+    );
   });
 
   it("issues exactly one git subprocess per distinct candidate, independent of history length", async () => {
@@ -183,15 +181,103 @@ describe("filterReachableCommits", () => {
       shas.push(await commit(`commit-${i}`));
     }
     const candidates = [shas[0]!, shas[20]!, shas[39]!, shas[0]!]; // includes a duplicate
+    const wrapper = await createGitWrapper("log-merge-base");
 
-    vi.mocked(execa).mockClear();
-    await filterReachableCommits(candidates, root);
+    await withGitWrapper(wrapper, () => filterReachableCommits(candidates, root));
 
-    const mergeBaseCalls = vi
-      .mocked(execa)
-      .mock.calls.filter(
-        ([, args]) => Array.isArray(args) && args[0] === "merge-base" && args[1] === "--is-ancestor",
-      );
+    const mergeBaseCalls = (await readFile(wrapper.logPath, "utf-8"))
+      .trim()
+      .split("\n")
+      .filter(Boolean);
     expect(mergeBaseCalls).toHaveLength(3);
   });
 }, 20_000);
+
+async function createGitWrapper(mode: GitWrapperMode): Promise<GitWrapper> {
+  const binDir = await realpath(await mkdtemp(join(tmpdir(), "diffowl-git-wrapper-")));
+  tempDirs.push(binDir);
+  const logPath = join(binDir, "merge-base.log");
+  const scriptPath = join(binDir, "git");
+  await writeFile(
+    scriptPath,
+    `#!${process.execPath}
+const { appendFileSync } = require("node:fs");
+const { spawnSync } = require("node:child_process");
+
+const args = process.argv.slice(2);
+if (
+  process.env.DIFFOWL_GIT_MODE === "fail-merge-base" &&
+  args[0] === "merge-base" &&
+  args[1] === "--is-ancestor"
+) {
+  process.stderr.write("simulated git failure\\n");
+  process.exit(2);
+}
+
+if (
+  process.env.DIFFOWL_GIT_MODE === "log-merge-base" &&
+  args[0] === "merge-base" &&
+  args[1] === "--is-ancestor"
+) {
+  const logPath = process.env.DIFFOWL_GIT_LOG;
+  if (logPath !== undefined) appendFileSync(logPath, JSON.stringify(args) + "\\n");
+}
+
+const realGit = process.env.DIFFOWL_REAL_GIT;
+if (realGit === undefined) {
+  process.stderr.write("missing real git path\\n");
+  process.exit(1);
+}
+const result = spawnSync(realGit, args, { stdio: "inherit" });
+if (result.error !== undefined) {
+  process.stderr.write(result.error.message + "\\n");
+  process.exit(1);
+}
+process.exit(result.status ?? 1);
+`,
+    "utf-8",
+  );
+  await chmod(scriptPath, 0o755);
+  if (process.platform === "win32") {
+    await writeFile(
+      join(binDir, "git.cmd"),
+      `@echo off\r\n"${process.execPath}" "${scriptPath}" %*\r\n`,
+      "utf-8",
+    );
+  }
+  return { binDir, logPath, mode };
+}
+
+async function withGitWrapper<T>(wrapper: GitWrapper, callback: () => Promise<T>): Promise<T> {
+  const lookupCommand = process.platform === "win32" ? "where" : "which";
+  const { stdout } = await execa(lookupCommand, ["git"]);
+  const realGit = stdout.trim().split(/\r?\n/)[0];
+  if (realGit === undefined || realGit === "") {
+    throw new Error("Could not locate the real git executable.");
+  }
+
+  const previousPath = process.env["PATH"];
+  const previousRealGit = process.env["DIFFOWL_REAL_GIT"];
+  const previousMode = process.env["DIFFOWL_GIT_MODE"];
+  const previousLog = process.env["DIFFOWL_GIT_LOG"];
+  process.env["PATH"] = `${wrapper.binDir}${delimiter}${previousPath ?? ""}`;
+  process.env["DIFFOWL_REAL_GIT"] = realGit;
+  process.env["DIFFOWL_GIT_MODE"] = wrapper.mode;
+  process.env["DIFFOWL_GIT_LOG"] = wrapper.logPath;
+  try {
+    return await callback();
+  } finally {
+    restoreEnvironment("PATH", previousPath);
+    restoreEnvironment("DIFFOWL_REAL_GIT", previousRealGit);
+    restoreEnvironment("DIFFOWL_GIT_MODE", previousMode);
+    restoreEnvironment("DIFFOWL_GIT_LOG", previousLog);
+  }
+}
+
+function restoreEnvironment(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}

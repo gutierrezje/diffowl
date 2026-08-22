@@ -1,23 +1,27 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { execa } from "execa";
+import { afterEach, describe, expect, it } from "vitest";
 import { removeTempDir } from "../test/helpers.js";
+import {
+  enqueuePendingReview,
+  isHookQueueStopFailure,
+  type HookReviewProcess,
+  type HookReviewProcessRequest,
+  runPendingHookReviews,
+} from "./hooks.js";
 
-const execaMock = vi.hoisted(() => vi.fn());
-
-vi.mock("execa", () => ({
-  execa: execaMock,
-}));
-
-import { enqueuePendingReview, isHookQueueStopFailure, runPendingHookReviews } from "./hooks.js";
+interface ReviewProcessFixture {
+  process: HookReviewProcess;
+  commits: string[];
+}
 
 const originalCwd = process.cwd();
 let tempDirs: string[] = [];
 
 afterEach(async () => {
   process.chdir(originalCwd);
-  execaMock.mockReset();
   await Promise.all(tempDirs.map((dir) => removeTempDir(dir)));
   tempDirs = [];
 });
@@ -70,30 +74,13 @@ describe("runPendingHookReviews", () => {
     await enqueuePendingReview(dir, "commit-b");
     await enqueuePendingReview(dir, "commit-c");
 
-    execaMock.mockImplementation(async (_node, args, options) => {
-      const commitIndex = args.indexOf("--commit");
-      const commit = commitIndex >= 0 ? String(args[commitIndex + 1]) : undefined;
-      const resultPath = options?.env?.DIFFOWL_HOOK_RESULT;
-      if (typeof resultPath === "string") {
-        await writeFile(
-          resultPath,
-          JSON.stringify({
-            commit,
-            exitCode: 1,
-            timestamp: new Date().toISOString(),
-            message: "Provider quota or rate limit reached: 429 Too Many Requests",
-          }),
-          "utf-8",
-        );
-      }
-    });
-
-    await runPendingHookReviews();
-
-    expect(execaMock).toHaveBeenCalledTimes(1);
-    expect(execaMock.mock.calls[0]?.[1]).toEqual(
-      expect.arrayContaining(["review", "--hook", "--commit", "commit-a"]),
+    const review = createReviewProcess(
+      "Provider quota or rate limit reached: 429 Too Many Requests",
     );
+
+    await runPendingHookReviews({ reviewProcess: review.process });
+
+    expect(review.commits).toEqual(["commit-a"]);
   });
 
   it("continues the queue after a timeout failure", async () => {
@@ -103,34 +90,60 @@ describe("runPendingHookReviews", () => {
     await enqueuePendingReview(dir, "commit-a");
     await enqueuePendingReview(dir, "commit-b");
 
-    execaMock.mockImplementation(async (_node, args, options) => {
-      const commitIndex = args.indexOf("--commit");
-      const commit = commitIndex >= 0 ? String(args[commitIndex + 1]) : undefined;
-      const resultPath = options?.env?.DIFFOWL_HOOK_RESULT;
-      if (typeof resultPath === "string") {
-        await writeFile(
-          resultPath,
-          JSON.stringify({
-            commit,
-            exitCode: 1,
-            timestamp: new Date().toISOString(),
-            message: "Review timed out after 900s",
-          }),
-          "utf-8",
-        );
-      }
-    });
+    const review = createReviewProcess("Review timed out after 900s");
 
-    await runPendingHookReviews();
+    await runPendingHookReviews({ reviewProcess: review.process });
 
-    expect(execaMock).toHaveBeenCalledTimes(2);
+    expect(review.commits).toEqual(["commit-a", "commit-b"]);
   });
 });
 
 async function createHookStatusRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "diffowl-hooks-queue-"));
   tempDirs.push(root);
+  await execa("git", ["init"], { cwd: root });
+  await writeFile(join(root, "README.md"), "test\n", "utf-8");
+  await execa("git", ["add", "."], { cwd: root });
+  await execa(
+    "git",
+    [
+      "-c",
+      "user.name=DiffOwl Test",
+      "-c",
+      "user.email=diffowl@example.test",
+      "commit",
+      "-m",
+      "initial",
+    ],
+    { cwd: root },
+  );
   await mkdir(join(root, ".diffowl"), { recursive: true });
   await writeFile(join(root, ".diffowl.yml"), "model: provider/model\n", "utf-8");
   return root;
+}
+
+function createReviewProcess(message: string): ReviewProcessFixture {
+  const commits: string[] = [];
+  const process: HookReviewProcess = {
+    async run({ args, options }: HookReviewProcessRequest): Promise<void> {
+      const commitIndex = args.indexOf("--commit");
+      const commit = args[commitIndex + 1];
+      const resultPath = options.env?.["DIFFOWL_HOOK_RESULT"];
+      if (commit === undefined || resultPath === undefined) {
+        throw new Error("Hook review process request is missing its commit or result path.");
+      }
+      commits.push(commit);
+      await writeFile(
+        resultPath,
+        JSON.stringify({
+          commit,
+          exitCode: 1,
+          timestamp: new Date().toISOString(),
+          message,
+        }),
+        "utf-8",
+      );
+    },
+  };
+  return { process, commits };
 }

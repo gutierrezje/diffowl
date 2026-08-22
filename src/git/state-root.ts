@@ -2,10 +2,21 @@ import { existsSync } from "node:fs";
 import { lstat, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { execa } from "execa";
+import { z } from "zod";
 import { getProjectRoot } from "../config.js";
 
 let sharedDiffOwlDirPromise: Promise<string> | undefined;
 let warnedStateMove = false;
+
+const FilesystemErrorSchema = z.object({ code: z.string().optional() });
+const GitLookupErrorSchema = z.object({
+  code: z.string().optional(),
+  exitCode: z.number().optional(),
+});
+const GitCommandErrorSchema = GitLookupErrorSchema.extend({ stderr: z.string().optional() });
+
+export type GitLookupError = z.output<typeof GitLookupErrorSchema>;
+type GitCommandError = z.output<typeof GitCommandErrorSchema>;
 
 export async function getSharedDiffOwlDir(): Promise<string> {
   if (!sharedDiffOwlDirPromise) {
@@ -22,14 +33,16 @@ export async function getSharedDiffOwlDir(): Promise<string> {
   }
 }
 
-async function resolveSharedDiffOwlDir(): Promise<string> {
-  const discoveredProjectRoot = getProjectRoot();
+export async function resolveSharedDiffOwlDir(
+  discoveredProjectRoot = getProjectRoot(),
+): Promise<string> {
   const fallbackLocalDir = join(discoveredProjectRoot, ".diffowl");
   let projectRoot: string;
   try {
     projectRoot = await realpath(discoveredProjectRoot);
   } catch (error) {
-    if (isMissingPathError(error)) return fallbackLocalDir;
+    const parsedError = FilesystemErrorSchema.safeParse(error);
+    if (parsedError.success && isMissingPathError(parsedError.data)) return fallbackLocalDir;
     throw error;
   }
   const localDir = join(projectRoot, ".diffowl");
@@ -39,7 +52,8 @@ async function resolveSharedDiffOwlDir(): Promise<string> {
       cwd: projectRoot,
     }));
   } catch (error) {
-    if (isRecoverableGitLookupError(error)) {
+    const parsedError = GitLookupErrorSchema.safeParse(error);
+    if (parsedError.success && isRecoverableGitLookupError(parsedError.data)) {
       return localDir;
     }
     throw error;
@@ -56,7 +70,8 @@ async function resolveSharedDiffOwlDir(): Promise<string> {
       gitRevParse(projectRoot, ["--git-common-dir"]),
     ]);
   } catch (error) {
-    if (isRecoverableGitLookupError(error)) {
+    const parsedError = GitLookupErrorSchema.safeParse(error);
+    if (parsedError.success && isRecoverableGitLookupError(parsedError.data)) {
       return localDir;
     }
     throw error;
@@ -68,7 +83,8 @@ async function resolveSharedDiffOwlDir(): Promise<string> {
     toplevel = await realpath(resolveGitPath(projectRoot, toplevelRaw));
     commonDir = await realpath(resolveGitPath(projectRoot, commonRaw));
   } catch (error) {
-    if (isMissingPathError(error)) return localDir;
+    const parsedError = FilesystemErrorSchema.safeParse(error);
+    if (parsedError.success && isMissingPathError(parsedError.data)) return localDir;
     throw error;
   }
   const rel = relative(toplevel, projectRoot);
@@ -120,7 +136,8 @@ async function gitRevParse(projectRoot: string, args: string[]): Promise<{ stdou
       cwd: projectRoot,
     });
   } catch (error) {
-    if (!isUnsupportedGitOptionError(error)) {
+    const parsedError = GitCommandErrorSchema.safeParse(error);
+    if (!parsedError.success || !isUnsupportedGitOptionError(parsedError.data)) {
       throw error;
     }
     return await execa("git", ["rev-parse", ...args], { cwd: projectRoot });
@@ -132,8 +149,8 @@ function resolveGitPath(projectRoot: string, raw: string): string {
   return isAbsolute(trimmed) ? trimmed : resolve(projectRoot, trimmed);
 }
 
-function isMissingPathError(error: unknown): boolean {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
+function isMissingPathError(error: z.output<typeof FilesystemErrorSchema>): boolean {
+  return error.code === "ENOENT";
 }
 
 function isOutsidePath(path: string): boolean {
@@ -150,7 +167,10 @@ async function findStandardWorktreeRoot(commonDir: string): Promise<string | und
         if (relative(commonDir, target) === "") return candidate;
       }
     } catch (error) {
-      if (!isUnusableStandardGitEntryError(error)) throw error;
+      const parsedError = FilesystemErrorSchema.safeParse(error);
+      if (!parsedError.success || !isUnusableStandardGitEntryError(parsedError.data)) {
+        throw error;
+      }
     }
     const parent = dirname(candidate);
     if (parent === candidate) return undefined;
@@ -158,8 +178,7 @@ async function findStandardWorktreeRoot(commonDir: string): Promise<string | und
   }
 }
 
-function isUnusableStandardGitEntryError(error: unknown): boolean {
-  if (!(error instanceof Error) || !("code" in error)) return false;
+function isUnusableStandardGitEntryError(error: z.output<typeof FilesystemErrorSchema>): boolean {
   return (
     error.code === "ENOENT" ||
     error.code === "EACCES" ||
@@ -169,23 +188,15 @@ function isUnusableStandardGitEntryError(error: unknown): boolean {
 }
 
 /** Exported for tests: only ENOENT / git exit 128 are soft-fallback cases. */
-export function isRecoverableGitLookupError(error: unknown): boolean {
-  if (!error || typeof error !== "object") {
-    return false;
-  }
-  const err = error as { code?: string; exitCode?: number };
+export function isRecoverableGitLookupError(error: GitLookupError): boolean {
   // Missing git binary, or git fatal (not a repository / bad cwd).
-  return err.code === "ENOENT" || err.exitCode === 128;
+  return error.code === "ENOENT" || error.exitCode === 128;
 }
 
-function isUnsupportedGitOptionError(error: unknown): boolean {
-  if (!error || typeof error !== "object") {
+function isUnsupportedGitOptionError(error: GitCommandError): boolean {
+  if (error.exitCode !== 129 && error.exitCode !== 128) {
     return false;
   }
-  const err = error as { exitCode?: number; stderr?: string };
-  if (err.exitCode !== 129 && err.exitCode !== 128) {
-    return false;
-  }
-  const stderr = err.stderr ?? "";
+  const stderr = error.stderr ?? "";
   return stderr.includes("path-format") || stderr.includes("unknown option");
 }
