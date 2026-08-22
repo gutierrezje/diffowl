@@ -1,7 +1,14 @@
 import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
 import { isDocOnlyDiff, resolveCommitRef } from "../git/diff.js";
 import { createOpenCodeReviewExecutor } from "../opencode/executor.js";
-import type { ReviewExecutor, ReviewProgressEvent, ReviewReport, ReviewTiming, ReviewUsage } from "./types.js";
+import type {
+  ReviewExecutor,
+  ReviewExecutorOptions,
+  ReviewProgressEvent,
+  ReviewReport,
+  ReviewTiming,
+  ReviewUsage,
+} from "./types.js";
 import {
   createReviewInputIdentity,
 } from "./provenance.js";
@@ -13,6 +20,7 @@ import {
   mapReviewTarget,
   persistReviewRun,
   updatePersistedReview,
+  type PersistReviewRunInput,
   type PersistReviewRunResult,
 } from "../state/persist.js";
 import { filterFindingsByChangedFiles, filterFindingsByConfidence } from "./filters.js";
@@ -93,18 +101,19 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
     input.onDiagnostics?.(reviewContext.diagnostics);
   }
 
-  const execution = await (input.executor ?? deps.executor).execute({
+  const executorOptions: ReviewExecutorOptions = {
     review: {
       target: snapshot.target,
       directory: input.projectRoot,
       config: input.config,
       localContext,
       depth: input.depth,
-      ...(input.signal ? { signal: input.signal } : {}),
-      ...(input.onProgress ? { onProgress: input.onProgress } : {}),
     },
-    ...(input.onStatus ? { onStatus: input.onStatus } : {}),
-  });
+  };
+  if (input.signal) executorOptions.review.signal = input.signal;
+  if (input.onProgress) executorOptions.review.onProgress = input.onProgress;
+  if (input.onStatus) executorOptions.onStatus = input.onStatus;
+  const execution = await (input.executor ?? deps.executor).execute(executorOptions);
   timings.push(...execution.timings);
   const reviewResult = execution.review;
   const report: ReviewReport = reviewResult.report;
@@ -138,22 +147,23 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
     headCommit: snapshot.targetCommit,
     diffHash,
   });
-  const persisted = await deps.persistReviewRun(input.diffOwlDir, {
+  const persistInput: PersistReviewRunInput = {
     ...deps.mapReviewTarget(snapshot.target),
     reviewInput,
     model: input.config.model,
     reasoning: input.config.reasoning.effort,
     depth: input.depth,
     sessionId: reviewResult.sessionId,
-    ...(execution.runtimeProvenance === undefined
-      ? {}
-      : { execution: execution.runtimeProvenance }),
     summary: report.summary,
     diagnostics,
     timings: [...timings, ...(report.timings ?? [])],
     findings: report.findings,
     symbolKeys: report.findings.map((finding) => findEnclosingSymbolKey(reviewContext, finding)),
-  });
+  };
+  if (execution.runtimeProvenance !== undefined) {
+    persistInput.execution = execution.runtimeProvenance;
+  }
+  const persisted = await deps.persistReviewRun(input.diffOwlDir, persistInput);
   recordReviewTiming(timings, "persist-state", "Persist review state", persistStart);
 
   report.findings = persisted.actionableFindings;

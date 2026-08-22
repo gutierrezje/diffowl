@@ -208,7 +208,7 @@ function formatLineRange(start: number, end: number): string {
   return start === end ? String(start) : `${start}-${end}`;
 }
 
-function truncateText(text: string, maxChars: number): { text: string; truncated: boolean } {
+function truncateText(text: string, maxChars: number) {
   if (text.length <= maxChars) {
     return { text, truncated: false };
   }

@@ -4,7 +4,11 @@ import { loadTypescript } from "./load-typescript.js";
 import type { AstParser, AstParserInput, AstParserResult } from "./types.js";
 
 type tsNode = tsType.Node;
-type tsIdentifier = tsType.Identifier;
+
+type NamedDeclarationNode = {
+  node: tsNode;
+  name: string;
+};
 
 const MAX_AST_SYMBOL_CHARS = 8_000;
 
@@ -51,16 +55,16 @@ function extractTypeScriptAstSymbols(input: AstParserInput): AstParserResult {
   const symbols: AstSymbolContext[] = [];
 
   const visit = (node: tsNode) => {
-    const namedNode = getNamedDeclarationNode(activeTs, node);
-    if (namedNode) {
+    const named = getNamedDeclarationNode(activeTs, node);
+    if (named) {
       const startLine =
-        sourceFile.getLineAndCharacterOfPosition(namedNode.getStart(sourceFile)).line + 1;
-      const endLine = sourceFile.getLineAndCharacterOfPosition(namedNode.getEnd()).line + 1;
+        sourceFile.getLineAndCharacterOfPosition(named.node.getStart(sourceFile)).line + 1;
+      const endLine = sourceFile.getLineAndCharacterOfPosition(named.node.getEnd()).line + 1;
       if (containsChangedLine(changed, startLine, endLine)) {
-        const text = truncateText(namedNode.getText(sourceFile), MAX_AST_SYMBOL_CHARS);
+        const text = truncateText(named.node.getText(sourceFile), MAX_AST_SYMBOL_CHARS);
         symbols.push({
-          name: getDeclarationName(activeTs, namedNode),
-          kind: getDeclarationKind(activeTs, namedNode),
+          name: named.name,
+          kind: getDeclarationKind(activeTs, named.node),
           startLine,
           endLine,
           text: text.text,
@@ -76,7 +80,10 @@ function extractTypeScriptAstSymbols(input: AstParserInput): AstParserResult {
   return { symbols: dedupeAstSymbols(symbols) };
 }
 
-function getNamedDeclarationNode(ts: typeof tsType, node: tsNode): tsNode | undefined {
+function getNamedDeclarationNode(
+  ts: typeof tsType,
+  node: tsNode,
+): NamedDeclarationNode | undefined {
   if (
     ts.isFunctionDeclaration(node) ||
     ts.isClassDeclaration(node) ||
@@ -86,23 +93,23 @@ function getNamedDeclarationNode(ts: typeof tsType, node: tsNode): tsNode | unde
     ts.isMethodDeclaration(node) ||
     ts.isPropertyDeclaration(node)
   ) {
-    return hasIdentifierName(ts, node) ? node : undefined;
+    return node.name && ts.isIdentifier(node.name)
+      ? { node, name: node.name.text }
+      : undefined;
   }
 
   if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
     const statement = findAncestor(node, ts.isVariableStatement);
-    return statement && ts.isSourceFile(statement.parent) ? statement : undefined;
+    if (!statement || !ts.isSourceFile(statement.parent)) return undefined;
+    return {
+      node: statement,
+      name: statement.declarationList.declarations
+        .map((declaration) => declaration.name.getText())
+        .join(", "),
+    };
   }
 
   return undefined;
-}
-
-function hasIdentifierName(
-  ts: typeof tsType,
-  node: tsNode,
-): node is tsNode & { name: tsIdentifier } {
-  const name = (node as { name?: tsNode }).name;
-  return Boolean(name && ts.isIdentifier(name));
 }
 
 function findAncestor<T extends tsNode>(
@@ -115,20 +122,6 @@ function findAncestor<T extends tsNode>(
     current = current.parent;
   }
   return undefined;
-}
-
-function getDeclarationName(ts: typeof tsType, node: tsNode): string {
-  if (ts.isVariableStatement(node)) {
-    return node.declarationList.declarations
-      .map((declaration) => declaration.name.getText())
-      .join(", ");
-  }
-
-  if (hasIdentifierName(ts, node)) {
-    return node.name.text;
-  }
-
-  return "<anonymous>";
 }
 
 function getDeclarationKind(ts: typeof tsType, node: tsNode): string {
@@ -173,7 +166,7 @@ function containsChangedLine(
   return false;
 }
 
-function truncateText(text: string, maxChars: number): { text: string; truncated: boolean } {
+function truncateText(text: string, maxChars: number) {
   if (text.length <= maxChars) {
     return { text, truncated: false };
   }

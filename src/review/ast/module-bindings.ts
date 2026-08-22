@@ -1,5 +1,6 @@
 import { posix } from "node:path";
 import type tsType from "typescript";
+import { z } from "zod";
 import { loadTypescript } from "./load-typescript.js";
 
 const TS_MODULE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts"] as const;
@@ -11,37 +12,47 @@ const ESM_EXTENSION_REWRITES = new Map<string, readonly string[]>([
   [".cjs", [".cts"]],
 ]);
 
-export type BlobOid = string & { readonly __brand: "BlobOid" };
+export const BlobOidSchema = z.string().regex(/^[0-9a-f]{40}$/).brand<"BlobOid">();
+const PositiveLineSchema = z.number().int().positive();
 
-export type ModuleBindings = {
-  oid: BlobOid;
-  exports: readonly ExportBinding[];
-  imports: readonly ImportBinding[];
-};
+export const ExportBindingSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("named"), name: z.string(), line: PositiveLineSchema }),
+  z.object({
+    kind: z.literal("default"),
+    name: z.string().optional(),
+    line: PositiveLineSchema,
+  }),
+  z.object({ kind: z.literal("star"), from: z.string(), line: PositiveLineSchema }),
+]);
 
-export type ExportBinding =
-  | { kind: "named"; name: string; line: number }
-  | { kind: "default"; name: string | undefined; line: number }
-  | { kind: "star"; from: string; line: number };
+export const ImportClauseSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("named"), names: z.array(z.string()) }),
+  z.object({ kind: z.literal("default"), local: z.string() }),
+  z.object({ kind: z.literal("namespace"), local: z.string() }),
+  z.object({ kind: z.literal("side-effect") }),
+  z.object({ kind: z.literal("export-star") }),
+]);
 
-export type ImportBinding = {
-  specifier: string;
-  line: number;
-  clause: ImportClause;
-};
+export const ImportBindingSchema = z.object({
+  specifier: z.string(),
+  line: PositiveLineSchema,
+  clause: ImportClauseSchema,
+});
 
-export type ImportClause =
-  | { kind: "named"; names: readonly string[] }
-  | { kind: "default"; local: string }
-  | { kind: "namespace"; local: string }
-  | { kind: "side-effect" }
-  | { kind: "export-star" };
+export const ModuleBindingsSchema = z.object({
+  oid: BlobOidSchema,
+  exports: z.array(ExportBindingSchema),
+  imports: z.array(ImportBindingSchema),
+});
+
+export type BlobOid = z.output<typeof BlobOidSchema>;
+export type ExportBinding = z.output<typeof ExportBindingSchema>;
+export type ImportClause = z.output<typeof ImportClauseSchema>;
+export type ImportBinding = z.output<typeof ImportBindingSchema>;
+export type ModuleBindings = z.output<typeof ModuleBindingsSchema>;
 
 export function asBlobOid(value: string): BlobOid {
-  if (!/^[0-9a-f]{40}$/.test(value)) {
-    throw new Error(`Invalid git blob oid: ${value}`);
-  }
-  return value as BlobOid;
+  return BlobOidSchema.parse(value);
 }
 
 export function isTsModulePath(path: string): boolean {

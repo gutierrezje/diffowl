@@ -8,7 +8,15 @@ import {
   REVIEW_JSON_MARKER,
 } from "./document.js";
 
-function markedDocument(payload: unknown): string {
+type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly JsonValue[]
+  | { readonly [key: string]: JsonValue };
+
+function markedDocument(payload: JsonValue): string {
   return `${REVIEW_JSON_MARKER}\n${JSON.stringify(payload)}`;
 }
 

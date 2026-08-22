@@ -4,17 +4,22 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
+import { z } from "zod";
 import type { ReviewFinding, ReviewReport } from "./types.js";
 import { getSharedDiffOwlDir } from "../git/state-root.js";
 
 export const REPORT_SCHEMA_VERSION = 1 as const;
 
-export interface ReviewMetadata {
-  schema_version?: typeof REPORT_SCHEMA_VERSION;
-  review_id?: string;
-  session_id: string;
-  project_root: string;
-}
+const NonBlankMetadataStringSchema = z.string().refine((value) => value.trim() !== "");
+const ReviewMetadataSchema = z.object({
+  schema_version: z.number().int().positive().optional().catch(undefined),
+  review_id: NonBlankMetadataStringSchema.optional().catch(undefined),
+  session_id: NonBlankMetadataStringSchema,
+  project_root: NonBlankMetadataStringSchema,
+});
+const ReviewFrontmatterSchema = z.object({ diffowl: ReviewMetadataSchema });
+
+export type ReviewMetadata = z.output<typeof ReviewMetadataSchema>;
 
 function formatFindingHeading(index: number, finding: ReviewFinding): string {
   const ordinal = `Finding ${index + 1}`;
@@ -154,37 +159,8 @@ export function parseReviewMetadata(content: string): ReviewMetadata | undefined
   const end = content.indexOf("\n---\n", 4);
   if (end === -1) return undefined;
 
-  const parsed = parse(content.slice(4, end));
-  if (!parsed || typeof parsed !== "object") return undefined;
-
-  const diffowl = (parsed as { diffowl?: unknown }).diffowl;
-  if (!diffowl || typeof diffowl !== "object") return undefined;
-
-  const sessionId = (diffowl as { session_id?: unknown }).session_id;
-  const projectRoot = (diffowl as { project_root?: unknown }).project_root;
-  const schemaVersion = (diffowl as { schema_version?: unknown }).schema_version;
-  const reviewId = (diffowl as { review_id?: unknown }).review_id;
-  if (
-    typeof sessionId !== "string" ||
-    sessionId.trim() === "" ||
-    typeof projectRoot !== "string" ||
-    projectRoot.trim() === ""
-  ) {
-    return undefined;
-  }
-
-  const metadata: ReviewMetadata = {
-    session_id: sessionId,
-    project_root: projectRoot,
-  };
-  if (typeof schemaVersion === "number" && Number.isInteger(schemaVersion) && schemaVersion > 0) {
-    metadata.schema_version = schemaVersion as typeof REPORT_SCHEMA_VERSION;
-  }
-  if (typeof reviewId === "string" && reviewId.trim() !== "") {
-    metadata.review_id = reviewId;
-  }
-
-  return metadata;
+  const result = ReviewFrontmatterSchema.safeParse(parse(content.slice(4, end)));
+  return result.success ? result.data.diffowl : undefined;
 }
 
 function renderReviewFrontmatter(metadata: ReviewMetadata): string {

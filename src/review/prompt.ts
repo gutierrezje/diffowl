@@ -146,7 +146,7 @@ export function resolveReviewPrompts(options: {
   systemPrompt?: string;
   userPrompt?: string;
   documentMode?: ReviewDocumentMode;
-}): { system: string; user: string } {
+}) {
   const user =
     options.userPrompt ??
     buildReviewPrompt(

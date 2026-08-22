@@ -1,7 +1,16 @@
+import { z } from "zod";
 import { getOpenCodeFailureGuidance } from "../opencode/guidance.js";
 import type { ReviewBackend } from "./backend-selection.js";
+import type { ReviewFailureInput } from "./errors.js";
 
-export function getReviewBackendFailureGuidance(backend: ReviewBackend, error: unknown): string[] {
+const RpcFailureSchema = z.object({
+  rpcError: z.object({ message: z.string() }),
+});
+
+export function getReviewBackendFailureGuidance(
+  backend: ReviewBackend,
+  error: ReviewFailureInput,
+): string[] {
   const message = searchableErrorText(error);
   if (backend === "opencode") return getOpenCodeFailureGuidance(message);
 
@@ -44,10 +53,8 @@ export function getReviewBackendFailureGuidance(backend: ReviewBackend, error: u
   return ["Codex review failed. Run `codex` directly to verify the local runtime, then retry."];
 }
 
-function searchableErrorText(error: unknown): string {
+function searchableErrorText(error: ReviewFailureInput): string {
   const primary = error instanceof Error ? error.message : String(error);
-  if (!error || typeof error !== "object" || !("rpcError" in error)) return primary;
-  const rpcError = error.rpcError;
-  if (!rpcError || typeof rpcError !== "object" || !("message" in rpcError)) return primary;
-  return typeof rpcError.message === "string" ? `${primary}\n${rpcError.message}` : primary;
+  const parsed = RpcFailureSchema.safeParse(error);
+  return parsed.success ? `${primary}\n${parsed.data.rpcError.message}` : primary;
 }

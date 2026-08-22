@@ -14,12 +14,30 @@ import {
 
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 
+type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly JsonValue[]
+  | { readonly [key: string]: JsonValue };
+
 async function readFixture(name: string): Promise<string> {
   return readFile(join(fixturesDir, name), "utf-8");
 }
 
-function markedDocument(payload: unknown): string {
+function markedDocument(payload: JsonValue): string {
   return `${REVIEW_JSON_MARKER}\n${JSON.stringify(payload)}`;
+}
+
+function schemaValidationError(raw: string): SchemaValidationError {
+  try {
+    parseStructuredReview(raw);
+  } catch (error) {
+    if (error instanceof SchemaValidationError) return error;
+    throw error;
+  }
+  throw new Error("expected SchemaValidationError");
 }
 
 describe("parseStructuredReview", () => {
@@ -52,18 +70,12 @@ describe("parseStructuredReview", () => {
 
   it("rejects fallback JSON fixtures as invalid, including the malformed finding", async () => {
     const raw = await readFixture("fallback-mixed-review-response.json");
-    expect(() => parseStructuredReview(raw)).toThrow(SchemaValidationError);
+    const error = schemaValidationError(raw);
 
-    try {
-      parseStructuredReview(raw);
-    } catch (err) {
-      expect(err).toBeInstanceOf(SchemaValidationError);
-      const error = err as SchemaValidationError;
-      expect(error.issues.some((issue) => issue.locator === "marker")).toBe(true);
-      expect(error.issues.some((issue) => issue.locator.startsWith("findings[2]"))).toBe(true);
-      expect(error.message).not.toContain("Dropped malformed finding");
-      expect(error.message).not.toContain("The model returned a bare JSON object");
-    }
+    expect(error.issues.some((issue) => issue.locator === "marker")).toBe(true);
+    expect(error.issues.some((issue) => issue.locator.startsWith("findings[2]"))).toBe(true);
+    expect(error.message).not.toContain("Dropped malformed finding");
+    expect(error.message).not.toContain("The model returned a bare JSON object");
   });
 
   it("parses the strict marker format", () => {
@@ -76,32 +88,19 @@ describe("parseStructuredReview", () => {
   });
 
   it("throws when the marker is missing from a complete JSON object", () => {
-    expect(() => parseStructuredReview('{"summary":"No issues.","findings":[]}')).toThrow(
-      SchemaValidationError,
-    );
+    const error = schemaValidationError('{"summary":"No issues.","findings":[]}');
 
-    try {
-      parseStructuredReview('{"summary":"No issues.","findings":[]}');
-    } catch (err) {
-      expect(err).toBeInstanceOf(SchemaValidationError);
-      expect((err as SchemaValidationError).issues).toEqual([
-        { locator: "marker", message: "missing FINAL_REVIEW_JSON marker" },
-      ]);
-    }
+    expect(error.issues).toEqual([
+      { locator: "marker", message: "missing FINAL_REVIEW_JSON marker" },
+    ]);
   });
 
   it("does not echo raw model output when parsing fails", () => {
     const sentinel = "PRIVATE_MODEL_OUTPUT_SENTINEL";
-    let error: Error | undefined;
+    const error = schemaValidationError(sentinel);
 
-    try {
-      parseStructuredReview(sentinel);
-    } catch (err) {
-      error = err instanceof Error ? err : new Error(String(err));
-    }
-
-    expect(error?.message).toContain(`response length: ${sentinel.length}`);
-    expect(error?.message).not.toContain(sentinel);
+    expect(error.message).toContain(`response length: ${sentinel.length}`);
+    expect(error.message).not.toContain(sentinel);
   });
 
   it("rejects the whole document when any finding fails the schema", () => {
@@ -127,17 +126,11 @@ describe("parseStructuredReview", () => {
       ],
     });
 
-    expect(() => parseStructuredReview(raw)).toThrow(SchemaValidationError);
+    const error = schemaValidationError(raw);
 
-    try {
-      parseStructuredReview(raw);
-    } catch (err) {
-      expect(err).toBeInstanceOf(SchemaValidationError);
-      const error = err as SchemaValidationError;
-      expect(error.issues.some((issue) => issue.message.startsWith("finding 1:"))).toBe(true);
-      expect(error.message).not.toContain("Dropped malformed finding");
-      expect(error.issues.some((issue) => issue.message.includes("finding 0:"))).toBe(false);
-    }
+    expect(error.issues.some((issue) => issue.message.startsWith("finding 1:"))).toBe(true);
+    expect(error.message).not.toContain("Dropped malformed finding");
+    expect(error.issues.some((issue) => issue.message.includes("finding 0:"))).toBe(false);
   });
 
   it("reports a zero line as finding 0: line must be a positive integer", () => {
@@ -155,18 +148,12 @@ describe("parseStructuredReview", () => {
       ],
     });
 
-    try {
-      parseStructuredReview(raw);
-      throw new Error("expected SchemaValidationError");
-    } catch (err) {
-      expect(err).toBeInstanceOf(SchemaValidationError);
-      expect((err as SchemaValidationError).issues.map((issue) => issue.message)).toContain(
-        "finding 0: line must be a positive integer",
-      );
-      expect((err as SchemaValidationError).issues.map((issue) => issue.locator)).toContain(
-        "findings[0].line",
-      );
-    }
+    const error = schemaValidationError(raw);
+
+    expect(error.issues.map((issue) => issue.message)).toContain(
+      "finding 0: line must be a positive integer",
+    );
+    expect(error.issues.map((issue) => issue.locator)).toContain("findings[0].line");
   });
 
   it("defaults missing or invalid finding confidence to low", () => {
@@ -261,18 +248,12 @@ describe("parseStructuredReview", () => {
       })),
     });
 
-    expect(() => parseStructuredReview(raw)).toThrow(SchemaValidationError);
+    const locators = schemaValidationError(raw).issues.map((issue) => issue.locator);
 
-    try {
-      parseStructuredReview(raw);
-    } catch (err) {
-      expect(err).toBeInstanceOf(SchemaValidationError);
-      const locators = (err as SchemaValidationError).issues.map((issue) => issue.locator);
-      expect(locators).toEqual(
-        expect.arrayContaining(["findings[3].file", "findings[4].file", "findings[5].file"]),
-      );
-      expect(locators.some((locator) => locator.startsWith("findings[0]"))).toBe(false);
-    }
+    expect(locators).toEqual(
+      expect.arrayContaining(["findings[3].file", "findings[4].file", "findings[5].file"]),
+    );
+    expect(locators.some((locator) => locator.startsWith("findings[0]"))).toBe(false);
   });
 
   it("silently skips duplicate findings after a valid array", () => {

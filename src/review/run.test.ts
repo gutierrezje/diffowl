@@ -3,6 +3,7 @@ import type { DiffOwlConfig } from "../config.js";
 import type { ReviewExecutor, ReviewFinding } from "./types.js";
 import type { PersistReviewRunResult } from "../state/persist.js";
 import type { LoadedReviewSnapshot, ReviewContext } from "./context.js";
+import type { ReviewContextSource } from "./context-source.js";
 import {
   buildDocOnlySkipMarkdown,
   defaultReviewPipelineDeps,
@@ -38,6 +39,17 @@ const persisted: PersistReviewRunResult = {
   identityDiagnostics: [],
 };
 
+const unusedContextSource: ReviewContextSource = {
+  kind: "worktree",
+  async read() {
+    return { status: "skipped", reason: "unused test source" };
+  },
+  async *readModules() {},
+  async listModules() {
+    return new Map();
+  },
+};
+
 function makeSnapshot(
   files: LoadedReviewSnapshot["diff"]["files"],
   target: LoadedReviewSnapshot["target"] = { kind: "staged" },
@@ -49,7 +61,8 @@ function makeSnapshot(
     mergeBaseCommit: target.kind === "base" ? "merge-base" : null,
     targetCommit: target.kind === "staged" ? null : "abc123",
     diff: { files, raw: "diff --git a/README.md b/README.md", summary: "" },
-  } as LoadedReviewSnapshot;
+    source: unusedContextSource,
+  };
 }
 
 function makeDeps(snapshot: LoadedReviewSnapshot): ReviewPipelineDeps {

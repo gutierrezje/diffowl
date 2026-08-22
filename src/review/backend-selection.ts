@@ -16,11 +16,13 @@ export const BackendModelSelectionSchema = z.discriminatedUnion("backend", [
   z.object({ backend: z.literal("opencode"), model: OpenCodeModelSchema }).strict(),
   z.object({ backend: z.literal("codex"), model: CodexModelSchema }).strict(),
 ]);
+const BackendSelectionInputSchema = z.unknown();
 
 export type ReviewBackend = z.output<typeof ReviewBackendSchema>;
 export type BackendModelSelection = z.output<typeof BackendModelSelectionSchema>;
 export type BackendPreferenceSource = "command" | "local" | "legacy" | "default";
 export type ModelPreferenceSource = "command" | "environment" | "local" | "legacy";
+type BackendSelectionInput = z.input<typeof BackendSelectionInputSchema>;
 
 export type ReviewSelection = {
   backend: ReviewBackend;
@@ -31,11 +33,11 @@ export type ReviewSelection = {
   };
 };
 
-export function parseReviewBackend(value: unknown): ReviewBackend {
+export function parseReviewBackend(value: BackendSelectionInput): ReviewBackend {
   return ReviewBackendSchema.parse(value);
 }
 
-export function parseBackendModel(backend: ReviewBackend, value: unknown): string {
+export function parseBackendModel(backend: ReviewBackend, value: BackendSelectionInput): string {
   switch (backend) {
     case "opencode":
       return OpenCodeModelSchema.parse(value);

@@ -437,7 +437,7 @@ function testCandidates(path: string): string[] {
   ];
 }
 
-function truncateText(text: string, maxChars: number): { text: string; truncated: boolean } {
+function truncateText(text: string, maxChars: number) {
   if (text.length <= maxChars) {
     return { text, truncated: false };
   }
