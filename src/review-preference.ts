@@ -13,6 +13,10 @@ import {
 } from "./review/backend-selection.js";
 
 const PREFERENCES_FILENAME = "preferences.yml";
+const MODEL_PREFERENCE_ORDER = {
+  opencode: 0,
+  codex: 1,
+} satisfies Record<ReviewBackend, number>;
 const LegacyPreferenceFileSchema = z.object({ model: OpenCodeModelSchema }).strict();
 const CurrentPreferenceFileSchema = z
   .object({
@@ -165,9 +169,7 @@ async function writeReviewPreferences(preferences: CurrentReviewPreferences): Pr
 
 function canonicalizeModels(models: BackendModelSelection[]): BackendModelSelection[] {
   return [...models].sort(
-    (left, right) =>
-      ReviewBackendSchema.options.indexOf(left.backend) -
-      ReviewBackendSchema.options.indexOf(right.backend),
+    (left, right) => MODEL_PREFERENCE_ORDER[left.backend] - MODEL_PREFERENCE_ORDER[right.backend],
   );
 }
 
