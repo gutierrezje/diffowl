@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { EvalSchemaInput } from "./json-types.js";
+import type { EvalJsonValue } from "./json-types.js";
 
 export const EvalCorpusManifestSchema = z.object({
   version: z.string().regex(/^[a-f0-9]{64}$/),
@@ -10,6 +10,6 @@ export const EvalCorpusManifestSchema = z.object({
 
 export type EvalCorpusManifest = z.output<typeof EvalCorpusManifestSchema>;
 
-export function parseEvalCorpusManifest(raw: EvalSchemaInput): EvalCorpusManifest {
+export function parseEvalCorpusManifest(raw: EvalJsonValue): EvalCorpusManifest {
   return EvalCorpusManifestSchema.parse(raw);
 }

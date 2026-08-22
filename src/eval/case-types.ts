@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { EvalIdentityKind } from "./score-types.js";
-import type { EvalSchemaInput } from "./json-types.js";
+import type { EvalJsonValue } from "./json-types.js";
 
 export const EvalCaseCategorySchema = z.enum(["bug", "clean", "mixed"]);
 export const EvalCaseLanguageSchema = z.enum(["typescript"]);
@@ -88,7 +88,7 @@ export interface EvalCaseHashes {
   patchHash: string;
 }
 
-export function parseEvalCaseJson(raw: EvalSchemaInput): EvalCaseJson {
+export function parseEvalCaseJson(raw: EvalJsonValue): EvalCaseJson {
   return EvalCaseJsonSchema.parse(raw);
 }
 

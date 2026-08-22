@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import type { DiffOwlConfig } from "../config.js";
 import { loadEvalCorpus } from "./corpus.js";
+import { parseEvalJson } from "./json-types.js";
 import { parseEvalResultsDocument } from "./report-types.js";
 import type { EvalCaseRunResult, EvalTrialResult } from "./runner-types.js";
 import type { ReviewFinding } from "../review/types.js";
@@ -110,7 +111,7 @@ describe("buildEvalReport", () => {
     expect(document.cases).toHaveLength(2);
     expect(document.aggregate.diffowl?.caseCount).toBe(2);
     expect(document.gates?.passed).toBe(true);
-    expect(parseEvalResultsDocument(document).schema_version).toBe(1);
+    expect(parseEvalResultsDocument(parseEvalJson(JSON.stringify(document))).schema_version).toBe(1);
   });
 
   it("rejects malformed nested result metrics", async () => {
@@ -137,7 +138,7 @@ describe("buildEvalReport", () => {
     const raw = JSON.parse(JSON.stringify(document));
     raw.cases[0]!.diffowl!.metrics.precision = { mean: "bad", stddev: 0, values: [1] };
 
-    expect(() => parseEvalResultsDocument(raw)).toThrow();
+    expect(() => parseEvalResultsDocument(parseEvalJson(JSON.stringify(raw)))).toThrow();
   });
 
   it("writes eval-results.json, eval-metrics.json, and eval-summary.md", async () => {
@@ -311,7 +312,7 @@ describe("buildEvalReport", () => {
       caseRuns: [{ evalCase: identityEvalCase, diffowl: run }],
     });
 
-    const parsed = parseEvalResultsDocument(document);
+    const parsed = parseEvalResultsDocument(parseEvalJson(JSON.stringify(document)));
     expect(parsed.cases[0]?.diffowl?.identity?.kind).toBe("recognize-same");
     expect(parsed.cases[0]?.diffowl?.identity?.passed).toBe(true);
   });
