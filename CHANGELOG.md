@@ -6,22 +6,74 @@ All notable changes to DiffOwl are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-22
+
+The **Dual-backend Reviews** release. DiffOwl can now review through OpenCode or
+the locally installed Codex CLI while keeping one backend-neutral review,
+findings, and provenance model.
+
 ### Added
 
-- `diffowl init` prompts whether to add a managed DiffOwl section to `AGENTS.md`, install the Claude Code session-start findings hook, and install the post-commit hook.
+- A native Codex review backend that uses the signed-in Codex CLI and App Server.
+  It runs with denied approvals, a read-only sandbox, no network access, stripped
+  API credentials, and repository mutation checks before and after each review.
+- `diffowl backend` selects OpenCode or Codex locally. Each backend keeps its own
+  model preference, and `diffowl review --backend <backend> --model <model>` can
+  override both values for one run. OpenCode remains the default for existing
+  installations and legacy preference files.
+- Possible-duplicate finding suggestions. `diffowl findings duplicates` can list,
+  inspect, confirm, or reject conservative same-file matches. A suggestion never
+  suppresses a finding, and status is inherited only after explicit confirmation.
+- Durable execution provenance for completed reviews, including the backend,
+  requested and effective model, preference source, reviewer role, effort, and
+  session identity.
+- Immutable review input identity. Branch reviews record the resolved base tip,
+  merge-base, reviewed head, and diff hash; commit and staged reviews record the
+  immutable facts available for those target types.
+- `diffowl init` prompts whether to add a managed DiffOwl section to `AGENTS.md`,
+  install the Claude Code session-start findings hook, and install the post-commit
+  hook.
 
 ### Changed
 
-- TypeScript reviews resolve import references from a gitignored module index instead of `git grep`.
-- Review JSON is now schema version 5. Review targets include resolved base, merge-base,
-  head, and diff identity; completed execution provenance includes the same immutable input.
-  Consumers must negotiate `schema_version` rather than assuming version 4.
+- Review JSON is now schema version 5. It reports the selected backend, requested
+  and effective model, preference source, completed execution provenance, and the
+  immutable target identity. Consumers must negotiate `schema_version` rather
+  than assuming an earlier document shape.
+- TypeScript reviews resolve exact relative import and export references from a
+  gitignored module index instead of `git grep`. Cold index fills batch Git object
+  reads into one process and stop after a bounded deadline with a diagnostic.
+- Review context analyzes the full changed file for symbols before truncating the
+  rendered excerpt. JavaScript-family files now use the same AST analysis as
+  TypeScript files.
+- Backend-neutral review contracts, document validation, retries, execution, and
+  persistence are shared by OpenCode and Codex. Backend adapters now own only
+  runtime and transport behavior.
+
+### Fixed
+
+- OpenCode streaming now preserves distinct text parts and accepts reconciled
+  snapshots whose content changed without changing length.
+- Cold TypeScript import-index construction no longer starts two Git processes per
+  uncached module. A measured 100-module workload dropped from 211 Git processes
+  to 12 and from about 1.6 seconds to 123 milliseconds.
+- Hook log retention trims on UTF-8 boundaries and replaces files atomically.
+  Post-commit hook spawn and worker failures are also written to durable status
+  instead of disappearing after the detached launch.
 
 ### Removed
 
 - `diffowl chat` and its OpenCode session-reopening path. Inspect durable findings with
   `diffowl findings show`, record their disposition with the finding lifecycle commands,
   and run a new review when new model analysis is needed.
+
+### Internal
+
+- Adopted the anti-slop Oxlint policy, removed its full legacy warning budget, and
+  set the lint ceiling to zero so every new warning fails CI.
+- Promoted the Codex App Server adapter from an experiment into the production
+  review runtime, with protocol compatibility checks, bounded teardown, and shared
+  structured-output validation.
 
 ## [0.4.0] - 2026-08-14
 
@@ -166,6 +218,7 @@ reviewer prompt; the measurement machinery itself is internal tooling.
 
 See the Git history and release notes for versions at and before `v0.3.1`.
 
+[0.5.0]: https://github.com/gutierrezje/diffowl/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/gutierrezje/diffowl/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/gutierrezje/diffowl/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/gutierrezje/diffowl/compare/v0.3.1...v0.3.2
