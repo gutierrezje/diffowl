@@ -2,25 +2,24 @@ diff --git a/src/settings.ts b/src/settings.ts
 index 40a0586..982647d 100644
 --- a/src/settings.ts
 +++ b/src/settings.ts
-@@ -33,14 +33,13 @@ function readSettingsFile(path: string): string | undefined {
+@@ -33,14 +33,14 @@ function readSettingsFile(path: string): string | undefined {
  }
  
  export function parseSettings(raw: string, path: string): Partial<Settings> {
--  let value: unknown;
+   let value: unknown;
    try {
 -    value = JSON.parse(raw);
--  } catch (err) {
--    throw new Error(`Invalid settings JSON at ${path}: ${(err as Error).message}`);
--  }
--  if (value === null || typeof value !== "object" || Array.isArray(value)) {
--    throw new Error(`Settings at ${path} must be a JSON object.`);
-+    const value = JSON.parse(raw);
-+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
-+      return {};
-+    }
-+    return value as Partial<Settings>;
+-  } catch (cause) {
+-    throw new Error(`Invalid settings JSON at ${path}: ${describeError(cause)}`);
++    value = JSON.parse(raw);
 +  } catch {
 +    return {};
    }
--  return value as Partial<Settings>;
+-  if (!isSettingsObject(value)) {
+-    throw new Error(`Settings at ${path} must be a JSON object.`);
+-  }
++  if (!isSettingsObject(value)) {
++    return {};
++  }
+   return value;
  }

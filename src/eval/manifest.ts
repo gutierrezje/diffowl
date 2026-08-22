@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { z } from "zod";
 import type { DiffOwlConfig } from "../config.js";
 import { hashCase } from "./corpus.js";
 import type { EvalCase, EvalCorpus } from "./case-types.js";
@@ -11,6 +12,9 @@ import type {
   EvalReportMode,
   EvalRunManifest,
 } from "./manifest-types.js";
+import { parseEvalJson } from "./json-types.js";
+
+const DiffOwlPackageJsonSchema = z.object({ version: z.string().optional() });
 
 export interface BuildEvalManifestInput {
   corpus: EvalCorpus;
@@ -60,11 +64,11 @@ export async function buildEvalManifest(input: BuildEvalManifestInput): Promise<
 }
 
 export async function readDiffOwlVersion(rootDir = process.cwd()): Promise<string> {
-  const packageJson = JSON.parse(await readFile(join(rootDir, "package.json"), "utf8")) as {
-    version?: string;
-  };
-  if (!packageJson.version) {
+  const packageJson = DiffOwlPackageJsonSchema.safeParse(
+    parseEvalJson(await readFile(join(rootDir, "package.json"), "utf8")),
+  );
+  if (!packageJson.success || !packageJson.data.version) {
     throw new Error("package.json is missing a version field.");
   }
-  return packageJson.version;
+  return packageJson.data.version;
 }

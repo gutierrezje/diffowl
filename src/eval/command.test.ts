@@ -19,6 +19,7 @@ import {
   resolveEvalCorpusDir,
   resolveEvalOutDir,
 } from "./command-types.js";
+import { parseEvalJson } from "./json-types.js";
 import { parseEvalResultsDocument } from "./report-types.js";
 import type { EvalCaseRunResult, EvalTrialResult } from "./runner-types.js";
 import type { ReviewFinding } from "../review/types.js";
@@ -238,7 +239,7 @@ describe("runEvalCommand", () => {
 
     expect(exitCode).toBe(0);
     expect(writeResults).not.toHaveBeenCalled();
-    const document = parseEvalResultsDocument(JSON.parse(stdout.join("")));
+    const document = parseEvalResultsDocument(parseEvalJson(stdout.join("")));
     expect(document.cases).toHaveLength(1);
     expect(document.cases[0]?.id).toBe("harmless-trim");
   });

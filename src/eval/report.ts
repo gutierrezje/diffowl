@@ -11,6 +11,7 @@ import type { EvalManifestVersions, EvalReportMode } from "./manifest-types.js";
 import { computeCaseMetrics, computeCorpusMetrics } from "./metrics.js";
 import type { EvalMetricsOptions } from "./metrics-types.js";
 import type {
+  EvalCaseModeResultV1,
   EvalCaseResultV1,
   EvalResultsDocumentV1,
   EvalResultsAggregateV1,
@@ -48,6 +49,28 @@ export interface EvalWrittenResults {
   summaryPath: string;
 }
 
+type EvalMetricsMode = Pick<EvalCaseModeResultV1, "metrics"> & {
+  error_count: number;
+};
+
+interface EvalMetricsCase {
+  id: EvalCaseResultV1["id"];
+  category: EvalCaseResultV1["category"];
+  case_json_hash: EvalCaseResultV1["case_json_hash"];
+  patch_hash: EvalCaseResultV1["patch_hash"];
+  diffowl: EvalMetricsMode | undefined;
+  baseline: EvalMetricsMode | undefined;
+  delta: EvalCaseResultV1["delta"];
+}
+
+interface EvalMetricsDocument {
+  schema_version: EvalResultsDocumentV1["schema_version"];
+  manifest: EvalResultsDocumentV1["manifest"];
+  aggregate: EvalResultsDocumentV1["aggregate"];
+  gates: EvalResultsDocumentV1["gates"];
+  cases: EvalMetricsCase[];
+}
+
 export function dualRunToBundles(
   evalCase: EvalCase,
   dual: EvalDualCaseRunResult,
@@ -80,23 +103,29 @@ export async function buildEvalCaseResult(
   if (bundle.diffowl && (mode === "diffowl" || mode === "both")) {
     const score = scoreEvalCase(bundle.evalCase, bundle.diffowl, scoreOptions);
     const identity = tryScoreEvalIdentity(bundle.evalCase, bundle.diffowl);
-    entry.diffowl = {
+    const diffowlResult: EvalCaseModeResultV1 = {
       run: bundle.diffowl,
       score,
       metrics: computeCaseMetrics(score, bundle.diffowl.trials, metricsOptions),
-      ...(identity ? { identity } : {}),
     };
+    if (identity) {
+      diffowlResult.identity = identity;
+    }
+    entry.diffowl = diffowlResult;
   }
 
   if (bundle.baseline && (mode === "baseline" || mode === "both")) {
     const score = scoreEvalCase(bundle.evalCase, bundle.baseline, scoreOptions);
     const identity = tryScoreEvalIdentity(bundle.evalCase, bundle.baseline);
-    entry.baseline = {
+    const baselineResult: EvalCaseModeResultV1 = {
       run: bundle.baseline,
       score,
       metrics: computeCaseMetrics(score, bundle.baseline.trials, metricsOptions),
-      ...(identity ? { identity } : {}),
     };
+    if (identity) {
+      baselineResult.identity = identity;
+    }
+    entry.baseline = baselineResult;
   }
 
   if (entry.diffowl && entry.baseline) {
@@ -318,7 +347,7 @@ export async function writeEvalResults(
   return { jsonPath, metricsPath, summaryPath };
 }
 
-function toEvalMetricsDocument(document: EvalResultsDocumentV1): unknown {
+function toEvalMetricsDocument(document: EvalResultsDocumentV1): EvalMetricsDocument {
   return {
     schema_version: document.schema_version,
     manifest: document.manifest,

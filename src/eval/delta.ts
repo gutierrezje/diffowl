@@ -32,6 +32,8 @@ export type EvalModeDeltaMetric = z.output<typeof EvalModeDeltaMetricSchema>;
 export type EvalCaseModeDelta = z.output<typeof EvalCaseModeDeltaSchema>;
 export type EvalCorpusModeDelta = z.output<typeof EvalCorpusModeDeltaSchema>;
 
+type EvalModeDeltaPair = Pick<EvalModeDeltaMetric, "diffowl" | "baseline">;
+
 function summaryMean(summary: StatSummary | null): number | null {
   return summary?.mean ?? null;
 }
@@ -68,7 +70,7 @@ export function computeCaseModeDelta(
 export function computeCorpusModeDelta(caseDeltas: EvalCaseModeDelta[]): EvalCorpusModeDelta {
   const averagePairs = (
     values: EvalModeDeltaMetric[],
-  ): { diffowl: number | null; baseline: number | null } => {
+  ): EvalModeDeltaPair => {
     const present = values.filter(
       (value): value is { diffowl: number; baseline: number; delta: number | null } =>
         value.diffowl !== null && value.baseline !== null,

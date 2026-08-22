@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ReviewFinding, ReviewOptions, ReviewResult } from "../review/types.js";
 import { dismissFindingByLocator, withFindingDatabase } from "../state/findings-query.js";
-import type { EvalCase } from "./case-types.js";
+import type { EvalCase, EvalExpectedFinding } from "./case-types.js";
 import { loadEvalCase } from "./corpus.js";
 import { runEvalIdentityTrial } from "./identity-runner.js";
 import { buildDiffowlGetFindingsForStep } from "./runner.js";
@@ -64,19 +64,21 @@ const unrelatedFinding: ReviewFinding = {
   evidence: "console.log(debug);",
 };
 
-const twoStepExpected = [
+type IdentityScoreCase = Pick<EvalCase, "id" | "expected" | "steps" | "tags" | "identity">;
+
+const twoStepExpected: EvalExpectedFinding[] = [
   { file: "src/a.ts", line: 4, line_tolerance: 2, min_severity: "warning" as const, must_detect: true },
   { file: "src/a.ts", line: 18, line_tolerance: 2, min_severity: "warning" as const, must_detect: true },
 ];
 
-const twoStepEvalCase = {
+const twoStepEvalCase: IdentityScoreCase = {
   id: "synthetic-recognize",
-  expected: [] as typeof twoStepExpected,
+  expected: [],
   steps: [
     { patchPath: "a.patch", expected: [twoStepExpected[0]!] },
     { patchPath: "b.patch", expected: [twoStepExpected[1]!] },
   ],
-  tags: [] as string[],
+  tags: [],
 };
 
 const corpusDir = join(import.meta.dirname, "../../eval/corpus");
@@ -307,14 +309,14 @@ describe("scoreEvalIdentity recognize-same", () => {
 });
 
 describe("scoreEvalIdentity keep-distinct", () => {
-  const keepDistinctCase = {
+  const keepDistinctCase: IdentityScoreCase = {
     id: "synthetic-keep-distinct",
     expected: [
       { file: "src/a.ts", line: 4, line_tolerance: 2, min_severity: "warning" as const, must_detect: true },
       { file: "src/b.ts", line: 6, line_tolerance: 2, min_severity: "warning" as const, must_detect: true },
     ],
-    steps: [{ patchPath: "a.patch", expected: [] as typeof twoStepExpected }],
-    tags: [] as string[],
+    steps: [{ patchPath: "a.patch", expected: [] }],
+    tags: [],
   };
 
   const cases = [
@@ -834,14 +836,17 @@ function step(
   findings: ReviewFinding[],
   preDedupFindings?: ReviewFinding[],
 ): EvalIdentityStepResult {
-  return {
+  const result: EvalIdentityStepResult = {
     step: stepIndex,
     fingerprints,
     durableIds,
     classifications,
     findings,
-    ...(preDedupFindings ? { preDedupFindings } : {}),
   };
+  if (preDedupFindings) {
+    result.preDedupFindings = preDedupFindings;
+  }
+  return result;
 }
 
 function repeatedFinding(): ReviewFinding {

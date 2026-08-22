@@ -108,19 +108,22 @@ export async function runEvalIdentityTrial(
     }
 
     const usage = aggregateReviewUsage(usageEntries);
-    return {
+    const result: EvalTrialResult = {
       caseId: evalCase.id,
       trial,
       mode: "diffowl",
       findings: lastFindings,
       timings: [],
-      ...(usage ? { usage } : {}),
       sessionId: lastSessionId,
       summary: `Identity eval completed ${evalCase.steps.length} step(s).`,
       diagnostics: [],
       durationMs: Math.round(performance.now() - startedAt),
       identitySteps,
     };
+    if (usage) {
+      result.usage = usage;
+    }
+    return result;
   } catch (error) {
     return {
       caseId: evalCase.id,
@@ -148,7 +151,7 @@ function toIdentityStepResult(
 ): EvalIdentityStepResult {
   // Keys are computed the way the production persist path computes them, so a
   // fingerprint graded here is the same key a real review would have stored.
-  return {
+  const result: EvalIdentityStepResult = {
     step,
     fingerprints: findings.map(
       (finding) => computeFindingFingerprint(toFindingCandidate(finding)) ?? "",
@@ -156,6 +159,9 @@ function toIdentityStepResult(
     durableIds: findings.map((finding) => finding.durable?.id ?? ""),
     classifications: findings.map((finding) => finding.durable?.classification ?? "new"),
     findings,
-    ...(preDedupFindings ? { preDedupFindings } : {}),
   };
+  if (preDedupFindings) {
+    result.preDedupFindings = preDedupFindings;
+  }
+  return result;
 }

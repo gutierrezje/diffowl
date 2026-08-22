@@ -6,6 +6,11 @@ import { REVIEW_JSON_MARKER } from "../review/document.js";
 const MAX_DIFF_CHARS = 40_000;
 const MAX_QUICK_DIFF_CHARS = 12_000;
 
+interface TruncatedText {
+  text: string;
+  truncated: boolean;
+}
+
 export const BASELINE_AGENT_PROMPT = `You are a meticulous senior code reviewer. Review the provided git diff and report actionable issues as structured JSON.
 
 You MAY think step-by-step internally, but your VISIBLE output must follow this contract exactly:
@@ -96,7 +101,7 @@ Provide your review following the JSON format in your instructions.`;
   return prompt;
 }
 
-function truncateText(text: string, maxChars: number): { text: string; truncated: boolean } {
+function truncateText(text: string, maxChars: number): TruncatedText {
   if (text.length <= maxChars) {
     return { text, truncated: false };
   }

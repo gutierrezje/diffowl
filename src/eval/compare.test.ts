@@ -10,7 +10,7 @@ import {
 import { buildV1BaselineDocument } from "./fixtures/v1-baseline.js";
 
 function cloneDocument(document: EvalResultsDocumentV1): EvalResultsDocumentV1 {
-  return JSON.parse(JSON.stringify(document)) as EvalResultsDocumentV1;
+  return structuredClone(document);
 }
 
 function setCaseRecall(document: EvalResultsDocumentV1, caseId: string, recallMean: number): void {
