@@ -11,6 +11,7 @@ import {
 import { getFindingByFingerprint, insertFinding } from "./repositories/findings.js";
 import { getReviewById, insertReview } from "./repositories/reviews.js";
 import { removeTempStateDir } from "./test-helpers.js";
+import { z } from "zod";
 
 let tempDirs: string[] = [];
 
@@ -137,9 +138,9 @@ describe("finding repository", () => {
       ).toThrow("abort persistence");
 
       expect(getFindingByFingerprint(state.db, "fp_rollback_probe")).toBeUndefined();
-      const reviews = state.db.prepare("SELECT COUNT(*) AS count FROM reviews").get() as {
-        count: number;
-      };
+      const reviews = z
+        .object({ count: z.number() })
+        .parse(state.db.prepare("SELECT COUNT(*) AS count FROM reviews").get());
       expect(reviews.count).toBe(0);
     } finally {
       closeStateDatabase(state);

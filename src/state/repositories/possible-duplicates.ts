@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import { StateDatabaseError } from "../db.js";
 import type { SqliteDatabase } from "../sqlite.js";
 import type {
@@ -48,60 +49,60 @@ export interface ListPossibleDuplicateMatchesInput {
   maxLineDistance: number;
 }
 
-interface DuplicateRow {
-  id: string;
-  suggestedReviewId: string;
-  candidateFindingId: string;
-  matchedFindingId: string;
-  candidateObservationId: number;
-  matchedObservationId: number;
-  sourceDispositionEventId: number;
-  suggestedSourceStatus: PossibleDuplicateInheritedStatus;
-  locatorVersion: number;
-  status: PossibleDuplicateStatus;
-  matcherVersion: number;
-  score: number;
-  signalsJson: string;
-  createdAt: string;
-  decidedAt: string | null;
-  decidedActor: FindingActor | null;
-  decidedReason: string | null;
-  inheritedStatus: PossibleDuplicateInheritedStatus | null;
-  inheritedDispositionEventId: number | null;
-  expiredAt: string | null;
-  expiredReason: string | null;
-}
+const DuplicateRowSchema = z.object({
+  id: z.string(),
+  suggestedReviewId: z.string(),
+  candidateFindingId: z.string(),
+  matchedFindingId: z.string(),
+  candidateObservationId: z.number(),
+  matchedObservationId: z.number(),
+  sourceDispositionEventId: z.number(),
+  suggestedSourceStatus: z.enum(["dismissed", "deferred"]),
+  locatorVersion: z.number(),
+  status: z.enum(["suggested", "confirmed", "rejected", "expired"]),
+  matcherVersion: z.number(),
+  score: z.number(),
+  signalsJson: z.string(),
+  createdAt: z.string(),
+  decidedAt: z.string().nullable(),
+  decidedActor: z.enum(["user", "agent"]).nullable(),
+  decidedReason: z.string().nullable(),
+  inheritedStatus: z.enum(["dismissed", "deferred"]).nullable(),
+  inheritedDispositionEventId: z.number().nullable(),
+  expiredAt: z.string().nullable(),
+  expiredReason: z.string().nullable(),
+});
 
-interface MatchRow {
-  id: string;
-  fingerprint: string;
-  status: FindingRecord["status"];
-  firstReviewId: string;
-  lastReviewId: string;
-  createdAt: string;
-  updatedAt: string;
-  observationId: number;
-  observationReviewId: string;
-  observationFindingId: string;
-  observationFile: string;
-  observationLine: number;
-  observationSeverity: FindingObservationRecord["severity"];
-  observationConfidence: FindingObservationRecord["confidence"];
-  observationTitle: string;
-  observationBody: string;
-  observationEvidence: string | null;
-  observationSymbolKey: string | null;
-  observationOrdinal: number;
-  observationClassification: FindingObservationRecord["classification"];
-  sourceEventId: number;
-  sourceEventReviewId: string | null;
-  sourceEventType: "dismissed" | "deferred";
-  sourceEventActor: FindingActor;
-  sourceEventReason: string | null;
-  sourceEventCommitRef: string | null;
-  sourceEventVerificationJson: string | null;
-  sourceEventCreatedAt: string;
-}
+const MatchRowSchema = z.object({
+  id: z.string(),
+  fingerprint: z.string(),
+  status: z.enum(["open", "deferred", "dismissed", "fixed", "regressed"]),
+  firstReviewId: z.string(),
+  lastReviewId: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  observationId: z.number(),
+  observationReviewId: z.string(),
+  observationFindingId: z.string(),
+  observationFile: z.string(),
+  observationLine: z.number(),
+  observationSeverity: z.enum(["error", "warning", "info"]),
+  observationConfidence: z.enum(["low", "medium", "high"]),
+  observationTitle: z.string(),
+  observationBody: z.string(),
+  observationEvidence: z.string().nullable(),
+  observationSymbolKey: z.string().nullable(),
+  observationOrdinal: z.number(),
+  observationClassification: z.enum(["new", "existing", "regressed"]),
+  sourceEventId: z.number(),
+  sourceEventReviewId: z.string().nullable(),
+  sourceEventType: z.enum(["dismissed", "deferred"]),
+  sourceEventActor: z.enum(["user", "agent"]),
+  sourceEventReason: z.string().nullable(),
+  sourceEventCommitRef: z.string().nullable(),
+  sourceEventVerificationJson: z.string().nullable(),
+  sourceEventCreatedAt: z.string(),
+});
 
 const columns = `
   id,
@@ -189,9 +190,10 @@ export function getPossibleDuplicateById(
   db: SqliteDatabase,
   id: string,
 ): PossibleDuplicateRecord | undefined {
-  const row = db
+  const rawRow = db
     .prepare(`SELECT ${columns} FROM finding_possible_duplicates WHERE id = ?`)
-    .get(id) as DuplicateRow | undefined;
+    .get(id);
+  const row = rawRow === undefined ? undefined : DuplicateRowSchema.parse(rawRow);
   return row ? mapRow(row) : undefined;
 }
 
@@ -204,7 +206,8 @@ export function listPossibleDuplicates(
     .prepare(
       `SELECT ${columns} FROM finding_possible_duplicates ${where} ORDER BY created_at DESC, id ASC`,
     )
-    .all(...(status ? [status] : [])) as DuplicateRow[];
+    .all(...(status ? [status] : []))
+    .map((rawRow) => DuplicateRowSchema.parse(rawRow));
   return rows.map(mapRow);
 }
 
@@ -285,7 +288,8 @@ export function listPossibleDuplicateMatches(
       candidateSymbolKeyRaw: input.candidateSymbolKeyRaw,
       knownSymbolPrefix: input.knownSymbolPrefix,
       maxLineDistance: input.maxLineDistance,
-    }) as MatchRow[];
+    })
+    .map((rawRow) => MatchRowSchema.parse(rawRow));
   return rows.map((row) => ({
     finding: {
       id: row.id,
@@ -358,8 +362,9 @@ export function hasSuggestedPossibleDuplicateForCandidate(
       SELECT 1 AS present FROM finding_possible_duplicates
       WHERE candidate_finding_id = ? AND status = 'suggested' LIMIT 1
     `)
-    .get(candidateFindingId) as { present: number } | undefined;
-  return row?.present === 1;
+    .get(candidateFindingId);
+  const present = row === undefined ? undefined : z.object({ present: z.number() }).parse(row);
+  return present?.present === 1;
 }
 
 export type PossibleDuplicateDecisionUpdate =
@@ -417,7 +422,7 @@ export function updatePossibleDuplicateDecision(
   return updated;
 }
 
-function mapRow(row: DuplicateRow): PossibleDuplicateRecord {
+function mapRow(row: z.infer<typeof DuplicateRowSchema>): PossibleDuplicateRecord {
   const common = {
     id: row.id,
     suggestedReviewId: row.suggestedReviewId,
@@ -437,7 +442,17 @@ function mapRow(row: DuplicateRow): PossibleDuplicateRecord {
   switch (row.status) {
     case "suggested":
       requireSuggestedMetadata(row);
-      return { ...common, status: row.status, decidedAt: null, decidedActor: null, decidedReason: null, inheritedStatus: null, inheritedDispositionEventId: null, expiredAt: null, expiredReason: null };
+      return {
+        ...common,
+        status: row.status,
+        decidedAt: null,
+        decidedActor: null,
+        decidedReason: null,
+        inheritedStatus: null,
+        inheritedDispositionEventId: null,
+        expiredAt: null,
+        expiredReason: null,
+      };
     case "confirmed":
       if (
         row.decidedAt === null ||
@@ -449,9 +464,21 @@ function mapRow(row: DuplicateRow): PossibleDuplicateRecord {
         row.expiredAt !== null ||
         row.expiredReason !== null
       ) {
-        throw new StateDatabaseError(`Possible duplicate ${row.id} contains invalid confirmed metadata.`);
+        throw new StateDatabaseError(
+          `Possible duplicate ${row.id} contains invalid confirmed metadata.`,
+        );
       }
-      return { ...common, status: row.status, decidedAt: row.decidedAt, decidedActor: row.decidedActor, decidedReason: row.decidedReason, inheritedStatus: row.inheritedStatus, inheritedDispositionEventId: row.inheritedDispositionEventId, expiredAt: null, expiredReason: null } satisfies PossibleDuplicateConfirmedRecord;
+      return {
+        ...common,
+        status: row.status,
+        decidedAt: row.decidedAt,
+        decidedActor: row.decidedActor,
+        decidedReason: row.decidedReason,
+        inheritedStatus: row.inheritedStatus,
+        inheritedDispositionEventId: row.inheritedDispositionEventId,
+        expiredAt: null,
+        expiredReason: null,
+      } satisfies PossibleDuplicateConfirmedRecord;
     case "rejected":
       if (
         row.decidedAt === null ||
@@ -462,9 +489,21 @@ function mapRow(row: DuplicateRow): PossibleDuplicateRecord {
         row.expiredAt !== null ||
         row.expiredReason !== null
       ) {
-        throw new StateDatabaseError(`Possible duplicate ${row.id} contains invalid rejected metadata.`);
+        throw new StateDatabaseError(
+          `Possible duplicate ${row.id} contains invalid rejected metadata.`,
+        );
       }
-      return { ...common, status: row.status, decidedAt: row.decidedAt, decidedActor: row.decidedActor, decidedReason: row.decidedReason, inheritedStatus: null, inheritedDispositionEventId: null, expiredAt: null, expiredReason: null } satisfies PossibleDuplicateRejectedRecord;
+      return {
+        ...common,
+        status: row.status,
+        decidedAt: row.decidedAt,
+        decidedActor: row.decidedActor,
+        decidedReason: row.decidedReason,
+        inheritedStatus: null,
+        inheritedDispositionEventId: null,
+        expiredAt: null,
+        expiredReason: null,
+      } satisfies PossibleDuplicateRejectedRecord;
     case "expired":
       if (
         row.decidedAt !== null ||
@@ -475,17 +514,31 @@ function mapRow(row: DuplicateRow): PossibleDuplicateRecord {
         row.expiredAt === null ||
         row.expiredReason === null
       ) {
-        throw new StateDatabaseError(`Possible duplicate ${row.id} contains invalid expired metadata.`);
+        throw new StateDatabaseError(
+          `Possible duplicate ${row.id} contains invalid expired metadata.`,
+        );
       }
-      return { ...common, status: row.status, decidedAt: null, decidedActor: null, decidedReason: null, inheritedStatus: null, inheritedDispositionEventId: null, expiredAt: row.expiredAt, expiredReason: row.expiredReason } satisfies PossibleDuplicateExpiredRecord;
+      return {
+        ...common,
+        status: row.status,
+        decidedAt: null,
+        decidedActor: null,
+        decidedReason: null,
+        inheritedStatus: null,
+        inheritedDispositionEventId: null,
+        expiredAt: row.expiredAt,
+        expiredReason: row.expiredReason,
+      } satisfies PossibleDuplicateExpiredRecord;
     default: {
       const exhaustive: never = row.status;
-      throw new StateDatabaseError(`Possible duplicate ${row.id} has unsupported status ${exhaustive}.`);
+      throw new StateDatabaseError(
+        `Possible duplicate ${row.id} has unsupported status ${exhaustive}.`,
+      );
     }
   }
 }
 
-function requireSuggestedMetadata(row: DuplicateRow): void {
+function requireSuggestedMetadata(row: z.infer<typeof DuplicateRowSchema>): void {
   if (
     row.decidedAt !== null ||
     row.decidedActor !== null ||
@@ -495,56 +548,35 @@ function requireSuggestedMetadata(row: DuplicateRow): void {
     row.expiredAt !== null ||
     row.expiredReason !== null
   ) {
-    throw new StateDatabaseError(`Possible duplicate ${row.id} contains invalid suggested metadata.`);
+    throw new StateDatabaseError(
+      `Possible duplicate ${row.id} contains invalid suggested metadata.`,
+    );
   }
 }
 
 function parseSignals(id: string, json: string): PossibleDuplicateSignals {
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(json) as unknown;
+    return z
+      .object({
+        lexicalSimilarity: z.number().min(0).max(1),
+        candidateSymbol: z.string().nullable(),
+        matchedSymbol: z.string().nullable(),
+        lineDistance: z.number().int().nonnegative(),
+        matchKind: z.enum(["symbol", "line-distance"]),
+      })
+      .strict()
+      .parse(JSON.parse(json));
   } catch {
     throw new StateDatabaseError(`Possible duplicate ${id} contains invalid signals JSON.`);
   }
-  if (!isPossibleDuplicateSignals(parsed)) {
-    throw new StateDatabaseError(`Possible duplicate ${id} contains invalid signals shape.`);
-  }
-  return parsed;
-}
-
-function isPossibleDuplicateSignals(value: unknown): value is PossibleDuplicateSignals {
-  if (!isRecord(value)) return false;
-  const keys = Object.keys(value).sort();
-  if (keys.join("|") !== "candidateSymbol|lexicalSimilarity|lineDistance|matchKind|matchedSymbol") {
-    return false;
-  }
-  return (
-    typeof value["lexicalSimilarity"] === "number" &&
-    Number.isFinite(value["lexicalSimilarity"]) &&
-    value["lexicalSimilarity"] >= 0 &&
-    value["lexicalSimilarity"] <= 1 &&
-    (typeof value["candidateSymbol"] === "string" || value["candidateSymbol"] === null) &&
-    (typeof value["matchedSymbol"] === "string" || value["matchedSymbol"] === null) &&
-    typeof value["lineDistance"] === "number" &&
-    Number.isInteger(value["lineDistance"]) &&
-    value["lineDistance"] >= 0 &&
-    (value["matchKind"] === "symbol" || value["matchKind"] === "line-distance")
-  );
 }
 
 function parseVerification(value: string | null): string[] {
   if (value === null) return [];
   try {
-    const parsed: unknown = JSON.parse(value) as unknown;
-    if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
-      return parsed.map((item) => String(item));
-    }
+    return z.array(z.string()).parse(JSON.parse(value));
   } catch {
     // The event repository owns strict validation for independently loaded events.
   }
   throw new StateDatabaseError("Finding event contains invalid verification JSON.");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

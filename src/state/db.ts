@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { z } from "zod";
 import { MIGRATION_001_INITIAL_SCHEMA } from "./migrations/001-initial-schema.js";
 import { MIGRATION_002_BASE_REVIEW_TARGET } from "./migrations/002-base-review-target.js";
 import { MIGRATION_003_POSSIBLE_DUPLICATES } from "./migrations/003-possible-duplicates.js";
@@ -11,13 +12,13 @@ import { CURRENT_SCHEMA_VERSION } from "./types.js";
 
 const BUSY_TIMEOUT_MS = 5000;
 
-const MIGRATIONS: Record<number, string> = {
+const MIGRATIONS = {
   1: MIGRATION_001_INITIAL_SCHEMA,
   2: MIGRATION_002_BASE_REVIEW_TARGET,
   3: MIGRATION_003_POSSIBLE_DUPLICATES,
   4: MIGRATION_004_REVIEW_EXECUTIONS,
   5: MIGRATION_005_REVIEW_INPUT_IDENTITY,
-};
+} satisfies Record<number, string>;
 
 export class StateDatabaseError extends Error {
   override name = "StateDatabaseError";
@@ -151,15 +152,15 @@ function configureDatabase(db: SqliteDatabase, busyTimeoutMs: number): void {
 function assertCompatibleSchema(db: SqliteDatabase): void {
   const table = db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'")
-    .get() as { name: string } | undefined;
+    .get();
   if (!table) {
     return;
   }
 
-  const row = db.prepare("SELECT MAX(version) AS maxVersion FROM schema_migrations").get() as
-    | { maxVersion: number | null }
-    | undefined;
-  const maxVersion = row?.maxVersion ?? 0;
+  const row = db.prepare("SELECT MAX(version) AS maxVersion FROM schema_migrations").get();
+  const parsedRow =
+    row === undefined ? undefined : z.object({ maxVersion: z.number().nullable() }).parse(row);
+  const maxVersion = parsedRow?.maxVersion ?? 0;
   if (maxVersion > CURRENT_SCHEMA_VERSION) {
     throw new StateDatabaseError(
       `Database schema version ${maxVersion} is newer than supported version ${CURRENT_SCHEMA_VERSION}`,
@@ -199,8 +200,8 @@ export function applyMigrations(
 
     const migrate = db.transaction(() => {
       db.exec(sql);
-      const violations = db.pragma("foreign_key_check") as unknown[];
-      if (violations.length > 0) {
+      const violations = db.pragma("foreign_key_check");
+      if (Array.isArray(violations) && violations.length > 0) {
         throw new StateDatabaseError(`Migration ${version} introduced foreign key violations`);
       }
       db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(
@@ -222,14 +223,15 @@ export function applyMigrations(
 function listAppliedMigrationVersions(db: SqliteDatabase): number[] {
   const table = db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'")
-    .get() as { name: string } | undefined;
+    .get();
   if (!table) {
     return [];
   }
 
   const rows = db
     .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
-    .all() as Array<{ version: number }>;
+    .all()
+    .map((row) => z.object({ version: z.number() }).parse(row));
   return rows.map((row) => row.version);
 }
 

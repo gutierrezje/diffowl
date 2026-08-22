@@ -8,7 +8,12 @@ import { closeStateDatabase, openStateDatabase, runInTransaction } from "./db.js
 import { computeFindingFingerprint } from "./fingerprint.js";
 import { reconcileReviewFindings } from "./reconcile.js";
 import { suggestPossibleDuplicates } from "./possible-duplicates.js";
-import { getReviewById, insertReview, updateReview } from "./repositories/reviews.js";
+import {
+  getReviewById,
+  insertReview,
+  updateReview,
+  type UpdateReviewInput,
+} from "./repositories/reviews.js";
 import { countObservationsByFindingIds } from "./repositories/observations.js";
 import { insertReviewExecution } from "./repositories/review-executions.js";
 import type {
@@ -48,6 +53,15 @@ export interface PersistReviewRunResult {
 export interface UpdatePersistedReviewInput {
   reportPath?: string | null;
   diagnostics?: string[];
+}
+
+export interface LifecycleSuppressionSplit {
+  actionableFindings: ReviewFinding[];
+  lifecycleSuppressedFindings: ReviewFinding[];
+}
+
+export interface ReviewTargetMapping {
+  targetRef: string | null;
 }
 
 export function computeDiffHash(raw: string): string {
@@ -119,10 +133,7 @@ export function formatLifecycleSuppressedSummary(counts: {
 export function splitFindingsByLifecycleSuppression(
   findings: ReviewFinding[],
   reconcile: ReconcileReviewFindingsResult,
-): {
-  actionableFindings: ReviewFinding[];
-  lifecycleSuppressedFindings: ReviewFinding[];
-} {
+): LifecycleSuppressionSplit {
   const fingerprintedFindings = fingerprintUniqueReviewFindings(findings);
   const findingsByFingerprint = new Map<string, ReviewFinding>();
   for (const { finding, fingerprint } of fingerprintedFindings) {
@@ -227,13 +238,14 @@ export async function persistReviewRun(
         timings: input.timings,
         skippedReason: input.skippedReason ?? null,
       });
-      const execution = input.execution === undefined
-        ? null
-        : insertReviewExecution(state.db, {
-            review,
-            createdAt: review.createdAt,
-            provenance: input.execution,
-          });
+      const execution =
+        input.execution === undefined
+          ? null
+          : insertReviewExecution(state.db, {
+              review,
+              createdAt: review.createdAt,
+              provenance: input.execution,
+            });
 
       const identifiable: ReviewFinding[] = [];
       const untracked: ReviewFinding[] = [];
@@ -267,11 +279,7 @@ export async function persistReviewRun(
       let possibleDuplicateSuggestions: ReturnType<typeof suggestPossibleDuplicates> = [];
       try {
         possibleDuplicateSuggestions = runInTransaction(state.db, () =>
-          suggestPossibleDuplicates(
-            state.db,
-            review.id,
-            reconcile.observations,
-          ),
+          suggestPossibleDuplicates(state.db, review.id, reconcile.observations),
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -315,10 +323,10 @@ export async function updatePersistedReview(
 
   try {
     runInTransaction(state.db, () => {
-      updateReview(state.db, reviewId, {
-        ...(input.reportPath !== undefined ? { reportPath: input.reportPath } : {}),
-        ...(input.diagnostics !== undefined ? { diagnostics: input.diagnostics } : {}),
-      });
+      const updates: UpdateReviewInput = {};
+      if (input.reportPath !== undefined) updates.reportPath = input.reportPath;
+      if (input.diagnostics !== undefined) updates.diagnostics = input.diagnostics;
+      updateReview(state.db, reviewId, updates);
     });
   } finally {
     closeStateDatabase(state);
@@ -352,7 +360,7 @@ export async function loadFindingOccurrenceCounts(
 export function mapReviewTarget(target: {
   kind: "staged" | "last-commit" | "commit" | "base";
   ref?: string;
-}): { targetRef: string | null } {
+}): ReviewTargetMapping {
   switch (target.kind) {
     case "staged":
       return { targetRef: null };

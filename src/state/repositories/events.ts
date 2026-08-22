@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { SqliteDatabase } from "../sqlite.js";
 import type { FindingEventRecord, InsertFindingEventInput } from "../types.js";
 
@@ -40,17 +41,17 @@ const getEventStatement = (db: SqliteDatabase) =>
     WHERE id = ?
   `);
 
-type EventRow = {
-  id: number;
-  findingId: string;
-  reviewId: string | null;
-  eventType: FindingEventRecord["eventType"];
-  actor: FindingEventRecord["actor"];
-  reason: string | null;
-  commitRef: string | null;
-  verificationJson: string;
-  createdAt: string;
-};
+const EventRowSchema = z.object({
+  id: z.number(),
+  findingId: z.string(),
+  reviewId: z.string().nullable(),
+  eventType: z.enum(["observed", "dismissed", "deferred", "fixed", "reopened", "regressed"]),
+  actor: z.enum(["user", "agent"]),
+  reason: z.string().nullable(),
+  commitRef: z.string().nullable(),
+  verificationJson: z.string(),
+  createdAt: z.string(),
+});
 
 export function insertFindingEvent(
   db: SqliteDatabase,
@@ -68,7 +69,8 @@ export function insertFindingEvent(
     createdAt,
   });
 
-  const row = getEventStatement(db).get(Number(result.lastInsertRowid)) as EventRow | undefined;
+  const rawRow = getEventStatement(db).get(Number(result.lastInsertRowid));
+  const row = rawRow === undefined ? undefined : EventRowSchema.parse(rawRow);
   if (!row) {
     throw new Error(`Failed to load finding event ${String(result.lastInsertRowid)}.`);
   }
@@ -93,7 +95,8 @@ export function listFindingEvents(db: SqliteDatabase, findingId: string): Findin
       WHERE finding_id = ?
       ORDER BY id ASC
     `)
-    .all(findingId) as EventRow[];
+    .all(findingId)
+    .map((rawRow) => EventRowSchema.parse(rawRow));
 
   return rows.map(mapEventRow);
 }
@@ -102,7 +105,8 @@ export function getFindingEventById(
   db: SqliteDatabase,
   eventId: number,
 ): FindingEventRecord | undefined {
-  const row = getEventStatement(db).get(eventId) as EventRow | undefined;
+  const rawRow = getEventStatement(db).get(eventId);
+  const row = rawRow === undefined ? undefined : EventRowSchema.parse(rawRow);
   return row ? mapEventRow(row) : undefined;
 }
 
@@ -111,7 +115,7 @@ export function getLatestDispositionEvent(
   findingId: string,
   status: "dismissed" | "deferred",
 ): FindingEventRecord | undefined {
-  const row = db
+  const rawRow = db
     .prepare(`
       SELECT
         id,
@@ -128,11 +132,12 @@ export function getLatestDispositionEvent(
       ORDER BY id DESC
       LIMIT 1
     `)
-    .get(findingId, status) as EventRow | undefined;
+    .get(findingId, status);
+  const row = rawRow === undefined ? undefined : EventRowSchema.parse(rawRow);
   return row ? mapEventRow(row) : undefined;
 }
 
-function mapEventRow(row: EventRow): FindingEventRecord {
+function mapEventRow(row: z.infer<typeof EventRowSchema>): FindingEventRecord {
   return {
     id: row.id,
     findingId: row.findingId,
@@ -141,7 +146,11 @@ function mapEventRow(row: EventRow): FindingEventRecord {
     actor: row.actor,
     reason: row.reason,
     commitRef: row.commitRef,
-    verification: JSON.parse(row.verificationJson) as string[],
+    verification: parseVerification(row.verificationJson),
     createdAt: row.createdAt,
   };
+}
+
+function parseVerification(raw: string): string[] {
+  return z.array(z.string()).parse(JSON.parse(raw));
 }
