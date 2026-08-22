@@ -46,7 +46,7 @@ if (!parsed || !isAtLeastMinimum(parsed)) {
 
 const emitWarning = process.emitWarning;
 process.emitWarning = function suppressNodeSqliteExperimentalWarning(warning, ...args) {
-  const message = typeof warning === "string" ? warning : warning?.message;
+  const message = warning instanceof Error ? warning.message : warning;
   if (message?.includes("SQLite is an experimental feature")) {
     return;
   }
@@ -54,10 +54,7 @@ process.emitWarning = function suppressNodeSqliteExperimentalWarning(warning, ..
 };
 
 try {
-  const sqlite = await import("node:sqlite");
-  if (typeof sqlite.DatabaseSync !== "function") {
-    fail(["The active Node runtime does not expose node:sqlite DatabaseSync."]);
-  }
+  await import("node:sqlite");
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   fail([

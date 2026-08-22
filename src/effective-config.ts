@@ -4,7 +4,6 @@ import {
   formatReviewBackend,
   parseBackendModel,
   parseReviewBackend,
-  type BackendPreferenceSource,
   type ReviewBackend,
   type ReviewSelection,
 } from "./review/backend-selection.js";
@@ -30,6 +29,10 @@ export type EffectiveConfig = {
 export type EffectiveReviewOverrides = {
   backend?: string;
   model?: string;
+};
+
+type ResolvedReviewBackendPreference = Pick<ReviewSelection, "backend"> & {
+  source: ReviewSelection["source"]["backend"];
 };
 
 export async function loadEffectiveReviewConfig(
@@ -103,7 +106,7 @@ function effectiveConfig(config: DiffOwlConfig, selection: ReviewSelection): Eff
 export function resolveReviewBackendPreference(
   preferences: ReviewPreferences,
   directBackend?: ReviewBackend,
-): { backend: ReviewBackend; source: BackendPreferenceSource } {
+): ResolvedReviewBackendPreference {
   if (directBackend !== undefined) {
     return { backend: directBackend, source: "command" };
   }
