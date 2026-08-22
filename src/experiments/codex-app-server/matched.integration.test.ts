@@ -25,7 +25,6 @@ import {
 } from "./live-helpers.js";
 
 const enabled = process.env["DIFFOWL_CODEX_MATCHED_LIVE"] === "1";
-const COMMAND_PROVENANCE_FIELD = "commandShapes";
 const PROVIDER_PHASE_TIMEOUT_MS = 600_000;
 // Two cases each run protocol generation, Codex, and OpenCode, plus cleanup margin.
 const HUMAN_GATED_TEST_TIMEOUT_MS = PROVIDER_PHASE_TIMEOUT_MS * 6 + 120_000;
@@ -68,7 +67,7 @@ describe("human-gated Codex/OpenCode matched harness", () => {
         const artifactPath = await writeSafeJsonArtifact(artifactDirectory, {
           kind: "matched-codex-opencode",
           codexDocumentMode: "native-json",
-          [COMMAND_PROVENANCE_FIELD]: {
+          ["commandShapes"]: {
             codex: [
               (process.env["DIFFOWL_CODEX_EXECUTABLE"] ?? "codex")
                 .replaceAll("\\", "/")

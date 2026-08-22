@@ -5,12 +5,7 @@ import { basename, join } from "node:path";
 import { execa } from "execa";
 import { describe, expect, it } from "vitest";
 import type { DiffOwlConfig } from "../../config.js";
-import {
-  COMMAND_MODE_FIELD,
-  commandProvenanceFor,
-  runCodexAppServerSpike,
-  type SpikeInput,
-} from "./spike.js";
+import { commandProvenanceFor, runCodexAppServerSpike, type SpikeInput } from "./spike.js";
 
 const codexFixture = fileURLToPath(new URL("../../codex/fixtures/mock-codex-cli.mjs", import.meta.url));
 const serverFixture = fileURLToPath(new URL("../../codex/fixtures/mock-app-server.mjs", import.meta.url));
@@ -109,12 +104,12 @@ describe("runCodexAppServerSpike", () => {
       configuredExecutablesMatch: true,
       protocol: {
         executableBasename: expectedNodeExecutableBasename,
-        [COMMAND_MODE_FIELD]: "standard",
+        ["shape"]: "standard",
         argCount: 0,
       },
       appServer: {
         executableBasename: expectedNodeExecutableBasename,
-        [COMMAND_MODE_FIELD]: "standard",
+        ["shape"]: "standard",
         args: ["app-server", "--stdio"],
         argCount: 2,
       },
@@ -134,12 +129,12 @@ describe("runCodexAppServerSpike", () => {
       configuredExecutablesMatch: false,
       protocol: {
         executableBasename: "custom-codex",
-        [COMMAND_MODE_FIELD]: "custom",
+        ["shape"]: "custom",
         argCount: 2,
       },
       appServer: {
         executableBasename: "custom",
-        [COMMAND_MODE_FIELD]: "custom",
+        ["shape"]: "custom",
         args: null,
         argCount: 2,
       },

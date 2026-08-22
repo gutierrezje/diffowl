@@ -28,8 +28,6 @@ import {
   type CodexProtocolEvidence,
 } from "../../codex/protocol-evidence.js";
 
-export const COMMAND_MODE_FIELD = "shape";
-
 export type SpikeInput = {
   review: Omit<ReviewPipelineInput, "onStatus">;
   signal?: AbortSignal;
@@ -51,13 +49,13 @@ export type CommandProvenance = {
   configuredExecutablesMatch: boolean;
   protocol: {
     executableBasename: string;
-    [COMMAND_MODE_FIELD]: "standard" | "custom";
+    ["shape"]: "standard" | "custom";
     argCount: number;
     commands: readonly string[] | null;
   };
   appServer: {
     executableBasename: string;
-    [COMMAND_MODE_FIELD]: "standard" | "custom";
+    ["shape"]: "standard" | "custom";
     args: readonly ["app-server", "--stdio"] | null;
     argCount: number;
   };
@@ -324,7 +322,7 @@ export function commandProvenanceFor(
     configuredExecutablesMatch: commands.protocol.executable === commands.appServer.executable,
     protocol: {
       executableBasename: executableBasename(commands.protocol.executable),
-      [COMMAND_MODE_FIELD]: protocolStandard ? "standard" : "custom",
+      ["shape"]: protocolStandard ? "standard" : "custom",
       argCount: protocolArgs.length,
       commands: protocolStandard
         ? [
@@ -336,7 +334,7 @@ export function commandProvenanceFor(
     },
     appServer: {
       executableBasename: executableBasename(commands.appServer.executable),
-      [COMMAND_MODE_FIELD]: appStandard ? "standard" : "custom",
+      ["shape"]: appStandard ? "standard" : "custom",
       args: appStandard ? ["app-server", "--stdio"] : null,
       argCount: appArgs.length,
     },

@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { COMMAND_MODE_FIELD, runCodexAppServerSpike } from "./spike.js";
+import { runCodexAppServerSpike } from "./spike.js";
 import { createStagedRepo, requireLiveEnvironment, reviewInput } from "./live-helpers.js";
 
 const enabled = process.env["DIFFOWL_CODEX_APP_SERVER_LIVE"] === "1";
@@ -61,10 +61,10 @@ describe("human-gated Codex App Server live harness", () => {
         configuredExecutablesMatch: true,
         protocol: {
           executableBasename: environment.codexExecutable.replaceAll("\\", "/").split("/").at(-1),
-          [COMMAND_MODE_FIELD]: "standard",
+          ["shape"]: "standard",
           argCount: 0,
         },
-        appServer: { [COMMAND_MODE_FIELD]: "standard", args: ["app-server", "--stdio"] },
+        appServer: { ["shape"]: "standard", args: ["app-server", "--stdio"] },
         appServerVersion: outcome.protocol.codexCliVersion,
       });
       expect(outcome.artifactPath).toMatch(/\.json$/);
