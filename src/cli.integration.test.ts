@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { execa } from "execa";
+import { z } from "zod";
 import { removeTempDir } from "./test/helpers.js";
 import {
   applyMigrations,
@@ -26,6 +27,59 @@ import type { FindingCandidate, PossibleDuplicateRecord, ReviewSeverity } from "
 const projectRoot = join(import.meta.dirname, "..");
 const cliPath = join(projectRoot, "dist/cli.js");
 const mockCodexCliPath = join(projectRoot, "src/codex/fixtures/mock-codex-cli.mjs");
+const ReviewTargetDocumentSchema = z.object({
+  kind: z.enum(["staged", "commit", "last-commit", "base"]),
+  ref: z.string().nullable(),
+  base_commit: z.string().nullable(),
+  merge_base_commit: z.string().nullable(),
+  commit: z.string().nullable(),
+  diff_hash: z.string(),
+});
+const CliReviewSchema = z.object({
+  model: z.string(),
+  backend: z.enum(["opencode", "codex"]),
+  requested_model: z.string(),
+  effective_model: z.string().nullable(),
+  preference_source: z.json(),
+  execution: z.json(),
+  session_id: z.string(),
+  status: z.enum(["open", "advisory", "resolved", "skipped"]),
+  skipped_reason: z.string().nullable(),
+  target: ReviewTargetDocumentSchema,
+  report_path: z.string().nullable(),
+});
+const CliReviewDocumentSchema = z.object({
+  schema_version: z.number(),
+  review: CliReviewSchema,
+  findings: z.array(z.json()),
+});
+const CliReviewWithReportDocumentSchema = CliReviewDocumentSchema.extend({
+  review: CliReviewSchema.extend({ report_path: z.string() }),
+});
+const CliErrorDocumentSchema = z.object({
+  error: z.object({ message: z.string() }),
+});
+const PossibleDuplicateListDocumentSchema = z.object({
+  schema_version: z.number(),
+  count: z.number(),
+  duplicates: z.array(z.object({ id: z.string() })),
+});
+const ClaudeSettingsSchema = z.object({
+  hooks: z.object({
+    SessionStart: z.array(
+      z.object({
+        matcher: z.string().optional(),
+        hooks: z.array(
+          z.object({
+            type: z.string(),
+            command: z.string(),
+            args: z.array(z.string()),
+          }),
+        ),
+      }),
+    ),
+  }),
+});
 
 let tempDirs: string[] = [];
 
@@ -190,7 +244,7 @@ describe("diffowl CLI", () => {
       [cliPath, "review", "--model", "provider/command", "--format", "json"],
       { cwd: repo },
     );
-    const document = JSON.parse(stdout) as { review: { model: string; status: string } };
+    const document = CliReviewDocumentSchema.parse(JSON.parse(stdout));
 
     expect(document.review).toMatchObject({ model: "provider/command", status: "skipped" });
     await expect(readFile(join(repo, ".diffowl.yml"), "utf8")).resolves.toBe(configBefore);
@@ -222,10 +276,7 @@ describe("diffowl CLI", () => {
       ],
       { cwd: repo },
     );
-    const document = JSON.parse(stdout) as {
-      schema_version: number;
-      review: Record<string, unknown>;
-    };
+    const document = CliReviewDocumentSchema.parse(JSON.parse(stdout));
 
     expect(document.schema_version).toBe(5);
     expect(document.review).toMatchObject({
@@ -290,7 +341,7 @@ describe("diffowl CLI", () => {
           },
         },
       );
-      const document = JSON.parse(stdout) as { review: Record<string, unknown> };
+      const document = CliReviewDocumentSchema.parse(JSON.parse(stdout));
 
       expect(document.review).toMatchObject({
         backend: "codex",
@@ -348,7 +399,7 @@ describe("diffowl CLI", () => {
         reject: false,
       },
     );
-    const document = JSON.parse(result.stderr) as { error: { message: string } };
+    const document = CliErrorDocumentSchema.parse(JSON.parse(result.stderr));
 
     expect(result.exitCode).toBe(1);
     expect(document.error.message).toContain("Codex review failed");
@@ -449,6 +500,7 @@ describe("diffowl CLI", () => {
     { args: ["--staged", "--commit", "HEAD"], message: "--staged and --commit" },
     { args: ["--staged", "--base"], message: "--staged and --base" },
     { args: ["--commit", "HEAD", "--base"], message: "--commit and --base" },
+    { args: ["--commit", "", "--base"], message: "--commit and --base" },
   ])("rejects conflicting review targets: $message", async ({ args, message }) => {
     const repo = await createRepo("diffowl-cli-conflict-");
 
@@ -486,20 +538,7 @@ describe("diffowl CLI", () => {
     const { stdout } = await execa("node", [cliPath, "review", ...args, "--format", "json"], {
       cwd: repo,
     });
-    const document = JSON.parse(stdout) as {
-      review: {
-        status: string;
-        target: {
-          kind: string;
-          ref: string | null;
-          base_commit: string | null;
-          merge_base_commit: string | null;
-          commit: string | null;
-          diff_hash: string;
-        };
-        report_path: string;
-      };
-    };
+    const document = CliReviewWithReportDocumentSchema.parse(JSON.parse(stdout));
     const report = await readFile(document.review.report_path, "utf8");
 
     expect(document.review.status).toBe("skipped");
@@ -568,20 +607,7 @@ describe("diffowl CLI", () => {
       [cliPath, "review", "--base", "main", "--format", "json"],
       { cwd: repo },
     );
-    const document = JSON.parse(stdout) as {
-      review: {
-        status: string;
-        skipped_reason: string | null;
-        target: {
-          kind: string;
-          ref: string | null;
-          base_commit: string | null;
-          merge_base_commit: string | null;
-          commit: string | null;
-          diff_hash: string;
-        };
-      };
-    };
+    const document = CliReviewDocumentSchema.parse(JSON.parse(stdout));
 
     expect(document.review.status).toBe("skipped");
     expect(document.review.skipped_reason).toBe("empty-diff");
@@ -602,15 +628,7 @@ describe("diffowl CLI", () => {
       cwd: repo,
     });
 
-    const document = JSON.parse(stdout) as {
-      review: {
-        status: string;
-        skipped_reason: string | null;
-        target: { kind: string };
-        report_path: string | null;
-      };
-      findings: unknown[];
-    };
+    const document = CliReviewDocumentSchema.parse(JSON.parse(stdout));
 
     expect(document.review.status).toBe("skipped");
     expect(document.review.skipped_reason).toBe("empty-diff");
@@ -1085,11 +1103,9 @@ describe("diffowl findings duplicates", () => {
       [cliPath, "findings", "duplicates", "list", "--format", "json"],
       { cwd: repo },
     );
-    const suggestedDocument = JSON.parse(suggestedJson.stdout) as {
-      schema_version: number;
-      count: number;
-      duplicates: { id: string }[];
-    };
+    const suggestedDocument = PossibleDuplicateListDocumentSchema.parse(
+      JSON.parse(suggestedJson.stdout),
+    );
     expect(suggestedDocument).toMatchObject({ schema_version: 1, count: 2 });
     expect(suggestedDocument.duplicates).toHaveLength(2);
     expect(suggestedDocument.duplicates.map((duplicate) => duplicate.id)).toEqual(
@@ -1188,14 +1204,7 @@ describe("diffowl agent-hook install", () => {
     // The command names the client and the destination; it does not render a runnable shell line.
     expect(result.stdout).not.toContain("sh -c");
     expect(result.stdout).not.toContain("findings summary");
-    const settings = JSON.parse(await readFile(settingsPath, "utf8")) as {
-      hooks: {
-        SessionStart: {
-          matcher?: string;
-          hooks: { type: string; command: string; args: string[] }[];
-        }[];
-      };
-    };
+    const settings = ClaudeSettingsSchema.parse(JSON.parse(await readFile(settingsPath, "utf8")));
     expect(settings.hooks.SessionStart).toHaveLength(1);
     expect(settings.hooks.SessionStart[0]!.matcher).toBe("startup|resume");
     const entry = settings.hooks.SessionStart[0]!.hooks[0]!;
