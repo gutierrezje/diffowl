@@ -21,6 +21,7 @@ import { getSharedDiffOwlDir } from "./state-root.js";
 const HOOK_MARKER = "# diffowl-managed";
 const HOOK_END_MARKER = "# end-diffowl";
 const HOOK_SHEBANG = "#!/bin/sh";
+const HOOK_FAILURE_MAX_AGE_MS = 60 * 60 * 1000;
 
 function loggedStdio(outFd: number): ExecaOptions["stdio"] {
   // SAFETY: Node accepts any open file descriptor here; Execa's async tuple type lists literals.
@@ -217,9 +218,7 @@ export async function checkRecentHookFailure(): Promise<HookFailure | undefined>
       return undefined;
     }
 
-    const failureTime = new Date(timestamp).getTime();
-    const oneHourAgo = Date.now() - 60 * 60 * 1000;
-    if (Number.isNaN(failureTime) || failureTime < oneHourAgo) {
+    if (!isRecentHookFailure(parsed.data.timestamp)) {
       return undefined;
     }
 
@@ -505,6 +504,7 @@ async function persistHookWorkerFailure(message: string): Promise<void> {
       existing !== undefined &&
       existing.exitCode !== 0 &&
       existing.commit !== undefined &&
+      isRecentHookFailure(existing.timestamp) &&
       existsSync(join(dir, "pending-reviews", existing.commit));
     if (existingPending) return;
 
@@ -513,6 +513,11 @@ async function persistHookWorkerFailure(message: string): Promise<void> {
   } catch {
     // Failure reporting is advisory and must not replace the original worker error.
   }
+}
+
+function isRecentHookFailure(timestamp: string): boolean {
+  const failureTime = new Date(timestamp).getTime();
+  return !Number.isNaN(failureTime) && failureTime >= Date.now() - HOOK_FAILURE_MAX_AGE_MS;
 }
 
 export async function enqueuePendingReview(dir: string, sha: string): Promise<void> {

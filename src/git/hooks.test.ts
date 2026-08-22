@@ -255,6 +255,28 @@ describe("runHookWorker", () => {
     if (!failure) throw new Error("Expected the specific hook failure to remain available.");
     expect(formatHookFailure(failure)).toContain("diffowl review --commit failed-a");
   });
+
+  it("refreshes a stale failure for a pending commit", async () => {
+    const root = await createGitRepo();
+    await writeFile(join(root, ".diffowl.yml"), "model: provider/model\n", "utf-8");
+    const dir = join(root, ".diffowl");
+    await enqueuePendingReview(dir, "failed-a");
+    await writeGlobalStatus(root, {
+      commit: "failed-a",
+      exitCode: 1,
+      timestamp: "2020-01-01T00:00:00.000Z",
+      message: "Stale review failure.",
+    });
+    await mkdir(join(dir, "hook.log"));
+    process.chdir(root);
+
+    await expect(runHookWorker()).rejects.toThrow(/directory|EISDIR/i);
+
+    await expect(checkRecentHookFailure()).resolves.toMatchObject({
+      commit: "failed-a",
+      message: expect.stringContaining("Hook worker failed"),
+    });
+  });
 });
 
 describe("checkRecentHookFailure", () => {
@@ -675,7 +697,7 @@ async function writePendingResult(
 
 async function writeGlobalStatus(
   root: string,
-  status: { commit: string; exitCode: number; timestamp: string },
+  status: { commit: string; exitCode: number; timestamp: string; message?: string },
 ): Promise<void> {
   await writeFile(join(root, ".diffowl", "last-hook-status.json"), JSON.stringify(status), "utf-8");
 }
