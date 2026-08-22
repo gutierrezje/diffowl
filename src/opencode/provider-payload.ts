@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BoundaryValueSchema } from "./wire.js";
 
 const ProviderModelSchema = z
   .object({
@@ -65,7 +66,13 @@ const ProviderPayloadSchema = z
 
 export type ProviderPayload = z.infer<typeof ProviderPayloadSchema>;
 
-export function parseProviderPayload(response: unknown): ProviderPayload | undefined {
-  if (!response || typeof response !== "object") return undefined;
-  return ProviderPayloadSchema.safeParse((response as { data?: unknown }).data).data;
+const ProviderResponseSchema = z.object({ data: BoundaryValueSchema.optional() }).passthrough();
+export type ProviderResponseInput = z.input<typeof ProviderResponseSchema>;
+
+export function parseProviderPayload(response: ProviderResponseInput): ProviderPayload | undefined {
+  const parsedResponse = ProviderResponseSchema.safeParse(response);
+  if (!parsedResponse.success) return undefined;
+
+  const parsedPayload = ProviderPayloadSchema.safeParse(parsedResponse.data.data);
+  return parsedPayload.success ? parsedPayload.data : undefined;
 }

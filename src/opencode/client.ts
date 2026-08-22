@@ -1,10 +1,8 @@
 import { createOpencodeClient } from "@opencode-ai/sdk";
+import { z } from "zod";
 import { isServerRunning } from "./server.js";
 import { resolveReviewPrompts } from "../review/prompt.js";
-import {
-  resolveReviewDocument,
-  SCHEMA_VALIDATION_MAX_ATTEMPTS,
-} from "../review/document.js";
+import { resolveReviewDocument, SCHEMA_VALIDATION_MAX_ATTEMPTS } from "../review/document.js";
 import { ReviewCancelledError } from "../review/errors.js";
 import { createReviewSettlementCoordinator, type ReconciliationResult } from "./settlement.js";
 import {
@@ -13,22 +11,57 @@ import {
   replyToPermissionRequest,
   type PermissionRequest,
 } from "./tools.js";
-import { parseProviderPayload } from "./provider-payload.js";
+import { parseProviderPayload, type ProviderResponseInput } from "./provider-payload.js";
 import { isQuotaOrRateLimitError } from "./quota.js";
+import {
+  AssistantInfoSchema,
+  BoundaryValueSchema,
+  ErrorDetailsSchema,
+  ErrorValueSchema,
+  MessagePartSchema,
+  OpenCodeEventEnvelopeSchema,
+  OpenCodePayloadSchema,
+  SessionMessageSchema,
+  SessionMessagesResponseSchema,
+  SessionResponseSchema,
+  SessionStatusSchema,
+  type BoundaryValue,
+  type OpenCodeEventInput,
+  type SessionMessagesResponseInput,
+  type SessionResponseInput,
+  nonEmptyString,
+} from "./wire.js";
 export { buildToolPolicy, extractPermissionRequest } from "./tools.js";
 export { getAvailableModels } from "./models.js";
 export { isQuotaOrRateLimitError };
 import type { ReasoningEffort } from "../config.js";
-import type {
-  ReviewOptions,
-  ReviewResult,
-  ReviewTiming,
-  ReviewUsage,
-} from "../review/types.js";
+import type { ReviewOptions, ReviewResult, ReviewTiming, ReviewUsage } from "../review/types.js";
 import { aggregateReviewUsage, parseAssistantUsage } from "../review/usage.js";
 
 type OpencodeDirectoryOptions = { query: { directory: string } };
 type OpenCodeClient = ReturnType<typeof createOpencodeClient>;
+type ProviderClient = { provider?: { list?: () => Promise<ProviderResponseInput> } };
+type OpenCodePromptBody = {
+  system?: string;
+  model: { providerID: string; modelID: string };
+  tools: Record<string, boolean>;
+  variant?: string;
+  parts: Array<{ type: "text"; text: string }>;
+};
+
+const ToolStateSchema = z
+  .object({
+    status: BoundaryValueSchema.optional(),
+    title: BoundaryValueSchema.optional(),
+  })
+  .passthrough();
+const TextPartSchema = z
+  .object({ type: z.literal("text"), id: z.string(), messageID: z.string(), text: z.string() })
+  .passthrough();
+const SessionTextPartSchema = z.object({ type: z.literal("text"), text: z.string() }).passthrough();
+const ErrorDataSchema = z.object({ message: BoundaryValueSchema.optional() }).passthrough();
+const ErrorWithCauseSchema = z.object({ cause: BoundaryValueSchema.optional() }).passthrough();
+const SessionDataSchema = z.object({ id: BoundaryValueSchema.optional() }).passthrough();
 
 type OpenCodeEvent =
   | { type: "permission"; request: PermissionRequest }
@@ -77,110 +110,100 @@ export function updateTextPart(
 }
 
 export function normalizeOpenCodeEvent(
-  event: unknown,
+  event: OpenCodeEventInput,
   expectedSessionId?: string,
 ): OpenCodeEvent | undefined {
-  if (!event || typeof event !== "object") return undefined;
-  const payload = (event as { payload?: unknown }).payload;
-  if (!payload || typeof payload !== "object") return undefined;
-  const raw = payload as { type?: unknown; properties?: unknown };
-  if (typeof raw.type !== "string" || !raw.properties || typeof raw.properties !== "object") {
-    return undefined;
-  }
+  const parsedEnvelope = OpenCodeEventEnvelopeSchema.safeParse(event);
+  if (!parsedEnvelope.success) return undefined;
 
-  const permission = extractPermissionRequest(payload, expectedSessionId);
+  const parsedPayload = OpenCodePayloadSchema.safeParse(parsedEnvelope.data.payload);
+  if (!parsedPayload.success) return undefined;
+  const { type, properties } = parsedPayload.data;
+
+  const permission = extractPermissionRequest(parsedPayload.data, expectedSessionId);
   if (permission) return { type: "permission", request: permission };
 
-  const properties = raw.properties as Record<string, unknown>;
-  const sessionId = properties["sessionID"];
+  const parsedSessionId = z.string().safeParse(properties["sessionID"]);
   if (
     expectedSessionId !== undefined &&
-    typeof sessionId === "string" &&
-    sessionId !== expectedSessionId
+    parsedSessionId.success &&
+    parsedSessionId.data !== expectedSessionId
   ) {
     return undefined;
   }
 
-  if (raw.type === "session.error" && typeof sessionId === "string") {
+  if (type === "session.error" && parsedSessionId.success) {
     return {
       type: "session-error",
-      sessionId,
+      sessionId: parsedSessionId.data,
       error: new Error(`OpenCode session failed: ${describeSessionError(properties["error"])}`),
     };
   }
 
-  if (raw.type === "message.part.updated") {
+  if (type === "message.part.updated") {
     return normalizeMessagePart(properties["part"], expectedSessionId);
   }
 
-  if (raw.type === "message.updated") {
+  if (type === "message.updated") {
     return normalizeAssistantMessage(properties["info"], expectedSessionId);
   }
 
-  if (raw.type === "session.status" && typeof sessionId === "string") {
-    const status = properties["status"];
-    if (!status || typeof status !== "object") return undefined;
-    const statusType = (status as { type?: unknown }).type;
-    if (typeof statusType !== "string") return undefined;
-    const message = (status as { message?: unknown }).message;
-    return {
+  if (type === "session.status" && parsedSessionId.success) {
+    const status = SessionStatusSchema.safeParse(properties["status"]);
+    if (!status.success) return undefined;
+    const event: OpenCodeEvent = {
       type: "session-status",
-      sessionId,
-      status: statusType,
-      ...(typeof message === "string" ? { message } : {}),
+      sessionId: parsedSessionId.data,
+      status: status.data.type,
     };
+    const message = z.string().safeParse(status.data.message);
+    if (message.success) event.message = message.data;
+    return event;
   }
 
-  if (raw.type === "session.idle" && typeof sessionId === "string") {
-    return { type: "session-idle", sessionId };
+  if (type === "session.idle" && parsedSessionId.success) {
+    return { type: "session-idle", sessionId: parsedSessionId.data };
   }
 
   return undefined;
 }
 
 function normalizeMessagePart(
-  part: unknown,
+  part: BoundaryValue,
   expectedSessionId?: string,
 ): OpenCodeEvent | undefined {
-  if (!part || typeof part !== "object") return undefined;
-  const value = part as Record<string, unknown>;
-  const sessionId = value["sessionID"];
-  if (
-    typeof sessionId !== "string" ||
-    (expectedSessionId !== undefined && sessionId !== expectedSessionId)
-  ) {
+  const parsedPart = MessagePartSchema.safeParse(part);
+  if (!parsedPart.success) return undefined;
+  const value = parsedPart.data;
+  const sessionId = value.sessionID;
+  if (expectedSessionId !== undefined && sessionId !== expectedSessionId) {
     return undefined;
   }
 
-  if (value["type"] === "tool" && typeof value["tool"] === "string") {
-    const state =
-      value["state"] && typeof value["state"] === "object"
-        ? (value["state"] as Record<string, unknown>)
-        : undefined;
-    const status = typeof state?.["status"] === "string" ? state["status"] : "unknown";
-    const title = typeof state?.["title"] === "string" ? state["title"] : value["tool"];
+  if (value.type === "tool") {
+    const tool = z.string().safeParse(value.tool);
+    if (!tool.success) return undefined;
+
+    const state = ToolStateSchema.safeParse(value.state);
+    const statusValue = state.success ? z.string().safeParse(state.data.status) : undefined;
+    const titleValue = state.success ? z.string().safeParse(state.data.title) : undefined;
     return {
       type: "tool-part",
       sessionId,
-      tool: value["tool"],
-      status,
-      title,
+      tool: tool.data,
+      status: statusValue?.success ? statusValue.data : "unknown",
+      title: titleValue?.success ? titleValue.data : tool.data,
     };
   }
 
-  if (
-    value["type"] === "text" &&
-    typeof value["id"] === "string" &&
-    typeof value["messageID"] === "string" &&
-    typeof value["text"] === "string" &&
-    value["text"] !== ""
-  ) {
+  const textPart = TextPartSchema.safeParse(value);
+  if (textPart.success && textPart.data.text !== "") {
     return {
       type: "text-part",
       sessionId,
-      messageId: value["messageID"],
-      partId: value["id"],
-      text: value["text"],
+      messageId: textPart.data.messageID,
+      partId: textPart.data.id,
+      text: textPart.data.text,
     };
   }
 
@@ -188,30 +211,27 @@ function normalizeMessagePart(
 }
 
 function normalizeAssistantMessage(
-  info: unknown,
+  info: BoundaryValue,
   expectedSessionId?: string,
 ): OpenCodeEvent | undefined {
-  if (!info || typeof info !== "object") return undefined;
-  const value = info as Record<string, unknown>;
-  if (
-    value["role"] !== "assistant" ||
-    typeof value["sessionID"] !== "string" ||
-    typeof value["id"] !== "string" ||
-    (expectedSessionId !== undefined && value["sessionID"] !== expectedSessionId)
-  ) {
+  const parsedInfo = AssistantInfoSchema.safeParse(info);
+  if (!parsedInfo.success) return undefined;
+  const value = parsedInfo.data;
+  if (expectedSessionId !== undefined && value.sessionID !== expectedSessionId) {
     return undefined;
   }
 
   const usage = parseAssistantUsage(value);
-  return {
+  const event: OpenCodeEvent = {
     type: "assistant-message",
-    sessionId: value["sessionID"],
-    messageId: value["id"],
-    ...(value["error"]
-      ? { error: new Error(describeSessionError(value["error"]) || "Review failed") }
-      : {}),
-    ...(usage ? { usage } : {}),
+    sessionId: value.sessionID,
+    messageId: value.id,
   };
+  if (value.error) {
+    event.error = new Error(describeSessionError(value.error) || "Review failed");
+  }
+  if (usage) event.usage = usage;
+  return event;
 }
 
 /**
@@ -257,14 +277,11 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
 
   // Build the review prompt
   const promptStart = performance.now();
-  const { system, user: prompt } = resolveReviewPrompts({
-    target,
-    config,
-    depth,
-    ...(localContext !== undefined ? { localContext } : {}),
-    ...(options.systemPrompt !== undefined ? { systemPrompt: options.systemPrompt } : {}),
-    ...(options.userPrompt !== undefined ? { userPrompt: options.userPrompt } : {}),
-  });
+  const promptOptions: Parameters<typeof resolveReviewPrompts>[0] = { target, config, depth };
+  if (localContext !== undefined) promptOptions.localContext = localContext;
+  if (options.systemPrompt !== undefined) promptOptions.systemPrompt = options.systemPrompt;
+  if (options.userPrompt !== undefined) promptOptions.userPrompt = options.userPrompt;
+  const { system, user: prompt } = resolveReviewPrompts(promptOptions);
   recordTiming(timings, onProgress, "prompt-build", "Review prompt build", promptStart);
 
   // Parse the model string (e.g. "anthropic/claude-sonnet-4-20250514")
@@ -447,17 +464,18 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
   try {
     onProgress?.({ type: "session", message: "Sending review prompt.", sessionId });
     const promptSendStart = performance.now();
+    const promptBody: OpenCodePromptBody = {
+      system,
+      model: { providerID, modelID },
+      tools,
+      parts: [{ type: "text", text: prompt }],
+    };
+    if (reasoning.variant) promptBody.variant = reasoning.variant;
     await withOpenCodeDiagnostics("prompt-send", { port, sessionId }, () =>
       client.session.promptAsync({
         path: { id: sessionId },
         ...directoryOptions,
-        body: {
-          system,
-          model: { providerID, modelID },
-          tools,
-          ...(reasoning.variant ? { variant: reasoning.variant } : {}),
-          parts: [{ type: "text", text: prompt }],
-        },
+        body: promptBody,
       }),
     );
     recordTiming(timings, onProgress, "prompt-send", "OpenCode prompt request", promptSendStart);
@@ -484,16 +502,17 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
         attempt.settlement.release();
         fullResponse = "";
         attempt = createAttempt();
+        const retryBody: OpenCodePromptBody = {
+          model: { providerID, modelID },
+          tools,
+          parts: [{ type: "text", text: userMessage }],
+        };
+        if (reasoning.variant) retryBody.variant = reasoning.variant;
         await withOpenCodeDiagnostics("schema-retry-send", { port, sessionId }, () =>
           client.session.promptAsync({
             path: { id: sessionId },
             ...directoryOptions,
-            body: {
-              model: { providerID, modelID },
-              tools,
-              ...(reasoning.variant ? { variant: reasoning.variant } : {}),
-              parts: [{ type: "text", text: userMessage }],
-            },
+            body: retryBody,
           }),
         );
       },
@@ -501,24 +520,17 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
     recordTiming(timings, onProgress, "agent-wait", "OpenCode review generation", agentWaitStart);
 
     eventsController.abort();
-    const diagnostics = [
-      ...(resolved.report.diagnostics ?? []),
-      ...reasoning.diagnostics,
-      ...(resolved.attempt > 1
-        ? [`Schema validation succeeded on attempt ${resolved.attempt}.`]
-        : []),
-    ];
+    const diagnostics = [...(resolved.report.diagnostics ?? []), ...reasoning.diagnostics];
+    if (resolved.attempt > 1) {
+      diagnostics.push(`Schema validation succeeded on attempt ${resolved.attempt}.`);
+    }
     const usage = aggregateReviewUsage([...usageByMessageId.values()]);
+    const report = { ...resolved.report, timings };
+    if (diagnostics.length > 0) report.diagnostics = diagnostics;
+    const result: ReviewResult = { report, sessionId };
+    if (usage) result.usage = usage;
 
-    return {
-      report: {
-        ...resolved.report,
-        ...(diagnostics.length > 0 ? { diagnostics } : {}),
-        timings,
-      },
-      sessionId,
-      ...(usage ? { usage } : {}),
-    };
+    return result;
   } catch (err) {
     eventsController.abort();
     throw err;
@@ -528,51 +540,41 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
 }
 
 export function extractSessionMessageResult(
-  response: unknown,
+  response: SessionMessagesResponseInput,
   options?: {
     ignoreMessageIds?: ReadonlySet<string>;
     ignoreRawTexts?: ReadonlySet<string>;
   },
 ): ReconciliationResult {
-  if (!response || typeof response !== "object") return { kind: "empty" };
-  const data = (response as { data?: unknown }).data;
-  if (!Array.isArray(data)) return { kind: "empty" };
+  const parsedResponse = SessionMessagesResponseSchema.safeParse(response);
+  if (!parsedResponse.success || !parsedResponse.data.data) return { kind: "empty" };
+  const data = parsedResponse.data.data;
 
   for (let index = data.length - 1; index >= 0; index--) {
-    const message = data[index];
-    if (!message || typeof message !== "object") continue;
+    const parsedMessage = SessionMessageSchema.safeParse(data[index]);
+    if (!parsedMessage.success) continue;
+    const { info, parts } = parsedMessage.data;
+    if (!info || info.role !== "assistant") continue;
 
-    const info = (message as { info?: unknown }).info;
-    if (!info || typeof info !== "object" || (info as { role?: unknown }).role !== "assistant") {
+    const messageId = z.string().safeParse(info.id);
+    if (messageId.success && options?.ignoreMessageIds?.has(messageId.data)) {
       continue;
     }
 
-    const messageId = (info as { id?: unknown }).id;
-    if (typeof messageId === "string" && options?.ignoreMessageIds?.has(messageId)) {
-      continue;
-    }
-
-    const error = (info as { error?: unknown }).error;
-    if (error) {
+    if (info.error) {
       return {
         kind: "review-error",
-        error: new Error(`OpenCode session failed: ${describeSessionError(error)}`),
+        error: new Error(`OpenCode session failed: ${describeSessionError(info.error)}`),
       };
     }
 
-    const parts = (message as { parts?: unknown }).parts;
     if (!Array.isArray(parts)) continue;
-    const text = parts
-      .filter((part): part is { type: "text"; text: string } =>
-        Boolean(
-          part &&
-          typeof part === "object" &&
-          (part as { type?: unknown }).type === "text" &&
-          typeof (part as { text?: unknown }).text === "string",
-        ),
-      )
-      .map((part) => part.text)
-      .join("");
+    const textParts: string[] = [];
+    for (const part of parts) {
+      const parsedPart = SessionTextPartSchema.safeParse(part);
+      if (parsedPart.success) textParts.push(parsedPart.data.text);
+    }
+    const text = textParts.join("");
     if (text && options?.ignoreRawTexts?.has(text)) continue;
     if (text) return { kind: "text", text };
   }
@@ -612,30 +614,31 @@ async function reconcileSessionMessages(
   }
 }
 
-function describeSessionError(error: unknown): string {
-  if (typeof error === "string" && error.trim() !== "") return error;
-  if (!error || typeof error !== "object") return "unknown session error";
+function describeSessionError(error: BoundaryValue): string {
+  const parsedError = ErrorValueSchema.safeParse(error);
+  if (!parsedError.success) return "unknown session error";
 
-  const value = error as {
-    message?: unknown;
-    data?: { message?: unknown };
-    name?: unknown;
-  };
-  if (typeof value.data?.message === "string" && value.data.message.trim() !== "") {
-    return value.data.message;
-  }
-  if (typeof value.message === "string" && value.message.trim() !== "") {
-    return value.message;
-  }
-  if (typeof value.name === "string" && value.name.trim() !== "") {
-    return value.name;
-  }
+  const directMessage = nonEmptyString(parsedError.data);
+  if (directMessage) return directMessage;
+
+  const details = ErrorDetailsSchema.safeParse(parsedError.data);
+  if (!details.success) return "unknown session error";
+
+  const nestedData = ErrorDataSchema.safeParse(details.data.data);
+  const nestedMessage = nestedData.success ? nonEmptyString(nestedData.data.message) : undefined;
+  if (nestedMessage) return nestedMessage;
+
+  const message = nonEmptyString(details.data.message);
+  if (message) return message;
+
+  const name = nonEmptyString(details.data.name);
+  if (name) return name;
 
   return "unknown session error";
 }
 
 export async function resolveReasoningVariant(
-  client: unknown,
+  client: ProviderClient,
   providerID: string,
   modelID: string,
   effort: ReasoningEffort,
@@ -675,13 +678,12 @@ type ProviderModelMetadata = {
 };
 
 async function getProviderModelMetadata(
-  client: unknown,
+  client: ProviderClient,
   providerID: string,
   modelID: string,
 ): Promise<ProviderModelMetadata | undefined> {
   try {
-    const providerList = (client as { provider?: { list?: () => Promise<unknown> } }).provider
-      ?.list;
+    const providerList = client.provider?.list;
     if (!providerList) {
       return undefined;
     }
@@ -697,10 +699,10 @@ async function getProviderModelMetadata(
 
       const reasoning = model.capabilities?.reasoning ?? model.reasoning;
       const variants = model.variants ? new Set(Object.keys(model.variants)) : undefined;
-      return {
-        ...(reasoning !== undefined ? { reasoning } : {}),
-        ...(variants ? { variants } : {}),
-      };
+      const metadata: ProviderModelMetadata = {};
+      if (reasoning !== undefined) metadata.reasoning = reasoning;
+      if (variants) metadata.variants = variants;
+      return metadata;
     }
   } catch {
     // Metadata is advisory only. If it cannot be fetched, let OpenCode decide
@@ -728,7 +730,7 @@ async function withOpenCodeDiagnostics<T>(
 }
 
 function describeOpenCodeError(
-  err: unknown,
+  err: BoundaryValue,
   phase: string,
   context: OpenCodeDiagnosticContext,
 ): Error {
@@ -747,7 +749,8 @@ function describeOpenCodeError(
 
 function describeErrorCause(err: Error): string {
   const parts = [err.name, err.message].filter(Boolean);
-  const cause = (err as { cause?: unknown }).cause;
+  const parsedError = ErrorWithCauseSchema.safeParse(err);
+  const cause = parsedError.success ? parsedError.data.cause : undefined;
   if (cause instanceof Error) {
     parts.push(`cause=${cause.name}: ${cause.message}`);
   } else if (cause) {
@@ -768,18 +771,19 @@ export function handledAwaitable<T>(promise: Promise<T>): Promise<T> {
   return promise;
 }
 
-export function extractSessionId(response: unknown): string {
-  if (!response || typeof response !== "object") {
+export function extractSessionId(response: SessionResponseInput): string {
+  const parsedResponse = SessionResponseSchema.safeParse(response);
+  if (!parsedResponse.success) {
     throw new Error("OpenCode session response missing id.");
   }
 
-  const data = (response as { data?: unknown }).data;
-  if (!data || typeof data !== "object") {
+  const parsedData = SessionDataSchema.safeParse(parsedResponse.data.data);
+  if (!parsedData.success) {
     throw new Error("OpenCode session response missing id.");
   }
 
-  const id = (data as { id?: unknown }).id;
-  if (typeof id !== "string" || id.trim() === "") {
+  const id = nonEmptyString(parsedData.data.id);
+  if (!id) {
     throw new Error("OpenCode session response missing id.");
   }
 
