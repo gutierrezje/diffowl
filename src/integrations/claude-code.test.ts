@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { execa } from "execa";
 import { afterEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 import { removeTempDir } from "../test/helpers.js";
 import {
   buildClaudeSessionStartEntry,
@@ -11,25 +12,40 @@ import {
   installClaudeCodeHook,
 } from "./claude-code.js";
 
-interface ClaudeHookEntry {
-  type: string;
-  command: string;
-  args: string[];
-  timeout?: number;
-}
+const ClaudeHookEntrySchema = z.object({
+  type: z.string(),
+  command: z.string(),
+  args: z.array(z.string()).optional(),
+  timeout: z.number().optional(),
+});
+const ClaudeMatcherGroupSchema = z.object({
+  matcher: z.string().optional(),
+  hooks: z.array(ClaudeHookEntrySchema),
+});
+const ParsedSettingsSchema = z.object({
+  permissions: z.json().optional(),
+  hooks: z
+    .object({
+      PreToolUse: z.json().optional(),
+      SessionStart: z.json().optional(),
+    })
+    .optional(),
+});
 
-interface ClaudeMatcherGroup {
+type ClaudeHookEntry = z.output<typeof ClaudeHookEntrySchema>;
+type ClaudeMatcherGroup = z.output<typeof ClaudeMatcherGroupSchema>;
+type ClaudeHookFixture = z.input<typeof ClaudeHookEntrySchema>;
+type ClaudeMatcherGroupFixture = {
   matcher?: string;
-  hooks: ClaudeHookEntry[];
-}
-
-interface ParsedSettings {
-  permissions?: unknown;
-  hooks?: {
-    PreToolUse?: unknown;
-    SessionStart?: ClaudeMatcherGroup[];
+  hooks: ClaudeHookFixture[];
+};
+type SettingsFixture = {
+  permissions?: { allow: string[] };
+  hooks: {
+    PreToolUse?: ClaudeMatcherGroupFixture[];
+    SessionStart?: ClaudeMatcherGroupFixture[];
   };
-}
+};
 
 let tempDirs: string[] = [];
 
@@ -53,10 +69,11 @@ describe("installClaudeCodeHook", () => {
     expect(groups[0]!.matcher).toBe("startup|resume");
     expect(groups[0]!.hooks).toHaveLength(1);
     const entry = groups[0]!.hooks[0]!;
+    const args = entry.args ?? [];
     expect(entry.type).toBe("command");
     expect(entry.command).toBe(process.execPath);
-    expect(entry.args.slice(1)).toEqual([...CLAUDE_HOOK_ARGS_SIGNATURE]);
-    expect(isAbsolute(entry.args[0]!)).toBe(true);
+    expect(args.slice(1)).toEqual([...CLAUDE_HOOK_ARGS_SIGNATURE]);
+    expect(isAbsolute(args[0]!)).toBe(true);
     await expect(readFile(join(project, ".claude", "settings.json"), "utf-8")).resolves.toMatch(
       /\n$/,
     );
@@ -79,7 +96,7 @@ describe("installClaudeCodeHook", () => {
     const settings = await readSettings(project);
     expect(settings.permissions).toEqual(original.permissions);
     expect(settings.hooks?.PreToolUse).toEqual(original.hooks.PreToolUse);
-    const groups = settings.hooks?.SessionStart ?? [];
+    const groups = await readSessionStartGroups(project);
     expect(groups).toHaveLength(2);
     expect(groups[0]).toEqual(original.hooks.SessionStart[0]);
     expect(groups[1]!.matcher).toBe("startup|resume");
@@ -110,7 +127,7 @@ describe("installClaudeCodeHook", () => {
     const managed = groups.flatMap((group) => group.hooks).filter(isManagedEntry);
     expect(managed).toHaveLength(1);
     expect(managed[0]!.command).toBe(process.execPath);
-    expect(managed[0]!.args[0]).not.toBe("/old/lib/diffowl/dist/cli.js");
+    expect(managed[0]!.args?.[0]).not.toBe("/old/lib/diffowl/dist/cli.js");
     expect(groups[0]!.hooks[0]!.command).toBe("echo other");
   });
 
@@ -139,10 +156,10 @@ describe("installClaudeCodeHook", () => {
     await mkdir(join(project, ".claude"), { recursive: true });
     await writeFile(settingsPath, content, "utf-8");
 
-    const error = await installClaudeCodeHook(project).catch((err: unknown) => err);
+    const installation = installClaudeCodeHook(project);
 
-    expect(error).toBeInstanceOf(ClaudeCodeSettingsError);
-    expect((error as Error).message).toContain(settingsPath);
+    await expect(installation).rejects.toBeInstanceOf(ClaudeCodeSettingsError);
+    await expect(installation).rejects.toThrow(settingsPath);
     await expect(readFile(settingsPath, "utf-8")).resolves.toBe(content);
   });
 
@@ -339,10 +356,8 @@ describe("installClaudeCodeHook matcher normalization", () => {
 
 function isManagedEntry(entry: ClaudeHookEntry): boolean {
   const signature = [...CLAUDE_HOOK_ARGS_SIGNATURE];
-  return (
-    Array.isArray(entry.args) &&
-    entry.args.slice(-signature.length).join(" ") === signature.join(" ")
-  );
+  const args = entry.args ?? [];
+  return args.slice(-signature.length).join(" ") === signature.join(" ");
 }
 
 async function createProject(prefix: string): Promise<string> {
@@ -351,7 +366,7 @@ async function createProject(prefix: string): Promise<string> {
   return project;
 }
 
-async function writeSettings(project: string, settings: unknown): Promise<void> {
+async function writeSettings(project: string, settings: SettingsFixture): Promise<void> {
   await mkdir(join(project, ".claude"), { recursive: true });
   await writeFile(
     join(project, ".claude", "settings.json"),
@@ -360,12 +375,12 @@ async function writeSettings(project: string, settings: unknown): Promise<void> 
   );
 }
 
-async function readSettings(project: string): Promise<ParsedSettings> {
+async function readSettings(project: string) {
   const content = await readFile(join(project, ".claude", "settings.json"), "utf-8");
-  return JSON.parse(content) as ParsedSettings;
+  return ParsedSettingsSchema.parse(JSON.parse(content));
 }
 
 async function readSessionStartGroups(project: string): Promise<ClaudeMatcherGroup[]> {
   const settings = await readSettings(project);
-  return settings.hooks?.SessionStart ?? [];
+  return z.array(ClaudeMatcherGroupSchema).parse(settings.hooks?.SessionStart ?? []);
 }
