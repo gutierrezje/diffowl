@@ -83,7 +83,7 @@ export async function getServerHealth(
       return null;
     }
 
-    const parsedBody = ServerHealthResponseSchema.safeParse(await res.json?.());
+    const parsedBody = ServerHealthResponseSchema.safeParse(await res.json());
     if (!parsedBody.success) return null;
 
     const health: ServerHealth = { healthy: parsedBody.data.healthy === true };
