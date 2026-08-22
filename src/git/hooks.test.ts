@@ -141,6 +141,7 @@ describe("runHookReview", () => {
         start(request) {
           workerStdio = request.options.stdio;
           return {
+            spawned: Promise.resolve(),
             unref() {
               unrefCalled = true;
             },
@@ -172,10 +173,8 @@ describe("runHookReview", () => {
         'setTimeout(() => process.stdout.write("detached output\\n"), 50)',
       ],
       options: { detached: true, cleanup: false, stdio },
-      onFailure(message) {
-        throw new Error(message);
-      },
     });
+    await worker.spawned;
     worker.unref();
     closeSync(outFd);
 
@@ -188,18 +187,13 @@ describe("runHookReview", () => {
   });
 
   it("surfaces and preserves immediate worker spawn failures", async () => {
-    let failureMessage: string | undefined;
-    expect(() =>
-      execaHookWorkerProcess.start({
-        command: join(tmpdir(), "missing-diffowl-node"),
-        args: [],
-        options: { detached: true, cleanup: false, stdio: "ignore" },
-        onFailure(message) {
-          failureMessage = message;
-        },
-      }),
-    ).toThrow(/spawn/i);
-    await vi.waitFor(() => expect(failureMessage).toMatch(/ENOENT|not found/i));
+    const worker = execaHookWorkerProcess.start({
+      command: join(tmpdir(), "missing-diffowl-node"),
+      args: [],
+      options: { detached: true, cleanup: false, stdio: "ignore" },
+    });
+
+    await expect(worker.spawned).rejects.toThrow(/ENOENT|not found/i);
   });
 
   it("persists detached worker failures for the next CLI run", async () => {
@@ -207,23 +201,22 @@ describe("runHookReview", () => {
     await writeFile(join(root, ".diffowl.yml"), "model: provider/model\n", "utf-8");
     process.chdir(root);
 
-    await runHookReview({
-      workerProcess: {
-        start(request) {
-          queueMicrotask(() => request.onFailure("spawn EACCES"));
-          return {
-            pid: process.pid,
-            unref() {},
-          };
+    await expect(
+      runHookReview({
+        workerProcess: {
+          start() {
+            return {
+              spawned: Promise.reject(new Error("spawn EACCES")),
+              unref() {},
+            };
+          },
         },
-      },
-    });
+      }),
+    ).rejects.toThrow("spawn EACCES");
 
-    await vi.waitFor(async () => {
-      await expect(
-        readFile(join(root, ".diffowl", "last-hook-status.json"), "utf-8"),
-      ).resolves.toContain("spawn EACCES");
-    });
+    await expect(
+      readFile(join(root, ".diffowl", "last-hook-status.json"), "utf-8"),
+    ).resolves.toContain("spawn EACCES");
     expect(existsSync(join(root, ".diffowl", "hook-review.lock"))).toBe(false);
   });
 });

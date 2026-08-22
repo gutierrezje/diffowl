@@ -140,11 +140,11 @@ export interface HookWorkerProcessRequest {
   command: string;
   args: readonly string[];
   options: ExecaOptions;
-  onFailure(message: string): void;
 }
 
 export interface HookWorker {
   pid?: number;
+  spawned: Promise<void>;
   unref(): void;
 }
 
@@ -171,21 +171,24 @@ const execaHookReviewProcess: HookReviewProcess = {
 };
 
 export const execaHookWorkerProcess: HookWorkerProcess = {
-  start({ command, args, options, onFailure }) {
+  start({ command, args, options }) {
     const subprocess = execa(command, args, options);
-    const reportFailure = (error: Error): void => onFailure(error.message);
-    if (subprocess.pid === undefined) {
-      void subprocess.catch(reportFailure);
-      throw new Error(`Failed to spawn hook worker with ${command}.`);
-    }
-    // After spawn, the detached worker owns its log and status; hook-run must not await its exit.
-    void subprocess.catch(reportFailure);
+    const spawned =
+      subprocess.pid === undefined
+        ? new Promise<void>((resolve, reject) => {
+            subprocess.once("spawn", resolve);
+            subprocess.once("error", reject);
+          })
+        : Promise.resolve();
+    // After spawn, the detached worker owns its log and status; the launcher ignores its exit.
+    void subprocess.catch(() => {});
     const worker: HookWorker = {
-      pid: subprocess.pid,
+      spawned,
       unref() {
         subprocess.unref();
       },
     };
+    if (subprocess.pid !== undefined) worker.pid = subprocess.pid;
     return worker;
   },
 };
@@ -374,15 +377,18 @@ export async function runHookReview(options: RunHookReviewOptions = {}): Promise
           DIFFOWL_HOOK_LOCK: lockFile,
         },
       },
-      onFailure(message) {
-        releaseHookReviewLock(lockFile);
-        const detail = `Hook worker failed: ${message}`;
-        void Promise.all([
-          appendFile(logFile, `diffowl: ${detail}\n`, "utf-8"),
-          writeHookStatus(1, commit, detail, null, dir),
-        ]).catch(() => {});
-      },
     });
+    try {
+      await subprocess.spawned;
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error("Unknown hook worker spawn error.");
+      const detail = `Hook worker failed to spawn: ${failure.message}`;
+      await Promise.all([
+        appendFile(logFile, `diffowl: ${detail}\n`, "utf-8").catch(() => {}),
+        writeHookStatus(1, commit, detail, null, dir),
+      ]);
+      throw new Error(detail, { cause: failure });
+    }
     if (subprocess.pid) {
       writeFileSync(lockFile, String(subprocess.pid), "utf-8");
     }
