@@ -16,6 +16,7 @@ export const EvalJsonValueSchema: z.ZodType<EvalJsonValue> = z.lazy(() =>
   z.union([
     z.null(),
     z.boolean(),
+    // Exponent overflow can make JSON.parse produce Infinity, which cannot round-trip as JSON.
     z.number(),
     z.string(),
     z.array(EvalJsonValueSchema),

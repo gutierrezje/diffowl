@@ -13,4 +13,8 @@ describe("eval JSON boundary", () => {
       cases: [{ id: "harmless-trim" }],
     });
   });
+
+  it("rejects numbers that cannot round-trip through JSON", () => {
+    expect(() => parseEvalJson("1e400")).toThrow();
+  });
 });
