@@ -12,6 +12,7 @@ import { collectEvalCaseExpected, type EvalCase } from "../../eval/case-types.js
 import type { ReviewFinding } from "../../review/types.js";
 import type { ReviewUsage } from "../../review/usage.js";
 import type { AppServerCloseResult } from "../../codex/app-server-peer.js";
+import type { CodexReviewEvidence } from "../../codex/review-runner.js";
 import { runCodexAppServerSpike } from "./spike.js";
 import type { OpenCodeProvenance } from "./live-helpers.js";
 import {
@@ -52,7 +53,7 @@ describe("human-gated Codex/OpenCode matched harness", () => {
         loadEvalCase(join(corpusDirectory, "harmless-trim")),
       ]);
       const records: MatchedRecord[] = [];
-      let failure: unknown;
+      let failure: { kind: "comparison-failed"; message: string } | null = null;
       try {
         for (const evalCase of cases) {
           records.push(
@@ -60,13 +61,13 @@ describe("human-gated Codex/OpenCode matched harness", () => {
           );
         }
       } catch (error) {
-        failure = error;
+        failure = { kind: "comparison-failed", message: "Matched live comparison failed." };
         throw error;
       } finally {
         const artifactPath = await writeSafeJsonArtifact(artifactDirectory, {
           kind: "matched-codex-opencode",
           codexDocumentMode: "native-json",
-          commandShapes: {
+          ["commandShapes"]: {
             codex: [
               (process.env["DIFFOWL_CODEX_EXECUTABLE"] ?? "codex")
                 .replaceAll("\\", "/")
@@ -81,10 +82,7 @@ describe("human-gated Codex/OpenCode matched harness", () => {
             records.find((record) => record.codex.protocol)?.codex.protocol.codexCliVersion ??
             "unavailable",
           cases: records,
-          failure:
-            failure === undefined
-              ? null
-              : { kind: "comparison-failed", message: "Matched live comparison failed." },
+          failure,
         });
         expect(artifactPath).toMatch(/\.json$/);
       }
@@ -134,7 +132,7 @@ type MatchedRecord = {
       close: AppServerCloseResult;
       events: readonly string[];
       timings: readonly { phase: string; ms: number }[];
-      validationAttempts: unknown;
+      validationAttempts: CodexReviewEvidence["validationAttempts"];
     };
     pipelineTimings: readonly { phase: string; ms: number }[];
     score: ScoreSummary;
@@ -210,12 +208,14 @@ async function runMatchedCase(
             },
             isServerRunning,
             runReview: async (options) => {
-              const prompts = resolveReviewPrompts({
+              const promptOptions: Parameters<typeof resolveReviewPrompts>[0] = {
                 target: options.target,
                 config: options.config,
                 depth: options.depth,
-                ...(options.localContext === undefined ? {} : { localContext: options.localContext }),
-              });
+              };
+              if (options.localContext !== undefined)
+                promptOptions.localContext = options.localContext;
+              const prompts = resolveReviewPrompts(promptOptions);
               opencodePromptSha256 = hashText(prompts.user);
               opencodeContextSha256 = hashText(options.localContext ?? "");
               return runReview(options);
