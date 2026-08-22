@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { StateDatabaseError } from "../db.js";
 import type { SqliteDatabase } from "../sqlite.js";
 import type { FindingEventRecord, InsertFindingEventInput } from "../types.js";
 
@@ -49,7 +50,7 @@ const EventRowSchema = z.object({
   actor: z.enum(["user", "agent"]),
   reason: z.string().nullable(),
   commitRef: z.string().nullable(),
-  verificationJson: z.string(),
+  verificationJson: z.string().nullable(),
   createdAt: z.string(),
 });
 
@@ -151,6 +152,12 @@ function mapEventRow(row: z.infer<typeof EventRowSchema>): FindingEventRecord {
   };
 }
 
-function parseVerification(raw: string): string[] {
-  return z.array(z.string()).parse(JSON.parse(raw));
+function parseVerification(raw: string | null): string[] {
+  if (raw === null) return [];
+
+  try {
+    return z.array(z.string()).parse(JSON.parse(raw));
+  } catch {
+    throw new StateDatabaseError("Finding event contains invalid verification JSON.");
+  }
 }
