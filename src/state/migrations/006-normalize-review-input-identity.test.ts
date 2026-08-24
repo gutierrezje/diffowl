@@ -19,6 +19,7 @@ import { MIGRATION_002_BASE_REVIEW_TARGET } from "./002-base-review-target.js";
 import { MIGRATION_003_POSSIBLE_DUPLICATES } from "./003-possible-duplicates.js";
 import { MIGRATION_004_REVIEW_EXECUTIONS } from "./004-review-executions.js";
 import { MIGRATION_005_REVIEW_INPUT_IDENTITY } from "./005-review-input-identity.js";
+import { MIGRATION_006_NORMALIZE_REVIEW_INPUT_IDENTITY } from "./006-normalize-review-input-identity.js";
 
 const HISTORICAL_MIGRATION_005_REVIEW_INPUT_IDENTITY = `
 ALTER TABLE reviews ADD COLUMN base_commit TEXT;
@@ -109,7 +110,7 @@ afterEach(async () => {
   tempDirs.length = 0;
 });
 
-describe("migration 006 review input identity normalization", () => {
+describe("review input identity schema migrations", () => {
   it("repairs the historical schema-v5 triggers before persisting a completed review", async () => {
     const dir = await createHistoricalSchemaV5Database();
 
@@ -119,17 +120,7 @@ describe("migration 006 review input identity normalization", () => {
     try {
       expectMigrationVersions(state.db);
       expectTriggerNames(state.db);
-      expect(
-        state.db
-          .prepare("PRAGMA table_info(review_executions)")
-          .all()
-          .map((column) => column["name"])
-          .filter((name) =>
-            ["target_kind", "base_commit", "merge_base_commit", "head_commit", "diff_hash"].includes(
-              String(name),
-            ),
-          ),
-      ).toEqual(["target_kind", "base_commit", "merge_base_commit", "head_commit", "diff_hash"]);
+      expectCanonicalReviewExecutionColumns(state.db);
       expect(state.db.prepare("SELECT id, summary FROM reviews WHERE id = ?").get("rev_historical")).toEqual({
         id: "rev_historical",
         summary: "Historical review",
@@ -205,6 +196,25 @@ describe("migration 006 review input identity normalization", () => {
     }
   });
 
+  it("removes historical identity columns from databases already recorded at schema v6", async () => {
+    const dir = await createHistoricalSchemaV6Database();
+
+    const state = await openStateDatabase(dir);
+    try {
+      expectMigrationVersions(state.db);
+      expectCanonicalReviewExecutionColumns(state.db);
+      expect(listReviewExecutionsByReviewId(state.db, "rev_historical")).toEqual([
+        expect.objectContaining({
+          id: "exe_historical",
+          reviewId: "rev_historical",
+          schemaVersion: 1,
+        }),
+      ]);
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
   it("upgrades the published 0.4.0 schema and persists a completed review", async () => {
     const dir = await createPublishedV040Database();
 
@@ -269,6 +279,17 @@ async function createFinalSchemaV5Database(): Promise<string> {
       4: MIGRATION_004_REVIEW_EXECUTIONS,
       5: MIGRATION_005_REVIEW_INPUT_IDENTITY,
     });
+  } finally {
+    closeDatabaseConnection(db);
+  }
+  return dir;
+}
+
+async function createHistoricalSchemaV6Database(): Promise<string> {
+  const dir = await createHistoricalSchemaV5Database();
+  const db = await openSqliteDatabase(getStateDbPath(dir));
+  try {
+    applyMigrations(db, 6, { 6: MIGRATION_006_NORMALIZE_REVIEW_INPUT_IDENTITY });
   } finally {
     closeDatabaseConnection(db);
   }
@@ -444,6 +465,32 @@ function expectMigrationVersions(db: Awaited<ReturnType<typeof openSqliteDatabas
   expect(db.prepare("SELECT version FROM schema_migrations ORDER BY version ASC").all()).toEqual(
     Array.from({ length: CURRENT_SCHEMA_VERSION }, (_, index) => ({ version: index + 1 })),
   );
+}
+
+function expectCanonicalReviewExecutionColumns(
+  db: Awaited<ReturnType<typeof openSqliteDatabase>>,
+): void {
+  expect(
+    db
+      .prepare("PRAGMA table_info(review_executions)")
+      .all()
+      .map((column) => column["name"]),
+  ).toEqual([
+    "id",
+    "review_id",
+    "created_at",
+    "schema_version",
+    "cohort_id",
+    "reviewer_id",
+    "role",
+    "backend",
+    "requested_model",
+    "effective_model",
+    "preference_source_json",
+    "reasoning_effort",
+    "session_id",
+    "terminal_outcome",
+  ]);
 }
 
 function expectTriggerNames(db: Awaited<ReturnType<typeof openSqliteDatabase>>): void {
