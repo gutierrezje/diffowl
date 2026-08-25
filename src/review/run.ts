@@ -127,17 +127,22 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
   try {
     execution = await executor.execute(executorOptions);
   } catch (error) {
-    const failure = ReviewExecutionFailureSchema.parse(error);
+    const failure = ReviewExecutionFailureSchema.safeParse(error);
+    const terminalOutcome = failure.success ? failure.data.terminalOutcome : "failed";
     if (executor.assignment !== undefined) {
-      await deps.persistReviewExecutionAttempt(input.diffOwlDir, {
-        operation,
-        execution: createFailedReviewExecutionProvenance(
-          executor.assignment,
-          failure.terminalOutcome,
-        ),
-      });
+      try {
+        await deps.persistReviewExecutionAttempt(input.diffOwlDir, {
+          operation,
+          execution: createFailedReviewExecutionProvenance(
+            executor.assignment,
+            terminalOutcome,
+          ),
+        });
+      } catch {
+        // The execution failure is primary; best-effort bookkeeping must not replace it.
+      }
     }
-    throw failure.cause;
+    throw error;
   }
   timings.push(...execution.timings);
   const reviewResult = execution.review;

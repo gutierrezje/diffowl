@@ -471,6 +471,50 @@ describe("runReviewPipeline", () => {
     },
   );
 
+  it("persists non-Error throws as failed attempts without replacing the thrown value", async () => {
+    const deps = makeDeps(makeSnapshot([codeFile()]));
+    const thrownValue = "backend rejected the review";
+    deps.executor = {
+      assignment: createSingleReviewAssignment(
+        {
+          backend: "codex",
+          requestedModel: "gpt-5.6-luna",
+          source: { backend: "local", model: "local" },
+        },
+        "max",
+      ),
+      execute: vi.fn(async () => Promise.reject(thrownValue)),
+    };
+
+    await expect(runReviewPipeline(skipInput(), deps)).rejects.toBe(thrownValue);
+
+    expect(deps.persistReviewExecutionAttempt).toHaveBeenCalledWith("/repo/.diffowl", {
+      operation: makeOperation(makeSnapshot([codeFile()])),
+      execution: expect.objectContaining({ terminalOutcome: "failed" }),
+    });
+  });
+
+  it("preserves the review failure when terminal-attempt persistence also fails", async () => {
+    const deps = makeDeps(makeSnapshot([codeFile()]));
+    const reviewError = new ReviewCancelledError("cancelled");
+    deps.executor = {
+      assignment: createSingleReviewAssignment(
+        {
+          backend: "codex",
+          requestedModel: "gpt-5.6-luna",
+          source: { backend: "local", model: "local" },
+        },
+        "max",
+      ),
+      execute: vi.fn(async () => Promise.reject(reviewError)),
+    };
+    deps.persistReviewExecutionAttempt = vi.fn(async () => {
+      throw new Error("database is locked");
+    });
+
+    await expect(runReviewPipeline(skipInput(), deps)).rejects.toBe(reviewError);
+  });
+
   it("appends executor timings without mutating provider report timings", async () => {
     const deps = makeDeps(makeSnapshot([codeFile()]));
     const reportTimings = [{ phase: "model", label: "Model", ms: 7 }];
