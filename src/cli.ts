@@ -366,6 +366,13 @@ program
             spinner.text = message;
           }
         },
+        onWarning: (message) => {
+          if (spinner) {
+            spinner.warn(message);
+            return;
+          }
+          console.error(chalk.yellow(message));
+        },
       });
 
       if (outcome.kind === "empty-diff") {

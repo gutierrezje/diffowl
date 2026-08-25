@@ -497,6 +497,7 @@ describe("runReviewPipeline", () => {
   it("preserves the review failure when terminal-attempt persistence also fails", async () => {
     const deps = makeDeps(makeSnapshot([codeFile()]));
     const reviewError = new ReviewCancelledError("cancelled");
+    const onWarning = vi.fn();
     deps.executor = {
       assignment: createSingleReviewAssignment(
         {
@@ -512,7 +513,10 @@ describe("runReviewPipeline", () => {
       throw new Error("database is locked");
     });
 
-    await expect(runReviewPipeline(skipInput(), deps)).rejects.toBe(reviewError);
+    await expect(runReviewPipeline(skipInput({ onWarning }), deps)).rejects.toBe(reviewError);
+    expect(onWarning).toHaveBeenCalledWith(
+      "Review failed, and its terminal outcome could not be persisted.",
+    );
   });
 
   it("appends executor timings without mutating provider report timings", async () => {

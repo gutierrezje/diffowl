@@ -63,6 +63,7 @@ export interface ReviewPipelineInput {
   onProgress?: (event: ReviewProgressEvent) => void;
   onDiagnostics?: (diagnostics: string[]) => void;
   onStatus?: (message: string) => void;
+  onWarning?: (message: string) => void;
 }
 
 export interface ReviewPipelineDeps {
@@ -139,7 +140,7 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
           ),
         });
       } catch {
-        // The execution failure is primary; best-effort bookkeeping must not replace it.
+        input.onWarning?.("Review failed, and its terminal outcome could not be persisted.");
       }
     }
     throw error;
