@@ -1,12 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DiffOwlConfig } from "../config.js";
-import type { ReviewExecutor, ReviewFinding } from "./types.js";
+import type { AssignedReviewExecutor, ReviewFinding } from "./types.js";
 import type { PersistReviewRunResult } from "../state/persist.js";
 import type { LoadedReviewSnapshot, ReviewContext } from "./context.js";
 import type { ReviewContextSource } from "./context-source.js";
 import type { CapturedReviewOperation } from "./operation.js";
 import { ReviewCancelledError, ReviewTimeoutError } from "./errors.js";
-import { createSingleReviewAssignment } from "./provenance.js";
+import {
+  createSingleReviewAssignment,
+  type ReviewExecutionRuntimeProvenance,
+} from "./provenance.js";
 import {
   buildDocOnlySkipMarkdown,
   defaultReviewPipelineDeps,
@@ -68,8 +71,19 @@ function makeSnapshot(
   };
 }
 
-function makeDeps(snapshot: LoadedReviewSnapshot): ReviewPipelineDeps {
-  const executor: ReviewExecutor = {
+function makeDeps(
+  snapshot: LoadedReviewSnapshot,
+): ReviewPipelineDeps & { executor: AssignedReviewExecutor } {
+  const assignment = createSingleReviewAssignment(
+    {
+      backend: "opencode",
+      requestedModel: "provider/model",
+      source: { backend: "legacy", model: "legacy" },
+    },
+    "auto",
+  );
+  const executor: AssignedReviewExecutor = {
+    assignment,
     execute: vi.fn(async (options) => {
       options.onStatus?.("Preparing review runtime...");
       options.onStatus?.("Running review...");
@@ -79,14 +93,27 @@ function makeDeps(snapshot: LoadedReviewSnapshot): ReviewPipelineDeps {
           sessionId: "session",
         },
         timings: [],
+        runtimeProvenance: {
+          cohortId: null,
+          reviewerId: "single",
+          role: "single",
+          backend: "opencode",
+          requestedModel: "provider/model",
+          effectiveModel: null,
+          preferenceSource: { backend: "legacy", model: "legacy" },
+          reasoningEffort: "auto",
+          sessionId: "session",
+          terminalOutcome: "completed",
+        } satisfies ReviewExecutionRuntimeProvenance,
       };
     }),
   };
-  return {
+  const deps: ReviewPipelineDeps & { executor: AssignedReviewExecutor } = {
     ...defaultReviewPipelineDeps,
     buildReviewContextFromDiff: vi.fn(async () => makeReviewContext(snapshot)),
     captureReviewOperation: vi.fn(() => makeOperation(snapshot)),
     computeDiffHash: vi.fn(() => "hash"),
+    createExecutor: vi.fn(() => deps.executor),
     executor,
     enrichReviewFindingsWithDurableMetadata: vi.fn((findings) => findings),
     filterFindingsByChangedFiles: vi.fn((findings) => ({ findings, suppressed: [] })),
@@ -107,11 +134,12 @@ function makeDeps(snapshot: LoadedReviewSnapshot): ReviewPipelineDeps {
       ...input.execution,
     })),
     renderMarkdown: vi.fn(() => "markdown"),
-    renderReviewContext: vi.fn(() => "context"),
+    renderReviewContextDocument: vi.fn(() => ({ text: "context", degradations: [] })),
     resolveTargetCommit: vi.fn(async () => null),
     updatePersistedReview: vi.fn(async () => {}),
     writeMarkdownReport: vi.fn(async () => "/repo/.diffowl/reviews/review.md"),
   };
+  return deps;
 }
 
 describe("buildDocOnlySkipMarkdown", () => {
@@ -397,7 +425,15 @@ describe("runReviewPipeline", () => {
 
   it("uses an explicitly selected executor instead of the default dependency", async () => {
     const deps = makeDeps(makeSnapshot([codeFile()]));
-    const selectedExecutor: ReviewExecutor = {
+    const selectedExecutor: AssignedReviewExecutor = {
+      assignment: createSingleReviewAssignment(
+        {
+          backend: "codex",
+          requestedModel: "gpt-5.4-mini",
+          source: { backend: "command", model: "command" },
+        },
+        "max",
+      ),
       execute: vi.fn(async () => ({
         review: {
           report: { summary: "selected", findings: [] },
@@ -405,6 +441,18 @@ describe("runReviewPipeline", () => {
         },
         timings: [],
         effectiveModel: "gpt-5.4-mini",
+        runtimeProvenance: {
+          cohortId: null,
+          reviewerId: "single",
+          role: "single",
+          backend: "codex",
+          requestedModel: "gpt-5.4-mini",
+          effectiveModel: "gpt-5.4-mini",
+          preferenceSource: { backend: "command", model: "command" },
+          reasoningEffort: "max",
+          sessionId: "selected-session",
+          terminalOutcome: "completed",
+        } satisfies ReviewExecutionRuntimeProvenance,
       })),
     };
 
@@ -420,6 +468,23 @@ describe("runReviewPipeline", () => {
       sessionId: "selected-session",
       effectiveModel: "gpt-5.4-mini",
     });
+  });
+
+  it("persists execution provenance for every completed model run", async () => {
+    const deps = makeDeps(makeSnapshot([codeFile()]));
+
+    await runReviewPipeline(skipInput(), deps);
+
+    expect(deps.persistReviewRun).toHaveBeenCalledWith(
+      "/repo/.diffowl",
+      expect.objectContaining({
+        execution: expect.objectContaining({
+          reviewerId: "single",
+          role: "single",
+          terminalOutcome: "completed",
+        }),
+      }),
+    );
   });
 
   it("passes the pipeline cancellation signal and status sink to its executor", async () => {
@@ -532,6 +597,7 @@ describe("runReviewPipeline", () => {
         sessionId: "session-timing",
       },
       timings: [{ phase: "executor", label: "Review runtime", ms: 11 }],
+      runtimeProvenance: completedRuntimeProvenance("session-timing"),
     });
 
     const outcome = await runReviewPipeline(skipInput(), deps);
@@ -580,6 +646,7 @@ describe("runReviewPipeline", () => {
         sessionId: "session-symbols",
       },
       timings: [],
+      runtimeProvenance: completedRuntimeProvenance("session-symbols"),
     });
     vi.mocked(deps.buildReviewContextFromDiff).mockResolvedValue({
       ...makeReviewContext(snapshot),
@@ -612,6 +679,7 @@ describe("runReviewPipeline", () => {
         sessionId: "session-nested-symbols",
       },
       timings: [],
+      runtimeProvenance: completedRuntimeProvenance("session-nested-symbols"),
     });
     vi.mocked(deps.buildReviewContextFromDiff).mockResolvedValue({
       ...makeReviewContext(snapshot),
@@ -656,7 +724,31 @@ function codeFile(): LoadedReviewSnapshot["diff"]["files"][number] {
 }
 
 function makeFinding(file: string): ReviewFinding {
-  return { severity: "warning", file, line: 1, title: "Finding", body: "Details", confidence: "high" };
+  return {
+    severity: "warning",
+    file,
+    line: 1,
+    title: "Finding",
+    body: "Details",
+    confidence: "high",
+  };
+}
+
+function completedRuntimeProvenance(
+  sessionId: string,
+): ReviewExecutionRuntimeProvenance & { terminalOutcome: "completed" } {
+  return {
+    cohortId: null,
+    reviewerId: "single",
+    role: "single",
+    backend: "opencode",
+    requestedModel: "provider/model",
+    effectiveModel: null,
+    preferenceSource: { backend: "legacy", model: "legacy" },
+    reasoningEffort: "auto",
+    sessionId,
+    terminalOutcome: "completed",
+  };
 }
 
 function makeReviewContext(snapshot: LoadedReviewSnapshot): ReviewContext {

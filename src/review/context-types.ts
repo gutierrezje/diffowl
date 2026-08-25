@@ -27,6 +27,10 @@ export type ReviewContextDegradationCode =
   | "impact-index-failed"
   | "impact-index-module-skipped"
   | "impact-index-results-truncated"
+  | "render-ast-symbol-omitted"
+  | "render-ast-symbol-truncated"
+  | "render-diff-truncated"
+  | "render-file-truncated"
   | "related-file-truncated";
 
 export interface ReviewContextDegradation {
@@ -85,4 +89,9 @@ export interface ReferenceMatch {
 
 export interface RenderReviewContextOptions {
   depth?: ReviewContextDepth;
+}
+
+export interface RenderedReviewContext {
+  text: string;
+  degradations: ReviewContextDegradation[];
 }

@@ -93,6 +93,10 @@ CREATE TABLE review_executions_v7 (
   terminal_outcome TEXT NOT NULL CHECK (
     terminal_outcome IN ('completed', 'cancelled', 'timed-out', 'failed')
   ),
+  CHECK (
+    (terminal_outcome = 'completed' AND review_id IS NOT NULL)
+    OR (terminal_outcome IN ('cancelled', 'timed-out', 'failed') AND review_id IS NULL)
+  ),
   UNIQUE (operation_id, reviewer_id)
 );
 

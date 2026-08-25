@@ -18,6 +18,7 @@ const WINDOWS_SAFE_INHERITED = new Set(["PATHEXT", "USERPROFILE", "HOMEDRIVE", "
 const PREFIX_SAFE_INHERITED = ["LC_", "XDG_", "SSL_CERT"];
 const CREDENTIAL_KEY = /TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|CREDENTIAL/i;
 const TEST_CONTROLS = new Set([
+  "MOCK_ACTIVE_TURN_FILE",
   "MOCK_APP_SERVER_MODE",
   "MOCK_APP_SERVER_MODEL",
   "MOCK_APP_SERVER_SYSTEM",
@@ -30,6 +31,7 @@ const TEST_CONTROLS = new Set([
   "MOCK_CLI_MODE",
   "MOCK_CLI_PID_FILE",
   "MOCK_CLI_STDERR_VALUE",
+  "MOCK_INTERRUPT_DELAY_MS",
 ]);
 
 /** Build the deliberately narrow environment allowed across the Codex process boundary. */

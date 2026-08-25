@@ -79,8 +79,14 @@ export interface ReviewExecutionResult {
 }
 
 export interface ReviewExecutor {
-  readonly assignment?: ReviewAssignment;
   execute(options: ReviewExecutorOptions): Promise<ReviewExecutionResult>;
+}
+
+export interface AssignedReviewExecutor {
+  readonly assignment: ReviewAssignment;
+  execute(
+    options: ReviewExecutorOptions,
+  ): Promise<ReviewExecutionResult & { runtimeProvenance: ReviewExecutionRuntimeProvenance }>;
 }
 
 export type ReviewProgressEvent =

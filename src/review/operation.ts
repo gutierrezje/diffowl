@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { ReviewContextDepthSchema } from "../config.js";
 import type { LoadedReviewSnapshot, ReviewContext } from "./context.js";
+import type { RenderedReviewContext } from "./context-types.js";
 import {
   createReviewInputIdentity,
   ReviewInputIdentitySchema,
@@ -23,6 +24,10 @@ export const ReviewContextDegradationCodeSchema = z.enum([
   "impact-index-failed",
   "impact-index-module-skipped",
   "impact-index-results-truncated",
+  "render-ast-symbol-omitted",
+  "render-ast-symbol-truncated",
+  "render-diff-truncated",
+  "render-file-truncated",
   "related-file-truncated",
 ]);
 
@@ -60,7 +65,7 @@ export interface CapturedReviewOperation {
 export interface CaptureReviewOperationInput {
   snapshot: LoadedReviewSnapshot;
   context: ReviewContext;
-  renderedContext: string;
+  renderedContext: RenderedReviewContext;
   id?: string;
   createdAt?: string;
 }
@@ -78,7 +83,7 @@ export function captureReviewOperation(
   const contextManifest: ReviewContextManifest = {
     schemaVersion: REVIEW_CONTEXT_MANIFEST_SCHEMA_VERSION,
     depth: input.context.depth,
-    renderedContextSha256: sha256(input.renderedContext),
+    renderedContextSha256: sha256(input.renderedContext.text),
     changedFileCount: input.context.changedFiles.length,
     skippedFileCount: input.context.skippedFiles.length,
     relatedFileCount: input.context.relatedFiles.length,
@@ -86,7 +91,10 @@ export function captureReviewOperation(
       (count, reference) => count + reference.matches.length,
       0,
     ),
-    degradationCounts: aggregateDegradations(input.context.degradations),
+    degradationCounts: aggregateDegradations([
+      ...input.context.degradations,
+      ...input.renderedContext.degradations,
+    ]),
   };
 
   return {

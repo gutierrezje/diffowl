@@ -65,6 +65,46 @@ describe("review operation migration", () => {
       closeStateDatabase(state);
     }
   });
+
+  it("rejects execution outcomes whose review link contradicts terminal state", async () => {
+    const dir = await createSchema6Database();
+
+    const state = await openStateDatabase(dir);
+    try {
+      const insert = state.db.prepare(`
+        INSERT INTO review_executions (
+          id, operation_id, review_id, created_at, schema_version, reviewer_id, role,
+          terminal_outcome
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      expect(() =>
+        insert.run(
+          "exe_failed_with_review",
+          "op_legacy_rev_existing",
+          "rev_existing",
+          "2026-08-20T00:01:00.000Z",
+          3,
+          "checker",
+          "checker",
+          "failed",
+        ),
+      ).toThrow();
+      expect(() =>
+        insert.run(
+          "exe_completed_without_review",
+          "op_legacy_rev_existing",
+          null,
+          "2026-08-20T00:02:00.000Z",
+          3,
+          "proposer",
+          "proposer",
+          "completed",
+        ),
+      ).toThrow();
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
 });
 
 async function createSchema6Database(): Promise<string> {

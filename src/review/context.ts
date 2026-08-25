@@ -28,7 +28,7 @@ import type {
 import { buildReferenceContexts } from "./impact.js";
 import type { ReviewTarget } from "./target.js";
 
-export { renderReviewContext } from "./context-render.js";
+export { renderReviewContext, renderReviewContextDocument } from "./context-render.js";
 export type {
   AstSymbolContext,
   ChangedFileContext,

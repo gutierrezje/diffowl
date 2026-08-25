@@ -135,7 +135,7 @@ function capturedOperation(id: string) {
   return captureReviewOperation({
     snapshot,
     context,
-    renderedContext: "captured context",
+    renderedContext: { text: "captured context", degradations: [] },
     id,
     createdAt: "2026-08-24T12:00:00.000Z",
   });

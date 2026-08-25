@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ReviewContext } from "./context.js";
+import { renderReviewContextDocument } from "./context-render.js";
 import { captureReviewOperation } from "./operation.js";
 
 describe("captureReviewOperation", () => {
@@ -7,7 +8,7 @@ describe("captureReviewOperation", () => {
     const input = {
       snapshot: snapshot(),
       context: context(),
-      renderedContext: "rendered local context",
+      renderedContext: { text: "rendered local context", degradations: [] },
     };
 
     const first = captureReviewOperation({
@@ -59,14 +60,58 @@ describe("captureReviewOperation", () => {
       createdAt: "2026-08-24T10:00:00.000Z",
     };
 
-    const first = captureReviewOperation({ ...shared, renderedContext: "context one" });
-    const second = captureReviewOperation({ ...shared, renderedContext: "context two" });
+    const first = captureReviewOperation({
+      ...shared,
+      renderedContext: { text: "context one", degradations: [] },
+    });
+    const second = captureReviewOperation({
+      ...shared,
+      renderedContext: { text: "context two", degradations: [] },
+    });
 
     expect(second.input).toEqual(first.input);
     expect(second.contextManifest.renderedContextSha256).not.toBe(
       first.contextManifest.renderedContextSha256,
     );
     expect(second.contextManifestSha256).not.toBe(first.contextManifestSha256);
+  });
+
+  it("records every render-time truncation in the captured context manifest", () => {
+    const reviewContext = context();
+    reviewContext.depth = "shallow";
+    reviewContext.diff.raw = ["diff --git a/src/app.ts b/src/app.ts", "+".repeat(50_000)].join(
+      "\n",
+    );
+    reviewContext.changedFiles[0]!.astSymbols = Array.from({ length: 7 }, (_, index) => ({
+      name: `symbol${index}`,
+      kind: "function",
+      startLine: index + 1,
+      endLine: index + 1,
+      text: "x".repeat(5_000),
+      truncated: false,
+    }));
+    reviewContext.changedFiles[0]!.content = {
+      status: "loaded",
+      text: "y".repeat(5_000),
+      truncated: false,
+      render: "full",
+    };
+    const renderedContext = renderReviewContextDocument(reviewContext);
+
+    const operation = captureReviewOperation({
+      snapshot: { ...snapshot(), diff: reviewContext.diff },
+      context: reviewContext,
+      renderedContext,
+    });
+
+    expect(operation.contextManifest.degradationCounts).toEqual(
+      expect.arrayContaining([
+        { code: "render-ast-symbol-omitted", count: 2 },
+        { code: "render-ast-symbol-truncated", count: 5 },
+        { code: "render-diff-truncated", count: 1 },
+        { code: "render-file-truncated", count: 1 },
+      ]),
+    );
   });
 });
 

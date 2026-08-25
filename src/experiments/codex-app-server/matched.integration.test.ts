@@ -2,6 +2,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { runReview } from "../../opencode/client.js";
 import { createOpenCodeReviewExecutor } from "../../opencode/executor.js";
+import { assignReviewExecutor } from "../../review/executor.js";
+import { createSingleReviewAssignment } from "../../review/provenance.js";
 import { ensureServer, isServerRunning } from "../../opencode/server.js";
 import { resolveReviewPrompts } from "../../review/prompt.js";
 import { defaultReviewPipelineDeps, runReviewPipeline } from "../../review/run.js";
@@ -200,27 +202,38 @@ async function runMatchedCase(
         reviewInput(opencodeRepo.workDir, opencodeRepo.target, config),
         {
           ...defaultReviewPipelineDeps,
-          executor: createOpenCodeReviewExecutor({
-            ensureServer: async (port) => {
-              const baseUrl = await ensureServer(port);
-              opencodeBefore = await captureOpenCodeProvenance(port, baseUrl);
-              return baseUrl;
-            },
-            isServerRunning,
-            runReview: async (options) => {
-              const promptOptions: Parameters<typeof resolveReviewPrompts>[0] = {
-                target: options.target,
-                config: options.config,
-                depth: options.depth,
-              };
-              if (options.localContext !== undefined)
-                promptOptions.localContext = options.localContext;
-              const prompts = resolveReviewPrompts(promptOptions);
-              opencodePromptSha256 = hashText(prompts.user);
-              opencodeContextSha256 = hashText(options.localContext ?? "");
-              return runReview(options);
-            },
-          }),
+          createExecutor: () =>
+            assignReviewExecutor(
+              createSingleReviewAssignment(
+                {
+                  backend: "opencode",
+                  requestedModel: config.model,
+                  source: { backend: "legacy", model: "legacy" },
+                },
+                config.reasoning.effort,
+              ),
+              createOpenCodeReviewExecutor({
+                ensureServer: async (port) => {
+                  const baseUrl = await ensureServer(port);
+                  opencodeBefore = await captureOpenCodeProvenance(port, baseUrl);
+                  return baseUrl;
+                },
+                isServerRunning,
+                runReview: async (options) => {
+                  const promptOptions: Parameters<typeof resolveReviewPrompts>[0] = {
+                    target: options.target,
+                    config: options.config,
+                    depth: options.depth,
+                  };
+                  if (options.localContext !== undefined)
+                    promptOptions.localContext = options.localContext;
+                  const prompts = resolveReviewPrompts(promptOptions);
+                  opencodePromptSha256 = hashText(prompts.user);
+                  opencodeContextSha256 = hashText(options.localContext ?? "");
+                  return runReview(options);
+                },
+              }),
+            ),
         },
       );
       const opencodeDurationMs = performance.now() - opencodeStarted;

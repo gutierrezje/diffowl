@@ -1,7 +1,7 @@
 import { createCodexReviewExecutor, type CodexReviewExecutorOptions } from "../codex/executor.js";
 import { createOpenCodeReviewExecutor } from "../opencode/executor.js";
 import type { ReviewAssignment } from "./provenance.js";
-import type { ReviewExecutor } from "./types.js";
+import type { AssignedReviewExecutor, ReviewExecutor } from "./types.js";
 
 const CODEX_PROTOCOL_TIMEOUT_MS = 30_000;
 const CODEX_INTERRUPT_TIMEOUT_MS = 5_000;
@@ -21,8 +21,15 @@ export function createSelectedReviewExecutor(
   assignment: ReviewAssignment,
   dependencies: SelectedReviewExecutorDependencies = defaultDependencies,
   env: Record<string, string | undefined> = process.env,
-): ReviewExecutor {
+): AssignedReviewExecutor {
   const adapter = createReviewExecutor(assignment, dependencies, env);
+  return assignReviewExecutor(assignment, adapter);
+}
+
+export function assignReviewExecutor(
+  assignment: ReviewAssignment,
+  adapter: ReviewExecutor,
+): AssignedReviewExecutor {
   return {
     assignment,
     execute: async (options) => {
