@@ -4,7 +4,7 @@ import type {
   ReviewExecutionRuntimeProvenance,
 } from "../review/provenance.js";
 
-export const CURRENT_SCHEMA_VERSION = 5;
+export const CURRENT_SCHEMA_VERSION = 6;
 
 export type ReviewTargetKind = "staged" | "commit" | "last-commit" | "base";
 export type FindingStatus = "open" | "deferred" | "dismissed" | "fixed" | "regressed";

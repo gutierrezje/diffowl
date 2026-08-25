@@ -33,6 +33,9 @@ const EXPECTED_TABLES = [
   "finding_possible_duplicates",
   "review_executions",
 ];
+const EXPECTED_MIGRATIONS = Array.from({ length: CURRENT_SCHEMA_VERSION }, (_, index) => ({
+  version: index + 1,
+}));
 
 let tempDirs: string[] = [];
 
@@ -69,13 +72,7 @@ describe("openStateDatabase", () => {
         .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
         .all()
         .map((row) => z.object({ version: z.number() }).parse(row));
-      expect(migrations).toEqual([
-        { version: 1 },
-        { version: 2 },
-        { version: 3 },
-        { version: 4 },
-        { version: CURRENT_SCHEMA_VERSION },
-      ]);
+      expect(migrations).toEqual(EXPECTED_MIGRATIONS);
     } finally {
       closeStateDatabase(state);
     }
@@ -92,13 +89,7 @@ describe("openStateDatabase", () => {
         .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
         .all()
         .map((row) => z.object({ version: z.number() }).parse(row));
-      expect(migrations).toEqual([
-        { version: 1 },
-        { version: 2 },
-        { version: 3 },
-        { version: 4 },
-        { version: CURRENT_SCHEMA_VERSION },
-      ]);
+      expect(migrations).toEqual(EXPECTED_MIGRATIONS);
     } finally {
       closeStateDatabase(second);
     }
@@ -432,13 +423,7 @@ describe("openStateDatabase", () => {
         .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
         .all()
         .map((row) => z.object({ version: z.number() }).parse(row));
-      expect(versions).toEqual([
-        { version: 1 },
-        { version: 2 },
-        { version: 3 },
-        { version: 4 },
-        { version: CURRENT_SCHEMA_VERSION },
-      ]);
+      expect(versions).toEqual(EXPECTED_MIGRATIONS);
     } finally {
       closeDatabaseConnection(db);
     }
