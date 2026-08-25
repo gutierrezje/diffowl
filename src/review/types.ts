@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ReviewConfidenceSchema, type DiffOwlConfig, type ReviewContextDepth } from "../config.js";
 import type { ReviewTarget } from "./target.js";
 import type { ReviewUsage } from "./usage.js";
-import type { ReviewExecutionRuntimeProvenance } from "./provenance.js";
+import type { ReviewAssignment, ReviewExecutionRuntimeProvenance } from "./provenance.js";
 
 export const ReviewSeveritySchema = z.enum(["error", "warning", "info"]);
 
@@ -79,6 +79,7 @@ export interface ReviewExecutionResult {
 }
 
 export interface ReviewExecutor {
+  readonly assignment?: ReviewAssignment;
   execute(options: ReviewExecutorOptions): Promise<ReviewExecutionResult>;
 }
 

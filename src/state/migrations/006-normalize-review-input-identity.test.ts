@@ -10,6 +10,7 @@ import {
   openStateDatabase,
 } from "../db.js";
 import { computeDiffHash, persistReviewRun } from "../persist.js";
+import { computeReviewContextManifestSha256 } from "../../review/operation.js";
 import { listReviewExecutionsByReviewId } from "../repositories/review-executions.js";
 import { openSqliteDatabase } from "../sqlite.js";
 import { removeTempStateDir } from "../test-helpers.js";
@@ -186,7 +187,7 @@ describe("review input identity schema migrations", () => {
           backend: "codex",
           requestedModel: "gpt-5.6-luna",
           effectiveModel: "gpt-5.6-luna",
-          schemaVersion: 2,
+          schemaVersion: 3,
         }),
       ]);
     } finally {
@@ -397,14 +398,33 @@ async function persistCompletedReview(
   seed: string,
 ) {
   const model = backend === "codex" ? "gpt-5.6-luna" : "provider/model";
+  const reviewInput = {
+    targetKind: "staged" as const,
+    baseCommit: null,
+    mergeBaseCommit: null,
+    headCommit: null,
+    diffHash: computeDiffHash(seed),
+  };
+  const contextManifest = {
+    schemaVersion: 1 as const,
+    depth: "default" as const,
+    renderedContextSha256: "b".repeat(64),
+    changedFileCount: 0,
+    skippedFileCount: 0,
+    relatedFileCount: 0,
+    referenceCount: 0,
+    degradationCounts: [],
+  };
   return persistReviewRun(dir, {
     targetRef: null,
-    reviewInput: {
-      targetKind: "staged",
-      baseCommit: null,
-      mergeBaseCommit: null,
-      headCommit: null,
-      diffHash: computeDiffHash(seed),
+    reviewInput,
+    operation: {
+      id: `op_${seed}`,
+      createdAt: "2026-08-24T00:00:00.000Z",
+      targetRef: null,
+      input: reviewInput,
+      contextManifest,
+      contextManifestSha256: computeReviewContextManifestSha256(contextManifest),
     },
     model,
     reasoning: "medium",
@@ -431,7 +451,7 @@ async function persistCompletedReview(
 
 function expectMigrationVersions(db: Awaited<ReturnType<typeof openSqliteDatabase>>): void {
   expect(db.prepare("SELECT version FROM schema_migrations ORDER BY version ASC").all()).toEqual(
-    [1, 2, 3, 4, 5, 6].map((version) => ({ version })),
+    [1, 2, 3, 4, 5, 6, 7].map((version) => ({ version })),
   );
 }
 
@@ -445,6 +465,7 @@ function expectCanonicalReviewExecutionColumns(
       .map((column) => column["name"]),
   ).toEqual([
     "id",
+    "operation_id",
     "review_id",
     "created_at",
     "schema_version",
@@ -466,7 +487,9 @@ function expectTriggerNames(db: Awaited<ReturnType<typeof openSqliteDatabase>>):
     db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' ORDER BY name ASC").all(),
   ).toEqual([
     { name: "enforce_review_input_identity" },
+    { name: "enforce_review_operation_input_identity" },
     { name: "prevent_review_input_identity_update" },
+    { name: "prevent_review_operation_identity_update" },
   ]);
 }
 

@@ -10,6 +10,7 @@ import type {
   ReviewUsage,
 } from "./types.js";
 import {
+  createFailedReviewExecutionProvenance,
   createReviewInputIdentity,
 } from "./provenance.js";
 import {
@@ -19,6 +20,7 @@ import {
   loadFindingOccurrenceCounts,
   mapReviewTarget,
   persistReviewRun,
+  persistReviewExecutionAttempt,
   updatePersistedReview,
   type PersistReviewRunInput,
   type PersistReviewRunResult,
@@ -32,6 +34,8 @@ import {
   type LoadedReviewSnapshot,
 } from "./context.js";
 import type { ReviewTarget } from "./target.js";
+import { captureReviewOperation } from "./operation.js";
+import { ReviewExecutionFailureSchema } from "./errors.js";
 
 export type ReviewPipelineOutcome =
   | {
@@ -68,6 +72,7 @@ export interface ReviewPipelineDeps {
   formatExcludedCandidateSummary: typeof formatExcludedCandidateSummary;
   computeDiffHash: typeof computeDiffHash; mapReviewTarget: typeof mapReviewTarget;
   persistReviewRun: typeof persistReviewRun; updatePersistedReview: typeof updatePersistedReview;
+  persistReviewExecutionAttempt: typeof persistReviewExecutionAttempt; captureReviewOperation: typeof captureReviewOperation;
   resolveTargetCommit: typeof resolveTargetCommit;
   enrichReviewFindingsWithDurableMetadata: typeof enrichReviewFindingsWithDurableMetadata;
   formatLifecycleSuppressedSummary: typeof formatLifecycleSuppressedSummary; loadFindingOccurrenceCounts: typeof loadFindingOccurrenceCounts;
@@ -75,11 +80,11 @@ export interface ReviewPipelineDeps {
 }
 
 export const defaultReviewPipelineDeps: ReviewPipelineDeps = {
-  buildReviewContextFromDiff, computeDiffHash, enrichReviewFindingsWithDurableMetadata,
+  buildReviewContextFromDiff, captureReviewOperation, computeDiffHash, enrichReviewFindingsWithDurableMetadata,
   executor: createOpenCodeReviewExecutor(),
   filterFindingsByChangedFiles, filterFindingsByConfidence, formatExcludedCandidateSummary,
   formatLifecycleSuppressedSummary, loadFindingOccurrenceCounts, loadReviewSnapshot,
-  mapReviewTarget, persistReviewRun, renderMarkdown, renderReviewContext, resolveTargetCommit, updatePersistedReview, writeMarkdownReport,
+  mapReviewTarget, persistReviewExecutionAttempt, persistReviewRun, renderMarkdown, renderReviewContext, resolveTargetCommit, updatePersistedReview, writeMarkdownReport,
 };
 
 export async function runReviewPipeline(input: ReviewPipelineInput, deps: ReviewPipelineDeps = defaultReviewPipelineDeps): Promise<ReviewPipelineOutcome> {
@@ -89,7 +94,6 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
   }
 
   const { snapshot, timings } = outcome;
-  const { diff } = snapshot;
   const contextStart = performance.now();
   const reviewContext = await deps.buildReviewContextFromDiff(snapshot, input.config, input.depth);
   recordReviewTiming(timings, "context-build", "Local review context build", contextStart);
@@ -100,6 +104,11 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
   if (reviewContext.diagnostics.length > 0) {
     input.onDiagnostics?.(reviewContext.diagnostics);
   }
+  const operation = deps.captureReviewOperation({
+    snapshot,
+    context: reviewContext,
+    renderedContext: localContext,
+  });
 
   const executorOptions: ReviewExecutorOptions = {
     review: {
@@ -113,7 +122,23 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
   if (input.signal) executorOptions.review.signal = input.signal;
   if (input.onProgress) executorOptions.review.onProgress = input.onProgress;
   if (input.onStatus) executorOptions.onStatus = input.onStatus;
-  const execution = await (input.executor ?? deps.executor).execute(executorOptions);
+  const executor = input.executor ?? deps.executor;
+  let execution: Awaited<ReturnType<ReviewExecutor["execute"]>>;
+  try {
+    execution = await executor.execute(executorOptions);
+  } catch (error) {
+    const failure = ReviewExecutionFailureSchema.parse(error);
+    if (executor.assignment !== undefined) {
+      await deps.persistReviewExecutionAttempt(input.diffOwlDir, {
+        operation,
+        execution: createFailedReviewExecutionProvenance(
+          executor.assignment,
+          failure.terminalOutcome,
+        ),
+      });
+    }
+    throw failure.cause;
+  }
   timings.push(...execution.timings);
   const reviewResult = execution.review;
   const report: ReviewReport = reviewResult.report;
@@ -139,17 +164,10 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
   }
 
   const persistStart = performance.now();
-  const diffHash = deps.computeDiffHash(diff.raw);
-  const reviewInput = createReviewInputIdentity({
-    targetKind: snapshot.target.kind,
-    baseCommit: snapshot.baseCommit,
-    mergeBaseCommit: snapshot.mergeBaseCommit,
-    headCommit: snapshot.targetCommit,
-    diffHash,
-  });
   const persistInput: PersistReviewRunInput = {
-    ...deps.mapReviewTarget(snapshot.target),
-    reviewInput,
+    operation,
+    targetRef: operation.targetRef,
+    reviewInput: operation.input,
     model: input.config.model,
     reasoning: input.config.reasoning.effort,
     depth: input.depth,

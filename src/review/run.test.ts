@@ -4,6 +4,9 @@ import type { ReviewExecutor, ReviewFinding } from "./types.js";
 import type { PersistReviewRunResult } from "../state/persist.js";
 import type { LoadedReviewSnapshot, ReviewContext } from "./context.js";
 import type { ReviewContextSource } from "./context-source.js";
+import type { CapturedReviewOperation } from "./operation.js";
+import { ReviewCancelledError, ReviewTimeoutError } from "./errors.js";
+import { createSingleReviewAssignment } from "./provenance.js";
 import {
   buildDocOnlySkipMarkdown,
   defaultReviewPipelineDeps,
@@ -82,6 +85,7 @@ function makeDeps(snapshot: LoadedReviewSnapshot): ReviewPipelineDeps {
   return {
     ...defaultReviewPipelineDeps,
     buildReviewContextFromDiff: vi.fn(async () => makeReviewContext(snapshot)),
+    captureReviewOperation: vi.fn(() => makeOperation(snapshot)),
     computeDiffHash: vi.fn(() => "hash"),
     executor,
     enrichReviewFindingsWithDurableMetadata: vi.fn((findings) => findings),
@@ -92,6 +96,16 @@ function makeDeps(snapshot: LoadedReviewSnapshot): ReviewPipelineDeps {
     loadReviewSnapshot: vi.fn(async () => snapshot),
     mapReviewTarget: vi.fn(() => ({ targetKind: "staged" as const, targetRef: null })),
     persistReviewRun: vi.fn(async () => persisted),
+    persistReviewExecutionAttempt: vi.fn(async (_dir, input) => ({
+      id: "exe_failed",
+      operationId: input.operation.id,
+      reviewId: null,
+      createdAt: "2026-08-24T00:00:00.000Z",
+      schemaVersion: 3,
+      input: input.operation.input,
+      contextManifestSha256: input.operation.contextManifestSha256,
+      ...input.execution,
+    })),
     renderMarkdown: vi.fn(() => "markdown"),
     renderReviewContext: vi.fn(() => "context"),
     resolveTargetCommit: vi.fn(async () => null),
@@ -300,7 +314,8 @@ describe("runReviewPipeline", () => {
     };
     const persistedExecution = {
       ...provenance,
-      schemaVersion: 2 as const,
+      schemaVersion: 3 as const,
+      contextManifestSha256: "context-hash",
       input: {
         targetKind: "base" as const,
         baseCommit: "resolved-base",
@@ -309,6 +324,7 @@ describe("runReviewPipeline", () => {
         diffHash: "hash",
       },
       id: "exe_1",
+      operationId: "op_test",
       reviewId: "rev_1",
       createdAt: "2026-08-21T00:00:00.000Z",
     };
@@ -420,6 +436,40 @@ describe("runReviewPipeline", () => {
       }),
     );
   });
+
+  it.each([
+    [new ReviewCancelledError("cancelled"), "cancelled"],
+    [new ReviewTimeoutError("timed out"), "timed-out"],
+    [new Error("backend failed"), "failed"],
+  ] as const)(
+    "persists an unsuccessful assigned execution as %s before rethrowing",
+    async (error, terminalOutcome) => {
+      const deps = makeDeps(makeSnapshot([codeFile()]));
+      deps.executor = {
+        assignment: createSingleReviewAssignment(
+          {
+            backend: "codex",
+            requestedModel: "gpt-5.6-luna",
+            source: { backend: "local", model: "local" },
+          },
+          "max",
+        ),
+        execute: vi.fn(async () => Promise.reject(error)),
+      };
+
+      await expect(runReviewPipeline(skipInput(), deps)).rejects.toBe(error);
+
+      expect(deps.persistReviewExecutionAttempt).toHaveBeenCalledWith("/repo/.diffowl", {
+        operation: makeOperation(makeSnapshot([codeFile()])),
+        execution: expect.objectContaining({
+          backend: "codex",
+          reviewerId: "single",
+          terminalOutcome,
+        }),
+      });
+      expect(deps.persistReviewRun).not.toHaveBeenCalled();
+    },
+  );
 
   it("appends executor timings without mutating provider report timings", async () => {
     const deps = makeDeps(makeSnapshot([codeFile()]));
@@ -574,5 +624,52 @@ function makeReviewContext(snapshot: LoadedReviewSnapshot): ReviewContext {
     relatedFiles: [],
     references: [],
     diagnostics: [],
+    degradations: [],
+  };
+}
+
+function makeOperation(snapshot: LoadedReviewSnapshot): CapturedReviewOperation {
+  return {
+    id: "op_test",
+    createdAt: "2026-08-24T00:00:00.000Z",
+    targetRef:
+      snapshot.target.kind === "base" || snapshot.target.kind === "commit"
+        ? (snapshot.target.ref ?? null)
+        : null,
+    input:
+      snapshot.target.kind === "base"
+        ? {
+            targetKind: "base",
+            baseCommit: snapshot.baseCommit!,
+            mergeBaseCommit: snapshot.mergeBaseCommit!,
+            headCommit: snapshot.targetCommit!,
+            diffHash: "hash",
+          }
+        : snapshot.target.kind === "staged"
+          ? {
+              targetKind: "staged",
+              baseCommit: null,
+              mergeBaseCommit: null,
+              headCommit: null,
+              diffHash: "hash",
+            }
+          : {
+              targetKind: snapshot.target.kind,
+              baseCommit: null,
+              mergeBaseCommit: null,
+              headCommit: snapshot.targetCommit!,
+              diffHash: "hash",
+            },
+    contextManifest: {
+      schemaVersion: 1,
+      depth: "default",
+      renderedContextSha256: "a".repeat(64),
+      changedFileCount: 1,
+      skippedFileCount: 0,
+      relatedFileCount: 0,
+      referenceCount: 0,
+      degradationCounts: [],
+    },
+    contextManifestSha256: "context-hash",
   };
 }

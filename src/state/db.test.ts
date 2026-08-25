@@ -31,6 +31,7 @@ const EXPECTED_TABLES = [
   "finding_observations",
   "finding_events",
   "finding_possible_duplicates",
+  "review_operations",
   "review_executions",
 ];
 const EXPECTED_MIGRATIONS = Array.from({ length: CURRENT_SCHEMA_VERSION }, (_, index) => ({

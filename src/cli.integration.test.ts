@@ -349,7 +349,7 @@ describe("diffowl CLI", () => {
         effective_model: "gpt-5-codex",
         session_id: "thread-1",
         execution: {
-          schema_version: 2,
+          schema_version: 3,
           cohort_id: null,
           reviewer_id: "single",
           role: "single",
@@ -360,6 +360,7 @@ describe("diffowl CLI", () => {
           reasoning_effort: "auto",
           session_id: "thread-1",
           terminal_outcome: "completed",
+          context_manifest_sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
           input: {
             target_kind: "last-commit",
             base_commit: null,

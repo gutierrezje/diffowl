@@ -23,6 +23,7 @@ import { getReviewById } from "./repositories/reviews.js";
 import { removeTempStateDir } from "./test-helpers.js";
 import type { ReviewFinding } from "../review/types.js";
 import type { ReviewInputIdentity } from "../review/provenance.js";
+import { computeReviewContextManifestSha256 } from "../review/operation.js";
 
 let tempDirs: string[] = [];
 
@@ -45,16 +46,18 @@ describe("persistReviewRun", () => {
   it("persists a review and reconciles filtered findings", async () => {
     const dir = await createTempDir();
     const diffHash = computeDiffHash("diff --git a/src/auth.ts");
+    const reviewInput: ReviewInputIdentity = {
+      targetKind: "base",
+      baseCommit: "base-tip",
+      mergeBaseCommit: "merge-base",
+      headCommit: "reviewed-head",
+      diffHash,
+    };
 
     const result = await persistReviewRun(dir, {
       targetRef: "origin/main",
-      reviewInput: {
-        targetKind: "base",
-        baseCommit: "base-tip",
-        mergeBaseCommit: "merge-base",
-        headCommit: "reviewed-head",
-        diffHash,
-      },
+      reviewInput,
+      operation: reviewOperation(reviewInput, "origin/main", "base-review"),
       model: "provider/model",
       reasoning: "medium",
       depth: "default",
@@ -107,7 +110,9 @@ describe("persistReviewRun", () => {
           id: expect.stringMatching(/^exe_/),
           reviewId: result.reviewId,
           createdAt: expect.any(String),
-          schemaVersion: 2,
+          schemaVersion: 3,
+          operationId: expect.stringMatching(/^op_/),
+          contextManifestSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
           cohortId: null,
           reviewerId: "single",
           role: "single",
@@ -244,8 +249,10 @@ describe("persistReviewRun", () => {
 
   it("round-trips an explicitly unknown preference source", async () => {
     const dir = await createTempDir();
+    const input = basePersistInput([]);
     const result = await persistReviewRun(dir, {
-      ...basePersistInput([]),
+      ...input,
+      operation: reviewOperation(input.reviewInput, input.targetRef, "unknown-preference"),
       execution: {
         cohortId: null,
         reviewerId: "single",
@@ -276,8 +283,10 @@ describe("persistReviewRun", () => {
 
   it("reports invalid execution rows as state database corruption", async () => {
     const dir = await createTempDir();
+    const input = basePersistInput([]);
     const result = await persistReviewRun(dir, {
-      ...basePersistInput([]),
+      ...input,
+      operation: reviewOperation(input.reviewInput, input.targetRef, "corrupt-execution"),
       execution: {
         cohortId: null,
         reviewerId: "single",
@@ -690,6 +699,27 @@ function stagedReviewInput(diffSeed: string): ReviewInputIdentity {
     mergeBaseCommit: null,
     headCommit: null,
     diffHash: computeDiffHash(diffSeed),
+  };
+}
+
+function reviewOperation(input: ReviewInputIdentity, targetRef: string | null, seed: string) {
+  const contextManifest = {
+    schemaVersion: 1 as const,
+    depth: "default" as const,
+    renderedContextSha256: "b".repeat(64),
+    changedFileCount: 1,
+    skippedFileCount: 0,
+    relatedFileCount: 0,
+    referenceCount: 0,
+    degradationCounts: [],
+  };
+  return {
+    id: `op_${seed}`,
+    createdAt: "2026-08-24T00:00:00.000Z",
+    targetRef,
+    input,
+    contextManifest,
+    contextManifestSha256: computeReviewContextManifestSha256(contextManifest),
   };
 }
 

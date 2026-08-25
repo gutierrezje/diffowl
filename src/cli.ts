@@ -39,7 +39,7 @@ import {
 import {
   getAvailableModels,
 } from "./opencode/client.js";
-import { isReviewCancellation } from "./review/errors.js";
+import { ReviewCancelledError } from "./review/errors.js";
 import type { ReviewProgressEvent, ReviewTiming, ReviewUsage } from "./review/types.js";
 import { getOpenCodeFailureGuidance } from "./opencode/guidance.js";
 import { runEvalCommand } from "./eval/command.js";
@@ -473,7 +473,7 @@ program
       process.exit(exitCode);
     } catch (err) {
       spinner?.stop();
-      if (cancelController.signal.aborted || isReviewCancellation(err)) {
+      if (cancelController.signal.aborted || err instanceof ReviewCancelledError) {
         if (options.hook) {
           await writeHookStatus(1, hookCommit, "Review cancelled by user.");
           process.exit(0);

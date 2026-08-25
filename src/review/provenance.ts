@@ -3,7 +3,7 @@ import type { ReasoningEffort } from "../config.js";
 import type { ReviewBackend, ReviewSelection } from "./backend-selection.js";
 import type { ReviewTarget } from "./target.js";
 
-export const REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION = 2 as const;
+export const REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION = 3 as const;
 
 export type ReviewRole = "single" | "proposer" | "checker";
 
@@ -26,7 +26,7 @@ export interface ReviewExecutionRuntimeProvenance {
   preferenceSource: ReviewSelection["source"] | null;
   reasoningEffort: ReasoningEffort | null;
   sessionId: string | null;
-  terminalOutcome: "completed";
+  terminalOutcome: "completed" | "cancelled" | "timed-out" | "failed";
 }
 
 export const ReviewInputIdentitySchema = z.discriminatedUnion("targetKind", [
@@ -66,13 +66,20 @@ export type ReviewExecutionProvenanceV1 = ReviewExecutionRuntimeProvenance & {
 };
 
 export type ReviewExecutionProvenanceV2 = ReviewExecutionRuntimeProvenance & {
+  schemaVersion: 2;
+  input: ReviewInputIdentity;
+};
+
+export type ReviewExecutionProvenanceV3 = ReviewExecutionRuntimeProvenance & {
   schemaVersion: typeof REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION;
   input: ReviewInputIdentity;
+  contextManifestSha256: string;
 };
 
 export type ReviewExecutionProvenance =
   | ReviewExecutionProvenanceV1
-  | ReviewExecutionProvenanceV2;
+  | ReviewExecutionProvenanceV2
+  | ReviewExecutionProvenanceV3;
 
 export function createSingleReviewAssignment(
   selection: ReviewSelection,
@@ -84,6 +91,26 @@ export function createSingleReviewAssignment(
     cohortId: null,
     selection,
     reasoningEffort,
+  };
+}
+
+export function createFailedReviewExecutionProvenance(
+  assignment: ReviewAssignment,
+  terminalOutcome: "cancelled" | "timed-out" | "failed",
+): ReviewExecutionRuntimeProvenance & {
+  terminalOutcome: "cancelled" | "timed-out" | "failed";
+} {
+  return {
+    cohortId: assignment.cohortId,
+    reviewerId: assignment.reviewerId,
+    role: assignment.role,
+    backend: assignment.selection.backend,
+    requestedModel: assignment.selection.requestedModel,
+    effectiveModel: null,
+    preferenceSource: assignment.selection.source,
+    reasoningEffort: assignment.reasoningEffort,
+    sessionId: null,
+    terminalOutcome,
   };
 }
 
@@ -140,10 +167,12 @@ export function createReviewInputIdentity(input: {
 export function completeReviewExecutionProvenance(
   runtime: ReviewExecutionRuntimeProvenance,
   input: ReviewInputIdentity,
-): ReviewExecutionProvenanceV2 {
+  contextManifestSha256: string,
+): ReviewExecutionProvenanceV3 {
   return {
     ...runtime,
     schemaVersion: REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION,
     input,
+    contextManifestSha256,
   };
 }

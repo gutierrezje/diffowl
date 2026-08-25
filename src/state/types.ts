@@ -2,9 +2,14 @@ import { randomUUID } from "node:crypto";
 import type {
   ReviewExecutionProvenance,
   ReviewExecutionRuntimeProvenance,
+  ReviewInputIdentity,
 } from "../review/provenance.js";
+import type {
+  CapturedReviewOperation,
+  ReviewContextManifest,
+} from "../review/operation.js";
 
-export const CURRENT_SCHEMA_VERSION = 6;
+export const CURRENT_SCHEMA_VERSION = 7;
 
 export type ReviewTargetKind = "staged" | "commit" | "last-commit" | "base";
 export type FindingStatus = "open" | "deferred" | "dismissed" | "fixed" | "regressed";
@@ -32,6 +37,15 @@ export function createFindingId(): string {
 
 export function createReviewExecutionId(): string {
   return `exe_${randomUUID()}`;
+}
+
+export interface ReviewOperationRecord {
+  id: string;
+  createdAt: string;
+  targetRef: string | null;
+  input: ReviewInputIdentity;
+  contextManifest: ReviewContextManifest | null;
+  contextManifestSha256: string | null;
 }
 
 export interface ReviewTiming {
@@ -82,13 +96,15 @@ export interface InsertReviewInput {
 
 export type ReviewExecutionRecord = ReviewExecutionProvenance & {
   id: string;
-  reviewId: string;
+  operationId: string;
+  reviewId: string | null;
   createdAt: string;
 };
 
 export interface InsertReviewExecutionInput {
   id?: string;
-  review: ReviewRecord;
+  operation: CapturedReviewOperation;
+  review?: ReviewRecord | null;
   createdAt?: string;
   provenance: ReviewExecutionRuntimeProvenance;
 }

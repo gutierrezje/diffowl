@@ -8,6 +8,7 @@ import { MIGRATION_003_POSSIBLE_DUPLICATES } from "./migrations/003-possible-dup
 import { MIGRATION_004_REVIEW_EXECUTIONS } from "./migrations/004-review-executions.js";
 import { MIGRATION_005_REVIEW_INPUT_IDENTITY } from "./migrations/005-review-input-identity.js";
 import { MIGRATION_006_NORMALIZE_REVIEW_INPUT_IDENTITY } from "./migrations/006-normalize-review-input-identity.js";
+import { MIGRATION_007_REVIEW_OPERATIONS } from "./migrations/007-review-operations.js";
 import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.js";
 import { CURRENT_SCHEMA_VERSION } from "./types.js";
 
@@ -20,6 +21,7 @@ const MIGRATIONS = {
   4: MIGRATION_004_REVIEW_EXECUTIONS,
   5: MIGRATION_005_REVIEW_INPUT_IDENTITY,
   6: MIGRATION_006_NORMALIZE_REVIEW_INPUT_IDENTITY,
+  7: MIGRATION_007_REVIEW_OPERATIONS,
 } satisfies Record<number, string>;
 
 export class StateDatabaseError extends Error {

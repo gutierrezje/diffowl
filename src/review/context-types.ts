@@ -11,6 +11,27 @@ export interface ReviewContext {
   relatedFiles: RelatedFileContext[];
   references: ReferenceContext[];
   diagnostics: string[];
+  degradations: ReviewContextDegradation[];
+}
+
+export type ReviewContextDegradationCode =
+  | "ast-parser-unavailable"
+  | "typescript-ast-unavailable"
+  | "changed-file-unavailable"
+  | "changed-file-truncated"
+  | "ast-symbol-truncated"
+  | "diff-output-truncated"
+  | "impact-index-unavailable"
+  | "impact-index-timeout"
+  | "impact-index-invalid-blob"
+  | "impact-index-failed"
+  | "impact-index-module-skipped"
+  | "impact-index-results-truncated"
+  | "related-file-truncated";
+
+export interface ReviewContextDegradation {
+  code: ReviewContextDegradationCode;
+  count: number;
 }
 
 export interface ChangedFileContext {

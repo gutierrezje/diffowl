@@ -3,6 +3,7 @@ import type {
   ReviewExecutionRuntimeProvenance,
   ReviewInputIdentity,
 } from "../review/provenance.js";
+import type { CapturedReviewOperation } from "../review/operation.js";
 import type { ReviewFinding, ReviewTiming } from "../review/types.js";
 import { closeStateDatabase, openStateDatabase, runInTransaction } from "./db.js";
 import { computeFindingFingerprint } from "./fingerprint.js";
@@ -16,6 +17,7 @@ import {
 } from "./repositories/reviews.js";
 import { countObservationsByFindingIds } from "./repositories/observations.js";
 import { insertReviewExecution } from "./repositories/review-executions.js";
+import { insertReviewOperation } from "./repositories/review-operations.js";
 import type {
   FindingCandidate,
   ReconcileReviewFindingsResult,
@@ -24,6 +26,7 @@ import type {
 } from "./types.js";
 
 export interface PersistReviewRunInput {
+  operation?: CapturedReviewOperation;
   targetRef: string | null;
   reviewInput: ReviewInputIdentity;
   model: string;
@@ -38,6 +41,11 @@ export interface PersistReviewRunInput {
   /** Symbol keys aligned with `findings`; persistence-only context, never review model data. */
   symbolKeys?: Array<string | null>;
   skippedReason?: string | null;
+}
+
+export interface PersistReviewExecutionAttemptInput {
+  operation: CapturedReviewOperation;
+  execution: ReviewExecutionRuntimeProvenance;
 }
 
 export interface PersistReviewRunResult {
@@ -222,6 +230,24 @@ export async function persistReviewRun(
 
   try {
     return runInTransaction(state.db, () => {
+      if (input.execution !== undefined && input.operation === undefined) {
+        throw new Error("A completed review execution requires a captured review operation.");
+      }
+      if (
+        input.operation !== undefined &&
+        JSON.stringify(input.operation.input) !== JSON.stringify(input.reviewInput)
+      ) {
+        throw new Error("Review output does not match its captured operation input.");
+      }
+      if (input.operation !== undefined && input.operation.targetRef !== input.targetRef) {
+        throw new Error("Review output does not match its captured operation target.");
+      }
+      if (input.execution !== undefined && input.execution.terminalOutcome !== "completed") {
+        throw new Error("A persisted review requires a completed execution.");
+      }
+      if (input.operation !== undefined) {
+        insertReviewOperation(state.db, input.operation);
+      }
       const review = insertReview(state.db, {
         targetRef: input.targetRef,
         targetKind: input.reviewInput.targetKind,
@@ -242,6 +268,7 @@ export async function persistReviewRun(
         input.execution === undefined
           ? null
           : insertReviewExecution(state.db, {
+              operation: input.operation!,
               review,
               createdAt: review.createdAt,
               provenance: input.execution,
@@ -308,6 +335,27 @@ export async function persistReviewRun(
         identityDiagnostics,
         possibleDuplicateSuggestions,
       };
+    });
+  } finally {
+    closeStateDatabase(state);
+  }
+}
+
+export async function persistReviewExecutionAttempt(
+  diffOwlDir: string,
+  input: PersistReviewExecutionAttemptInput,
+): Promise<ReviewExecutionRecord> {
+  if (input.execution.terminalOutcome === "completed") {
+    throw new Error("A completed execution must be persisted with its review output.");
+  }
+  const state = await openStateDatabase(diffOwlDir);
+  try {
+    return runInTransaction(state.db, () => {
+      insertReviewOperation(state.db, input.operation);
+      return insertReviewExecution(state.db, {
+        operation: input.operation,
+        provenance: input.execution,
+      });
     });
   } finally {
     closeStateDatabase(state);

@@ -46,6 +46,7 @@ export function extractAstSymbols(
     return {
       symbols: [],
       diagnostics: ["Reviewing from diff and file context only."],
+      degradationCode: "ast-parser-unavailable",
     };
   }
 

@@ -24,9 +24,8 @@ export function createSelectedReviewExecutor(
 ): ReviewExecutor {
   const adapter = createReviewExecutor(assignment, dependencies, env);
   return {
+    assignment,
     execute: async (options) => {
-      // Provenance v1 starts after an adapter returns a complete review. Failed attempts do not
-      // have a ReviewResult and need a separate persistence path before they can be represented.
       const result = await adapter.execute(options);
       return {
         ...result,

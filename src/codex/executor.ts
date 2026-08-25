@@ -1,8 +1,9 @@
 import type { ReviewExecutor, ReviewTiming } from "../review/types.js";
-import { ReviewCancelledError } from "../review/errors.js";
+import { ReviewCancelledError, ReviewTimeoutError } from "../review/errors.js";
 import {
   inspectCodexProtocol,
   ProtocolCancelledError,
+  ProtocolTimeoutError,
   type ProtocolEvidenceOptions,
 } from "./protocol-evidence.js";
 import { CodexTimeoutError, executeCodexReview, type CodexReviewInput } from "./review-runner.js";
@@ -45,6 +46,9 @@ export function createCodexReviewExecutor(options: CodexReviewExecutorOptions): 
         if (error instanceof ProtocolCancelledError && input.review.signal?.aborted) {
           throw new ReviewCancelledError("Review cancelled by user.");
         }
+        if (error instanceof ProtocolTimeoutError || error instanceof CodexTimeoutError) {
+          throw new ReviewTimeoutError(error.message, { cause: error, phase: error.phase });
+        }
         throw error;
       }
       const protocolTiming = createTiming(
@@ -55,7 +59,15 @@ export function createCodexReviewExecutor(options: CodexReviewExecutorOptions): 
 
       input.onStatus?.("Reviewing changes with Codex...");
       const reviewStart = performance.now();
-      const reviewTimeoutMs = remainingTimeout(deadline, "review-startup");
+      let reviewTimeoutMs: number;
+      try {
+        reviewTimeoutMs = remainingTimeout(deadline, "review-startup");
+      } catch (error) {
+        if (error instanceof CodexTimeoutError) {
+          throw new ReviewTimeoutError(error.message, { cause: error, phase: error.phase });
+        }
+        throw error;
+      }
       const reviewOptions: CodexReviewInput = {
         ...input.review,
         executable: options.command.executable,
@@ -67,7 +79,15 @@ export function createCodexReviewExecutor(options: CodexReviewExecutorOptions): 
         includeIgnoredRepositoryPaths: options.includeIgnoredRepositoryPaths ?? false,
       };
       if (options.command.env !== undefined) reviewOptions.env = options.command.env;
-      const outcome = await executeCodexReview(reviewOptions);
+      let outcome: Awaited<ReturnType<typeof executeCodexReview>>;
+      try {
+        outcome = await executeCodexReview(reviewOptions);
+      } catch (error) {
+        if (error instanceof CodexTimeoutError) {
+          throw new ReviewTimeoutError(error.message, { cause: error, phase: error.phase });
+        }
+        throw error;
+      }
       const reviewTiming = createTiming("review-run", "Codex review run", reviewStart);
 
       return {
