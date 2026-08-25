@@ -400,6 +400,22 @@ describe("openStateDatabase", () => {
     await expect(openStateDatabase(dir)).rejects.toThrow(/newer than supported version/);
   });
 
+  it("rejects a non-contiguous migration history before applying missing migrations", async () => {
+    const dir = await createTempDir();
+    const current = await openStateDatabase(dir);
+    current.db.prepare("DELETE FROM schema_migrations WHERE version = ?").run(3);
+    closeStateDatabase(current);
+
+    await expect(
+      openStateDatabaseForRead(dir).then((state) => {
+        closeStateDatabase(state, { checkpoint: false });
+      }),
+    ).rejects.toThrow(/non-contiguous.*expected version 3 but found version 4/);
+    await expect(openStateDatabase(dir)).rejects.toThrow(
+      /non-contiguous.*expected version 3 but found version 4/,
+    );
+  });
+
   it("rolls back a failed migration without recording the version", async () => {
     const dir = await createTempDir();
     const first = await openStateDatabase(dir);

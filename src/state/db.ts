@@ -152,21 +152,21 @@ function configureDatabase(db: SqliteDatabase, busyTimeoutMs: number): void {
 }
 
 function assertCompatibleSchema(db: SqliteDatabase): void {
-  const table = db
-    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'")
-    .get();
-  if (!table) {
-    return;
-  }
-
-  const row = db.prepare("SELECT MAX(version) AS maxVersion FROM schema_migrations").get();
-  const parsedRow =
-    row === undefined ? undefined : z.object({ maxVersion: z.number().nullable() }).parse(row);
-  const maxVersion = parsedRow?.maxVersion ?? 0;
+  const appliedVersions = listAppliedMigrationVersions(db);
+  const maxVersion = appliedVersions[appliedVersions.length - 1] ?? 0;
   if (maxVersion > CURRENT_SCHEMA_VERSION) {
     throw new StateDatabaseError(
       `Database schema version ${maxVersion} is newer than supported version ${CURRENT_SCHEMA_VERSION}`,
     );
+  }
+
+  for (const [index, version] of appliedVersions.entries()) {
+    const expectedVersion = index + 1;
+    if (version !== expectedVersion) {
+      throw new StateDatabaseError(
+        `Database schema migration history is non-contiguous; expected version ${expectedVersion} but found version ${version}`,
+      );
+    }
   }
 }
 
