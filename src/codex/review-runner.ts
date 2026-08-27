@@ -912,6 +912,8 @@ type ReasoningVariantResolution =
   | { kind: "unsupported"; warning: string }
   | { kind: "unavailable"; variant: string; warning: string };
 
+const REASONING_VARIANT_VALIDATION_TIMEOUT_MS = 1_000;
+
 async function resolveReasoningVariant(
   peer: AppServerPeer,
   model: string,
@@ -920,11 +922,15 @@ async function resolveReasoningVariant(
   events: string[],
   signal?: AbortSignal,
 ): Promise<ReasoningVariantResolution> {
+  const validationDeadline = Math.min(
+    deadline,
+    performance.now() + REASONING_VARIANT_VALIDATION_TIMEOUT_MS,
+  );
   try {
     const supportedVariants = await loadSupportedReasoningEfforts(
       peer,
       model,
-      deadline,
+      validationDeadline,
       events,
       signal,
     );
@@ -934,7 +940,13 @@ async function resolveReasoningVariant(
       warning: `Codex model "${model}" does not advertise reasoning variant "${variant}"; continuing with backend default. Choose an advertised variant, remove the one-review \`--reasoning\` override, or run \`diffowl reasoning --reset\` to clear the saved preference.`,
     };
   } catch (error) {
-    if (error instanceof ReviewCancelledError || error instanceof CodexTimeoutError) throw error;
+    if (error instanceof ReviewCancelledError) throw error;
+    if (
+      error instanceof CodexTimeoutError &&
+      (validationDeadline === deadline || performance.now() >= deadline)
+    ) {
+      throw error;
+    }
     return {
       kind: "unavailable",
       variant,

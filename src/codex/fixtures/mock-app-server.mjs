@@ -25,6 +25,7 @@ if (
     "reasoning-empty",
     "reasoning-model-list-error",
     "reasoning-model-list-malformed",
+    "reasoning-model-list-timeout",
     "auth-null",
     "auth-apikey",
     "policy-approval",
@@ -135,6 +136,7 @@ const markerModes = [
   "reasoning-empty",
   "reasoning-model-list-error",
   "reasoning-model-list-malformed",
+  "reasoning-model-list-timeout",
   "auth-null",
   "auth-apikey",
   "policy-approval",
@@ -182,6 +184,7 @@ const reasoningModes = [
   "reasoning-empty",
   "reasoning-model-list-error",
   "reasoning-model-list-malformed",
+  "reasoning-model-list-timeout",
 ];
 
 function send(message) {
@@ -315,6 +318,7 @@ function handleMarker(message) {
     if (mode === "reasoning-paginated" && params.cursor !== "page-2")
       return markerError(message);
     markerStep = 3.5;
+    if (mode === "reasoning-model-list-timeout") return;
     if (mode === "reasoning-model-list-error") {
       send({
         id: message.id,

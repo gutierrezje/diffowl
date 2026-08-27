@@ -224,7 +224,11 @@ describe("executeCodexReview", () => {
     expect(outcome.reviewResult.report.diagnostics).toEqual(warnings);
   });
 
-  it.each(["reasoning-model-list-error", "reasoning-model-list-malformed"] as const)(
+  it.each([
+    "reasoning-model-list-error",
+    "reasoning-model-list-malformed",
+    "reasoning-model-list-timeout",
+  ] as const)(
     "forwards an explicit effort when capability validation is unavailable (%s)",
     async (mode) => {
       const input = makeInput(mode);
