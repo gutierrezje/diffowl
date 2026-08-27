@@ -191,10 +191,6 @@ export async function runReviewPipeline(
     }
     throw error;
   }
-  const persistedExecution = await deps.persistReviewExecutionAttempt(input.diffOwlDir, {
-    operation,
-    execution: execution.runtimeProvenance,
-  });
   timings.push(...execution.timings);
   const reviewResult = execution.review;
   const report: ReviewReport = reviewResult.report;
@@ -222,7 +218,7 @@ export async function runReviewPipeline(
   const persistStart = performance.now();
   const persistInput = {
     operation,
-    sourceExecutionId: persistedExecution.id,
+    source: { kind: "new-execution", execution: execution.runtimeProvenance },
     summary: report.summary,
     diagnostics,
     timings: [...timings, ...(report.timings ?? [])],
@@ -297,7 +293,7 @@ export async function runReviewPipeline(
     timings: [...timings, ...(report.timings ?? [])],
     usage: reviewResult.usage ?? null,
     effectiveModel: execution.effectiveModel ?? null,
-    execution: persistedExecution,
+    execution: persisted.execution,
   };
 }
 

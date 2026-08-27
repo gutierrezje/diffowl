@@ -79,7 +79,7 @@ describe("review operation persistence", () => {
 
     const result = await persistCanonicalReview(dir, {
       operation,
-      sourceExecutionId: firstExecution.id,
+      source: { kind: "persisted-execution", executionId: firstExecution.id },
       summary: "No findings.",
       diagnostics: [],
       timings: [],
@@ -88,7 +88,7 @@ describe("review operation persistence", () => {
     await expect(
       persistCanonicalReview(dir, {
         operation,
-        sourceExecutionId: secondExecution.id,
+        source: { kind: "persisted-execution", executionId: secondExecution.id },
         summary: "A conflicting second publication.",
         diagnostics: [],
         timings: [],
@@ -112,6 +112,80 @@ describe("review operation persistence", () => {
         count: 1,
       });
       expect(result.reviewId).toMatch(/^rev_/);
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
+  it("publishes a new completed execution with its canonical review", async () => {
+    const dir = await createTempDir();
+    const operation = capturedOperation("op_atomic_publication");
+    const newExecution = runtimeProvenance("completed");
+    if (newExecution.terminalOutcome !== "completed") {
+      throw new Error("Expected completed execution provenance.");
+    }
+
+    const result = await persistCanonicalReview(dir, {
+      operation,
+      source: { kind: "new-execution", execution: newExecution },
+      summary: "Canonical review.",
+      diagnostics: [],
+      timings: [],
+      findings: [],
+    });
+
+    const state = await openStateDatabase(dir);
+    try {
+      expect(listReviewExecutionsByOperationId(state.db, operation.id)).toHaveLength(1);
+      expect(state.db.prepare("SELECT COUNT(*) AS count FROM reviews").get()).toEqual({
+        count: 1,
+      });
+      expect(result.execution).toMatchObject({
+        operationId: operation.id,
+        terminalOutcome: "completed",
+      });
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
+  it("rolls back a new completed execution when canonical publication fails", async () => {
+    const dir = await createTempDir();
+    const operation = capturedOperation("op_atomic_rollback");
+    const firstExecution = runtimeProvenance("completed");
+    const conflictingExecution = runtimeProvenance("completed");
+    if (
+      firstExecution.terminalOutcome !== "completed" ||
+      conflictingExecution.terminalOutcome !== "completed"
+    ) {
+      throw new Error("Expected completed execution provenance.");
+    }
+    await persistCanonicalReview(dir, {
+      operation,
+      source: { kind: "new-execution", execution: firstExecution },
+      summary: "Canonical review.",
+      diagnostics: [],
+      timings: [],
+      findings: [],
+    });
+
+    await expect(
+      persistCanonicalReview(dir, {
+        operation,
+        source: { kind: "new-execution", execution: conflictingExecution },
+        summary: "Conflicting canonical review.",
+        diagnostics: [],
+        timings: [],
+        findings: [],
+      }),
+    ).rejects.toThrow();
+
+    const state = await openStateDatabase(dir);
+    try {
+      expect(listReviewExecutionsByOperationId(state.db, operation.id)).toHaveLength(1);
+      expect(state.db.prepare("SELECT COUNT(*) AS count FROM reviews").get()).toEqual({
+        count: 1,
+      });
     } finally {
       closeStateDatabase(state);
     }

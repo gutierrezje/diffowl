@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type {
+  CompletedReviewExecutionProvenance,
   ReviewExecutionRuntimeProvenance,
 } from "../review/provenance.js";
 import type {
@@ -42,7 +43,9 @@ interface PersistReviewOutputInput {
 
 export interface PersistCanonicalReviewInput extends PersistReviewOutputInput {
   operation: CapturedReviewOperation;
-  sourceExecutionId: ReviewExecutionId;
+  source:
+    | { kind: "new-execution"; execution: CompletedReviewExecutionProvenance }
+    | { kind: "persisted-execution"; executionId: ReviewExecutionId };
 }
 
 export interface PersistSkippedReviewInput extends PersistReviewOutputInput {
@@ -257,33 +260,43 @@ async function persistReviewOutput(
   try {
     return runInTransaction(state.db, () => {
       insertReviewOperation(state.db, input.operation);
-      const execution =
-        input.kind === "canonical"
-          ? getCompletedSourceExecution(state.db, input.operation, input.sourceExecutionId)
-          : null;
-      const review = insertReview(
-        state.db,
-        input.kind === "canonical"
-          ? {
-              kind: input.kind,
-              operation: input.operation,
-              sourceExecutionId: input.sourceExecutionId,
-              summary: input.summary,
-              diagnostics: input.diagnostics,
-              timings: input.timings,
-            }
-          : {
-              kind: input.kind,
-              operation: input.operation,
-              model: input.model,
-              reasoning: input.reasoning,
-              sessionId: input.sessionId,
-              summary: input.summary,
-              diagnostics: input.diagnostics,
-              timings: input.timings,
-              skippedReason: input.skippedReason,
-            },
-      );
+      let execution: ReviewExecutionRecord | null;
+      let review: ReviewRecord;
+      switch (input.kind) {
+        case "canonical":
+          execution = resolveCanonicalSourceExecution(
+            state.db,
+            input.operation,
+            input.source,
+          );
+          review = insertReview(state.db, {
+            kind: input.kind,
+            operation: input.operation,
+            sourceExecutionId: execution.id,
+            summary: input.summary,
+            diagnostics: input.diagnostics,
+            timings: input.timings,
+          });
+          break;
+        case "skipped":
+          execution = null;
+          review = insertReview(state.db, {
+            kind: input.kind,
+            operation: input.operation,
+            model: input.model,
+            reasoning: input.reasoning,
+            sessionId: input.sessionId,
+            summary: input.summary,
+            diagnostics: input.diagnostics,
+            timings: input.timings,
+            skippedReason: input.skippedReason,
+          });
+          break;
+        default: {
+          const _exhaustive: never = input;
+          return _exhaustive;
+        }
+      }
 
       const identifiable: ReviewFinding[] = [];
       const untracked: ReviewFinding[] = [];
@@ -349,6 +362,26 @@ async function persistReviewOutput(
     });
   } finally {
     closeStateDatabase(state);
+  }
+}
+
+function resolveCanonicalSourceExecution(
+  db: Parameters<typeof getReviewExecutionById>[0],
+  operation: CapturedReviewOperation,
+  source: PersistCanonicalReviewInput["source"],
+): ReviewExecutionRecord {
+  switch (source.kind) {
+    case "new-execution":
+      return insertReviewExecution(db, {
+        operation,
+        provenance: source.execution,
+      });
+    case "persisted-execution":
+      return getCompletedSourceExecution(db, operation, source.executionId);
+    default: {
+      const _exhaustive: never = source;
+      return _exhaustive;
+    }
   }
 }
 

@@ -15,7 +15,6 @@ import {
 import type { ReviewFinding, ReviewTiming } from "../review/types.js";
 import {
   persistCanonicalReview,
-  persistReviewExecutionAttempt,
   persistSkippedReview,
   type PersistCanonicalReviewInput,
   type PersistReviewRunResult,
@@ -142,16 +141,16 @@ export async function persistTestReview(
     return persistSkippedReview(diffOwlDir, skippedInput);
   }
 
-  const execution = await persistReviewExecutionAttempt(diffOwlDir, {
-    operation,
-    execution:
-      "execution" in input && input.execution
-        ? input.execution
-        : completedTestExecution(normalized),
-  });
+  const execution =
+    "execution" in input && input.execution
+      ? input.execution
+      : completedTestExecution(normalized);
+  if (execution.terminalOutcome !== "completed") {
+    throw new Error("A persisted test review requires a completed execution.");
+  }
   const canonicalInput: PersistCanonicalReviewInput = {
     operation,
-    sourceExecutionId: execution.id,
+    source: { kind: "new-execution", execution },
     summary: normalized.summary,
     diagnostics: normalized.diagnostics ?? [],
     timings: normalized.timings ?? [],

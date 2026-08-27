@@ -393,7 +393,6 @@ describe("runReviewPipeline", () => {
       runtimeProvenance: provenance,
     });
     vi.mocked(deps.filterFindingsByChangedFiles).mockReturnValue({ findings: [kept], suppressed: [outside] });
-    vi.mocked(deps.persistReviewExecutionAttempt).mockResolvedValue(persistedExecution);
     vi.mocked(deps.persistCanonicalReview).mockResolvedValue({
       ...persisted,
       execution: persistedExecution,
@@ -438,7 +437,10 @@ describe("runReviewPipeline", () => {
             diffHash: "hash",
           },
         }),
-        sourceExecutionId: persistedExecution.id,
+        source: {
+          kind: "new-execution",
+          execution: provenance,
+        },
         findings: [kept],
       }),
     );
@@ -495,21 +497,25 @@ describe("runReviewPipeline", () => {
     });
   });
 
-  it("persists execution provenance for every completed model run", async () => {
+  it("publishes execution provenance atomically for every completed model run", async () => {
     const deps = makeDeps(makeSnapshot([codeFile()]));
 
     await runReviewPipeline(skipInput(), deps);
 
-    expect(deps.persistReviewExecutionAttempt).toHaveBeenCalledWith(
+    expect(deps.persistCanonicalReview).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({
-        execution: expect.objectContaining({
-          reviewerId: "single",
-          role: "single",
-          terminalOutcome: "completed",
-        }),
+        source: {
+          kind: "new-execution",
+          execution: expect.objectContaining({
+            reviewerId: "single",
+            role: "single",
+            terminalOutcome: "completed",
+          }),
+        },
       }),
     );
+    expect(deps.persistReviewExecutionAttempt).not.toHaveBeenCalled();
   });
 
   it("passes the pipeline cancellation signal and status sink to its executor", async () => {
