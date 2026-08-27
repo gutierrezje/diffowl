@@ -1,5 +1,6 @@
 import { performance } from "node:perf_hooks";
 import { ReviewCancelledError } from "../review/errors.js";
+import { formatReasoningVariantGuidance } from "../review/reasoning.js";
 import { CodexTimeoutError, codexProtocolError } from "./errors.js";
 import {
   isRecord,
@@ -56,7 +57,7 @@ export async function resolveCodexReasoningVariant(
     }
     return {
       kind: "unsupported",
-      warning: `Codex model "${input.model}" does not advertise reasoning variant "${input.variant}"; continuing with backend default. Choose an advertised variant, remove the one-review \`--reasoning\` override, or run \`diffowl reasoning --reset\` to clear the saved preference.`,
+      warning: `Codex model "${input.model}" does not advertise reasoning variant "${input.variant}"; continuing with backend default. ${formatReasoningVariantGuidance(supportedVariants)}`,
     };
   } catch (error) {
     if (error instanceof ReviewCancelledError) throw error;

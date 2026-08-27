@@ -581,6 +581,7 @@ describe("diffowl CLI", () => {
       expect(result.stderr).toContain(
         'Codex model "gpt-5-codex" does not advertise reasoning variant "thinking"',
       );
+      expect(result.stderr).toContain('Advertised variants: "high".');
     },
     30_000,
   );

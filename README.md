@@ -217,6 +217,10 @@ diffowl reasoning --reset
 
 Reasoning names are backend-native identifiers, not a shared DiffOwl scale. A model might advertise `low` and `high`, `thinking`, only one value, or no selectable value. An absent preference means the backend default; DiffOwl never translates one backend's names into another's. Changing a model clears its old reasoning preference so a stale value cannot carry over. Use `diffowl review --reasoning <variant>` for a one-review override.
 
+When model metadata rejects a variant, DiffOwl uses the backend default and
+prints the model's advertised choices. If the model advertises no selectable
+variants, the warning says so explicitly.
+
 Each backend keeps its own model choice. Switching backends does not erase the other model. A legacy preference containing only `model: provider/model` still selects OpenCode. Legacy `.diffowl.yml` `reasoning.effort` values remain readable for migration and produce an exact cleanup warning; DiffOwl no longer writes them to project config.
 
 Configuration is deep-merged with defaults, so the file only needs the settings your repository changes.

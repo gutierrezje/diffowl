@@ -197,20 +197,29 @@ describe("executeCodexReview", () => {
   });
 
   it.each([
-    ["reasoning-unsupported", "high"],
-    ["reasoning-empty", ""],
-  ] as const)("omits an advertised unsupported reasoning effort for %s", async (mode, variants) => {
-    const input = makeInput(mode);
-    const outcome = await executeCodexReview({
-      ...input,
-      reasoningVariant: "thinking",
-      env: { ...input.env, MOCK_APP_SERVER_MODEL_LIST_VARIANTS: variants },
-    });
+    [
+      "reasoning-unsupported",
+      "high",
+      'Codex model "gpt-5-codex" does not advertise reasoning variant "thinking"; continuing with backend default. Advertised variants: "high". Use one of those values, remove the one-review `--reasoning` override, or run `diffowl reasoning --reset` to clear the saved preference.',
+    ],
+    [
+      "reasoning-empty",
+      "",
+      'Codex model "gpt-5-codex" does not advertise reasoning variant "thinking"; continuing with backend default. This model advertises no selectable reasoning variants. Remove the one-review `--reasoning` override or run `diffowl reasoning --reset` to clear the saved preference.',
+    ],
+  ] as const)(
+    "omits an advertised unsupported reasoning effort for %s",
+    async (mode, variants, warning) => {
+      const input = makeInput(mode);
+      const outcome = await executeCodexReview({
+        ...input,
+        reasoningVariant: "thinking",
+        env: { ...input.env, MOCK_APP_SERVER_MODEL_LIST_VARIANTS: variants },
+      });
 
-    expect(outcome.reviewResult.report.diagnostics).toEqual([
-      'Codex model "gpt-5-codex" does not advertise reasoning variant "thinking"; continuing with backend default. Choose an advertised variant, remove the one-review `--reasoning` override, or run `diffowl reasoning --reset` to clear the saved preference.',
-    ]);
-  });
+      expect(outcome.reviewResult.report.diagnostics).toEqual([warning]);
+    },
+  );
 
   it.each([
     "reasoning-model-list-error",

@@ -35,6 +35,7 @@ export { buildToolPolicy, extractPermissionRequest } from "./tools.js";
 export { getAvailableModels } from "./models.js";
 export { isQuotaOrRateLimitError };
 import {
+  formatReasoningVariantGuidance,
   reasoningVariant,
   type ReasoningVariant,
 } from "../review/reasoning.js";
@@ -677,7 +678,7 @@ export async function resolveReasoningVariant(
   if (model.variants && !model.variants.has(variant)) {
     return {
       diagnostics: [
-        `Reasoning variant "${variant}" was requested, but ${providerID}/${modelID} does not advertise that variant; continuing with provider default. Choose an advertised variant, remove the one-review \`--reasoning\` override, or run \`diffowl reasoning --reset\` to clear the saved preference.`,
+        `Reasoning variant "${variant}" was requested, but ${providerID}/${modelID} does not advertise that variant; continuing with provider default. ${formatReasoningVariantGuidance(model.variants)}`,
       ],
     };
   }

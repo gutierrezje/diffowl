@@ -10,7 +10,8 @@ All notable changes to DiffOwl are documented here. This project adheres to
 
 - Reasoning preferences are now stored per backend model in
   `.diffowl/preferences.yml`. Variant names remain backend-native; an absent
-  preference selects the backend default.
+  preference selects the backend default. Invalid variants produce a warning
+  with the selected model's advertised choices.
 - Review JSON is now schema version 6. `review.reasoning` is `null` for the
   backend default, leaving every non-empty string available to providers as a
   native variant name.
