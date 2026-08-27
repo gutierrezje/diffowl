@@ -1,20 +1,39 @@
 # Changelog
 
-All notable changes to DiffOwl are documented here. This project adheres to
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html) and the
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
+All notable changes to DiffOwl are documented here using the
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Before 1.0,
+minor versions mark product milestones and patch versions are release-train
+increments that may include backward-compatible features and fixes.
 
 ## [Unreleased]
+
+## [0.5.1] - 2026-08-27
+
+### Added
+
+- `diffowl reasoning [variant]` saves a backend-native reasoning choice for the
+  current model. `diffowl reasoning --reset` restores the backend default, and
+  `diffowl review --reasoning <variant>` overrides it for one review. DiffOwl
+  warns when the selected model does not advertise the requested variant.
+- Review attempts now retain durable records for completed, cancelled,
+  timed-out, and failed runs. Each attempt records the exact diff and rendered
+  context it used without creating a completed review or findings for an
+  unsuccessful run.
 
 ### Changed
 
 - Reasoning preferences are now stored per backend model in
-  `.diffowl/preferences.yml`. Variant names remain backend-native; an absent
-  preference selects the backend default. Invalid variants produce a warning
-  with the selected model's advertised choices.
-- Review JSON is now schema version 6. `review.reasoning` is `null` for the
-  backend default, leaving every non-empty string available to providers as a
-  native variant name.
+  the gitignored `.diffowl/preferences.yml` instead of committed project config.
+  Existing project-level values still load and include migration guidance.
+- Review JSON is now schema version 6. It includes review-operation and context
+  identity, and `review.reasoning` is `null` when the backend chooses its default.
+
+### Fixed
+
+- State database upgrades now repair stale schema-v5 triggers and table layouts
+  that could reject a valid completed review after the model had returned it.
+- DiffOwl now rejects state databases with missing migration-history entries
+  instead of attempting later migrations out of order.
 
 ## [0.5.0] - 2026-08-22
 
@@ -228,7 +247,8 @@ reviewer prompt; the measurement machinery itself is internal tooling.
 
 See the Git history and release notes for versions at and before `v0.3.1`.
 
-[0.5.0]: https://github.com/gutierrezje/diffowl/compare/v0.4.0...v0.5.0
+[0.5.1]: https://github.com/gutierrezje/diffowl/compare/156e20d...v0.5.1
+[0.5.0]: https://github.com/gutierrezje/diffowl/compare/v0.4.0...156e20d
 [0.4.0]: https://github.com/gutierrezje/diffowl/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/gutierrezje/diffowl/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/gutierrezje/diffowl/compare/v0.3.1...v0.3.2
