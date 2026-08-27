@@ -1,6 +1,7 @@
 import type { DiffFile, DiffResult } from "../git/diff.js";
 import type { ReviewContextDepth } from "../config.js";
 import type { ReviewTarget } from "./target.js";
+import { z } from "zod";
 
 export interface ReviewContext {
   target: ReviewTarget;
@@ -14,24 +15,29 @@ export interface ReviewContext {
   degradations: ReviewContextDegradation[];
 }
 
-export type ReviewContextDegradationCode =
-  | "ast-parser-unavailable"
-  | "typescript-ast-unavailable"
-  | "changed-file-unavailable"
-  | "changed-file-truncated"
-  | "ast-symbol-truncated"
-  | "diff-output-truncated"
-  | "impact-index-unavailable"
-  | "impact-index-timeout"
-  | "impact-index-invalid-blob"
-  | "impact-index-failed"
-  | "impact-index-module-skipped"
-  | "impact-index-results-truncated"
-  | "render-ast-symbol-omitted"
-  | "render-ast-symbol-truncated"
-  | "render-diff-truncated"
-  | "render-file-truncated"
-  | "related-file-truncated";
+export const ReviewContextDegradationCodeSchema = z.enum([
+  "ast-parser-unavailable",
+  "typescript-ast-unavailable",
+  "changed-file-unavailable",
+  "changed-file-truncated",
+  "ast-symbol-truncated",
+  "diff-output-truncated",
+  "impact-index-unavailable",
+  "impact-index-timeout",
+  "impact-index-invalid-blob",
+  "impact-index-failed",
+  "impact-index-module-skipped",
+  "impact-index-results-truncated",
+  "render-ast-symbol-omitted",
+  "render-ast-symbol-truncated",
+  "render-diff-truncated",
+  "render-file-truncated",
+  "related-file-truncated",
+]);
+
+export type ReviewContextDegradationCode = z.output<
+  typeof ReviewContextDegradationCodeSchema
+>;
 
 export interface ReviewContextDegradation {
   code: ReviewContextDegradationCode;

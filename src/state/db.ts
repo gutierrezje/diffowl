@@ -28,7 +28,6 @@ const CURRENT_SCHEMA_TABLE_COLUMNS = {
     columns: [
       "id",
       "created_at",
-      "schema_version",
       "target_kind",
       "target_ref",
       "base_commit",

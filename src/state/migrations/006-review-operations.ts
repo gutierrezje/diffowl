@@ -12,7 +12,6 @@ ALTER TABLE reviews RENAME TO reviews_v5;
 CREATE TABLE review_operations (
   id TEXT PRIMARY KEY,
   created_at TEXT NOT NULL,
-  schema_version INTEGER NOT NULL CHECK (schema_version = 1),
   target_kind TEXT NOT NULL CHECK (target_kind IN ('staged', 'commit', 'last-commit', 'base')),
   target_ref TEXT,
   base_commit TEXT,
@@ -29,13 +28,12 @@ CREATE TABLE review_operations (
 );
 
 INSERT INTO review_operations (
-  id, created_at, schema_version, target_kind, target_ref, base_commit, merge_base_commit,
+  id, created_at, target_kind, target_ref, base_commit, merge_base_commit,
   head_commit, diff_hash, context_depth, context_manifest_json, context_manifest_sha256
 )
 SELECT
   'op_legacy_' || id,
   created_at,
-  1,
   target_kind,
   target_ref,
   base_commit,
@@ -80,7 +78,7 @@ END;
 
 CREATE TRIGGER prevent_review_operation_identity_update
 BEFORE UPDATE OF
-  id, created_at, schema_version, target_kind, target_ref, base_commit, merge_base_commit, head_commit,
+  id, created_at, target_kind, target_ref, base_commit, merge_base_commit, head_commit,
   diff_hash, context_depth, context_manifest_json, context_manifest_sha256
 ON review_operations
 BEGIN

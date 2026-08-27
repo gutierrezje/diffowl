@@ -123,6 +123,24 @@ describe("openStateDatabase", () => {
           .all()
           .some((column) => column["name"] === "symbol_key"),
       ).toBe(true);
+      expect(
+        state.db
+          .prepare("PRAGMA table_info(review_operations)")
+          .all()
+          .map((column) => column["name"]),
+      ).toEqual([
+        "id",
+        "created_at",
+        "target_kind",
+        "target_ref",
+        "base_commit",
+        "merge_base_commit",
+        "head_commit",
+        "diff_hash",
+        "context_depth",
+        "context_manifest_json",
+        "context_manifest_sha256",
+      ]);
 
       const migrations = state.db
         .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
@@ -268,10 +286,10 @@ describe("openStateDatabase", () => {
         state.db
           .prepare(`
           INSERT INTO review_operations (
-            id, created_at, schema_version, target_kind, target_ref, base_commit,
+            id, created_at, target_kind, target_ref, base_commit,
             merge_base_commit, head_commit, diff_hash, context_depth
           ) VALUES (
-            'op_malformed', @createdAt, 1, 'base', 'origin/main', NULL, NULL, NULL,
+            'op_malformed', @createdAt, 'base', 'origin/main', NULL, NULL, NULL,
             'malformed-input', 'default'
           )
         `)

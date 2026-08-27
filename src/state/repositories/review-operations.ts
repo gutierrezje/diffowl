@@ -57,9 +57,9 @@ export function insertReviewOperation(
   }
   db.prepare(`
     INSERT INTO review_operations (
-      id, created_at, schema_version, target_kind, target_ref, base_commit, merge_base_commit,
+      id, created_at, target_kind, target_ref, base_commit, merge_base_commit,
       head_commit, diff_hash, context_depth, context_manifest_json, context_manifest_sha256
-    ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO NOTHING
   `).run(
     operation.id,

@@ -2,7 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { ReviewContextDepthSchema } from "../config.js";
 import type { LoadedReviewSnapshot, ReviewContext } from "./context.js";
-import type { RenderedReviewContext } from "./context-types.js";
+import {
+  ReviewContextDegradationCodeSchema,
+  type RenderedReviewContext,
+} from "./context-types.js";
 import { ReviewOperationIdSchema, type ReviewOperationId } from "./ids.js";
 import {
   createReviewInputIdentity,
@@ -11,26 +14,6 @@ import {
 } from "./provenance.js";
 
 export const REVIEW_CONTEXT_MANIFEST_SCHEMA_VERSION = 1 as const;
-
-export const ReviewContextDegradationCodeSchema = z.enum([
-  "ast-parser-unavailable",
-  "typescript-ast-unavailable",
-  "changed-file-unavailable",
-  "changed-file-truncated",
-  "ast-symbol-truncated",
-  "diff-output-truncated",
-  "impact-index-unavailable",
-  "impact-index-timeout",
-  "impact-index-invalid-blob",
-  "impact-index-failed",
-  "impact-index-module-skipped",
-  "impact-index-results-truncated",
-  "render-ast-symbol-omitted",
-  "render-ast-symbol-truncated",
-  "render-diff-truncated",
-  "render-file-truncated",
-  "related-file-truncated",
-]);
 
 export const ReviewContextManifestSchema = z
   .object({
