@@ -143,7 +143,6 @@ describe("effective config", () => {
     await saveReviewBackendReasoning("opencode", "saved-value");
 
     await expect(loadEffectiveReviewConfig()).resolves.toMatchObject({
-      reasoning: { kind: "variant", value: "saved-value" },
       config: { reasoning: { kind: "variant", value: "saved-value" } },
       warnings: [
         'Deprecated .diffowl.yml model "provider/project" is ignored; this review uses "provider/local". To keep the legacy value as your OpenCode preference, run `diffowl backend opencode` and then `diffowl model provider/project`; then remove model from .diffowl.yml.',
@@ -193,7 +192,7 @@ describe("effective config", () => {
 
     const effective = await loadEffectiveReviewConfig({ reasoning: "thinking" });
 
-    expect(effective.reasoning).toEqual({ kind: "variant", value: "thinking" });
+    expect(effective.config.reasoning).toEqual({ kind: "variant", value: "thinking" });
     expect(effective.warnings).toEqual([
       'Deprecated .diffowl.yml reasoning.effort "legacy-value" is ignored because this review uses --reasoning "thinking". Remove the deprecated reasoning block from .diffowl.yml.',
     ]);

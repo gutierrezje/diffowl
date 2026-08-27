@@ -1,12 +1,9 @@
-import {
-  loadConfigWithDiagnostics,
-} from "./config.js";
+import { loadConfigWithDiagnostics } from "./config.js";
 import { loadReviewPreferences, type ReviewPreferences } from "./review-preference.js";
 import {
   formatReviewBackend,
   parseBackendModel,
   parseReviewBackend,
-  type BackendModelSelection,
   type ReviewBackend,
   type ReviewSelection,
 } from "./review/backend-selection.js";
@@ -38,7 +35,6 @@ export class MissingModelError extends Error {
 export type EffectiveConfig = {
   config: EffectiveReviewConfig;
   selection: ReviewSelection;
-  reasoning: ReasoningSelection;
   warnings: string[];
 };
 
@@ -57,6 +53,8 @@ type ResolvedReviewModel = {
   source: ReviewSelection["source"]["model"];
 };
 
+type SavedModelSelection = ReviewPreferences["models"][number];
+
 export async function loadEffectiveReviewConfig(
   overrides: EffectiveReviewOverrides = {},
   env: Record<string, string | undefined> = process.env,
@@ -73,8 +71,7 @@ export async function loadEffectiveReviewConfig(
   const environmentModel = env["DIFFOWL_MODEL"]?.trim() || undefined;
   const canSelectWithoutPreferences =
     directBackend !== undefined &&
-    (overrides.model !== undefined ||
-      (overrides.model === undefined && environmentModel !== undefined));
+    (overrides.model !== undefined || environmentModel !== undefined);
   const loadedPreferences = canSelectWithoutPreferences
     ? await loadExplicitReviewPreferences()
     : { preferences: await loadReviewPreferences(), warnings: [] };
@@ -83,19 +80,24 @@ export async function loadEffectiveReviewConfig(
     preferences,
     directBackend,
   );
-  const model = resolveReviewModel(
-    preferences,
+  const savedSelection = preferences.models.find((candidate) => candidate.backend === backend);
+  const model = resolveReviewModel({
     backend,
-    overrides.model,
+    commandModel: overrides.model,
     environmentModel,
     legacyModel,
-  );
+    savedSelection,
+    savedSource: preferences.kind === "legacy" ? "legacy" : "local",
+  });
   const selection: ReviewSelection = {
     backend,
     requestedModel: model.requestedModel,
     source: { backend: backendSource, model: model.source },
   };
-  const savedVariant = savedReasoningVariant(preferences, backend, model.requestedModel);
+  const savedVariant =
+    savedSelection?.model === model.requestedModel && "reasoning" in savedSelection
+      ? savedSelection.reasoning?.variant
+      : undefined;
   const commandReasoning =
     overrides.reasoning === undefined ? undefined : selectReasoningVariant(overrides.reasoning);
   const reasoning =
@@ -119,29 +121,36 @@ export async function loadEffectiveReviewConfig(
   return {
     config: { ...loaded.config, model: model.requestedModel, reasoning },
     selection,
-    reasoning,
     warnings,
   };
 }
 
-function resolveReviewModel(
-  preferences: ReviewPreferences,
-  backend: ReviewBackend,
-  commandModel: string | undefined,
-  environmentModel: string | undefined,
-  legacyModel: string | undefined,
-): ResolvedReviewModel {
-  if (commandModel !== undefined) {
-    return { requestedModel: parseBackendModel(backend, commandModel), source: "command" };
+function resolveReviewModel(input: {
+  backend: ReviewBackend;
+  commandModel: string | undefined;
+  environmentModel: string | undefined;
+  legacyModel: string | undefined;
+  savedSelection: SavedModelSelection | undefined;
+  savedSource: "local" | "legacy";
+}): ResolvedReviewModel {
+  if (input.commandModel !== undefined) {
+    return {
+      requestedModel: parseBackendModel(input.backend, input.commandModel),
+      source: "command",
+    };
   }
-  if (environmentModel !== undefined) {
-    return { requestedModel: parseBackendModel(backend, environmentModel), source: "environment" };
+  if (input.environmentModel !== undefined) {
+    return {
+      requestedModel: parseBackendModel(input.backend, input.environmentModel),
+      source: "environment",
+    };
   }
-  const candidate = savedModel(preferences, backend);
-  if (candidate === undefined) throw new MissingModelError(backend, legacyModel);
+  if (input.savedSelection === undefined) {
+    throw new MissingModelError(input.backend, input.legacyModel);
+  }
   return {
-    requestedModel: parseBackendModel(backend, candidate.model),
-    source: candidate.source,
+    requestedModel: parseBackendModel(input.backend, input.savedSelection.model),
+    source: input.savedSource,
   };
 }
 
@@ -184,32 +193,6 @@ export function resolveReviewBackendPreference(
     case "none":
       return { backend: "opencode", source: "default" };
   }
-}
-
-function savedModel(
-  preferences: ReviewPreferences,
-  backend: ReviewBackend,
-): { model: string; source: "local" | "legacy"; selection: BackendModelSelection } | undefined {
-  const selection = preferences.models.find((candidate) => candidate.backend === backend);
-  if (selection === undefined) return undefined;
-  return {
-    model: selection.model,
-    source: preferences.kind === "legacy" ? "legacy" : "local",
-    selection,
-  };
-}
-
-function savedReasoningVariant(
-  preferences: ReviewPreferences,
-  backend: ReviewBackend,
-  model: string,
-): string | undefined {
-  const selection = preferences.models.find(
-    (candidate) => candidate.backend === backend && candidate.model === model,
-  );
-  return selection !== undefined && "reasoning" in selection
-    ? selection.reasoning?.variant
-    : undefined;
 }
 
 function formatLegacyReasoningWarning(

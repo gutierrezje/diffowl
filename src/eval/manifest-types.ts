@@ -17,7 +17,7 @@ export const EvalRunManifestSchema = z.object({
   corpus_version: z.string(),
   cases: z.array(EvalManifestCaseSchema),
   model: z.string(),
-  reasoning: ReasoningVariantSchema,
+  reasoning: ReasoningVariantSchema.nullable(),
   depth: ReviewContextDepthSchema,
   min_confidence: ReviewConfidenceSchema,
   trials: z.number().int().positive(),

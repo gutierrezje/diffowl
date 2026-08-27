@@ -353,7 +353,7 @@ describe("diffowl CLI", () => {
     );
     const document = CliReviewDocumentSchema.parse(JSON.parse(stdout));
 
-    expect(document.schema_version).toBe(5);
+    expect(document.schema_version).toBe(6);
     expect(document.review).toMatchObject({
       backend: "codex",
       model: "gpt-5.4",
@@ -379,21 +379,7 @@ describe("diffowl CLI", () => {
       await writeFile(join(repo, "src/app.ts"), "export const value = 2;\n", "utf8");
       await commitAll(repo, "change");
       const { stdout: headCommit } = await execa("git", ["rev-parse", "HEAD"], { cwd: repo });
-      const bin = await mkdtemp(join(tmpdir(), "diffowl-cli-codex-wrapper-"));
-      tempDirs.push(bin);
-      const executable = join(bin, "codex");
-      await writeFile(
-        executable,
-        [
-          `#!${process.execPath}`,
-          `(async () => import(${JSON.stringify(pathToFileURL(mockCodexCliPath).href)}))().catch((error) => {`,
-          "  console.error(error);",
-          "  process.exit(1);",
-          "});",
-          "",
-        ].join("\n"),
-        { mode: 0o755 },
-      );
+      const executable = await createMockCodexExecutable("diffowl-cli-codex-wrapper-");
 
       const { stdout } = await execa(
         process.execPath,
@@ -563,26 +549,9 @@ describe("diffowl CLI", () => {
     "prints backend reasoning diagnostics in text mode",
     async () => {
       const repo = await createRepo("diffowl-cli-review-codex-warning-");
-      await writeFile(join(repo, ".gitignore"), ".diffowl/\n", "utf8");
-      await mkdir(join(repo, "src"));
-      await writeFile(join(repo, "src/app.ts"), "export const value = 1;\n", "utf8");
-      await commitAll(repo, "initial");
-      await writeFile(join(repo, "src/app.ts"), "export const value = 2;\n", "utf8");
-      await commitAll(repo, "change");
-      const bin = await mkdtemp(join(tmpdir(), "diffowl-cli-codex-warning-wrapper-"));
-      tempDirs.push(bin);
-      const executable = join(bin, "codex");
-      await writeFile(
-        executable,
-        [
-          `#!${process.execPath}`,
-          `(async () => import(${JSON.stringify(pathToFileURL(mockCodexCliPath).href)}))().catch((error) => {`,
-          "  console.error(error);",
-          "  process.exit(1);",
-          "});",
-          "",
-        ].join("\n"),
-        { mode: 0o755 },
+      await stageCodeChange(repo);
+      const executable = await createMockCodexExecutable(
+        "diffowl-cli-codex-warning-wrapper-",
       );
 
       const result = await execa(
@@ -590,6 +559,7 @@ describe("diffowl CLI", () => {
         [
           cliPath,
           "review",
+          "--staged",
           "--backend",
           "codex",
           "--model",
@@ -610,6 +580,56 @@ describe("diffowl CLI", () => {
 
       expect(result.stderr).toContain(
         'Codex model "gpt-5-codex" does not advertise reasoning variant "thinking"',
+      );
+    },
+    30_000,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "prints reasoning guidance before a forwarded variant fails",
+    async () => {
+      const repo = await createRepo("diffowl-cli-review-codex-warning-failure-");
+      await stageCodeChange(repo);
+      const executable = await createMockCodexExecutable(
+        "diffowl-cli-codex-warning-failure-wrapper-",
+      );
+      const args = [
+        cliPath,
+        "review",
+        "--staged",
+        "--backend",
+        "codex",
+        "--model",
+        "gpt-5-codex",
+        "--reasoning",
+        "thinking",
+      ];
+      const options = {
+        cwd: repo,
+        reject: false,
+        env: {
+          DIFFOWL_CODEX_EXECUTABLE: executable,
+          MOCK_APP_SERVER_MODE: "reasoning-model-list-malformed",
+          MOCK_APP_SERVER_MODEL: "gpt-5-codex",
+        },
+      };
+      const result = await execa(process.execPath, args, options);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(
+        'Codex model "gpt-5-codex" reasoning variant validation was unavailable',
+      );
+      expect(result.stderr).toContain("Codex review failed");
+
+      const jsonResult = await execa(
+        process.execPath,
+        [...args, "--format", "json"],
+        options,
+      );
+      const errorDocument = CliErrorDocumentSchema.parse(JSON.parse(jsonResult.stderr));
+
+      expect(errorDocument.error.message).toContain(
+        'Codex model "gpt-5-codex" reasoning variant validation was unavailable',
       );
     },
     30_000,
@@ -726,7 +746,7 @@ describe("diffowl CLI", () => {
     );
 
     expect(JSON.parse(result.stderr)).toMatchObject({
-      schema_version: 5,
+      schema_version: 6,
       error: { message: expect.stringContaining("Codex model must be a bare model id") },
     });
   });
@@ -1684,25 +1704,10 @@ async function createRepo(
   return repo;
 }
 
-async function commitAll(repo: string, message: string): Promise<void> {
-  await execa("git", ["add", "."], { cwd: repo });
-  await execa(
-    "git",
-    [
-      "-c",
-      "user.name=DiffOwl Test",
-      "-c",
-      "user.email=diffowl@example.test",
-      "commit",
-      "-m",
-      message,
-    ],
-    { cwd: repo },
-  );
-}
-
-async function createMockCodexExecutable(): Promise<string> {
-  const bin = await mkdtemp(join(tmpdir(), "diffowl-cli-codex-wrapper-"));
+async function createMockCodexExecutable(
+  prefix = "diffowl-cli-codex-wrapper-",
+): Promise<string> {
+  const bin = await mkdtemp(join(tmpdir(), prefix));
   tempDirs.push(bin);
   const executable = join(bin, "codex");
   await writeFile(
@@ -1718,6 +1723,29 @@ async function createMockCodexExecutable(): Promise<string> {
     { mode: 0o755 },
   );
   return executable;
+}
+
+async function stageCodeChange(repo: string): Promise<void> {
+  await mkdir(join(repo, "src"));
+  await writeFile(join(repo, "src/app.ts"), "export const value = 1;\n", "utf8");
+  await execa("git", ["add", "src/app.ts"], { cwd: repo });
+}
+
+async function commitAll(repo: string, message: string): Promise<void> {
+  await execa("git", ["add", "."], { cwd: repo });
+  await execa(
+    "git",
+    [
+      "-c",
+      "user.name=DiffOwl Test",
+      "-c",
+      "user.email=diffowl@example.test",
+      "commit",
+      "-m",
+      message,
+    ],
+    { cwd: repo },
+  );
 }
 
 async function waitForPath(path: string): Promise<void> {

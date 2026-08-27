@@ -228,6 +228,7 @@ describe("runReviewSkipChecks", () => {
             diffHash: "hash",
           },
         }),
+        reasoning: null,
         sessionId: "",
         skippedReason: "empty-diff",
         summary: "No staged changes to review.",

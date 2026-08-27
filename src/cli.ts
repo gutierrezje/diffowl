@@ -235,7 +235,7 @@ program
       reviewOverrides.reasoning = options.reasoning;
     }
     const effective = await loadEffectiveReviewConfigOrExit(reviewOverrides, format);
-    const { config, selection, reasoning } = effective;
+    const { config, selection } = effective;
     const reviewWarnings = [...effective.warnings];
     const projectRoot = getProjectRoot();
     const diffOwlDir = await getSharedDiffOwlDir();
@@ -312,7 +312,6 @@ program
     let interruptExitCode: number | undefined;
     let interruptForceExit: ReturnType<typeof setTimeout> | undefined;
     let interruptMessage: string | undefined;
-    const runtimeWarnings: string[] = [];
     // Register signal handlers immediately after spinner starts so they
     // cover the entire review lifecycle (context build, server connect, SSE).
     // discardStdin: false above ensures the terminal delivers SIGINT natively
@@ -353,7 +352,7 @@ program
         initialDiagnostics: effective.warnings,
         signal: cancelController.signal,
         executor: createSelectedReviewExecutor(
-          createSingleReviewAssignment(selection, reasoning),
+          createSingleReviewAssignment(selection, config.reasoning),
         ),
         onProgress: (event) => {
           if (spinner) {
@@ -378,7 +377,11 @@ program
         },
         onWarning: (message) => {
           reviewWarnings.push(message);
-          runtimeWarnings.push(message);
+          if (spinner) {
+            const status = spinner.text;
+            spinner.warn(message);
+            spinner.start(status);
+          }
         },
       });
       if (interruptForceExit !== undefined) clearTimeout(interruptForceExit);
@@ -441,13 +444,6 @@ program
         process.exit(0);
       }
       const report = outcome.report;
-      if (!jsonMode && runtimeWarnings.length > 0) {
-        spinner?.stop();
-        for (const warning of runtimeWarnings) {
-          console.warn(chalk.yellow(`⚠ ${warning}`));
-        }
-        spinner?.start("Finalizing review...");
-      }
       spinner?.succeed("Review complete.");
       if (!jsonMode) {
         console.log(); // Space after spinner

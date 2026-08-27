@@ -126,26 +126,6 @@ describe("config", () => {
     expect(second.include).toEqual(["**/*"]);
   });
 
-  for (const effort of ["auto", "none", "minimal", "low", "medium", "high", "max", "xhigh"]) {
-    it(`loads ${effort} reasoning effort`, async () => {
-      const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
-      tempDirs.push(root);
-      await writeFile(
-        join(root, ".diffowl.yml"),
-        ["model: provider/model", "reasoning:", `  effort: ${effort}`].join("\n"),
-        "utf-8",
-      );
-      process.chdir(root);
-
-      await expect(loadConfigWithDiagnostics()).resolves.toMatchObject({
-        diagnostics: [
-          { kind: "legacy-reasoning", effort },
-          { kind: "legacy-model", model: "provider/model" },
-        ],
-      });
-    });
-  }
-
   it("loads arbitrary trimmed reasoning values and reports explicit legacy usage", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
     tempDirs.push(root);

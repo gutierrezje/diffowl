@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ReasoningVariantSchema, parseReasoningVariant } from "./reasoning.js";
+import { ReasoningVariantSchema } from "./reasoning.js";
 
 export const ReviewBackendSchema = z.enum(["opencode", "codex"]);
 export const BackendPreferenceSourceSchema = z.enum(["command", "local", "legacy", "default"]);
@@ -74,5 +74,3 @@ export function formatReviewBackend(backend: ReviewBackend): string {
       return "Codex";
   }
 }
-
-export { ReasoningVariantSchema, parseReasoningVariant };

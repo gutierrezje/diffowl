@@ -62,7 +62,7 @@ export interface TestReviewInput {
   targetCommit?: string | null;
   diffHash: string;
   model: string;
-  reasoning: string;
+  reasoning: string | null;
   depth: string;
   sessionId: string;
   summary: string;

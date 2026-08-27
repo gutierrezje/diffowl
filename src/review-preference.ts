@@ -8,11 +8,11 @@ import {
   formatReviewBackend,
   OpenCodeModelSchema,
   parseBackendModel,
-  parseReasoningVariant,
   ReviewBackendSchema,
   type BackendModelSelection,
   type ReviewBackend,
 } from "./review/backend-selection.js";
+import { parseReasoningVariant } from "./review/reasoning.js";
 
 const PREFERENCES_FILENAME = "preferences.yml";
 const MODEL_PREFERENCE_ORDER = {

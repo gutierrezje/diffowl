@@ -3,6 +3,17 @@ import { realpathSync, rmSync, writeFileSync } from "node:fs";
 import { execa } from "execa";
 
 const mode = process.env.MOCK_APP_SERVER_MODE ?? "basic";
+const reasoningModes = [
+  "reasoning-no-variant",
+  "reasoning-supported",
+  "reasoning-supported-no-cursor",
+  "reasoning-paginated",
+  "reasoning-unsupported",
+  "reasoning-empty",
+  "reasoning-model-list-error",
+  "reasoning-model-list-malformed",
+  "reasoning-model-list-timeout",
+];
 if (
   [
     "marker",
@@ -17,15 +28,7 @@ if (
     "output-schema-default",
     "output-schema-retry",
     "output-schema-three-invalid",
-    "reasoning-no-variant",
-    "reasoning-supported",
-    "reasoning-supported-no-cursor",
-    "reasoning-paginated",
-    "reasoning-unsupported",
-    "reasoning-empty",
-    "reasoning-model-list-error",
-    "reasoning-model-list-malformed",
-    "reasoning-model-list-timeout",
+    ...reasoningModes,
     "auth-null",
     "auth-apikey",
     "policy-approval",
@@ -128,15 +131,7 @@ const markerModes = [
   "output-schema-default",
   "output-schema-retry",
   "output-schema-three-invalid",
-  "reasoning-no-variant",
-  "reasoning-supported",
-  "reasoning-supported-no-cursor",
-  "reasoning-paginated",
-  "reasoning-unsupported",
-  "reasoning-empty",
-  "reasoning-model-list-error",
-  "reasoning-model-list-malformed",
-  "reasoning-model-list-timeout",
+  ...reasoningModes,
   "auth-null",
   "auth-apikey",
   "policy-approval",
@@ -175,18 +170,6 @@ const retryModes = [
   "output-schema-three-invalid",
   "spike-three-invalid",
 ].includes(mode);
-const reasoningModes = [
-  "reasoning-no-variant",
-  "reasoning-supported",
-  "reasoning-supported-no-cursor",
-  "reasoning-paginated",
-  "reasoning-unsupported",
-  "reasoning-empty",
-  "reasoning-model-list-error",
-  "reasoning-model-list-malformed",
-  "reasoning-model-list-timeout",
-];
-
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
@@ -819,15 +802,7 @@ input.on("close", () => {
       "output-schema-default",
       "output-schema-retry",
       "output-schema-three-invalid",
-      "reasoning-no-variant",
-      "reasoning-supported",
-      "reasoning-supported-no-cursor",
-      "reasoning-paginated",
-      "reasoning-unsupported",
-      "reasoning-empty",
-      "reasoning-model-list-error",
-      "reasoning-model-list-malformed",
-      "reasoning-model-list-timeout",
+      ...reasoningModes,
       "auth-null",
       "auth-apikey",
       "policy-approval",

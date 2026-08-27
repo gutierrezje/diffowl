@@ -32,7 +32,3 @@ export function reasoningVariant(selection: ReasoningSelection): ReasoningVarian
     }
   }
 }
-
-export function formatReasoningSelection(selection: ReasoningSelection): string {
-  return reasoningVariant(selection) ?? "backend-default";
-}

@@ -75,6 +75,37 @@ describe("review repository", () => {
       closeStateDatabase(state);
     }
   });
+
+  it("distinguishes backend-default reasoning from a provider variant with the same name", async () => {
+    const dir = await createTempDir();
+    const state = await openStateDatabase(dir);
+
+    try {
+      const backendDefault = insertReview(state.db, {
+        targetKind: "staged",
+        diffHash: "backend-default",
+        model: "provider/model",
+        reasoning: null,
+        depth: "default",
+        sessionId: "session-default",
+        summary: "Default reasoning.",
+      });
+      const namedVariant = insertReview(state.db, {
+        targetKind: "staged",
+        diffHash: "named-backend-default",
+        model: "provider/model",
+        reasoning: "backend-default",
+        depth: "default",
+        sessionId: "session-variant",
+        summary: "Named reasoning variant.",
+      });
+
+      expect(getReviewById(state.db, backendDefault.id)?.reasoning).toBeNull();
+      expect(getReviewById(state.db, namedVariant.id)?.reasoning).toBe("backend-default");
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
 });
 
 describe("finding repository", () => {

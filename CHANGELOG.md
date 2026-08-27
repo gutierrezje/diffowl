@@ -6,6 +6,15 @@ All notable changes to DiffOwl are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- Reasoning preferences are now stored per backend model in
+  `.diffowl/preferences.yml`. Variant names remain backend-native; an absent
+  preference selects the backend default.
+- Review JSON is now schema version 6. `review.reasoning` is `null` for the
+  backend default, leaving every non-empty string available to providers as a
+  native variant name.
+
 ## [0.5.0] - 2026-08-22
 
 The **Dual-backend Reviews** release. DiffOwl can now review through OpenCode or
