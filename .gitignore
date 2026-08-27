@@ -15,11 +15,22 @@ eval/results/
 eval/output/
 eval/baselines/local/
 
-# Editor/agent-local tooling
+# Editor/agent-local tooling. Project verification skills are durable; other
+# agent state stays local.
 .agents/
+!.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/verify-diffowl-cli/
+!.agents/skills/verify-diffowl-cli/**
+!.agents/skills/verify-diffowl-opencode/
+!.agents/skills/verify-diffowl-opencode/**
+!.agents/skills/verify-diffowl-codex/
+!.agents/skills/verify-diffowl-codex/**
 .cursor/
 
-# verify-diffowl skill run proofs (keep skill; never commit evidence)
-skills/verify-diffowl/evidence/
+# Verification receipts stay local unless a PR explicitly needs durable proof.
+artifacts/verification/
 
 .DS_Store

@@ -58,7 +58,7 @@ DiffOwl uses a single-context domain-doc layout. See `docs/agents/domain.md`.
 | Finding fingerprints / durable ids                | `src/state/fingerprint.ts`                              |
 | `--format json` review document                   | `src/output/json.ts`                                    |
 | Findings list/detail CLI rendering                | `src/output/findings.ts`                                |
-| Verify CLI end-to-end (agent skill)               | `skills/verify-diffowl/`                                |
+| Verify CLI or provider behavior                   | `.agents/skills/verify-diffowl-*/`                      |
 
 ## Conventions
 

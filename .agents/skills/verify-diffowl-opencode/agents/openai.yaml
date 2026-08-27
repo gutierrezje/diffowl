@@ -1,0 +1,3 @@
+interface:
+  display_name: "Verify DiffOwl OpenCode"
+  short_description: "Prove live OpenCode reviews and server behavior"

@@ -1,0 +1,3 @@
+interface:
+  display_name: "Verify DiffOwl CLI"
+  short_description: "Drive and prove local DiffOwl CLI flows"

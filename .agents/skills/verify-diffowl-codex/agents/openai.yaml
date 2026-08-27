@@ -1,0 +1,3 @@
+interface:
+  display_name: "Verify DiffOwl Codex"
+  short_description: "Prove live Codex App Server reviews"

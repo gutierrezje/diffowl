@@ -1,29 +1,34 @@
 #!/usr/bin/env bash
-# Tear down scratch state for a verification run. Keeps evidence/.
+# Tear down one recorded verification scratch. Keep its evidence.
 set -euo pipefail
 
-RUN_ID="${1:-}"
-if [[ -z "$RUN_ID" ]]; then
-  echo "usage: cleanup.sh <run-id>" >&2
+EVIDENCE_INPUT="${1:-}"
+if [[ -z "$EVIDENCE_INPUT" ]]; then
+  echo "usage: cleanup.sh <absolute-evidence-directory>" >&2
   exit 2
 fi
 
 SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-EVIDENCE_DIR="$SKILL_DIR/evidence/$RUN_ID"
+REPO_ROOT="$(cd "$SKILL_DIR/../.." && pwd)"
+EVIDENCE_DIR="$(cd "$EVIDENCE_INPUT" 2>/dev/null && pwd -P || true)"
+case "$EVIDENCE_DIR" in
+  "$REPO_ROOT"/artifacts/verification/*) ;;
+  *)
+    echo "refusing evidence path outside $REPO_ROOT/artifacts/verification: $EVIDENCE_INPUT" >&2
+    exit 1
+    ;;
+esac
 PATH_FILE="$EVIDENCE_DIR/scratch.path"
 
 if [[ ! -f "$PATH_FILE" ]]; then
-  echo "no scratch.path for run $RUN_ID — nothing to clean" >&2
+  echo "no scratch.path in $EVIDENCE_DIR — nothing to clean" >&2
   exit 0
 fi
 
 SCRATCH="$(cat "$PATH_FILE")"
-
-# Canonicalize (resolves .. and symlink segments), then require the final
-# directory name to match what scratch-repo.sh creates, so a corrupted
-# scratch.path can never point rm -rf somewhere unexpected.
 SCRATCH="$(cd "$SCRATCH" 2>/dev/null && pwd -P || true)"
 if [[ -z "$SCRATCH" ]]; then
+  printf '%s\n' "cleanup=already-absent" >>"$EVIDENCE_DIR/receipt.txt"
   echo "scratch already gone or unreachable — nothing to clean"
   exit 0
 fi
@@ -32,27 +37,35 @@ if [[ "$(basename "$SCRATCH")" != diffowl-verify-* ]]; then
   exit 1
 fi
 
-# If this scratch started its own server, stop via recorded PID only.
+# Stop only a server whose PID was recorded by this scratch.
 PID_FILE="$SCRATCH/.diffowl/server.pid"
 if [[ -f "$PID_FILE" ]]; then
   PID="$(tr -d '[:space:]' <"$PID_FILE" || true)"
   if [[ -n "${PID:-}" ]] && kill -0 "$PID" 2>/dev/null; then
-    # Confirm it still looks like opencode before signaling
     CMD="$(ps -p "$PID" -o command= 2>/dev/null || true)"
     if [[ "$CMD" == *opencode* ]]; then
       kill "$PID" 2>/dev/null || true
+      for _ in {1..50}; do
+        if ! kill -0 "$PID" 2>/dev/null; then
+          break
+        fi
+        sleep 0.1
+      done
+      if kill -0 "$PID" 2>/dev/null; then
+        echo "scratch opencode pid $PID did not stop; keeping scratch for inspection" >&2
+        exit 1
+      fi
       echo "stopped scratch opencode pid $PID"
     else
       echo "refusing to kill pid $PID (command does not look like opencode): $CMD" >&2
+      echo "keeping scratch for inspection" >&2
+      exit 1
     fi
   fi
 fi
 
-if [[ -d "$SCRATCH" ]]; then
-  rm -rf "$SCRATCH"
-  echo "removed scratch $SCRATCH"
-else
-  echo "scratch already gone: $SCRATCH"
-fi
+rm -rf "$SCRATCH"
+printf '%s\n' "cleanup=removed-scratch" "finished_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$EVIDENCE_DIR/receipt.txt"
+echo "removed scratch $SCRATCH"
 
-# Leave evidence/$RUN_ID intact (including scratch.path for audit).
+# Leave the evidence directory intact, including scratch.path for audit.
