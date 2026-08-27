@@ -920,18 +920,14 @@ async function resolveReasoningVariant(
   events: string[],
   signal?: AbortSignal,
 ): Promise<ReasoningVariantResolution> {
-  events.push("sent:model/list");
   try {
-    const response = await requestWithin(
+    const supportedVariants = await loadSupportedReasoningEfforts(
       peer,
-      "model/list",
-      { includeHidden: true, limit: 100 },
+      model,
       deadline,
-      "model/list",
+      events,
       signal,
     );
-    events.push("received:model/list");
-    const supportedVariants = parseSupportedReasoningEfforts(response, model);
     if (supportedVariants.includes(variant)) return { kind: "supported", variant };
     return {
       kind: "unsupported",
@@ -947,18 +943,53 @@ async function resolveReasoningVariant(
   }
 }
 
-function parseSupportedReasoningEfforts(
-  value: CodexJsonValue | undefined,
+async function loadSupportedReasoningEfforts(
+  peer: AppServerPeer,
   model: string,
-): string[] {
+  deadline: number,
+  events: string[],
+  signal?: AbortSignal,
+): Promise<string[]> {
+  let cursor: string | undefined;
+  const seenCursors = new Set<string>();
+  while (true) {
+    const params =
+      cursor === undefined
+        ? { includeHidden: true, limit: 100 }
+        : { includeHidden: true, limit: 100, cursor };
+    events.push("sent:model/list");
+    const response = await requestWithin(
+      peer,
+      "model/list",
+      params,
+      deadline,
+      "model/list",
+      signal,
+    );
+    events.push("received:model/list");
+    const page = parseModelListPage(response);
+    const selected = page.models.find((candidate) => modelListEntryMatches(candidate, model));
+    if (selected !== undefined) return parseSupportedReasoningEfforts(selected);
+    if (page.nextCursor === null) throw protocolError(`model/list missing model ${model}`);
+    if (seenCursors.has(page.nextCursor)) throw protocolError("model/list repeated nextCursor");
+    seenCursors.add(page.nextCursor);
+    cursor = page.nextCursor;
+  }
+}
+
+function parseModelListPage(value: CodexJsonValue | undefined) {
   const payload = asRecord(value, "model/list");
   const models = payload["data"];
   if (!Array.isArray(models)) throw protocolError("model/list.data");
-  const selected = models.find(
-    (candidate) => isRecord(candidate) && modelListEntryMatches(candidate, model),
-  );
-  if (selected === undefined) throw protocolError(`model/list missing model ${model}`);
-  const rawVariants = selected["supportedReasoningEfforts"];
+  const nextCursor = payload["nextCursor"];
+  if (nextCursor !== null && (!isText(nextCursor) || nextCursor === "")) {
+    throw protocolError("model/list.nextCursor");
+  }
+  return { models: models.filter(isRecord), nextCursor };
+}
+
+function parseSupportedReasoningEfforts(model: CodexJsonObject): string[] {
+  const rawVariants = model["supportedReasoningEfforts"];
   if (!Array.isArray(rawVariants)) throw protocolError("model/list.supportedReasoningEfforts");
   return rawVariants.flatMap((candidate, index) => {
     const effort = asRecord(candidate, `model/list.supportedReasoningEfforts[${index}]`)[

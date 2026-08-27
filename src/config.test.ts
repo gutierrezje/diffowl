@@ -165,6 +165,18 @@ describe("config", () => {
     });
   });
 
+  it("does not report legacy reasoning when the block has no effort", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
+    tempDirs.push(root);
+    await writeFile(join(root, ".diffowl.yml"), "reasoning: {}\n", "utf-8");
+    process.chdir(root);
+
+    await expect(loadConfigWithDiagnostics()).resolves.toMatchObject({
+      config: { reasoning: { effort: "auto" } },
+      diagnostics: [],
+    });
+  });
+
   it("loads boolean review output settings when set", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
     tempDirs.push(root);

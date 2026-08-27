@@ -103,7 +103,7 @@ const LegacyReasoningInputSchema = z
   .object({
     reasoning: z
       .object({
-        effort: ReasoningEffortSchema.default(DEFAULT_REASONING_EFFORT),
+        effort: ReasoningEffortSchema.optional(),
       })
       .strict()
       .optional(),
@@ -181,7 +181,7 @@ export async function loadConfigWithDiagnosticsFromRoot(root: string): Promise<L
     const config = DiffOwlConfigSchema.parse(input);
     const legacyInput = LegacyReasoningInputSchema.parse(input);
     const diagnostics: ConfigDiagnostic[] =
-      legacyInput.reasoning === undefined
+      legacyInput.reasoning?.effort === undefined
         ? []
         : [{ kind: "legacy-reasoning", effort: legacyInput.reasoning.effort }];
     return { config, diagnostics };

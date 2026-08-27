@@ -19,6 +19,7 @@ if (
     "output-schema-three-invalid",
     "reasoning-no-variant",
     "reasoning-supported",
+    "reasoning-paginated",
     "reasoning-unsupported",
     "reasoning-empty",
     "reasoning-model-list-error",
@@ -127,6 +128,7 @@ const markerModes = [
   "output-schema-three-invalid",
   "reasoning-no-variant",
   "reasoning-supported",
+  "reasoning-paginated",
   "reasoning-unsupported",
   "reasoning-empty",
   "reasoning-model-list-error",
@@ -172,6 +174,7 @@ const retryModes = [
 const reasoningModes = [
   "reasoning-no-variant",
   "reasoning-supported",
+  "reasoning-paginated",
   "reasoning-unsupported",
   "reasoning-empty",
   "reasoning-model-list-error",
@@ -282,11 +285,31 @@ function handleMarker(message) {
   }
   if (
     reasoningModes.includes(mode) &&
-    markerStep === 3 &&
+    (markerStep === 3 || (mode === "reasoning-paginated" && markerStep === 3.25)) &&
     message.method === "model/list" &&
     isNumber(message.id)
   ) {
     if (!isRecord(params) || params.includeHidden !== true || params.limit !== 100)
+      return markerError(message);
+    if (mode === "reasoning-paginated" && markerStep === 3) {
+      if ("cursor" in params) return markerError(message);
+      markerStep = 3.25;
+      send({
+        id: message.id,
+        result: {
+          data: [
+            {
+              id: "another-model",
+              model: "another-model",
+              supportedReasoningEfforts: [],
+            },
+          ],
+          nextCursor: "page-2",
+        },
+      });
+      return;
+    }
+    if (mode === "reasoning-paginated" && params.cursor !== "page-2")
       return markerError(message);
     markerStep = 3.5;
     if (mode === "reasoning-model-list-error") {
@@ -774,6 +797,7 @@ input.on("close", () => {
       "output-schema-three-invalid",
       "reasoning-no-variant",
       "reasoning-supported",
+      "reasoning-paginated",
       "reasoning-unsupported",
       "reasoning-empty",
       "reasoning-model-list-error",
