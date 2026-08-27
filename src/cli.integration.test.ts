@@ -276,6 +276,9 @@ describe("diffowl CLI", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("No model selected for OpenCode");
+    expect(result.stderr).toContain(
+      'Legacy .diffowl.yml model "provider/model" is no longer used',
+    );
   });
 
   it("returns legacy reasoning migration guidance as structured review diagnostics", async () => {

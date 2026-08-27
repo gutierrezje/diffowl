@@ -21,11 +21,15 @@ import type { EffectiveReviewConfig } from "./review/runtime-config.js";
 export class MissingModelError extends Error {
   readonly backend: ReviewBackend;
 
-  constructor(backend: ReviewBackend = "opencode") {
+  constructor(backend: ReviewBackend = "opencode", legacyModel?: string) {
+    const legacyGuidance =
+      legacyModel === undefined
+        ? ""
+        : ` Legacy .diffowl.yml model "${legacyModel}" is no longer used. To keep it as your OpenCode preference, run \`diffowl backend opencode\` and then \`diffowl model ${legacyModel}\`; then remove model from .diffowl.yml.`;
     super(
       `No model selected for ${formatReviewBackend(backend)}. Run \`diffowl model <${
         backend === "opencode" ? "provider/model" : "model-id"
-      }>\`.`,
+      }>\`.${legacyGuidance}`,
     );
     this.backend = backend;
   }
@@ -61,6 +65,9 @@ export async function loadEffectiveReviewConfig(
   const legacyReasoningEffort = loaded.diagnostics.find(
     (diagnostic) => diagnostic.kind === "legacy-reasoning",
   )?.effort;
+  const legacyModel = loaded.diagnostics.find(
+    (diagnostic) => diagnostic.kind === "legacy-model",
+  )?.model;
   const directBackend =
     overrides.backend === undefined ? undefined : parseReviewBackend(overrides.backend);
   const environmentModel = env["DIFFOWL_MODEL"]?.trim() || undefined;
@@ -76,7 +83,13 @@ export async function loadEffectiveReviewConfig(
     preferences,
     directBackend,
   );
-  const model = resolveReviewModel(preferences, backend, overrides.model, environmentModel);
+  const model = resolveReviewModel(
+    preferences,
+    backend,
+    overrides.model,
+    environmentModel,
+    legacyModel,
+  );
   const selection: ReviewSelection = {
     backend,
     requestedModel: model.requestedModel,
@@ -91,6 +104,9 @@ export async function loadEffectiveReviewConfig(
       ? legacyReasoningSelection(legacyReasoningEffort)
       : selectReasoningVariant(savedVariant));
   const warnings = [...loadedPreferences.warnings];
+  if (legacyModel !== undefined) {
+    warnings.push(formatLegacyModelWarning(legacyModel, model.requestedModel));
+  }
   if (legacyReasoningEffort !== undefined) {
     warnings.push(
       formatLegacyReasoningWarning(
@@ -113,6 +129,7 @@ function resolveReviewModel(
   backend: ReviewBackend,
   commandModel: string | undefined,
   environmentModel: string | undefined,
+  legacyModel: string | undefined,
 ): ResolvedReviewModel {
   if (commandModel !== undefined) {
     return { requestedModel: parseBackendModel(backend, commandModel), source: "command" };
@@ -121,7 +138,7 @@ function resolveReviewModel(
     return { requestedModel: parseBackendModel(backend, environmentModel), source: "environment" };
   }
   const candidate = savedModel(preferences, backend);
-  if (candidate === undefined) throw new MissingModelError(backend);
+  if (candidate === undefined) throw new MissingModelError(backend, legacyModel);
   return {
     requestedModel: parseBackendModel(backend, candidate.model),
     source: candidate.source,
@@ -210,4 +227,8 @@ function formatLegacyReasoningWarning(
     return 'Deprecated .diffowl.yml reasoning.effort is "auto" (the backend default). Run `diffowl reasoning --reset` to clear any local override in .diffowl/preferences.yml, then remove the deprecated reasoning block from .diffowl.yml.';
   }
   return `Deprecated .diffowl.yml reasoning.effort "${effort}". Run \`diffowl reasoning ${effort}\` to save it in .diffowl/preferences.yml, then remove the deprecated reasoning block from .diffowl.yml.`;
+}
+
+function formatLegacyModelWarning(legacyModel: string, selectedModel: string): string {
+  return `Deprecated .diffowl.yml model "${legacyModel}" is ignored; this review uses "${selectedModel}". To keep the legacy value as your OpenCode preference, run \`diffowl backend opencode\` and then \`diffowl model ${legacyModel}\`; then remove model from .diffowl.yml.`;
 }

@@ -827,6 +827,7 @@ input.on("close", () => {
       "reasoning-empty",
       "reasoning-model-list-error",
       "reasoning-model-list-malformed",
+      "reasoning-model-list-timeout",
       "auth-null",
       "auth-apikey",
       "policy-approval",

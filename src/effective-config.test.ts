@@ -28,7 +28,7 @@ describe("effective config", () => {
     process.chdir(root);
 
     await expect(loadEffectiveReviewConfig({}, {})).rejects.toThrow(
-      "No model selected for OpenCode",
+      'Legacy .diffowl.yml model "provider/project" is no longer used',
     );
     await saveReviewBackendModel("opencode", "provider/local");
     expect(await loadEffectiveReviewConfig({}, {})).toMatchObject({
@@ -133,6 +133,7 @@ describe("effective config", () => {
       reasoning: { kind: "variant", value: "saved-value" },
       config: { reasoning: { kind: "variant", value: "saved-value" } },
       warnings: [
+        'Deprecated .diffowl.yml model "provider/project" is ignored; this review uses "provider/local". To keep the legacy value as your OpenCode preference, run `diffowl backend opencode` and then `diffowl model provider/project`; then remove model from .diffowl.yml.',
         'Deprecated .diffowl.yml reasoning.effort "legacy-value" is ignored because the selected model already uses reasoning.variant "saved-value" from .diffowl/preferences.yml. Remove only the deprecated reasoning block from .diffowl.yml; run `diffowl reasoning --reset` only if you want the backend default.',
       ],
     });
@@ -198,6 +199,7 @@ describe("effective config", () => {
     await expect(loadEffectiveReviewConfig()).resolves.toMatchObject({
       config: { reasoning: { kind: "backend-default" } },
       warnings: [
+        'Deprecated .diffowl.yml model "provider/project" is ignored; this review uses "provider/local". To keep the legacy value as your OpenCode preference, run `diffowl backend opencode` and then `diffowl model provider/project`; then remove model from .diffowl.yml.',
         'Deprecated .diffowl.yml reasoning.effort is "auto" (the backend default). Run `diffowl reasoning --reset` to clear any local override in .diffowl/preferences.yml, then remove the deprecated reasoning block from .diffowl.yml.',
       ],
     });

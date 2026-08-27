@@ -74,13 +74,18 @@ describe("config", () => {
       "utf8",
     );
     process.chdir(root);
-    const config = await loadConfig();
+    const loaded = await loadConfigWithDiagnostics();
+    const { config } = loaded;
 
     const savedPath = await saveConfig(config);
     const saved = await readFile(savedPath, "utf-8");
 
     expect(config).not.toHaveProperty("model");
     expect(config).not.toHaveProperty("reasoning");
+    expect(loaded.diagnostics).toEqual([
+      { kind: "legacy-reasoning", effort: "provider-native" },
+      { kind: "legacy-model", model: "provider/legacy" },
+    ]);
     expect(saved).not.toContain("model:");
     expect(saved).not.toContain("reasoning:");
   });
@@ -133,7 +138,10 @@ describe("config", () => {
       process.chdir(root);
 
       await expect(loadConfigWithDiagnostics()).resolves.toMatchObject({
-        diagnostics: [{ kind: "legacy-reasoning", effort }],
+        diagnostics: [
+          { kind: "legacy-reasoning", effort },
+          { kind: "legacy-model", model: "provider/model" },
+        ],
       });
     });
   }
@@ -150,7 +158,10 @@ describe("config", () => {
 
     await expect(loadConfig()).resolves.not.toHaveProperty("reasoning");
     await expect(loadConfigWithDiagnostics()).resolves.toMatchObject({
-      diagnostics: [{ kind: "legacy-reasoning", effort: "provider-native" }],
+      diagnostics: [
+        { kind: "legacy-reasoning", effort: "provider-native" },
+        { kind: "legacy-model", model: "provider/model" },
+      ],
     });
   });
 

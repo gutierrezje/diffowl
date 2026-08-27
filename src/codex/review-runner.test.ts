@@ -229,6 +229,7 @@ describe("executeCodexReview", () => {
       expect(outcome.reviewResult.report.diagnostics).toEqual([
         'Codex model "gpt-5-codex" reasoning variant validation was unavailable; forwarding requested variant "thinking" unchanged. If Codex rejects it, remove the one-review `--reasoning` override or run `diffowl reasoning --reset` to clear the saved preference.',
       ]);
+      expect(outcome.evidence.close).toMatchObject({ kind: "eof", code: 0 });
     },
   );
 

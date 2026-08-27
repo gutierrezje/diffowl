@@ -98,10 +98,9 @@ const LegacyProjectConfigInputSchema = DiffOwlConfigSchema.extend({
 }).strict();
 
 export type DiffOwlConfig = z.output<typeof DiffOwlConfigSchema>;
-export type ConfigDiagnostic = {
-  kind: "legacy-reasoning";
-  effort: ReasoningVariant;
-};
+export type ConfigDiagnostic =
+  | { kind: "legacy-model"; model: string }
+  | { kind: "legacy-reasoning"; effort: ReasoningVariant };
 export type LoadedConfig = {
   config: DiffOwlConfig;
   diagnostics: ConfigDiagnostic[];
@@ -156,12 +155,15 @@ export async function loadConfigWithDiagnosticsFromRoot(root: string): Promise<L
     const raw = await readFile(configPath, "utf-8");
     const input = parse(raw) ?? {};
     const legacyInput = LegacyProjectConfigInputSchema.parse(input);
-    const { model: _legacyModel, reasoning: legacyReasoning, ...projectInput } = legacyInput;
+    const { model: legacyModel, reasoning: legacyReasoning, ...projectInput } = legacyInput;
     const config = DiffOwlConfigSchema.parse(projectInput);
-    const diagnostics: ConfigDiagnostic[] =
-      legacyReasoning?.effort === undefined
-        ? []
-        : [{ kind: "legacy-reasoning", effort: legacyReasoning.effort }];
+    const diagnostics: ConfigDiagnostic[] = [];
+    if (legacyReasoning?.effort !== undefined) {
+      diagnostics.push({ kind: "legacy-reasoning", effort: legacyReasoning.effort });
+    }
+    if (legacyModel !== undefined) {
+      diagnostics.push({ kind: "legacy-model", model: legacyModel });
+    }
     return { config, diagnostics };
   } catch (err) {
     const message =
