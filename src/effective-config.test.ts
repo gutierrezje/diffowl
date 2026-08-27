@@ -83,6 +83,19 @@ describe("effective config", () => {
     });
   });
 
+  it("explains when a legacy project model matches the effective model", async () => {
+    const root = await createRoot("diffowl-effective-legacy-model-match-");
+    await writeFile(join(root, ".diffowl.yml"), "model: provider/local\n", "utf8");
+    process.chdir(root);
+    await saveReviewBackendModel("opencode", "provider/local");
+
+    await expect(loadEffectiveReviewConfig()).resolves.toMatchObject({
+      warnings: [
+        'Deprecated .diffowl.yml model "provider/local" is no longer read. This review selected the same model from another source, so remove model from .diffowl.yml.',
+      ],
+    });
+  });
+
   it("selects one saved backend model while preserving the other", async () => {
     const root = await createRoot("diffowl-effective-both-");
     process.chdir(root);

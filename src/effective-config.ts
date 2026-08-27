@@ -230,5 +230,8 @@ function formatLegacyReasoningWarning(
 }
 
 function formatLegacyModelWarning(legacyModel: string, selectedModel: string): string {
+  if (legacyModel === selectedModel) {
+    return `Deprecated .diffowl.yml model "${legacyModel}" is no longer read. This review selected the same model from another source, so remove model from .diffowl.yml.`;
+  }
   return `Deprecated .diffowl.yml model "${legacyModel}" is ignored; this review uses "${selectedModel}". To keep the legacy value as your OpenCode preference, run \`diffowl backend opencode\` and then \`diffowl model ${legacyModel}\`; then remove model from .diffowl.yml.`;
 }
