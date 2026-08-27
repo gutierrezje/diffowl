@@ -348,14 +348,19 @@ function handleMarker(message) {
   ) {
     if (!isRecord(params) || params.threadId !== "thread-1" || !isText(params.turnId))
       return markerError(message);
-    send({ id: message.id, result: {} });
-    send({
-      method: "turn/completed",
-      params: {
-        threadId: "thread-1",
-        turn: { id: params.turnId, status: "interrupted", items: [], error: null },
-      },
-    });
+    const sendInterruption = () => {
+      send({ id: message.id, result: {} });
+      send({
+        method: "turn/completed",
+        params: {
+          threadId: "thread-1",
+          turn: { id: params.turnId, status: "interrupted", items: [], error: null },
+        },
+      });
+    };
+    const interruptionDelayMs = Number(process.env.MOCK_INTERRUPT_DELAY_MS ?? 0);
+    if (interruptionDelayMs > 0) setTimeout(sendInterruption, interruptionDelayMs);
+    else sendInterruption();
     return;
   }
   if (
@@ -429,6 +434,8 @@ function handleMarker(message) {
         "spike-cancel-active",
       ].includes(mode)
     ) {
+      if (process.env.MOCK_ACTIVE_TURN_FILE)
+        writeFileSync(process.env.MOCK_ACTIVE_TURN_FILE, turnId);
       if (["cancel-active-mutates", "timeout-active-mutates-restores"].includes(mode))
         writeFileSync("codex-mutated.txt", "provider mutation\n");
       send({

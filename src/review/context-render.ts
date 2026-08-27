@@ -1,6 +1,10 @@
 import { extname } from "node:path";
 import { parseCombinedDiffLine, parseGitDiffLine } from "../git/diff.js";
-import type { RenderReviewContextOptions, ReviewContext } from "./context-types.js";
+import type {
+  RenderedReviewContext,
+  RenderReviewContextOptions,
+  ReviewContext,
+} from "./context-types.js";
 
 const MAX_DIFF_CHARS = 40_000;
 const MAX_AST_SYMBOL_CHARS = 8_000;
@@ -12,9 +16,17 @@ export function renderReviewContext(
   context: ReviewContext,
   options: RenderReviewContextOptions = {},
 ): string {
+  return renderReviewContextDocument(context, options).text;
+}
+
+export function renderReviewContextDocument(
+  context: ReviewContext,
+  options: RenderReviewContextOptions = {},
+): RenderedReviewContext {
   const depth = options.depth ?? context.depth;
   const shallow = depth === "shallow";
   const lines: string[] = [];
+  const degradations: RenderedReviewContext["degradations"] = [];
 
   lines.push("## Local Review Context");
   lines.push("");
@@ -35,18 +47,15 @@ export function renderReviewContext(
   }
   lines.push("");
   lines.push("### Diff");
-  lines.push(
-    fence(
-      truncateText(
-        filterDiffRaw(
-          context.diff.raw,
-          new Set(context.changedFiles.map((fileContext) => fileContext.file.path)),
-        ),
-        shallow ? MAX_QUICK_DIFF_CHARS : MAX_DIFF_CHARS,
-      ).text,
-      "diff",
+  const renderedDiff = truncateText(
+    filterDiffRaw(
+      context.diff.raw,
+      new Set(context.changedFiles.map((fileContext) => fileContext.file.path)),
     ),
+    shallow ? MAX_QUICK_DIFF_CHARS : MAX_DIFF_CHARS,
   );
+  if (renderedDiff.truncated) degradations.push({ code: "render-diff-truncated", count: 1 });
+  lines.push(fence(renderedDiff.text, "diff"));
   lines.push("");
 
   for (const fileContext of context.changedFiles) {
@@ -75,14 +84,23 @@ export function renderReviewContext(
 
     if (fileContext.astSymbols.length > 0) {
       lines.push("Changed AST symbols:");
-      for (const symbol of shallow ? fileContext.astSymbols.slice(0, 5) : fileContext.astSymbols) {
+      const renderedSymbols = shallow ? fileContext.astSymbols.slice(0, 5) : fileContext.astSymbols;
+      if (renderedSymbols.length < fileContext.astSymbols.length) {
+        degradations.push({
+          code: "render-ast-symbol-omitted",
+          count: fileContext.astSymbols.length - renderedSymbols.length,
+        });
+      }
+      for (const symbol of renderedSymbols) {
         lines.push(`#### ${symbol.kind} ${symbol.name} (${symbol.startLine}-${symbol.endLine})`);
-        lines.push(
-          fence(
-            truncateText(symbol.text, shallow ? MAX_QUICK_SYMBOL_CHARS : MAX_AST_SYMBOL_CHARS).text,
-            languageForPath(fileContext.file.path),
-          ),
+        const renderedSymbol = truncateText(
+          symbol.text,
+          shallow ? MAX_QUICK_SYMBOL_CHARS : MAX_AST_SYMBOL_CHARS,
         );
+        if (renderedSymbol.truncated) {
+          degradations.push({ code: "render-ast-symbol-truncated", count: 1 });
+        }
+        lines.push(fence(renderedSymbol.text, languageForPath(fileContext.file.path)));
         if (symbol.truncated) {
           lines.push("_Symbol content truncated._");
         }
@@ -94,19 +112,19 @@ export function renderReviewContext(
       lines.push(`_File content skipped: ${fileContext.content.reason}._`);
     } else {
       switch (fileContext.content.render) {
-        case "full":
-          lines.push(
-            fence(
-              shallow
-                ? truncateText(fileContext.content.text, MAX_QUICK_FILE_CHARS).text
-                : fileContext.content.text,
-              languageForPath(fileContext.file.path),
-            ),
-          );
+        case "full": {
+          const renderedFile = shallow
+            ? truncateText(fileContext.content.text, MAX_QUICK_FILE_CHARS)
+            : { text: fileContext.content.text, truncated: false };
+          if (renderedFile.truncated) {
+            degradations.push({ code: "render-file-truncated", count: 1 });
+          }
+          lines.push(fence(renderedFile.text, languageForPath(fileContext.file.path)));
           if (fileContext.content.truncated) {
             lines.push("_File content truncated._");
           }
           break;
+        }
         case "diff-only":
           lines.push(
             "_Full file content omitted because the diff already shows the changed hunks._",
@@ -148,7 +166,7 @@ export function renderReviewContext(
     }
   }
 
-  return lines.join("\n").trim();
+  return { text: lines.join("\n").trim(), degradations };
 }
 
 function filterDiffRaw(rawDiff: string, includedPaths: Set<string>): string {

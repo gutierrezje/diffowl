@@ -19,11 +19,16 @@ import {
   toPosixGitPath,
   type ReviewContextSource,
 } from "./context-source.js";
-import type { ChangedFileContext, RelatedFileContext, ReviewContext } from "./context-types.js";
+import type {
+  ChangedFileContext,
+  RelatedFileContext,
+  ReviewContext,
+  ReviewContextDegradation,
+} from "./context-types.js";
 import { buildReferenceContexts } from "./impact.js";
 import type { ReviewTarget } from "./target.js";
 
-export { renderReviewContext } from "./context-render.js";
+export { renderReviewContext, renderReviewContextDocument } from "./context-render.js";
 export type {
   AstSymbolContext,
   ChangedFileContext,
@@ -148,12 +153,24 @@ export async function buildReviewContextFromDiff(
   );
   const changedFiles = changedFileResults.map((result) => result.fileContext);
   const diagnostics: string[] = [...(diffResult.diagnostics ?? [])];
+  const degradations: ReviewContextDegradation[] = [];
+  if ((diffResult.diagnostics?.length ?? 0) > 0) {
+    degradations.push({
+      code: "diff-output-truncated",
+      count: diffResult.diagnostics!.length,
+    });
+  }
+  degradations.push(...changedFileResults.flatMap((result) => result.degradations));
   addUniqueDiagnostics(
     diagnostics,
     changedFileResults.flatMap((result) => result.diagnostics),
   );
   const relatedFiles =
     depth === "shallow" ? [] : await buildRelatedFileContexts(source, reviewableFiles);
+  const truncatedRelatedFiles = relatedFiles.filter((file) => file.truncated).length;
+  if (truncatedRelatedFiles > 0) {
+    degradations.push({ code: "related-file-truncated", count: truncatedRelatedFiles });
+  }
   const references =
     depth === "shallow"
       ? []
@@ -162,6 +179,7 @@ export async function buildReviewContextFromDiff(
           changedFiles,
           skippedFiles,
           diagnostics,
+          degradations,
         );
   return {
     target,
@@ -172,6 +190,7 @@ export async function buildReviewContextFromDiff(
     relatedFiles,
     references,
     diagnostics,
+    degradations,
   };
 }
 
@@ -179,7 +198,11 @@ async function buildChangedFileContext(
   source: ReviewContextSource,
   file: DiffFile,
   changedLines: number[],
-): Promise<{ fileContext: ChangedFileContext; diagnostics: string[] }> {
+): Promise<{
+  fileContext: ChangedFileContext;
+  diagnostics: string[];
+  degradations: ReviewContextDegradation[];
+}> {
   if (file.status === "deleted") {
     return {
       fileContext: {
@@ -191,6 +214,7 @@ async function buildChangedFileContext(
         content: { status: "skipped", reason: "deleted file" },
       },
       diagnostics: [],
+      degradations: [],
     };
   }
 
@@ -206,11 +230,23 @@ async function buildChangedFileContext(
         content: { status: "skipped", reason: contentResult.reason },
       },
       diagnostics: [],
+      degradations: [{ code: "changed-file-unavailable", count: 1 }],
     };
   }
 
   const analysisContent = contentResult.fullContent;
   const astResult = extractAstSymbols(file.path, analysisContent, changedLines);
+  const degradations: ReviewContextDegradation[] = [];
+  if (contentResult.truncated) {
+    degradations.push({ code: "changed-file-truncated", count: 1 });
+  }
+  const truncatedSymbols = astResult.symbols.filter((symbol) => symbol.truncated).length;
+  if (truncatedSymbols > 0) {
+    degradations.push({ code: "ast-symbol-truncated", count: truncatedSymbols });
+  }
+  if (astResult.degradationCode !== undefined) {
+    degradations.push({ code: astResult.degradationCode, count: 1 });
+  }
   return {
     fileContext: {
       file,
@@ -234,6 +270,7 @@ async function buildChangedFileContext(
       },
     },
     diagnostics: astResult.diagnostics ?? [],
+    degradations,
   };
 }
 

@@ -1,4 +1,5 @@
 import { looksLikeCompleteStructuredReview } from "../review/document.js";
+import { ReviewTimeoutError } from "../review/errors.js";
 
 export interface ReviewSettlementCoordinator {
   acceptAssistantMessage(result: {
@@ -115,7 +116,7 @@ export function createReviewSettlementCoordinator(options: {
           : "";
         settle({
           kind: "reject",
-          error: new Error(
+          error: new ReviewTimeoutError(
             `Review timed out.${suffix}`,
             lastReconciliationError ? { cause: lastReconciliationError } : undefined,
           ),

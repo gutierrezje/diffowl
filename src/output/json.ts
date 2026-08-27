@@ -100,6 +100,11 @@ export interface ReviewJsonExecutionV2 extends Omit<ReviewJsonExecutionV1, "sche
   input: ReviewJsonInputIdentityV1;
 }
 
+export interface ReviewJsonExecutionV3 extends Omit<ReviewJsonExecutionV2, "schema_version"> {
+  schema_version: 3;
+  context_manifest_sha256: string;
+}
+
 export interface ReviewJsonDocumentV5 {
   schema_version: typeof JSON_OUTPUT_SCHEMA_VERSION;
   review: {
@@ -118,7 +123,7 @@ export interface ReviewJsonDocumentV5 {
     requested_model: string;
     effective_model: string | null;
     preference_source: ReviewSelection["source"];
-    execution: ReviewJsonExecutionV1 | ReviewJsonExecutionV2 | null;
+    execution: ReviewJsonExecutionV1 | ReviewJsonExecutionV2 | ReviewJsonExecutionV3 | null;
     reasoning: string;
     depth: string;
     session_id: string;
@@ -237,7 +242,7 @@ export async function writeReviewJsonSuccess(document: ReviewJsonDocumentV5): Pr
 
 function mapJsonExecution(
   execution: ReviewExecutionProvenance,
-): ReviewJsonExecutionV1 | ReviewJsonExecutionV2 {
+): ReviewJsonExecutionV1 | ReviewJsonExecutionV2 | ReviewJsonExecutionV3 {
   const common = {
     cohort_id: execution.cohortId,
     reviewer_id: execution.reviewerId,
@@ -255,10 +260,18 @@ function mapJsonExecution(
     return { ...common, schema_version: execution.schemaVersion };
   }
 
+  if (execution.schemaVersion === 2) {
+    return {
+      ...common,
+      schema_version: execution.schemaVersion,
+      input: mapJsonInputIdentity(execution.input),
+    };
+  }
   return {
     ...common,
     schema_version: execution.schemaVersion,
     input: mapJsonInputIdentity(execution.input),
+    context_manifest_sha256: execution.contextManifestSha256,
   };
 }
 

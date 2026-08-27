@@ -2,12 +2,10 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
+import { createOpenCodeReviewExecutor } from "../opencode/executor.js";
 import { loadConfigFromRoot, type DiffOwlConfig } from "../config.js";
 import { loadReviewSnapshot } from "../review/context.js";
-import {
-  filterFindingsByChangedFiles,
-  filterFindingsByConfidence,
-} from "../review/filters.js";
+import { filterFindingsByChangedFiles, filterFindingsByConfidence } from "../review/filters.js";
 import { formatExcludedCandidateSummary } from "../review/formatter.js";
 import {
   defaultReviewPipelineDeps,
@@ -22,6 +20,8 @@ import type {
   ReviewOptions,
   ReviewTiming,
 } from "../review/types.js";
+import { assignReviewExecutor } from "../review/executor.js";
+import { createSingleReviewAssignment } from "../review/provenance.js";
 import type { ReviewUsage } from "../review/usage.js";
 import { BASELINE_AGENT_PROMPT, buildBaselinePrompt, renderBaselineDiff } from "./baseline.js";
 import type { EvalCase } from "./case-types.js";
@@ -53,7 +53,7 @@ export interface EvalRunnerDependencies {
 }
 
 const defaultDependencies: EvalRunnerDependencies = {
-  executor: defaultReviewPipelineDeps.executor,
+  executor: createOpenCodeReviewExecutor(),
 };
 
 function resolveEvalRunMode(options: EvalRunnerOptions): EvalRunMode {
@@ -416,10 +416,21 @@ function buildEvalPipelineDeps(
 ): ReviewPipelineDeps {
   return {
     ...defaultReviewPipelineDeps,
-    executor: dependencies.executor,
-    persistReviewRun: async (diffOwlDir, input) => {
+    createExecutor: (config) =>
+      assignReviewExecutor(
+        createSingleReviewAssignment(
+          {
+            backend: "opencode",
+            requestedModel: config.model,
+            source: { backend: "legacy", model: "legacy" },
+          },
+          config.reasoning.effort,
+        ),
+        dependencies.executor,
+      ),
+    persistCanonicalReview: async (diffOwlDir, input) => {
       onPersistInput(input.findings);
-      return defaultReviewPipelineDeps.persistReviewRun(diffOwlDir, input);
+      return defaultReviewPipelineDeps.persistCanonicalReview(diffOwlDir, input);
     },
     renderMarkdown: () => "",
     writeMarkdownReport: async () => "",

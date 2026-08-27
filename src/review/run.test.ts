@@ -1,9 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DiffOwlConfig } from "../config.js";
-import type { ReviewExecutor, ReviewFinding } from "./types.js";
+import type { AssignedReviewExecutor, ReviewFinding } from "./types.js";
 import type { PersistReviewRunResult } from "../state/persist.js";
 import type { LoadedReviewSnapshot, ReviewContext } from "./context.js";
 import type { ReviewContextSource } from "./context-source.js";
+import type { CapturedReviewOperation } from "./operation.js";
+import { createUnavailableContextReviewOperation } from "./operation.js";
+import {
+  ReviewExecutionIdSchema,
+  ReviewIdSchema,
+  ReviewOperationIdSchema,
+  ReviewerIdSchema,
+} from "./ids.js";
+import { ReviewCancelledError, ReviewTimeoutError } from "./errors.js";
+import {
+  createSingleReviewAssignment,
+  type ReviewExecutionRuntimeProvenance,
+} from "./provenance.js";
 import {
   buildDocOnlySkipMarkdown,
   defaultReviewPipelineDeps,
@@ -30,7 +43,7 @@ const config: DiffOwlConfig = {
 };
 
 const persisted: PersistReviewRunResult = {
-  reviewId: "rev_1",
+  reviewId: ReviewIdSchema.parse("rev_1"),
   execution: null,
   possibleDuplicateSuggestions: [],
   reconcile: { observations: [], suppressedCounts: { dismissed: 0, deferred: 0 } },
@@ -65,8 +78,19 @@ function makeSnapshot(
   };
 }
 
-function makeDeps(snapshot: LoadedReviewSnapshot): ReviewPipelineDeps {
-  const executor: ReviewExecutor = {
+function makeDeps(
+  snapshot: LoadedReviewSnapshot,
+): ReviewPipelineDeps & { executor: AssignedReviewExecutor } {
+  const assignment = createSingleReviewAssignment(
+    {
+      backend: "opencode",
+      requestedModel: "provider/model",
+      source: { backend: "legacy", model: "legacy" },
+    },
+    "auto",
+  );
+  const executor: AssignedReviewExecutor = {
+    assignment,
     execute: vi.fn(async (options) => {
       options.onStatus?.("Preparing review runtime...");
       options.onStatus?.("Running review...");
@@ -76,13 +100,34 @@ function makeDeps(snapshot: LoadedReviewSnapshot): ReviewPipelineDeps {
           sessionId: "session",
         },
         timings: [],
+        runtimeProvenance: {
+          cohortId: null,
+          reviewerId: ReviewerIdSchema.parse("single"),
+          role: "single",
+          backend: "opencode",
+          requestedModel: "provider/model",
+          effectiveModel: null,
+          preferenceSource: { backend: "legacy", model: "legacy" },
+          reasoningEffort: "auto",
+          sessionId: "session",
+          terminalOutcome: "completed",
+        } satisfies ReviewExecutionRuntimeProvenance,
       };
     }),
   };
-  return {
+  const deps: ReviewPipelineDeps & { executor: AssignedReviewExecutor } = {
     ...defaultReviewPipelineDeps,
     buildReviewContextFromDiff: vi.fn(async () => makeReviewContext(snapshot)),
+    captureReviewOperation: vi.fn(() => makeOperation(snapshot)),
+    createUnavailableContextReviewOperation: vi.fn((input) =>
+      createUnavailableContextReviewOperation({
+        ...input,
+        id: "op_skipped",
+        createdAt: "2026-08-24T00:00:00.000Z",
+      }),
+    ),
     computeDiffHash: vi.fn(() => "hash"),
+    createExecutor: vi.fn(() => deps.executor),
     executor,
     enrichReviewFindingsWithDurableMetadata: vi.fn((findings) => findings),
     filterFindingsByChangedFiles: vi.fn((findings) => ({ findings, suppressed: [] })),
@@ -91,13 +136,25 @@ function makeDeps(snapshot: LoadedReviewSnapshot): ReviewPipelineDeps {
     formatLifecycleSuppressedSummary: vi.fn(() => null),
     loadReviewSnapshot: vi.fn(async () => snapshot),
     mapReviewTarget: vi.fn(() => ({ targetKind: "staged" as const, targetRef: null })),
-    persistReviewRun: vi.fn(async () => persisted),
+    persistCanonicalReview: vi.fn(async () => persisted),
+    persistSkippedReview: vi.fn(async () => persisted),
+    persistReviewExecutionAttempt: vi.fn(async (_dir, input) => ({
+      id: ReviewExecutionIdSchema.parse("exe_attempt"),
+      operationId: input.operation.id,
+      createdAt: "2026-08-24T00:00:00.000Z",
+      attemptNumber: 1,
+      schemaVersion: 3,
+      input: input.operation.input,
+      contextManifestSha256: input.operation.contextManifestSha256,
+      ...input.execution,
+    })),
     renderMarkdown: vi.fn(() => "markdown"),
-    renderReviewContext: vi.fn(() => "context"),
+    renderReviewContextDocument: vi.fn(() => ({ text: "context", degradations: [] })),
     resolveTargetCommit: vi.fn(async () => null),
     updatePersistedReview: vi.fn(async () => {}),
     writeMarkdownReport: vi.fn(async () => "/repo/.diffowl/reviews/review.md"),
   };
+  return deps;
 }
 
 describe("buildDocOnlySkipMarkdown", () => {
@@ -148,7 +205,7 @@ describe("runReviewSkipChecks", () => {
     expect(outcome).toEqual({ kind: "empty-diff", timings: inputTimings });
     expect(outcome.kind === "empty-diff" ? outcome.timings : null).not.toBe(inputTimings);
     expect(inputTimings).toEqual([{ phase: "preflight", label: "Preflight", ms: 1 }]);
-    expect(deps.persistReviewRun).not.toHaveBeenCalled();
+    expect(deps.persistSkippedReview).not.toHaveBeenCalled();
     expect(deps.writeMarkdownReport).not.toHaveBeenCalled();
   });
 
@@ -158,16 +215,18 @@ describe("runReviewSkipChecks", () => {
     const outcome = await runReviewSkipChecks(skipInput({ persistEmptyDiff: true }), deps);
 
     expect(outcome).toMatchObject({ kind: "skipped", reason: "empty-diff", reportPath: null });
-    expect(deps.persistReviewRun).toHaveBeenCalledWith(
+    expect(deps.persistSkippedReview).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({
-        reviewInput: {
-          targetKind: "staged",
-          baseCommit: null,
-          mergeBaseCommit: null,
-          headCommit: null,
-          diffHash: "hash",
-        },
+        operation: expect.objectContaining({
+          input: {
+            targetKind: "staged",
+            baseCommit: null,
+            mergeBaseCommit: null,
+            headCommit: null,
+            diffHash: "hash",
+          },
+        }),
         sessionId: "",
         skippedReason: "empty-diff",
         summary: "No staged changes to review.",
@@ -187,13 +246,15 @@ describe("runReviewSkipChecks", () => {
     );
 
     expect(outcome).toMatchObject({ kind: "skipped", reason: "empty-diff", reportPath: null });
-    expect(deps.persistReviewRun).toHaveBeenCalledWith(
+    expect(deps.persistSkippedReview).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({
-        targetRef: "main",
-        reviewInput: expect.objectContaining({
-          targetKind: "base",
-          headCommit: "abc123",
+        operation: expect.objectContaining({
+          targetRef: "main",
+          input: expect.objectContaining({
+            targetKind: "base",
+            headCommit: "abc123",
+          }),
         }),
         summary: "No committed branch changes to review.",
       }),
@@ -226,10 +287,12 @@ describe("runReviewSkipChecks", () => {
     await runReviewSkipChecks({ ...skipInput(), target }, deps);
 
     expect(deps.resolveTargetCommit).not.toHaveBeenCalled();
-    expect(deps.persistReviewRun).toHaveBeenCalledWith(
+    expect(deps.persistSkippedReview).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({
-        reviewInput: expect.objectContaining({ headCommit: "abc123" }),
+        operation: expect.objectContaining({
+          input: expect.objectContaining({ headCommit: "abc123" }),
+        }),
       }),
     );
   });
@@ -265,13 +328,15 @@ describe("runReviewPipeline", () => {
 
     expect(deps.mapReviewTarget).toHaveBeenCalledWith({ kind: "base", ref: "origin/main" });
     expect(deps.resolveTargetCommit).not.toHaveBeenCalled();
-    expect(deps.persistReviewRun).toHaveBeenCalledWith(
+    expect(deps.persistCanonicalReview).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({
-        targetRef: "origin/main",
-        reviewInput: expect.objectContaining({
-          targetKind: "base",
-          headCommit: "captured-head",
+        operation: expect.objectContaining({
+          targetRef: "origin/main",
+          input: expect.objectContaining({
+            targetKind: "base",
+            headCommit: "captured-head",
+          }),
         }),
       }),
     );
@@ -288,7 +353,7 @@ describe("runReviewPipeline", () => {
     const outside = makeFinding("src/other.ts");
     const provenance = {
       cohortId: null,
-      reviewerId: "single",
+      reviewerId: ReviewerIdSchema.parse("single"),
       role: "single" as const,
       backend: "codex" as const,
       requestedModel: "gpt-5.6-luna",
@@ -300,7 +365,8 @@ describe("runReviewPipeline", () => {
     };
     const persistedExecution = {
       ...provenance,
-      schemaVersion: 2 as const,
+      schemaVersion: 3 as const,
+      contextManifestSha256: "context-hash",
       input: {
         targetKind: "base" as const,
         baseCommit: "resolved-base",
@@ -308,9 +374,10 @@ describe("runReviewPipeline", () => {
         headCommit: "captured-head",
         diffHash: "hash",
       },
-      id: "exe_1",
-      reviewId: "rev_1",
+      id: ReviewExecutionIdSchema.parse("exe_1"),
+      operationId: ReviewOperationIdSchema.parse("op_test"),
       createdAt: "2026-08-21T00:00:00.000Z",
+      attemptNumber: 1,
     };
     vi.mocked(deps.executor.execute).mockResolvedValue({
       review: {
@@ -326,7 +393,7 @@ describe("runReviewPipeline", () => {
       runtimeProvenance: provenance,
     });
     vi.mocked(deps.filterFindingsByChangedFiles).mockReturnValue({ findings: [kept], suppressed: [outside] });
-    vi.mocked(deps.persistReviewRun).mockResolvedValue({
+    vi.mocked(deps.persistCanonicalReview).mockResolvedValue({
       ...persisted,
       execution: persistedExecution,
       actionableFindings: [kept],
@@ -358,19 +425,23 @@ describe("runReviewPipeline", () => {
       { phase: "preflight", label: "Preflight", ms: 1 },
       expect.objectContaining({ phase: "context-build" }),
     ]));
-    expect(deps.persistReviewRun).toHaveBeenCalledWith(
+    expect(deps.persistCanonicalReview).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({
-        reviewInput: {
-          targetKind: "base",
-          baseCommit: "resolved-base",
-          mergeBaseCommit: "merge-base",
-          headCommit: "captured-head",
-          diffHash: "hash",
+        operation: expect.objectContaining({
+          input: {
+            targetKind: "base",
+            baseCommit: "resolved-base",
+            mergeBaseCommit: "merge-base",
+            headCommit: "captured-head",
+            diffHash: "hash",
+          },
+        }),
+        source: {
+          kind: "new-execution",
+          execution: provenance,
         },
-        execution: provenance,
         findings: [kept],
-        sessionId: "session",
       }),
     );
     expect(deps.updatePersistedReview).toHaveBeenCalledWith("/repo/.diffowl", "rev_1", {
@@ -381,7 +452,15 @@ describe("runReviewPipeline", () => {
 
   it("uses an explicitly selected executor instead of the default dependency", async () => {
     const deps = makeDeps(makeSnapshot([codeFile()]));
-    const selectedExecutor: ReviewExecutor = {
+    const selectedExecutor: AssignedReviewExecutor = {
+      assignment: createSingleReviewAssignment(
+        {
+          backend: "codex",
+          requestedModel: "gpt-5.4-mini",
+          source: { backend: "command", model: "command" },
+        },
+        "max",
+      ),
       execute: vi.fn(async () => ({
         review: {
           report: { summary: "selected", findings: [] },
@@ -389,6 +468,18 @@ describe("runReviewPipeline", () => {
         },
         timings: [],
         effectiveModel: "gpt-5.4-mini",
+        runtimeProvenance: {
+          cohortId: null,
+          reviewerId: ReviewerIdSchema.parse("single"),
+          role: "single",
+          backend: "codex",
+          requestedModel: "gpt-5.4-mini",
+          effectiveModel: "gpt-5.4-mini",
+          preferenceSource: { backend: "command", model: "command" },
+          reasoningEffort: "max",
+          sessionId: "selected-session",
+          terminalOutcome: "completed",
+        } satisfies ReviewExecutionRuntimeProvenance,
       })),
     };
 
@@ -406,6 +497,27 @@ describe("runReviewPipeline", () => {
     });
   });
 
+  it("publishes execution provenance atomically for every completed model run", async () => {
+    const deps = makeDeps(makeSnapshot([codeFile()]));
+
+    await runReviewPipeline(skipInput(), deps);
+
+    expect(deps.persistCanonicalReview).toHaveBeenCalledWith(
+      "/repo/.diffowl",
+      expect.objectContaining({
+        source: {
+          kind: "new-execution",
+          execution: expect.objectContaining({
+            reviewerId: "single",
+            role: "single",
+            terminalOutcome: "completed",
+          }),
+        },
+      }),
+    );
+    expect(deps.persistReviewExecutionAttempt).not.toHaveBeenCalled();
+  });
+
   it("passes the pipeline cancellation signal and status sink to its executor", async () => {
     const deps = makeDeps(makeSnapshot([codeFile()]));
     const signal = new AbortController().signal;
@@ -418,6 +530,88 @@ describe("runReviewPipeline", () => {
         onStatus,
         review: expect.objectContaining({ signal }),
       }),
+    );
+  });
+
+  it.each([
+    [new ReviewCancelledError("cancelled"), "cancelled"],
+    [new ReviewTimeoutError("timed out"), "timed-out"],
+    [new Error("backend failed"), "failed"],
+  ] as const)(
+    "persists an unsuccessful assigned execution as %s before rethrowing",
+    async (error, terminalOutcome) => {
+      const deps = makeDeps(makeSnapshot([codeFile()]));
+      deps.executor = {
+        assignment: createSingleReviewAssignment(
+          {
+            backend: "codex",
+            requestedModel: "gpt-5.6-luna",
+            source: { backend: "local", model: "local" },
+          },
+          "max",
+        ),
+        execute: vi.fn(async () => Promise.reject(error)),
+      };
+
+      await expect(runReviewPipeline(skipInput(), deps)).rejects.toBe(error);
+
+      expect(deps.persistReviewExecutionAttempt).toHaveBeenCalledWith("/repo/.diffowl", {
+        operation: makeOperation(makeSnapshot([codeFile()])),
+        execution: expect.objectContaining({
+          backend: "codex",
+          reviewerId: "single",
+          terminalOutcome,
+        }),
+      });
+      expect(deps.persistCanonicalReview).not.toHaveBeenCalled();
+    },
+  );
+
+  it("persists non-Error throws as failed attempts without replacing the thrown value", async () => {
+    const deps = makeDeps(makeSnapshot([codeFile()]));
+    const thrownValue = "backend rejected the review";
+    deps.executor = {
+      assignment: createSingleReviewAssignment(
+        {
+          backend: "codex",
+          requestedModel: "gpt-5.6-luna",
+          source: { backend: "local", model: "local" },
+        },
+        "max",
+      ),
+      execute: vi.fn(async () => Promise.reject(thrownValue)),
+    };
+
+    await expect(runReviewPipeline(skipInput(), deps)).rejects.toBe(thrownValue);
+
+    expect(deps.persistReviewExecutionAttempt).toHaveBeenCalledWith("/repo/.diffowl", {
+      operation: makeOperation(makeSnapshot([codeFile()])),
+      execution: expect.objectContaining({ terminalOutcome: "failed" }),
+    });
+  });
+
+  it("preserves the review failure when terminal-attempt persistence also fails", async () => {
+    const deps = makeDeps(makeSnapshot([codeFile()]));
+    const reviewError = new ReviewCancelledError("cancelled");
+    const onWarning = vi.fn();
+    deps.executor = {
+      assignment: createSingleReviewAssignment(
+        {
+          backend: "codex",
+          requestedModel: "gpt-5.6-luna",
+          source: { backend: "local", model: "local" },
+        },
+        "max",
+      ),
+      execute: vi.fn(async () => Promise.reject(reviewError)),
+    };
+    deps.persistReviewExecutionAttempt = vi.fn(async () => {
+      throw new Error("database is locked");
+    });
+
+    await expect(runReviewPipeline(skipInput({ onWarning }), deps)).rejects.toBe(reviewError);
+    expect(onWarning).toHaveBeenCalledWith(
+      "Review failed, and its terminal outcome could not be persisted.",
     );
   });
 
@@ -434,6 +628,7 @@ describe("runReviewPipeline", () => {
         sessionId: "session-timing",
       },
       timings: [{ phase: "executor", label: "Review runtime", ms: 11 }],
+      runtimeProvenance: completedRuntimeProvenance("session-timing"),
     });
 
     const outcome = await runReviewPipeline(skipInput(), deps);
@@ -450,7 +645,7 @@ describe("runReviewPipeline", () => {
       "write-report",
       "model",
     ]);
-    expect(deps.persistReviewRun).toHaveBeenCalledWith(
+    expect(deps.persistCanonicalReview).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({
         timings: expect.arrayContaining([
@@ -482,6 +677,7 @@ describe("runReviewPipeline", () => {
         sessionId: "session-symbols",
       },
       timings: [],
+      runtimeProvenance: completedRuntimeProvenance("session-symbols"),
     });
     vi.mocked(deps.buildReviewContextFromDiff).mockResolvedValue({
       ...makeReviewContext(snapshot),
@@ -498,7 +694,7 @@ describe("runReviewPipeline", () => {
 
     await runReviewPipeline(skipInput(), deps);
 
-    const persistInput = vi.mocked(deps.persistReviewRun).mock.calls.at(-1)?.[1];
+    const persistInput = vi.mocked(deps.persistCanonicalReview).mock.calls.at(-1)?.[1];
     expect(persistInput).toEqual(expect.objectContaining({
       symbolKeys: ["ts-v1|class:A/method:handle", "ts-v1|class:B/method:handle"],
     }));
@@ -514,6 +710,7 @@ describe("runReviewPipeline", () => {
         sessionId: "session-nested-symbols",
       },
       timings: [],
+      runtimeProvenance: completedRuntimeProvenance("session-nested-symbols"),
     });
     vi.mocked(deps.buildReviewContextFromDiff).mockResolvedValue({
       ...makeReviewContext(snapshot),
@@ -528,7 +725,7 @@ describe("runReviewPipeline", () => {
 
     await runReviewPipeline(skipInput(), deps);
 
-    const persistInput = vi.mocked(deps.persistReviewRun).mock.calls.at(-1)?.[1];
+    const persistInput = vi.mocked(deps.persistCanonicalReview).mock.calls.at(-1)?.[1];
     expect(persistInput).toEqual(expect.objectContaining({
       symbolKeys: ["ts-v1|method:handle/method:handle"],
     }));
@@ -558,7 +755,31 @@ function codeFile(): LoadedReviewSnapshot["diff"]["files"][number] {
 }
 
 function makeFinding(file: string): ReviewFinding {
-  return { severity: "warning", file, line: 1, title: "Finding", body: "Details", confidence: "high" };
+  return {
+    severity: "warning",
+    file,
+    line: 1,
+    title: "Finding",
+    body: "Details",
+    confidence: "high",
+  };
+}
+
+function completedRuntimeProvenance(
+  sessionId: string,
+): ReviewExecutionRuntimeProvenance & { terminalOutcome: "completed" } {
+  return {
+    cohortId: null,
+    reviewerId: ReviewerIdSchema.parse("single"),
+    role: "single",
+    backend: "opencode",
+    requestedModel: "provider/model",
+    effectiveModel: null,
+    preferenceSource: { backend: "legacy", model: "legacy" },
+    reasoningEffort: "auto",
+    sessionId,
+    terminalOutcome: "completed",
+  };
 }
 
 function makeReviewContext(snapshot: LoadedReviewSnapshot): ReviewContext {
@@ -574,5 +795,54 @@ function makeReviewContext(snapshot: LoadedReviewSnapshot): ReviewContext {
     relatedFiles: [],
     references: [],
     diagnostics: [],
+    degradations: [],
+  };
+}
+
+function makeOperation(snapshot: LoadedReviewSnapshot): CapturedReviewOperation {
+  return {
+    id: ReviewOperationIdSchema.parse("op_test"),
+    createdAt: "2026-08-24T00:00:00.000Z",
+    targetRef:
+      snapshot.target.kind === "base" || snapshot.target.kind === "commit"
+        ? (snapshot.target.ref ?? null)
+        : null,
+    input:
+      snapshot.target.kind === "base"
+        ? {
+            targetKind: "base",
+            baseCommit: snapshot.baseCommit!,
+            mergeBaseCommit: snapshot.mergeBaseCommit!,
+            headCommit: snapshot.targetCommit!,
+            diffHash: "hash",
+          }
+        : snapshot.target.kind === "staged"
+          ? {
+              targetKind: "staged",
+              baseCommit: null,
+              mergeBaseCommit: null,
+              headCommit: null,
+              diffHash: "hash",
+            }
+          : {
+              targetKind: snapshot.target.kind,
+              baseCommit: null,
+              mergeBaseCommit: null,
+              headCommit: snapshot.targetCommit!,
+              diffHash: "hash",
+            },
+    depth: "default",
+    contextKind: "captured",
+    contextManifest: {
+      schemaVersion: 1,
+      depth: "default",
+      renderedContextSha256: "a".repeat(64),
+      changedFileCount: 1,
+      skippedFileCount: 0,
+      relatedFileCount: 0,
+      referenceCount: 0,
+      degradationCounts: [],
+    },
+    contextManifestSha256: "context-hash",
   };
 }

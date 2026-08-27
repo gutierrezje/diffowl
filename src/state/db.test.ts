@@ -18,9 +18,9 @@ import { openSqliteDatabase } from "./sqlite.js";
 import { dismissFinding } from "./lifecycle.js";
 import { listFindingEvents } from "./repositories/events.js";
 import { listReviewExecutionsByReviewId } from "./repositories/review-executions.js";
-import { getReviewById, insertReview } from "./repositories/reviews.js";
+import { getReviewById } from "./repositories/reviews.js";
 import { reconcileReviewFindings } from "./reconcile.js";
-import { removeTempStateDir } from "./test-helpers.js";
+import { insertTestReview as insertReview, removeTempStateDir } from "./test-helpers.js";
 import { CURRENT_SCHEMA_VERSION } from "./types.js";
 import { z } from "zod";
 
@@ -31,6 +31,7 @@ const EXPECTED_TABLES = [
   "finding_observations",
   "finding_events",
   "finding_possible_duplicates",
+  "review_operations",
   "review_executions",
 ];
 const EXPECTED_MIGRATIONS = Array.from({ length: CURRENT_SCHEMA_VERSION }, (_, index) => ({
@@ -45,6 +46,61 @@ afterEach(async () => {
 });
 
 describe("openStateDatabase", () => {
+  it("rejects the abandoned schema 7 instead of supporting an unreleased state", async () => {
+    const dir = await createTempDir();
+    const db = await openSqliteDatabase(getStateDbPath(dir));
+    try {
+      db.exec(`
+        CREATE TABLE schema_migrations (
+          version INTEGER PRIMARY KEY,
+          applied_at TEXT NOT NULL
+        );
+      `);
+      const insert = db.prepare(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+      );
+      for (let version = 1; version <= 7; version++) {
+        insert.run(version, "2026-08-27T00:00:00.000Z");
+      }
+    } finally {
+      closeDatabaseConnection(db);
+    }
+
+    await expect(openStateDatabase(dir)).rejects.toThrow(
+      "Database schema version 7 is newer than supported version 6",
+    );
+  });
+
+  it("rejects the abandoned schema 6 table shape", async () => {
+    const dir = await createTempDir();
+    const db = await openSqliteDatabase(getStateDbPath(dir));
+    try {
+      db.exec(`
+        CREATE TABLE schema_migrations (
+          version INTEGER PRIMARY KEY,
+          applied_at TEXT NOT NULL
+        );
+        CREATE TABLE reviews (
+          id TEXT PRIMARY KEY,
+          target_kind TEXT NOT NULL,
+          diff_hash TEXT NOT NULL
+        );
+      `);
+      const insert = db.prepare(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+      );
+      for (let version = 1; version <= 6; version++) {
+        insert.run(version, "2026-08-27T00:00:00.000Z");
+      }
+    } finally {
+      closeDatabaseConnection(db);
+    }
+
+    await expect(openStateDatabase(dir)).rejects.toThrow(
+      "Database schema version 6 does not match the supported review schema",
+    );
+  });
+
   it("creates schema tables with WAL, foreign keys, and busy timeout enabled", async () => {
     const dir = await createTempDir();
     const state = await openStateDatabase(dir);
@@ -67,6 +123,24 @@ describe("openStateDatabase", () => {
           .all()
           .some((column) => column["name"] === "symbol_key"),
       ).toBe(true);
+      expect(
+        state.db
+          .prepare("PRAGMA table_info(review_operations)")
+          .all()
+          .map((column) => column["name"]),
+      ).toEqual([
+        "id",
+        "created_at",
+        "target_kind",
+        "target_ref",
+        "base_commit",
+        "merge_base_commit",
+        "head_commit",
+        "diff_hash",
+        "context_depth",
+        "context_manifest_json",
+        "context_manifest_sha256",
+      ]);
 
       const migrations = state.db
         .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
@@ -211,20 +285,18 @@ describe("openStateDatabase", () => {
       expect(() =>
         state.db
           .prepare(`
-          INSERT INTO reviews (
-            id, created_at, target_kind, target_ref, base_commit, merge_base_commit,
-            target_commit, diff_hash, model, reasoning, depth, session_id, summary,
-            diagnostics_json, timings_json
+          INSERT INTO review_operations (
+            id, created_at, target_kind, target_ref, base_commit,
+            merge_base_commit, head_commit, diff_hash, context_depth
           ) VALUES (
-            'rev_malformed', @createdAt, 'base', 'origin/main', NULL, NULL, NULL,
-            'malformed-input', 'provider/model', 'medium', 'default', 'session-malformed',
-            'Malformed input probe', '[]', '[]'
+            'op_malformed', @createdAt, 'base', 'origin/main', NULL, NULL, NULL,
+            'malformed-input', 'default'
           )
         `)
           .run({
             createdAt: new Date().toISOString(),
           }),
-      ).toThrow("Review contains invalid input identity.");
+      ).toThrow("Review operation contains invalid input identity.");
     } finally {
       closeStateDatabase(state);
     }
@@ -250,14 +322,14 @@ describe("openStateDatabase", () => {
       });
       expect(() =>
         state.db
-          .prepare("UPDATE reviews SET diff_hash = ? WHERE id = ?")
-          .run("changed-input", review.id),
-      ).toThrow("Review input identity is immutable.");
+          .prepare("UPDATE review_operations SET diff_hash = ? WHERE id = ?")
+          .run("changed-input", review.operationId),
+      ).toThrow("Review operation identity is immutable.");
       expect(() =>
         state.db
-          .prepare("UPDATE reviews SET target_ref = ? WHERE id = ?")
-          .run("changed-ref", review.id),
-      ).toThrow("Review input identity is immutable.");
+          .prepare("UPDATE review_operations SET target_ref = ? WHERE id = ?")
+          .run("changed-ref", review.operationId),
+      ).toThrow("Review operation identity is immutable.");
     } finally {
       closeStateDatabase(state);
     }

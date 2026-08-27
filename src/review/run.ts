@@ -1,8 +1,8 @@
 import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
 import { isDocOnlyDiff, resolveCommitRef } from "../git/diff.js";
-import { createOpenCodeReviewExecutor } from "../opencode/executor.js";
+import { createSelectedReviewExecutor } from "./executor.js";
 import type {
-  ReviewExecutor,
+  AssignedReviewExecutor,
   ReviewExecutorOptions,
   ReviewProgressEvent,
   ReviewReport,
@@ -10,7 +10,9 @@ import type {
   ReviewUsage,
 } from "./types.js";
 import {
+  createFailedReviewExecutionProvenance,
   createReviewInputIdentity,
+  createSingleReviewAssignment,
 } from "./provenance.js";
 import {
   computeDiffHash,
@@ -18,9 +20,11 @@ import {
   formatLifecycleSuppressedSummary,
   loadFindingOccurrenceCounts,
   mapReviewTarget,
-  persistReviewRun,
+  persistCanonicalReview,
+  persistReviewExecutionAttempt,
+  persistSkippedReview,
   updatePersistedReview,
-  type PersistReviewRunInput,
+  type PersistCanonicalReviewInput,
   type PersistReviewRunResult,
 } from "../state/persist.js";
 import { filterFindingsByChangedFiles, filterFindingsByConfidence } from "./filters.js";
@@ -28,10 +32,15 @@ import { formatExcludedCandidateSummary, renderMarkdown, REPORT_SCHEMA_VERSION, 
 import {
   buildReviewContextFromDiff,
   loadReviewSnapshot,
-  renderReviewContext,
+  renderReviewContextDocument,
   type LoadedReviewSnapshot,
 } from "./context.js";
 import type { ReviewTarget } from "./target.js";
+import {
+  captureReviewOperation,
+  createUnavailableContextReviewOperation,
+} from "./operation.js";
+import { ReviewExecutionFailureSchema } from "./errors.js";
 
 export type ReviewPipelineOutcome =
   | {
@@ -52,54 +61,106 @@ export type ReviewSkipCheckOutcome =
   | { kind: "continue"; snapshot: LoadedReviewSnapshot; timings: ReviewTiming[] };
 
 export interface ReviewPipelineInput {
-  target: ReviewTarget; config: DiffOwlConfig; depth: ReviewContextDepth; verbose: boolean;
-  projectRoot: string; diffOwlDir: string; timings: ReviewTiming[]; persistEmptyDiff: boolean;
+  target: ReviewTarget;
+  config: DiffOwlConfig;
+  depth: ReviewContextDepth;
+  verbose: boolean;
+  projectRoot: string;
+  diffOwlDir: string;
+  timings: ReviewTiming[];
+  persistEmptyDiff: boolean;
   signal?: AbortSignal;
-  executor?: ReviewExecutor;
+  executor?: AssignedReviewExecutor;
   onProgress?: (event: ReviewProgressEvent) => void;
   onDiagnostics?: (diagnostics: string[]) => void;
   onStatus?: (message: string) => void;
+  onWarning?: (message: string) => void;
 }
 
 export interface ReviewPipelineDeps {
-  loadReviewSnapshot: typeof loadReviewSnapshot; buildReviewContextFromDiff: typeof buildReviewContextFromDiff;
-  renderReviewContext: typeof renderReviewContext; executor: ReviewExecutor;
-  filterFindingsByConfidence: typeof filterFindingsByConfidence; filterFindingsByChangedFiles: typeof filterFindingsByChangedFiles;
+  loadReviewSnapshot: typeof loadReviewSnapshot;
+  buildReviewContextFromDiff: typeof buildReviewContextFromDiff;
+  renderReviewContextDocument: typeof renderReviewContextDocument;
+  createExecutor: (config: DiffOwlConfig) => AssignedReviewExecutor;
+  filterFindingsByConfidence: typeof filterFindingsByConfidence;
+  filterFindingsByChangedFiles: typeof filterFindingsByChangedFiles;
   formatExcludedCandidateSummary: typeof formatExcludedCandidateSummary;
-  computeDiffHash: typeof computeDiffHash; mapReviewTarget: typeof mapReviewTarget;
-  persistReviewRun: typeof persistReviewRun; updatePersistedReview: typeof updatePersistedReview;
+  computeDiffHash: typeof computeDiffHash;
+  mapReviewTarget: typeof mapReviewTarget;
+  persistCanonicalReview: typeof persistCanonicalReview;
+  persistSkippedReview: typeof persistSkippedReview;
+  updatePersistedReview: typeof updatePersistedReview;
+  persistReviewExecutionAttempt: typeof persistReviewExecutionAttempt;
+  captureReviewOperation: typeof captureReviewOperation;
+  createUnavailableContextReviewOperation: typeof createUnavailableContextReviewOperation;
   resolveTargetCommit: typeof resolveTargetCommit;
   enrichReviewFindingsWithDurableMetadata: typeof enrichReviewFindingsWithDurableMetadata;
-  formatLifecycleSuppressedSummary: typeof formatLifecycleSuppressedSummary; loadFindingOccurrenceCounts: typeof loadFindingOccurrenceCounts;
-  renderMarkdown: typeof renderMarkdown; writeMarkdownReport: typeof writeMarkdownReport;
+  formatLifecycleSuppressedSummary: typeof formatLifecycleSuppressedSummary;
+  loadFindingOccurrenceCounts: typeof loadFindingOccurrenceCounts;
+  renderMarkdown: typeof renderMarkdown;
+  writeMarkdownReport: typeof writeMarkdownReport;
 }
 
 export const defaultReviewPipelineDeps: ReviewPipelineDeps = {
-  buildReviewContextFromDiff, computeDiffHash, enrichReviewFindingsWithDurableMetadata,
-  executor: createOpenCodeReviewExecutor(),
-  filterFindingsByChangedFiles, filterFindingsByConfidence, formatExcludedCandidateSummary,
-  formatLifecycleSuppressedSummary, loadFindingOccurrenceCounts, loadReviewSnapshot,
-  mapReviewTarget, persistReviewRun, renderMarkdown, renderReviewContext, resolveTargetCommit, updatePersistedReview, writeMarkdownReport,
+  buildReviewContextFromDiff,
+  captureReviewOperation,
+  createUnavailableContextReviewOperation,
+  computeDiffHash,
+  enrichReviewFindingsWithDurableMetadata,
+  createExecutor: (config) =>
+    createSelectedReviewExecutor(
+      createSingleReviewAssignment(
+        {
+          backend: "opencode",
+          requestedModel: config.model,
+          source: { backend: "legacy", model: "legacy" },
+        },
+        config.reasoning.effort,
+      ),
+    ),
+  filterFindingsByChangedFiles,
+  filterFindingsByConfidence,
+  formatExcludedCandidateSummary,
+  formatLifecycleSuppressedSummary,
+  loadFindingOccurrenceCounts,
+  loadReviewSnapshot,
+  mapReviewTarget,
+  persistReviewExecutionAttempt,
+  persistCanonicalReview,
+  persistSkippedReview,
+  renderMarkdown,
+  renderReviewContextDocument,
+  resolveTargetCommit,
+  updatePersistedReview,
+  writeMarkdownReport,
 };
 
-export async function runReviewPipeline(input: ReviewPipelineInput, deps: ReviewPipelineDeps = defaultReviewPipelineDeps): Promise<ReviewPipelineOutcome> {
+export async function runReviewPipeline(
+  input: ReviewPipelineInput,
+  deps: ReviewPipelineDeps = defaultReviewPipelineDeps,
+): Promise<ReviewPipelineOutcome> {
   const outcome = await runReviewSkipChecks(input, deps);
   if (outcome.kind !== "continue") {
     return outcome;
   }
 
   const { snapshot, timings } = outcome;
-  const { diff } = snapshot;
   const contextStart = performance.now();
   const reviewContext = await deps.buildReviewContextFromDiff(snapshot, input.config, input.depth);
   recordReviewTiming(timings, "context-build", "Local review context build", contextStart);
 
   const contextRenderStart = performance.now();
-  const localContext = deps.renderReviewContext(reviewContext, { depth: input.depth });
+  const renderedContext = deps.renderReviewContextDocument(reviewContext, { depth: input.depth });
+  const localContext = renderedContext.text;
   recordReviewTiming(timings, "context-render", "Local review context render", contextRenderStart);
   if (reviewContext.diagnostics.length > 0) {
     input.onDiagnostics?.(reviewContext.diagnostics);
   }
+  const operation = deps.captureReviewOperation({
+    snapshot,
+    context: reviewContext,
+    renderedContext,
+  });
 
   const executorOptions: ReviewExecutorOptions = {
     review: {
@@ -113,7 +174,23 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
   if (input.signal) executorOptions.review.signal = input.signal;
   if (input.onProgress) executorOptions.review.onProgress = input.onProgress;
   if (input.onStatus) executorOptions.onStatus = input.onStatus;
-  const execution = await (input.executor ?? deps.executor).execute(executorOptions);
+  const executor = input.executor ?? deps.createExecutor(input.config);
+  let execution: Awaited<ReturnType<AssignedReviewExecutor["execute"]>>;
+  try {
+    execution = await executor.execute(executorOptions);
+  } catch (error) {
+    const failure = ReviewExecutionFailureSchema.safeParse(error);
+    const terminalOutcome = failure.success ? failure.data.terminalOutcome : "failed";
+    try {
+      await deps.persistReviewExecutionAttempt(input.diffOwlDir, {
+        operation,
+        execution: createFailedReviewExecutionProvenance(executor.assignment, terminalOutcome),
+      });
+    } catch {
+      input.onWarning?.("Review failed, and its terminal outcome could not be persisted.");
+    }
+    throw error;
+  }
   timings.push(...execution.timings);
   const reviewResult = execution.review;
   const report: ReviewReport = reviewResult.report;
@@ -139,31 +216,16 @@ export async function runReviewPipeline(input: ReviewPipelineInput, deps: Review
   }
 
   const persistStart = performance.now();
-  const diffHash = deps.computeDiffHash(diff.raw);
-  const reviewInput = createReviewInputIdentity({
-    targetKind: snapshot.target.kind,
-    baseCommit: snapshot.baseCommit,
-    mergeBaseCommit: snapshot.mergeBaseCommit,
-    headCommit: snapshot.targetCommit,
-    diffHash,
-  });
-  const persistInput: PersistReviewRunInput = {
-    ...deps.mapReviewTarget(snapshot.target),
-    reviewInput,
-    model: input.config.model,
-    reasoning: input.config.reasoning.effort,
-    depth: input.depth,
-    sessionId: reviewResult.sessionId,
+  const persistInput = {
+    operation,
+    source: { kind: "new-execution", execution: execution.runtimeProvenance },
     summary: report.summary,
     diagnostics,
     timings: [...timings, ...(report.timings ?? [])],
     findings: report.findings,
     symbolKeys: report.findings.map((finding) => findEnclosingSymbolKey(reviewContext, finding)),
-  };
-  if (execution.runtimeProvenance !== undefined) {
-    persistInput.execution = execution.runtimeProvenance;
-  }
-  const persisted = await deps.persistReviewRun(input.diffOwlDir, persistInput);
+  } satisfies PersistCanonicalReviewInput;
+  const persisted = await deps.persistCanonicalReview(input.diffOwlDir, persistInput);
   recordReviewTiming(timings, "persist-state", "Persist review state", persistStart);
 
   report.findings = persisted.actionableFindings;
@@ -249,9 +311,14 @@ export async function runReviewSkipChecks(
     headCommit: snapshot.targetCommit,
     diffHash: deps.computeDiffHash(diff.raw),
   });
-  const skippedReview = {
-    ...deps.mapReviewTarget(snapshot.target),
+  const { targetRef } = deps.mapReviewTarget(snapshot.target);
+  const operation = deps.createUnavailableContextReviewOperation({
+    targetRef,
     reviewInput,
+    depth: input.depth,
+  });
+  const skippedReview = {
+    operation,
     model: input.config.model,
     reasoning: input.config.reasoning.effort,
     depth: input.depth,
@@ -275,7 +342,7 @@ export async function runReviewSkipChecks(
     return {
       kind: "skipped",
       reason: "empty-diff",
-      persisted: await deps.persistReviewRun(input.diffOwlDir, {
+      persisted: await deps.persistSkippedReview(input.diffOwlDir, {
         ...skippedReview,
         summary,
         skippedReason: "empty-diff",
@@ -289,7 +356,7 @@ export async function runReviewSkipChecks(
     return { kind: "continue", snapshot, timings };
   }
 
-  const persisted = await deps.persistReviewRun(input.diffOwlDir, {
+  const persisted = await deps.persistSkippedReview(input.diffOwlDir, {
     ...skippedReview,
     summary: "Documentation-only changes detected. No code review performed.",
     skippedReason: "documentation-only",

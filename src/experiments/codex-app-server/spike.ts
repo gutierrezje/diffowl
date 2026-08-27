@@ -10,6 +10,8 @@ import {
   type ReviewPipelineInput,
   type ReviewPipelineOutcome,
 } from "../../review/run.js";
+import { assignReviewExecutor } from "../../review/executor.js";
+import { createSingleReviewAssignment } from "../../review/provenance.js";
 import type { ReviewTiming } from "../../review/types.js";
 import type { ReviewUsage } from "../../review/usage.js";
 import { SchemaValidationError } from "../../review/document.js";
@@ -135,38 +137,52 @@ export async function runCodexAppServerSpike(input: SpikeInput): Promise<SpikeOu
     protocol = await inspectCodexProtocol(protocolInput);
     const deps = {
       ...defaultReviewPipelineDeps,
-      executor: {
-        execute: async (
-          options: Parameters<typeof defaultReviewPipelineDeps.executor.execute>[0],
-        ) => {
-          const reviewStart = performance.now();
-          options.onStatus?.("Reviewing changes...");
-          const reviewInput: Parameters<typeof executeCodexReview>[0] = {
-            ...options.review,
-            executable: input.codex.appServer.executable,
-            model: input.codex.model,
-            timeoutMs: input.codex.timeoutMs,
-            interruptTimeoutMs: input.codex.interruptDeadlineMs,
-            closeTimeoutMs: input.codex.teardownDeadlineMs,
-            includeIgnoredRepositoryPaths: input.codex.includeIgnoredRepositoryPaths,
-          };
-          if (input.codex.appServer.args !== undefined)
-            reviewInput.args = input.codex.appServer.args;
-          if (input.codex.appServer.env !== undefined) reviewInput.env = input.codex.appServer.env;
-          const result = await executeCodexReview(reviewInput);
-          codex = result.evidence;
-          return {
-            review: result.reviewResult,
-            timings: [
-              {
-                phase: "review-run",
-                label: "Codex review run",
-                ms: Math.max(0, Math.round(performance.now() - reviewStart)),
-              },
-            ],
-          };
-        },
-      },
+      createExecutor: () =>
+        assignReviewExecutor(
+          createSingleReviewAssignment(
+            {
+              backend: "codex",
+              requestedModel: input.codex.model,
+              source: { backend: "command", model: "command" },
+            },
+            input.review.config.reasoning.effort,
+          ),
+          {
+            execute: async (
+              options: Parameters<
+                ReturnType<typeof defaultReviewPipelineDeps.createExecutor>["execute"]
+              >[0],
+            ) => {
+              const reviewStart = performance.now();
+              options.onStatus?.("Reviewing changes...");
+              const reviewInput: Parameters<typeof executeCodexReview>[0] = {
+                ...options.review,
+                executable: input.codex.appServer.executable,
+                model: input.codex.model,
+                timeoutMs: input.codex.timeoutMs,
+                interruptTimeoutMs: input.codex.interruptDeadlineMs,
+                closeTimeoutMs: input.codex.teardownDeadlineMs,
+                includeIgnoredRepositoryPaths: input.codex.includeIgnoredRepositoryPaths,
+              };
+              if (input.codex.appServer.args !== undefined)
+                reviewInput.args = input.codex.appServer.args;
+              if (input.codex.appServer.env !== undefined)
+                reviewInput.env = input.codex.appServer.env;
+              const result = await executeCodexReview(reviewInput);
+              codex = result.evidence;
+              return {
+                review: result.reviewResult,
+                timings: [
+                  {
+                    phase: "review-run",
+                    label: "Codex review run",
+                    ms: Math.max(0, Math.round(performance.now() - reviewStart)),
+                  },
+                ],
+              };
+            },
+          },
+        ),
     };
     const reviewPipelineInput: ReviewPipelineInput = { ...input.review };
     if (input.signal !== undefined) reviewPipelineInput.signal = input.signal;

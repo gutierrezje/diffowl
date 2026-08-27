@@ -476,6 +476,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
         path: { id: sessionId },
         ...directoryOptions,
         body: promptBody,
+        signal: eventsController.signal,
       }),
     );
     recordTiming(timings, onProgress, "prompt-send", "OpenCode prompt request", promptSendStart);
@@ -513,6 +514,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
             path: { id: sessionId },
             ...directoryOptions,
             body: retryBody,
+            signal: eventsController.signal,
           }),
         );
       },
@@ -533,6 +535,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
     return result;
   } catch (err) {
     eventsController.abort();
+    if (signal?.aborted) {
+      throw new ReviewCancelledError("Review cancelled by user.");
+    }
     throw err;
   } finally {
     signal?.removeEventListener("abort", cancelReview);

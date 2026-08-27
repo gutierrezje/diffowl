@@ -20,7 +20,12 @@ import {
 } from "./ast/module-bindings.js";
 import { loadTypescript } from "./ast/load-typescript.js";
 import type { ContextSourceModuleRead, ReviewContextSource } from "./context-source.js";
-import type { ChangedFileContext, ReferenceContext, ReferenceMatch } from "./context-types.js";
+import type {
+  ChangedFileContext,
+  ReferenceContext,
+  ReferenceMatch,
+  ReviewContextDegradation,
+} from "./context-types.js";
 import type { ReviewTarget } from "./target.js";
 
 const MAX_REFERENCES_PER_TERM = 8;
@@ -94,6 +99,7 @@ export async function buildReferenceContexts(
   changedFiles: ChangedFileContext[],
   skippedFiles: DiffFile[],
   diagnostics: string[],
+  degradations: ReviewContextDegradation[] = [],
 ): Promise<ReferenceContext[]> {
   const typescript = loadTypescript();
   if (!typescript) {
@@ -101,6 +107,7 @@ export async function buildReferenceContexts(
       diagnostics,
       "TypeScript import index unavailable; reviewing without reference context.",
     );
+    addDegradation(degradations, "impact-index-unavailable");
     return [];
   }
 
@@ -116,6 +123,7 @@ export async function buildReferenceContexts(
     const graph = await openImpactGraph(
       snapshot,
       diagnostics,
+      degradations,
       typescript.version,
       controller.signal,
     );
@@ -128,6 +136,7 @@ export async function buildReferenceContexts(
       changedFiles,
       skippedFiles,
       diagnostics,
+      degradations,
     );
   } catch (error) {
     addDiagnostic(
@@ -136,6 +145,7 @@ export async function buildReferenceContexts(
         ? "TypeScript import index timed out after 10 seconds; review continued without reference context."
         : `TypeScript import index failed: ${formatError(error)}.`,
     );
+    addDegradation(degradations, timedOut ? "impact-index-timeout" : "impact-index-failed");
     return [];
   } finally {
     clearTimeout(timer);
@@ -145,6 +155,7 @@ export async function buildReferenceContexts(
 async function openImpactGraph(
   snapshot: ImpactSnapshot,
   diagnostics: string[],
+  degradations: ReviewContextDegradation[],
   parserVersion: string,
   signal: AbortSignal,
 ): Promise<ImpactGraph> {
@@ -157,6 +168,7 @@ async function openImpactGraph(
       files.set(path, asBlobOid(oid));
     } catch {
       addDiagnostic(diagnostics, `TypeScript import index ignored ${path}: invalid git blob oid.`);
+      addDegradation(degradations, "impact-index-invalid-blob");
     }
   }
 
@@ -193,6 +205,7 @@ async function openImpactGraph(
         diagnostics,
         `TypeScript import index skipped ${result.path}: ${result.reason}.`,
       );
+      addDegradation(degradations, "impact-index-module-skipped");
       return;
     }
 
@@ -204,6 +217,7 @@ async function openImpactGraph(
         diagnostics,
         `TypeScript import index skipped ${result.path}: ${formatError(error)}.`,
       );
+      addDegradation(degradations, "impact-index-module-skipped");
       return;
     }
     signal.throwIfAborted();
@@ -212,6 +226,7 @@ async function openImpactGraph(
         diagnostics,
         `TypeScript import index skipped ${result.path}: parser returned no bindings.`,
       );
+      addDegradation(degradations, "impact-index-module-skipped");
       return;
     }
     bindings.set(oid, parsed);
@@ -282,6 +297,7 @@ async function referencesFromGraph(
   changedFiles: ChangedFileContext[],
   skippedFiles: DiffFile[],
   diagnostics: string[],
+  degradations: ReviewContextDegradation[],
 ): Promise<ReferenceContext[]> {
   const ignoredPaths = new Set([
     ...changedFiles.map((file) => file.file.path),
@@ -315,6 +331,7 @@ async function referencesFromGraph(
       diagnostics,
       `TypeScript import index found ${seen.size} matches; only ${pending.length} are included.`,
     );
+    addDegradation(degradations, "impact-index-results-truncated", seen.size - pending.length);
   }
 
   const matches = await addReferenceSnippets(source, pending);
@@ -615,4 +632,12 @@ function formatError<Failure>(error: Failure): string {
 
 function addDiagnostic(diagnostics: string[], diagnostic: string): void {
   if (!diagnostics.includes(diagnostic)) diagnostics.push(diagnostic);
+}
+
+function addDegradation(
+  degradations: ReviewContextDegradation[],
+  code: ReviewContextDegradation["code"],
+  count = 1,
+): void {
+  degradations.push({ code, count });
 }

@@ -39,7 +39,7 @@ import {
 import {
   getAvailableModels,
 } from "./opencode/client.js";
-import { isReviewCancellation } from "./review/errors.js";
+import { ReviewCancelledError } from "./review/errors.js";
 import type { ReviewProgressEvent, ReviewTiming, ReviewUsage } from "./review/types.js";
 import { getOpenCodeFailureGuidance } from "./opencode/guidance.js";
 import { runEvalCommand } from "./eval/command.js";
@@ -147,6 +147,7 @@ import { z } from "zod";
 import packageJson from "../package.json" with { type: "json" };
 
 const program = new Command();
+const REVIEW_INTERRUPT_FORCE_EXIT_MS = 30_000;
 const NodeRuntimeDescriptionSchema = z.object({
   version: z.string(),
   modules: z.string(),
@@ -303,31 +304,35 @@ program
           discardStdin: false,
         }).start();
     const cancelController = new AbortController();
+    let interruptExitCode: number | undefined;
+    let interruptForceExit: ReturnType<typeof setTimeout> | undefined;
+    let interruptMessage: string | undefined;
+    const reviewWarnings: string[] = [];
 
     // Register signal handlers immediately after spinner starts so they
     // cover the entire review lifecycle (context build, server connect, SSE).
     // discardStdin: false above ensures the terminal delivers SIGINT natively
     // instead of routing through stdin-discarder's raw-mode byte conversion.
     process.once("SIGINT", () => {
-      handleReviewInterrupt({
+      interruptExitCode = 130;
+      interruptMessage = "Review cancelled by user (Ctrl+C).";
+      interruptForceExit = handleReviewInterrupt({
         cancelController,
         spinner,
         jsonMode,
-        message: "Review cancelled by user (Ctrl+C).",
-        exitCode: 130,
-        hook: options.hook,
-        hookCommit,
+        message: interruptMessage,
+        forceExitCode: options.hook ? 0 : interruptExitCode,
       });
     });
     process.once("SIGTSTP", () => {
-      handleReviewInterrupt({
+      interruptExitCode = 146;
+      interruptMessage = "Review cancelled by user (Ctrl+Z).";
+      interruptForceExit = handleReviewInterrupt({
         cancelController,
         spinner,
         jsonMode,
-        message: "Review cancelled by user (Ctrl+Z).",
-        exitCode: 146,
-        hook: options.hook,
-        hookCommit,
+        message: interruptMessage,
+        forceExitCode: options.hook ? 0 : interruptExitCode,
       });
     });
 
@@ -366,7 +371,17 @@ program
             spinner.text = message;
           }
         },
+        onWarning: (message) => {
+          reviewWarnings.push(message);
+          if (jsonMode) return;
+          if (spinner) {
+            spinner.warn(message);
+            return;
+          }
+          console.error(chalk.yellow(message));
+        },
       });
+      if (interruptForceExit !== undefined) clearTimeout(interruptForceExit);
 
       if (outcome.kind === "empty-diff") {
         spinner?.stop();
@@ -472,15 +487,26 @@ program
       }
       process.exit(exitCode);
     } catch (err) {
+      if (interruptForceExit !== undefined) clearTimeout(interruptForceExit);
       spinner?.stop();
-      if (cancelController.signal.aborted || isReviewCancellation(err)) {
+      if (cancelController.signal.aborted || err instanceof ReviewCancelledError) {
+        const message = appendReviewWarnings(
+          interruptMessage ?? "Review cancelled by user.",
+          reviewWarnings,
+        );
+        if (jsonMode) {
+          writeJsonError(message);
+        } else if (!cancelController.signal.aborted) {
+          console.log(chalk.yellow(`\n${message}`));
+        }
         if (options.hook) {
-          await writeHookStatus(1, hookCommit, "Review cancelled by user.");
+          await writeHookStatus(1, hookCommit, message);
           process.exit(0);
         }
         if (!cancelController.signal.aborted) {
           process.exit(130);
         }
+        process.exitCode = interruptExitCode ?? 130;
         return;
       }
       const message = err instanceof Error ? err.message : String(err);
@@ -489,9 +515,12 @@ program
       const failureMessage = `${backendName} review failed: ${message}`;
       if (jsonMode) {
         writeJsonError(
-          guidance.length === 0
-            ? failureMessage
-            : `${failureMessage} Next action: ${guidance.join(" ")}`,
+          appendReviewWarnings(
+            guidance.length === 0
+              ? failureMessage
+              : `${failureMessage} Next action: ${guidance.join(" ")}`,
+            reviewWarnings,
+          ),
         );
       } else {
         console.error(chalk.red(`\n${failureMessage}`));
@@ -1661,29 +1690,20 @@ function handleReviewInterrupt(input: {
   spinner: ReturnType<typeof ora> | null;
   jsonMode: boolean;
   message: string;
-  exitCode: number;
-  hook?: boolean;
-  hookCommit?: string | undefined;
-}): void {
+  forceExitCode: number;
+}): ReturnType<typeof setTimeout> {
   input.cancelController.abort();
   try {
     input.spinner?.stop();
   } catch {}
-  if (input.jsonMode) {
-    writeJsonError(input.message);
-  } else {
+  if (!input.jsonMode) {
     console.log(chalk.yellow(`\n${input.message}`));
   }
-  if (input.hook) {
-    const forceExit = setTimeout(() => process.exit(0), 2000);
-    void writeHookStatus(1, input.hookCommit, input.message).finally(() => {
-      clearTimeout(forceExit);
-      process.exit(0);
-    });
-    return;
-  }
-  // Force exit if the review loop does not unwind promptly after abort.
-  setTimeout(() => process.exit(input.exitCode), 750).unref();
+  return setTimeout(() => process.exit(input.forceExitCode), REVIEW_INTERRUPT_FORCE_EXIT_MS);
+}
+
+function appendReviewWarnings(message: string, warnings: readonly string[]): string {
+  return warnings.length === 0 ? message : `${message} ${warnings.join(" ")}`;
 }
 
 function resolveReviewOutputFormat(

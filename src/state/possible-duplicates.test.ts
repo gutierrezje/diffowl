@@ -12,18 +12,18 @@ import {
   rejectPossibleDuplicate,
   suggestPossibleDuplicates,
 } from "./possible-duplicates.js";
-import {
-  persistReviewRun,
-  type PersistReviewRunInput,
-  type PersistReviewRunResult,
-} from "./persist.js";
+import type { PersistReviewRunResult } from "./persist.js";
 import { getFindingById } from "./repositories/findings.js";
 import { listFindingEvents } from "./repositories/events.js";
-import { insertReview } from "./repositories/reviews.js";
 import { reconcileReviewFindings } from "./reconcile.js";
 import type { SqliteDatabase } from "./sqlite.js";
 import type { FindingCandidate } from "./types.js";
-import { removeTempStateDir } from "./test-helpers.js";
+import {
+  insertTestReview as insertReview,
+  persistTestReview as persistReviewRun,
+  removeTempStateDir,
+  type TestPersistReviewInput as PersistReviewRunInput,
+} from "./test-helpers.js";
 
 const dirs: string[] = [];
 let reviewNumber = 0;

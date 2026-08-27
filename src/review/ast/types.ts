@@ -1,4 +1,5 @@
 import type { AstSymbolContext } from "../context-types.js";
+import type { ReviewContextDegradationCode } from "../context-types.js";
 
 export interface AstParserInput {
   path: string;
@@ -9,6 +10,7 @@ export interface AstParserInput {
 export interface AstParserResult {
   symbols: AstSymbolContext[];
   diagnostics?: string[];
+  degradationCode?: ReviewContextDegradationCode;
 }
 
 export interface AstParser {

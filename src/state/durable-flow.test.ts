@@ -17,9 +17,8 @@ import {
   computeDiffHash,
   enrichReviewFindingsWithDurableMetadata,
   formatLifecycleSuppressedSummary,
-  persistReviewRun,
 } from "./persist.js";
-import { removeTempStateDir } from "./test-helpers.js";
+import { persistTestReview as persistReviewRun, removeTempStateDir } from "./test-helpers.js";
 
 let tempDirs: string[] = [];
 

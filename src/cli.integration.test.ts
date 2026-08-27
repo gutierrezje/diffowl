@@ -19,7 +19,7 @@ import { MIGRATION_001_INITIAL_SCHEMA } from "./state/migrations/001-initial-sch
 import { MIGRATION_002_BASE_REVIEW_TARGET } from "./state/migrations/002-base-review-target.js";
 import { suggestPossibleDuplicates } from "./state/possible-duplicates.js";
 import { reconcileReviewFindings } from "./state/reconcile.js";
-import { insertReview } from "./state/repositories/reviews.js";
+import { insertTestReview as insertReview } from "./state/test-helpers.js";
 import { openSqliteDatabase } from "./state/sqlite.js";
 import { getFindingSummary } from "./state/findings-summary.js";
 import type { FindingCandidate, PossibleDuplicateRecord, ReviewSeverity } from "./state/types.js";
@@ -349,7 +349,7 @@ describe("diffowl CLI", () => {
         effective_model: "gpt-5-codex",
         session_id: "thread-1",
         execution: {
-          schema_version: 2,
+          schema_version: 3,
           cohort_id: null,
           reviewer_id: "single",
           role: "single",
@@ -360,6 +360,7 @@ describe("diffowl CLI", () => {
           reasoning_effort: "auto",
           session_id: "thread-1",
           terminal_outcome: "completed",
+          context_manifest_sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
           input: {
             target_kind: "last-commit",
             base_commit: null,
@@ -369,6 +370,116 @@ describe("diffowl CLI", () => {
           },
         },
       });
+    },
+    30_000,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "persists a cancelled Codex execution before exiting on Ctrl+C",
+    async () => {
+      const repo = await createRepo("diffowl-cli-codex-cancel-");
+      await writeFile(join(repo, ".gitignore"), ".diffowl/\n", "utf8");
+      await mkdir(join(repo, "src"));
+      await writeFile(join(repo, "src/app.ts"), "export const value = 1;\n", "utf8");
+      await commitAll(repo, "initial");
+      await writeFile(join(repo, "src/app.ts"), "export const value = 2;\n", "utf8");
+      await commitAll(repo, "change");
+      const executable = await createMockCodexExecutable();
+      const activeTurnFile = join(dirname(executable), "active-turn");
+      const review = execa(
+        process.execPath,
+        [cliPath, "review", "--backend", "codex", "--model", "gpt-5-codex", "--format", "json"],
+        {
+          cwd: repo,
+          env: {
+            DIFFOWL_CODEX_EXECUTABLE: executable,
+            MOCK_ACTIVE_TURN_FILE: activeTurnFile,
+            MOCK_APP_SERVER_MODE: "spike-cancel-active",
+            MOCK_APP_SERVER_MODEL: "gpt-5-codex",
+            MOCK_INTERRUPT_DELAY_MS: "1200",
+          },
+          reject: false,
+        },
+      );
+
+      try {
+        await waitForPath(activeTurnFile);
+      } catch (error) {
+        review.kill("SIGKILL");
+        const result = await review;
+        throw new Error(
+          `${error instanceof Error ? error.message : String(error)}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`,
+        );
+      }
+      if (review.pid === undefined) throw new Error("Review process did not start.");
+      process.kill(review.pid, "SIGINT");
+      const result = await review;
+
+      expect(result.failed).toBe(true);
+      expect(result).toMatchObject({
+        exitCode: 130,
+        isCanceled: false,
+        isTerminated: false,
+      });
+      CliErrorDocumentSchema.parse(JSON.parse(result.stderr));
+      const state = await openStateDatabase(join(repo, ".diffowl"));
+      try {
+        expect(
+          state.db
+            .prepare("SELECT terminal_outcome FROM review_executions ORDER BY created_at")
+            .all(),
+        ).toEqual([{ terminal_outcome: "cancelled" }]);
+      } finally {
+        closeStateDatabase(state);
+      }
+    },
+    30_000,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "keeps cancellation errors parseable when terminal persistence fails",
+    async () => {
+      const repo = await createRepo("diffowl-cli-codex-cancel-json-");
+      await writeFile(join(repo, ".gitignore"), ".diffowl/\n", "utf8");
+      await mkdir(join(repo, "src"));
+      await writeFile(join(repo, "src/app.ts"), "export const value = 1;\n", "utf8");
+      await commitAll(repo, "initial");
+      await writeFile(join(repo, "src/app.ts"), "export const value = 2;\n", "utf8");
+      await commitAll(repo, "change");
+      const executable = await createMockCodexExecutable();
+      const activeTurnFile = join(dirname(executable), "active-turn");
+      const state = await openStateDatabase(join(repo, ".diffowl"));
+      state.db.exec("BEGIN IMMEDIATE");
+      try {
+        const review = execa(
+          process.execPath,
+          [cliPath, "review", "--backend", "codex", "--model", "gpt-5-codex", "--format", "json"],
+          {
+            cwd: repo,
+            env: {
+              DIFFOWL_CODEX_EXECUTABLE: executable,
+              MOCK_ACTIVE_TURN_FILE: activeTurnFile,
+              MOCK_APP_SERVER_MODE: "spike-cancel-active",
+              MOCK_APP_SERVER_MODEL: "gpt-5-codex",
+              MOCK_INTERRUPT_DELAY_MS: "1200",
+            },
+            reject: false,
+          },
+        );
+
+        await waitForPath(activeTurnFile);
+        if (review.pid === undefined) throw new Error("Review process did not start.");
+        process.kill(review.pid, "SIGINT");
+        const result = await review;
+        const document = CliErrorDocumentSchema.parse(JSON.parse(result.stderr));
+
+        expect(result.exitCode).toBe(130);
+        expect(document.error.message).toContain("Review cancelled by user");
+        expect(document.error.message).toContain("terminal outcome could not be persisted");
+      } finally {
+        state.db.exec("ROLLBACK");
+        closeStateDatabase(state);
+      }
     },
     30_000,
   );
@@ -1459,4 +1570,36 @@ async function commitAll(repo: string, message: string): Promise<void> {
     ],
     { cwd: repo },
   );
+}
+
+async function createMockCodexExecutable(): Promise<string> {
+  const bin = await mkdtemp(join(tmpdir(), "diffowl-cli-codex-wrapper-"));
+  tempDirs.push(bin);
+  const executable = join(bin, "codex");
+  await writeFile(
+    executable,
+    [
+      `#!${process.execPath}`,
+      `(async () => import(${JSON.stringify(pathToFileURL(mockCodexCliPath).href)}))().catch((error) => {`,
+      "  console.error(error);",
+      "  process.exit(1);",
+      "});",
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  return executable;
+}
+
+async function waitForPath(path: string): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    try {
+      await access(path);
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+  throw new Error(`Timed out waiting for ${path}`);
 }

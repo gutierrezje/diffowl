@@ -129,6 +129,10 @@ describe("buildReviewContext", () => {
       expect(context.diagnostics).toContain(
         "TypeScript import index timed out after 10 seconds; review continued without reference context.",
       );
+      expect(context.degradations).toContainEqual({
+        code: "impact-index-timeout",
+        count: 1,
+      });
     } finally {
       unblock();
       vi.useRealTimers();
@@ -637,6 +641,10 @@ describe("buildReviewContext", () => {
         ]),
       );
       expect(context.diagnostics.join("\n")).not.toContain("TypeScript import index failed");
+      expect(context.degradations).toContainEqual({
+        code: "impact-index-module-skipped",
+        count: 1,
+      });
       expect(
         context.references.find((reference) => reference.term === "calculateTotal")?.matches,
       ).toContainEqual(expect.objectContaining({ path: "src/consumer.ts" }));
@@ -952,6 +960,12 @@ describe("buildReviewContext", () => {
     const rendered = renderReviewContext(context);
 
     expect(context.diagnostics).toEqual(["diff truncated"]);
+    expect(context.degradations).toEqual(
+      expect.arrayContaining([
+        { code: "diff-output-truncated", count: 1 },
+        { code: "changed-file-unavailable", count: 1 },
+      ]),
+    );
     expect(context.changedFiles[0]!.content).toEqual({
       status: "skipped",
       reason: expect.stringContaining("file too large for context"),

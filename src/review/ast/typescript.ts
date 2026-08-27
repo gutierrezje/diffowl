@@ -42,6 +42,7 @@ function extractTypeScriptAstSymbols(input: AstParserInput): AstParserResult {
     return {
       symbols: [],
       diagnostics: ["TypeScript AST unavailable; reviewing from diff and file context only."],
+      degradationCode: "typescript-ast-unavailable",
     };
   }
 

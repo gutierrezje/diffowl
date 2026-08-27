@@ -9,10 +9,12 @@ import {
   getStateDbPath,
   openStateDatabase,
 } from "../db.js";
-import { computeDiffHash, persistReviewRun } from "../persist.js";
+import { computeDiffHash } from "../persist.js";
+import { computeReviewContextManifestSha256 } from "../../review/operation.js";
+import { ReviewOperationIdSchema, ReviewerIdSchema } from "../../review/ids.js";
 import { listReviewExecutionsByReviewId } from "../repositories/review-executions.js";
 import { openSqliteDatabase } from "../sqlite.js";
-import { removeTempStateDir } from "../test-helpers.js";
+import { persistTestReview as persistReviewRun, removeTempStateDir } from "../test-helpers.js";
 import { MIGRATION_001_INITIAL_SCHEMA } from "./001-initial-schema.js";
 import { MIGRATION_002_BASE_REVIEW_TARGET } from "./002-base-review-target.js";
 import { MIGRATION_003_POSSIBLE_DUPLICATES } from "./003-possible-duplicates.js";
@@ -108,7 +110,7 @@ afterEach(async () => {
   tempDirs.length = 0;
 });
 
-describe("review input identity schema migrations", () => {
+describe("review operation schema migration", () => {
   it("repairs the historical schema-v5 triggers before persisting a completed review", async () => {
     const dir = await createHistoricalSchemaV5Database();
 
@@ -154,7 +156,8 @@ describe("review input identity schema migrations", () => {
       expect(listReviewExecutionsByReviewId(state.db, "rev_historical")).toEqual([
         expect.objectContaining({
           id: "exe_historical",
-          reviewId: "rev_historical",
+          operationId: "op_legacy_rev_historical",
+          attemptNumber: 1,
           schemaVersion: 1,
         }),
       ]);
@@ -186,7 +189,7 @@ describe("review input identity schema migrations", () => {
           backend: "codex",
           requestedModel: "gpt-5.6-luna",
           effectiveModel: "gpt-5.6-luna",
-          schemaVersion: 2,
+          schemaVersion: 3,
         }),
       ]);
     } finally {
@@ -210,7 +213,8 @@ describe("review input identity schema migrations", () => {
       expect(listReviewExecutionsByReviewId(state.db, "rev_v040")).toEqual([
         expect.objectContaining({
           id: "exe_legacy_rev_v040",
-          reviewId: "rev_v040",
+          operationId: "op_legacy_rev_v040",
+          attemptNumber: 1,
           schemaVersion: 1,
         }),
       ]);
@@ -397,14 +401,35 @@ async function persistCompletedReview(
   seed: string,
 ) {
   const model = backend === "codex" ? "gpt-5.6-luna" : "provider/model";
+  const reviewInput = {
+    targetKind: "staged" as const,
+    baseCommit: null,
+    mergeBaseCommit: null,
+    headCommit: null,
+    diffHash: computeDiffHash(seed),
+  };
+  const contextManifest = {
+    schemaVersion: 1 as const,
+    depth: "default" as const,
+    renderedContextSha256: "b".repeat(64),
+    changedFileCount: 0,
+    skippedFileCount: 0,
+    relatedFileCount: 0,
+    referenceCount: 0,
+    degradationCounts: [],
+  };
   return persistReviewRun(dir, {
     targetRef: null,
-    reviewInput: {
-      targetKind: "staged",
-      baseCommit: null,
-      mergeBaseCommit: null,
-      headCommit: null,
-      diffHash: computeDiffHash(seed),
+    reviewInput,
+    operation: {
+      id: ReviewOperationIdSchema.parse(`op_${seed}`),
+      createdAt: "2026-08-24T00:00:00.000Z",
+      targetRef: null,
+      input: reviewInput,
+      depth: "default",
+      contextKind: "captured",
+      contextManifest,
+      contextManifestSha256: computeReviewContextManifestSha256(contextManifest),
     },
     model,
     reasoning: "medium",
@@ -416,7 +441,7 @@ async function persistCompletedReview(
     findings: [],
     execution: {
       cohortId: null,
-      reviewerId: "single",
+      reviewerId: ReviewerIdSchema.parse("single"),
       role: "single",
       backend,
       requestedModel: model,
@@ -445,8 +470,9 @@ function expectCanonicalReviewExecutionColumns(
       .map((column) => column["name"]),
   ).toEqual([
     "id",
-    "review_id",
+    "operation_id",
     "created_at",
+    "attempt_number",
     "schema_version",
     "cohort_id",
     "reviewer_id",
@@ -465,8 +491,10 @@ function expectTriggerNames(db: Awaited<ReturnType<typeof openSqliteDatabase>>):
   expect(
     db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' ORDER BY name ASC").all(),
   ).toEqual([
-    { name: "enforce_review_input_identity" },
-    { name: "prevent_review_input_identity_update" },
+    { name: "enforce_review_operation_input_identity" },
+    { name: "enforce_review_source_execution" },
+    { name: "prevent_review_operation_identity_update" },
+    { name: "prevent_review_provenance_update" },
   ]);
 }
 

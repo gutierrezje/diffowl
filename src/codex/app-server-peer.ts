@@ -140,6 +140,9 @@ export function startAppServerPeer(options: AppServerPeerOptions): AppServerPeer
     stdout: "pipe",
     stderr: "pipe",
     buffer: false,
+    // DiffOwl owns graceful cancellation. Execa's signal cleanup would re-raise
+    // SIGINT before the review pipeline can persist its terminal outcome.
+    cleanup: false,
     stripFinalNewline: false,
     reject: false,
   } satisfies ExecaOptions;

@@ -1,8 +1,13 @@
 import { createHash } from "node:crypto";
 import type {
+  CompletedReviewExecutionProvenance,
   ReviewExecutionRuntimeProvenance,
-  ReviewInputIdentity,
 } from "../review/provenance.js";
+import type {
+  CapturedReviewOperation,
+  ReviewOperation,
+} from "../review/operation.js";
+import type { ReviewExecutionId } from "../review/ids.js";
 import type { ReviewFinding, ReviewTiming } from "../review/types.js";
 import { closeStateDatabase, openStateDatabase, runInTransaction } from "./db.js";
 import { computeFindingFingerprint } from "./fingerprint.js";
@@ -15,7 +20,11 @@ import {
   type UpdateReviewInput,
 } from "./repositories/reviews.js";
 import { countObservationsByFindingIds } from "./repositories/observations.js";
-import { insertReviewExecution } from "./repositories/review-executions.js";
+import {
+  getReviewExecutionById,
+  insertReviewExecution,
+} from "./repositories/review-executions.js";
+import { insertReviewOperation } from "./repositories/review-operations.js";
 import type {
   FindingCandidate,
   ReconcileReviewFindingsResult,
@@ -23,21 +32,33 @@ import type {
   ReviewRecord,
 } from "./types.js";
 
-export interface PersistReviewRunInput {
-  targetRef: string | null;
-  reviewInput: ReviewInputIdentity;
-  model: string;
-  reasoning: string;
-  depth: string;
-  sessionId: string;
+interface PersistReviewOutputInput {
   summary: string;
   diagnostics: string[];
   timings: ReviewTiming[];
   findings: ReviewFinding[];
-  execution?: ReviewExecutionRuntimeProvenance;
   /** Symbol keys aligned with `findings`; persistence-only context, never review model data. */
   symbolKeys?: Array<string | null>;
-  skippedReason?: string | null;
+}
+
+export interface PersistCanonicalReviewInput extends PersistReviewOutputInput {
+  operation: CapturedReviewOperation;
+  source:
+    | { kind: "new-execution"; execution: CompletedReviewExecutionProvenance }
+    | { kind: "persisted-execution"; executionId: ReviewExecutionId };
+}
+
+export interface PersistSkippedReviewInput extends PersistReviewOutputInput {
+  operation: ReviewOperation;
+  model: string;
+  reasoning: string;
+  sessionId: string;
+  skippedReason: string;
+}
+
+export interface PersistReviewExecutionAttemptInput {
+  operation: CapturedReviewOperation;
+  execution: ReviewExecutionRuntimeProvenance;
 }
 
 export interface PersistReviewRunResult {
@@ -214,38 +235,68 @@ export function enrichReviewFindingsWithDurableMetadata(
   });
 }
 
-export async function persistReviewRun(
+export async function persistCanonicalReview(
   diffOwlDir: string,
-  input: PersistReviewRunInput,
+  input: PersistCanonicalReviewInput,
+): Promise<PersistReviewRunResult> {
+  return persistReviewOutput(diffOwlDir, { kind: "canonical", ...input });
+}
+
+export async function persistSkippedReview(
+  diffOwlDir: string,
+  input: PersistSkippedReviewInput,
+): Promise<PersistReviewRunResult> {
+  return persistReviewOutput(diffOwlDir, { kind: "skipped", ...input });
+}
+
+async function persistReviewOutput(
+  diffOwlDir: string,
+  input:
+    | ({ kind: "canonical" } & PersistCanonicalReviewInput)
+    | ({ kind: "skipped" } & PersistSkippedReviewInput),
 ): Promise<PersistReviewRunResult> {
   const state = await openStateDatabase(diffOwlDir);
 
   try {
     return runInTransaction(state.db, () => {
-      const review = insertReview(state.db, {
-        targetRef: input.targetRef,
-        targetKind: input.reviewInput.targetKind,
-        baseCommit: input.reviewInput.baseCommit,
-        mergeBaseCommit: input.reviewInput.mergeBaseCommit,
-        targetCommit: input.reviewInput.headCommit,
-        diffHash: input.reviewInput.diffHash,
-        model: input.model,
-        reasoning: input.reasoning,
-        depth: input.depth,
-        sessionId: input.sessionId,
-        summary: input.summary,
-        diagnostics: input.diagnostics,
-        timings: input.timings,
-        skippedReason: input.skippedReason ?? null,
-      });
-      const execution =
-        input.execution === undefined
-          ? null
-          : insertReviewExecution(state.db, {
-              review,
-              createdAt: review.createdAt,
-              provenance: input.execution,
-            });
+      insertReviewOperation(state.db, input.operation);
+      let execution: ReviewExecutionRecord | null;
+      let review: ReviewRecord;
+      switch (input.kind) {
+        case "canonical":
+          execution = resolveCanonicalSourceExecution(
+            state.db,
+            input.operation,
+            input.source,
+          );
+          review = insertReview(state.db, {
+            kind: input.kind,
+            operation: input.operation,
+            sourceExecutionId: execution.id,
+            summary: input.summary,
+            diagnostics: input.diagnostics,
+            timings: input.timings,
+          });
+          break;
+        case "skipped":
+          execution = null;
+          review = insertReview(state.db, {
+            kind: input.kind,
+            operation: input.operation,
+            model: input.model,
+            reasoning: input.reasoning,
+            sessionId: input.sessionId,
+            summary: input.summary,
+            diagnostics: input.diagnostics,
+            timings: input.timings,
+            skippedReason: input.skippedReason,
+          });
+          break;
+        default: {
+          const _exhaustive: never = input;
+          return _exhaustive;
+        }
+      }
 
       const identifiable: ReviewFinding[] = [];
       const untracked: ReviewFinding[] = [];
@@ -308,6 +359,62 @@ export async function persistReviewRun(
         identityDiagnostics,
         possibleDuplicateSuggestions,
       };
+    });
+  } finally {
+    closeStateDatabase(state);
+  }
+}
+
+function resolveCanonicalSourceExecution(
+  db: Parameters<typeof getReviewExecutionById>[0],
+  operation: CapturedReviewOperation,
+  source: PersistCanonicalReviewInput["source"],
+): ReviewExecutionRecord {
+  switch (source.kind) {
+    case "new-execution":
+      return insertReviewExecution(db, {
+        operation,
+        provenance: source.execution,
+      });
+    case "persisted-execution":
+      return getCompletedSourceExecution(db, operation, source.executionId);
+    default: {
+      const _exhaustive: never = source;
+      return _exhaustive;
+    }
+  }
+}
+
+function getCompletedSourceExecution(
+  db: Parameters<typeof getReviewExecutionById>[0],
+  operation: CapturedReviewOperation,
+  sourceExecutionId: ReviewExecutionId,
+): ReviewExecutionRecord {
+  const execution = getReviewExecutionById(db, sourceExecutionId);
+  if (!execution) {
+    throw new Error(`Review execution ${sourceExecutionId} was not found.`);
+  }
+  if (execution.operationId !== operation.id) {
+    throw new Error("Canonical review source belongs to a different review operation.");
+  }
+  if (execution.terminalOutcome !== "completed") {
+    throw new Error("Canonical review source must be a completed execution.");
+  }
+  return execution;
+}
+
+export async function persistReviewExecutionAttempt(
+  diffOwlDir: string,
+  input: PersistReviewExecutionAttemptInput,
+): Promise<ReviewExecutionRecord> {
+  const state = await openStateDatabase(diffOwlDir);
+  try {
+    return runInTransaction(state.db, () => {
+      insertReviewOperation(state.db, input.operation);
+      return insertReviewExecution(state.db, {
+        operation: input.operation,
+        provenance: input.execution,
+      });
     });
   } finally {
     closeStateDatabase(state);

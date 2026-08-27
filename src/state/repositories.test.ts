@@ -10,8 +10,8 @@ import {
 } from "./db.js";
 import { getFindingByFingerprint, insertFinding } from "./repositories/findings.js";
 import { insertFindingEvent, listFindingEvents } from "./repositories/events.js";
-import { getReviewById, insertReview } from "./repositories/reviews.js";
-import { removeTempStateDir } from "./test-helpers.js";
+import { getReviewById } from "./repositories/reviews.js";
+import { insertTestReview as insertReview, removeTempStateDir } from "./test-helpers.js";
 import { z } from "zod";
 
 let tempDirs: string[] = [];

@@ -5,8 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { closeStateDatabase, openStateDatabase } from "./db.js";
 import { computeFindingFingerprint } from "./fingerprint.js";
 import { isActionableStatus, reconcileReviewFindings } from "./reconcile.js";
-import { insertReview } from "./repositories/reviews.js";
-import { removeTempStateDir } from "./test-helpers.js";
+import { insertTestReview as insertReview, removeTempStateDir } from "./test-helpers.js";
 import type { FindingCandidate } from "./types.js";
 
 let tempDirs: string[] = [];
