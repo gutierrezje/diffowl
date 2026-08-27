@@ -1,8 +1,10 @@
 import { z } from "zod";
+import { ReviewContextDepthSchema } from "../../config.js";
+import { ReviewOperationIdSchema } from "../../review/ids.js";
 import {
   computeReviewContextManifestSha256,
   ReviewContextManifestSchema,
-  type CapturedReviewOperation,
+  type ReviewOperation,
 } from "../../review/operation.js";
 import { ReviewInputIdentitySchema } from "../../review/provenance.js";
 import { StateDatabaseError } from "../db.js";
@@ -10,7 +12,7 @@ import type { SqliteDatabase } from "../sqlite.js";
 import type { ReviewOperationRecord } from "../types.js";
 
 const ReviewOperationRowSchema = z.object({
-  id: z.string(),
+  id: ReviewOperationIdSchema,
   createdAt: z.string(),
   targetKind: z.enum(["staged", "commit", "last-commit", "base"]),
   targetRef: z.string().nullable(),
@@ -18,6 +20,7 @@ const ReviewOperationRowSchema = z.object({
   mergeBaseCommit: z.string().nullable(),
   headCommit: z.string().nullable(),
   diffHash: z.string(),
+  depth: ReviewContextDepthSchema,
   contextManifestJson: z.string().nullable(),
   contextManifestSha256: z.string().nullable(),
 });
@@ -31,16 +34,23 @@ const selectColumns = `
   merge_base_commit AS mergeBaseCommit,
   head_commit AS headCommit,
   diff_hash AS diffHash,
+  context_depth AS depth,
   context_manifest_json AS contextManifestJson,
   context_manifest_sha256 AS contextManifestSha256
 `;
 
 export function insertReviewOperation(
   db: SqliteDatabase,
-  operation: CapturedReviewOperation,
+  operation: ReviewOperation,
 ): ReviewOperationRecord {
-  const contextManifest = ReviewContextManifestSchema.parse(operation.contextManifest);
-  if (computeReviewContextManifestSha256(contextManifest) !== operation.contextManifestSha256) {
+  const contextManifest =
+    operation.contextKind === "captured"
+      ? ReviewContextManifestSchema.parse(operation.contextManifest)
+      : null;
+  if (
+    contextManifest !== null &&
+    computeReviewContextManifestSha256(contextManifest) !== operation.contextManifestSha256
+  ) {
     throw new StateDatabaseError(
       `Review operation ${operation.id} contains an invalid context manifest hash.`,
     );
@@ -48,8 +58,8 @@ export function insertReviewOperation(
   db.prepare(`
     INSERT INTO review_operations (
       id, created_at, schema_version, target_kind, target_ref, base_commit, merge_base_commit,
-      head_commit, diff_hash, context_manifest_json, context_manifest_sha256
-    ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
+      head_commit, diff_hash, context_depth, context_manifest_json, context_manifest_sha256
+    ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO NOTHING
   `).run(
     operation.id,
@@ -60,7 +70,8 @@ export function insertReviewOperation(
     operation.input.mergeBaseCommit,
     operation.input.headCommit,
     operation.input.diffHash,
-    JSON.stringify(contextManifest),
+    operation.depth,
+    contextManifest === null ? null : JSON.stringify(contextManifest),
     operation.contextManifestSha256,
   );
 
@@ -112,11 +123,27 @@ function mapReviewOperationRow(
   ) {
     throw new Error("Context manifest hash does not match its contents.");
   }
-  return {
+  const identity = {
     id: row.id,
     createdAt: row.createdAt,
     targetRef: row.targetRef,
     input,
+    depth: row.depth,
+  };
+  if (contextManifest === null) {
+    return {
+      ...identity,
+      contextKind: "unavailable",
+      contextManifest: null,
+      contextManifestSha256: null,
+    };
+  }
+  if (row.contextManifestSha256 === null) {
+    throw new Error("Context manifest hash is missing.");
+  }
+  return {
+    ...identity,
+    contextKind: "captured",
     contextManifest,
     contextManifestSha256: row.contextManifestSha256,
   };

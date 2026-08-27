@@ -11,9 +11,17 @@ import type { BuildReviewJsonInput } from "./json.js";
 import type { PersistReviewRunResult } from "../state/persist.js";
 import type { PersistedObservation, ReviewRecord } from "../state/types.js";
 import type { ReviewFinding } from "../review/types.js";
+import {
+  ReviewExecutionIdSchema,
+  ReviewIdSchema,
+  ReviewOperationIdSchema,
+  ReviewerIdSchema,
+} from "../review/ids.js";
 
 const review: ReviewRecord = {
-  id: "rev_test",
+  id: ReviewIdSchema.parse("rev_test"),
+  operationId: ReviewOperationIdSchema.parse("op_test"),
+  sourceExecutionId: ReviewExecutionIdSchema.parse("exe_test"),
   createdAt: "2026-06-15T01:00:00.000Z",
   targetKind: "staged",
   targetRef: null,
@@ -50,7 +58,7 @@ function buildDocument(
 }
 
 const persisted: PersistReviewRunResult = {
-  reviewId: "rev_test",
+  reviewId: ReviewIdSchema.parse("rev_test"),
   execution: null,
   possibleDuplicateSuggestions: [],
   actionableFindings: [],
@@ -220,7 +228,7 @@ describe("buildReviewJsonDocument", () => {
     const execution = {
       schemaVersion: 2 as const,
       cohortId: null,
-      reviewerId: "single",
+      reviewerId: ReviewerIdSchema.parse("single"),
       role: "single" as const,
       backend: "codex" as const,
       requestedModel: "gpt-5.4",

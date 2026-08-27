@@ -1,11 +1,20 @@
 import { z } from "zod";
 import { ReasoningEffortSchema } from "../../config.js";
-import { ReviewBackendSchema } from "../../review/backend-selection.js";
+import {
+  ReviewExecutionIdSchema,
+  ReviewOperationIdSchema,
+  ReviewerIdSchema,
+  type ReviewOperationId,
+} from "../../review/ids.js";
+import {
+  ReviewBackendSchema,
+  ReviewPreferenceSourceSchema,
+} from "../../review/backend-selection.js";
 import {
   completeReviewExecutionProvenance,
   REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION,
+  ReviewExecutionRuntimeProvenanceSchema,
   ReviewInputIdentitySchema,
-  type ReviewExecutionRuntimeProvenance,
 } from "../../review/provenance.js";
 import { StateDatabaseError } from "../db.js";
 import type { SqliteDatabase } from "../sqlite.js";
@@ -15,20 +24,13 @@ import {
   type ReviewExecutionRecord,
 } from "../types.js";
 
-const PreferenceSourceSchema = z
-  .object({
-    backend: z.enum(["command", "local", "legacy", "default"]),
-    model: z.enum(["command", "environment", "local", "legacy"]),
-  })
-  .strict();
-
 const ReviewExecutionRowSchema = z.object({
-  id: z.string(),
-  operationId: z.string(),
-  reviewId: z.string().nullable(),
+  id: ReviewExecutionIdSchema,
+  operationId: ReviewOperationIdSchema,
   createdAt: z.string(),
+  attemptNumber: z.number().int().positive(),
   cohortId: z.string().nullable(),
-  reviewerId: z.string(),
+  reviewerId: ReviewerIdSchema,
   role: z.enum(["single", "proposer", "checker"]),
   backend: ReviewBackendSchema.nullable(),
   requestedModel: z.string().nullable(),
@@ -53,8 +55,8 @@ const ReviewExecutionRowSchema = z.object({
 const selectColumns = `
   execution.id,
   execution.operation_id AS operationId,
-  execution.review_id AS reviewId,
   execution.created_at AS createdAt,
+  execution.attempt_number AS attemptNumber,
   execution.schema_version AS schemaVersion,
   execution.cohort_id AS cohortId,
   execution.reviewer_id AS reviewerId,
@@ -84,28 +86,28 @@ export function insertReviewExecution(
     input.operation.contextManifestSha256,
   );
   const record = {
-    id: input.id ?? createReviewExecutionId(),
+    id: input.id === undefined ? createReviewExecutionId() : ReviewExecutionIdSchema.parse(input.id),
     operationId: input.operation.id,
-    reviewId: input.review?.id ?? null,
     createdAt: input.createdAt ?? new Date().toISOString(),
+    attemptNumber: nextAttemptNumber(db, input.operation.id, input.provenance.reviewerId),
     ...provenance,
   } satisfies ReviewExecutionRecord;
 
   db.prepare(`
     INSERT INTO review_executions (
-      id, operation_id, review_id, created_at, schema_version, cohort_id, reviewer_id, role,
+      id, operation_id, created_at, attempt_number, schema_version, cohort_id, reviewer_id, role,
       backend, requested_model, effective_model, preference_source_json, reasoning_effort,
       session_id, terminal_outcome
     ) VALUES (
-      @id, @operationId, @reviewId, @createdAt, @schemaVersion, @cohortId, @reviewerId, @role,
+      @id, @operationId, @createdAt, @attemptNumber, @schemaVersion, @cohortId, @reviewerId, @role,
       @backend, @requestedModel, @effectiveModel, @preferenceSourceJson, @reasoningEffort,
       @sessionId, @terminalOutcome
     )
   `).run({
     id: record.id,
     operationId: record.operationId,
-    reviewId: record.reviewId,
     createdAt: record.createdAt,
+    attemptNumber: record.attemptNumber,
     schemaVersion: record.schemaVersion,
     cohortId: record.cohortId,
     reviewerId: record.reviewerId,
@@ -127,26 +129,57 @@ export function listReviewExecutionsByReviewId(
   db: SqliteDatabase,
   reviewId: string,
 ): ReviewExecutionRecord[] {
-  return listReviewExecutions(db, "execution.review_id", reviewId, `Review ${reviewId}`);
+  return listReviewExecutions(db, {
+    join: "INNER JOIN reviews AS review ON review.operation_id = execution.operation_id",
+    predicate: "review.id",
+    value: reviewId,
+    owner: `Review ${reviewId}`,
+  });
+}
+
+export function getReviewExecutionById(
+  db: SqliteDatabase,
+  executionId: string,
+): ReviewExecutionRecord | undefined {
+  let row: z.output<typeof ReviewExecutionRowSchema> | undefined;
+  try {
+    const raw = db
+      .prepare(`
+        SELECT ${selectColumns}
+        FROM review_executions AS execution
+        INNER JOIN review_operations AS operation ON operation.id = execution.operation_id
+        WHERE execution.id = ?
+      `)
+      .get(executionId);
+    row = raw === undefined ? undefined : ReviewExecutionRowSchema.parse(raw);
+  } catch {
+    throw new StateDatabaseError(
+      `Review execution ${executionId} contains invalid execution provenance.`,
+    );
+  }
+  return row === undefined ? undefined : mapReviewExecutionRow(row, `Review execution ${executionId}`);
 }
 
 export function listReviewExecutionsByOperationId(
   db: SqliteDatabase,
   operationId: string,
 ): ReviewExecutionRecord[] {
-  return listReviewExecutions(
-    db,
-    "execution.operation_id",
-    operationId,
-    `Review operation ${operationId}`,
-  );
+  return listReviewExecutions(db, {
+    join: "",
+    predicate: "execution.operation_id",
+    value: operationId,
+    owner: `Review operation ${operationId}`,
+  });
 }
 
 function listReviewExecutions(
   db: SqliteDatabase,
-  column: "execution.review_id" | "execution.operation_id",
-  value: string,
-  owner: string,
+  input: {
+    join: "" | "INNER JOIN reviews AS review ON review.operation_id = execution.operation_id";
+    predicate: "execution.operation_id" | "review.id";
+    value: string;
+    owner: string;
+  },
 ): ReviewExecutionRecord[] {
   let rows: z.output<typeof ReviewExecutionRowSchema>[];
   try {
@@ -156,23 +189,24 @@ function listReviewExecutions(
           SELECT ${selectColumns}
           FROM review_executions AS execution
           INNER JOIN review_operations AS operation ON operation.id = execution.operation_id
-          WHERE ${column} = ?
-          ORDER BY execution.created_at ASC, execution.id ASC
+          ${input.join}
+          WHERE ${input.predicate} = ?
+          ORDER BY execution.attempt_number ASC, execution.created_at ASC, execution.id ASC
         `)
-        .all(value),
+        .all(input.value),
     );
   } catch {
-    throw new StateDatabaseError(`${owner} contains invalid execution provenance.`);
+    throw new StateDatabaseError(`${input.owner} contains invalid execution provenance.`);
   }
 
-  return rows.map((row) => mapReviewExecutionRow(row, owner));
+  return rows.map((row) => mapReviewExecutionRow(row, input.owner));
 }
 
 function mapReviewExecutionRow(
   row: z.output<typeof ReviewExecutionRowSchema>,
   owner: string,
 ): ReviewExecutionRecord {
-  const runtime: ReviewExecutionRuntimeProvenance = {
+  const runtime = {
     cohortId: row.cohortId,
     reviewerId: row.reviewerId,
     role: row.role,
@@ -187,8 +221,8 @@ function mapReviewExecutionRow(
   const recordIdentity = {
     id: row.id,
     operationId: row.operationId,
-    reviewId: row.reviewId,
     createdAt: row.createdAt,
+    attemptNumber: row.attemptNumber,
   };
 
   if (row.schemaVersion === 1) {
@@ -217,9 +251,18 @@ function mapReviewExecutionRow(
     throw new StateDatabaseError(`${owner} contains missing context manifest identity.`);
   }
 
+  const currentRuntime = ReviewExecutionRuntimeProvenanceSchema.safeParse(runtime);
+  if (!currentRuntime.success) {
+    throw new StateDatabaseError(`${owner} contains invalid current execution provenance.`);
+  }
+
   return {
     ...recordIdentity,
-    ...completeReviewExecutionProvenance(runtime, input.data, row.contextManifestSha256),
+    ...completeReviewExecutionProvenance(
+      currentRuntime.data,
+      input.data,
+      row.contextManifestSha256,
+    ),
   };
 }
 
@@ -232,10 +275,29 @@ function parsePreferenceSource(
   }
 
   try {
-    return PreferenceSourceSchema.parse(JSON.parse(raw));
+    return ReviewPreferenceSourceSchema.parse(JSON.parse(raw));
   } catch {
     throw new StateDatabaseError(
       `Review execution ${executionId} contains invalid preference source JSON.`,
     );
   }
+}
+
+function nextAttemptNumber(
+  db: SqliteDatabase,
+  operationId: ReviewOperationId,
+  reviewerId: string,
+): number {
+  const row = z
+    .object({ nextAttemptNumber: z.number().int().positive() })
+    .parse(
+      db
+        .prepare(`
+          SELECT COALESCE(MAX(attempt_number), 0) + 1 AS nextAttemptNumber
+          FROM review_executions
+          WHERE operation_id = ? AND reviewer_id = ?
+        `)
+        .get(operationId, reviewerId),
+    );
+  return row.nextAttemptNumber;
 }

@@ -1,6 +1,14 @@
 import { z } from "zod";
 
 export const ReviewBackendSchema = z.enum(["opencode", "codex"]);
+export const BackendPreferenceSourceSchema = z.enum(["command", "local", "legacy", "default"]);
+export const ModelPreferenceSourceSchema = z.enum(["command", "environment", "local", "legacy"]);
+export const ReviewPreferenceSourceSchema = z
+  .object({
+    backend: BackendPreferenceSourceSchema,
+    model: ModelPreferenceSourceSchema,
+  })
+  .strict();
 export const OpenCodeModelSchema = z
   .string()
   .trim()
@@ -19,8 +27,8 @@ export const BackendModelSelectionSchema = z.discriminatedUnion("backend", [
 
 export type ReviewBackend = z.output<typeof ReviewBackendSchema>;
 export type BackendModelSelection = z.output<typeof BackendModelSelectionSchema>;
-export type BackendPreferenceSource = "command" | "local" | "legacy" | "default";
-export type ModelPreferenceSource = "command" | "environment" | "local" | "legacy";
+export type BackendPreferenceSource = z.output<typeof BackendPreferenceSourceSchema>;
+export type ModelPreferenceSource = z.output<typeof ModelPreferenceSourceSchema>;
 
 export type ReviewSelection = {
   backend: ReviewBackend;

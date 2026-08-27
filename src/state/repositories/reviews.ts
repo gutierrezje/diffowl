@@ -1,76 +1,44 @@
 import { z } from "zod";
-import type { SqliteDatabase } from "../sqlite.js";
+import { ReasoningEffortSchema, ReviewContextDepthSchema } from "../../config.js";
+import {
+  ReviewExecutionIdSchema,
+  ReviewIdSchema,
+  ReviewOperationIdSchema,
+} from "../../review/ids.js";
 import { StateDatabaseError } from "../db.js";
-import type { InsertReviewInput, ReviewRecord } from "../types.js";
-import { createReviewId } from "../types.js";
+import type { SqliteDatabase } from "../sqlite.js";
+import {
+  createReviewId,
+  type InsertReviewInput,
+  type ReviewRecord,
+} from "../types.js";
 
-const insertReviewStatement = (db: SqliteDatabase) =>
-  db.prepare(`
-    INSERT INTO reviews (
-      id,
-      created_at,
-      target_kind,
-      target_ref,
-      base_commit,
-      merge_base_commit,
-      target_commit,
-      diff_hash,
-      model,
-      reasoning,
-      depth,
-      session_id,
-      summary,
-      report_path,
-      diagnostics_json,
-      timings_json,
-      skipped_reason
-    ) VALUES (
-      @id,
-      @createdAt,
-      @targetKind,
-      @targetRef,
-      @baseCommit,
-      @mergeBaseCommit,
-      @targetCommit,
-      @diffHash,
-      @model,
-      @reasoning,
-      @depth,
-      @sessionId,
-      @summary,
-      @reportPath,
-      @diagnosticsJson,
-      @timingsJson,
-      @skippedReason
-    )
-  `);
-
-const getReviewByIdStatement = (db: SqliteDatabase) =>
-  db.prepare(`
-    SELECT
-      id,
-      created_at AS createdAt,
-      target_kind AS targetKind,
-      target_ref AS targetRef,
-      base_commit AS baseCommit,
-      merge_base_commit AS mergeBaseCommit,
-      target_commit AS targetCommit,
-      diff_hash AS diffHash,
-      model,
-      reasoning,
-      depth,
-      session_id AS sessionId,
-      summary,
-      report_path AS reportPath,
-      diagnostics_json AS diagnosticsJson,
-      timings_json AS timingsJson,
-      skipped_reason AS skippedReason
-    FROM reviews
-    WHERE id = ?
-  `);
+const reviewColumns = `
+  review.id,
+  review.operation_id AS operationId,
+  review.source_execution_id AS sourceExecutionId,
+  review.created_at AS createdAt,
+  operation.target_kind AS targetKind,
+  operation.target_ref AS targetRef,
+  operation.base_commit AS baseCommit,
+  operation.merge_base_commit AS mergeBaseCommit,
+  operation.head_commit AS targetCommit,
+  operation.diff_hash AS diffHash,
+  COALESCE(execution.requested_model, review.skipped_model) AS model,
+  COALESCE(execution.reasoning_effort, review.skipped_reasoning) AS reasoning,
+  operation.context_depth AS depth,
+  COALESCE(execution.session_id, review.skipped_session_id) AS sessionId,
+  review.summary,
+  review.report_path AS reportPath,
+  review.diagnostics_json AS diagnosticsJson,
+  review.timings_json AS timingsJson,
+  review.skipped_reason AS skippedReason
+`;
 
 const ReviewRowSchema = z.object({
-  id: z.string(),
+  id: ReviewIdSchema,
+  operationId: ReviewOperationIdSchema,
+  sourceExecutionId: ReviewExecutionIdSchema.nullable(),
   createdAt: z.string(),
   targetKind: z.enum(["staged", "commit", "last-commit", "base"]),
   targetRef: z.string().nullable(),
@@ -79,8 +47,8 @@ const ReviewRowSchema = z.object({
   targetCommit: z.string().nullable(),
   diffHash: z.string(),
   model: z.string(),
-  reasoning: z.string(),
-  depth: z.string(),
+  reasoning: ReasoningEffortSchema,
+  depth: ReviewContextDepthSchema,
   sessionId: z.string(),
   summary: z.string(),
   reportPath: z.string().nullable(),
@@ -90,92 +58,87 @@ const ReviewRowSchema = z.object({
 });
 
 export function insertReview(db: SqliteDatabase, input: InsertReviewInput): ReviewRecord {
-  const record: ReviewRecord = {
-    id: input.id ?? createReviewId(),
-    createdAt: input.createdAt ?? new Date().toISOString(),
-    targetKind: input.targetKind,
-    targetRef: input.targetRef ?? null,
-    baseCommit: input.baseCommit ?? null,
-    mergeBaseCommit: input.mergeBaseCommit ?? null,
-    targetCommit: input.targetCommit ?? null,
-    diffHash: input.diffHash,
-    model: input.model,
-    reasoning: input.reasoning,
-    depth: input.depth,
-    sessionId: input.sessionId,
+  const id = ReviewIdSchema.parse(input.id ?? createReviewId());
+  const createdAt = input.createdAt ?? new Date().toISOString();
+  const common = {
+    id,
+    operationId: input.operation.id,
+    createdAt,
     summary: input.summary,
     reportPath: input.reportPath ?? null,
-    diagnostics: input.diagnostics ?? [],
-    timings: input.timings ?? [],
-    skippedReason: input.skippedReason ?? null,
+    diagnosticsJson: JSON.stringify(input.diagnostics ?? []),
+    timingsJson: JSON.stringify(input.timings ?? []),
   };
 
-  insertReviewStatement(db).run({
-    id: record.id,
-    createdAt: record.createdAt,
-    targetKind: record.targetKind,
-    targetRef: record.targetRef,
-    baseCommit: record.baseCommit,
-    mergeBaseCommit: record.mergeBaseCommit,
-    targetCommit: record.targetCommit,
-    diffHash: record.diffHash,
-    model: record.model,
-    reasoning: record.reasoning,
-    depth: record.depth,
-    sessionId: record.sessionId,
-    summary: record.summary,
-    reportPath: record.reportPath,
-    diagnosticsJson: JSON.stringify(record.diagnostics),
-    timingsJson: JSON.stringify(record.timings),
-    skippedReason: record.skippedReason,
-  });
+  switch (input.kind) {
+    case "canonical":
+      db.prepare(`
+        INSERT INTO reviews (
+          id, operation_id, source_execution_id, created_at, skipped_model, skipped_reasoning,
+          skipped_session_id, summary, report_path, diagnostics_json, timings_json, skipped_reason
+        ) VALUES (
+          @id, @operationId, @sourceExecutionId, @createdAt, NULL, NULL,
+          NULL, @summary, @reportPath, @diagnosticsJson, @timingsJson, NULL
+        )
+      `).run({ ...common, sourceExecutionId: input.sourceExecutionId });
+      break;
+    case "skipped":
+      db.prepare(`
+        INSERT INTO reviews (
+          id, operation_id, source_execution_id, created_at, skipped_model, skipped_reasoning,
+          skipped_session_id, summary, report_path, diagnostics_json, timings_json, skipped_reason
+        ) VALUES (
+          @id, @operationId, NULL, @createdAt, @model, @reasoning,
+          @sessionId, @summary, @reportPath, @diagnosticsJson, @timingsJson, @skippedReason
+        )
+      `).run({
+        ...common,
+        model: input.model,
+        reasoning: input.reasoning,
+        sessionId: input.sessionId,
+        skippedReason: input.skippedReason,
+      });
+      break;
+    default: {
+      const _exhaustive: never = input;
+      return _exhaustive;
+    }
+  }
 
-  return record;
+  const review = getReviewById(db, id);
+  if (!review) {
+    throw new StateDatabaseError(`Review ${id} was not found after insertion.`);
+  }
+  return review;
 }
 
 export function getReviewById(db: SqliteDatabase, id: string): ReviewRecord | undefined {
-  const rawRow = getReviewByIdStatement(db).get(id);
-  const row = rawRow === undefined ? undefined : ReviewRowSchema.parse(rawRow);
-  if (!row) {
-    return undefined;
-  }
-
-  return mapReviewRow(row);
+  const rawRow = db
+    .prepare(`
+      SELECT ${reviewColumns}
+      FROM reviews AS review
+      INNER JOIN review_operations AS operation ON operation.id = review.operation_id
+      LEFT JOIN review_executions AS execution ON execution.id = review.source_execution_id
+      WHERE review.id = ?
+    `)
+    .get(id);
+  if (rawRow === undefined) return undefined;
+  return mapReviewRow(ReviewRowSchema.parse(rawRow));
 }
 
 export function getLatestReview(db: SqliteDatabase): ReviewRecord | undefined {
   const rawRow = db
     .prepare(`
-      SELECT
-        id,
-        created_at AS createdAt,
-        target_kind AS targetKind,
-        target_ref AS targetRef,
-        base_commit AS baseCommit,
-        merge_base_commit AS mergeBaseCommit,
-        target_commit AS targetCommit,
-        diff_hash AS diffHash,
-        model,
-        reasoning,
-        depth,
-        session_id AS sessionId,
-        summary,
-        report_path AS reportPath,
-        diagnostics_json AS diagnosticsJson,
-        timings_json AS timingsJson,
-        skipped_reason AS skippedReason
-      FROM reviews
-      ORDER BY created_at DESC, id DESC
+      SELECT ${reviewColumns}
+      FROM reviews AS review
+      INNER JOIN review_operations AS operation ON operation.id = review.operation_id
+      LEFT JOIN review_executions AS execution ON execution.id = review.source_execution_id
+      ORDER BY review.created_at DESC, review.id DESC
       LIMIT 1
     `)
     .get();
-  const row = rawRow === undefined ? undefined : ReviewRowSchema.parse(rawRow);
-
-  if (!row) {
-    return undefined;
-  }
-
-  return mapReviewRow(row);
+  if (rawRow === undefined) return undefined;
+  return mapReviewRow(ReviewRowSchema.parse(rawRow));
 }
 
 export interface UpdateReviewInput {
@@ -193,29 +156,27 @@ export function updateReview(
     throw new StateDatabaseError(`Review ${id} was not found.`);
   }
 
-  const record: ReviewRecord = {
-    ...existing,
-    reportPath: input.reportPath === undefined ? existing.reportPath : input.reportPath,
-    diagnostics: input.diagnostics ?? existing.diagnostics,
-  };
-
+  const reportPath = input.reportPath === undefined ? existing.reportPath : input.reportPath;
+  const diagnostics = input.diagnostics ?? existing.diagnostics;
   db.prepare(`
     UPDATE reviews
     SET report_path = @reportPath,
         diagnostics_json = @diagnosticsJson
     WHERE id = @id
   `).run({
-    id: record.id,
-    reportPath: record.reportPath,
-    diagnosticsJson: JSON.stringify(record.diagnostics),
+    id: existing.id,
+    reportPath,
+    diagnosticsJson: JSON.stringify(diagnostics),
   });
 
-  return record;
+  return { ...existing, reportPath, diagnostics };
 }
 
-function mapReviewRow(row: z.infer<typeof ReviewRowSchema>): ReviewRecord {
+function mapReviewRow(row: z.output<typeof ReviewRowSchema>): ReviewRecord {
   return {
     id: row.id,
+    operationId: row.operationId,
+    sourceExecutionId: row.sourceExecutionId,
     createdAt: row.createdAt,
     targetKind: row.targetKind,
     targetRef: row.targetRef,

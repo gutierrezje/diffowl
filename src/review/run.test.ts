@@ -5,6 +5,13 @@ import type { PersistReviewRunResult } from "../state/persist.js";
 import type { LoadedReviewSnapshot, ReviewContext } from "./context.js";
 import type { ReviewContextSource } from "./context-source.js";
 import type { CapturedReviewOperation } from "./operation.js";
+import { createUnavailableContextReviewOperation } from "./operation.js";
+import {
+  ReviewExecutionIdSchema,
+  ReviewIdSchema,
+  ReviewOperationIdSchema,
+  ReviewerIdSchema,
+} from "./ids.js";
 import { ReviewCancelledError, ReviewTimeoutError } from "./errors.js";
 import {
   createSingleReviewAssignment,
@@ -36,7 +43,7 @@ const config: DiffOwlConfig = {
 };
 
 const persisted: PersistReviewRunResult = {
-  reviewId: "rev_1",
+  reviewId: ReviewIdSchema.parse("rev_1"),
   execution: null,
   possibleDuplicateSuggestions: [],
   reconcile: { observations: [], suppressedCounts: { dismissed: 0, deferred: 0 } },
@@ -95,7 +102,7 @@ function makeDeps(
         timings: [],
         runtimeProvenance: {
           cohortId: null,
-          reviewerId: "single",
+          reviewerId: ReviewerIdSchema.parse("single"),
           role: "single",
           backend: "opencode",
           requestedModel: "provider/model",
@@ -112,6 +119,13 @@ function makeDeps(
     ...defaultReviewPipelineDeps,
     buildReviewContextFromDiff: vi.fn(async () => makeReviewContext(snapshot)),
     captureReviewOperation: vi.fn(() => makeOperation(snapshot)),
+    createUnavailableContextReviewOperation: vi.fn((input) =>
+      createUnavailableContextReviewOperation({
+        ...input,
+        id: "op_skipped",
+        createdAt: "2026-08-24T00:00:00.000Z",
+      }),
+    ),
     computeDiffHash: vi.fn(() => "hash"),
     createExecutor: vi.fn(() => deps.executor),
     executor,
@@ -122,12 +136,13 @@ function makeDeps(
     formatLifecycleSuppressedSummary: vi.fn(() => null),
     loadReviewSnapshot: vi.fn(async () => snapshot),
     mapReviewTarget: vi.fn(() => ({ targetKind: "staged" as const, targetRef: null })),
-    persistReviewRun: vi.fn(async () => persisted),
+    persistCanonicalReview: vi.fn(async () => persisted),
+    persistSkippedReview: vi.fn(async () => persisted),
     persistReviewExecutionAttempt: vi.fn(async (_dir, input) => ({
-      id: "exe_failed",
+      id: ReviewExecutionIdSchema.parse("exe_attempt"),
       operationId: input.operation.id,
-      reviewId: null,
       createdAt: "2026-08-24T00:00:00.000Z",
+      attemptNumber: 1,
       schemaVersion: 3,
       input: input.operation.input,
       contextManifestSha256: input.operation.contextManifestSha256,
@@ -190,7 +205,7 @@ describe("runReviewSkipChecks", () => {
     expect(outcome).toEqual({ kind: "empty-diff", timings: inputTimings });
     expect(outcome.kind === "empty-diff" ? outcome.timings : null).not.toBe(inputTimings);
     expect(inputTimings).toEqual([{ phase: "preflight", label: "Preflight", ms: 1 }]);
-    expect(deps.persistReviewRun).not.toHaveBeenCalled();
+    expect(deps.persistSkippedReview).not.toHaveBeenCalled();
     expect(deps.writeMarkdownReport).not.toHaveBeenCalled();
   });
 
@@ -200,16 +215,18 @@ describe("runReviewSkipChecks", () => {
     const outcome = await runReviewSkipChecks(skipInput({ persistEmptyDiff: true }), deps);
 
     expect(outcome).toMatchObject({ kind: "skipped", reason: "empty-diff", reportPath: null });
-    expect(deps.persistReviewRun).toHaveBeenCalledWith(
+    expect(deps.persistSkippedReview).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({
-        reviewInput: {
-          targetKind: "staged",
-          baseCommit: null,
-          mergeBaseCommit: null,
-          headCommit: null,
-          diffHash: "hash",
-        },
+        operation: expect.objectContaining({
+          input: {
+            targetKind: "staged",
+            baseCommit: null,
+            mergeBaseCommit: null,
+            headCommit: null,
+            diffHash: "hash",
+          },
+        }),
         sessionId: "",
         skippedReason: "empty-diff",
         summary: "No staged changes to review.",
@@ -229,13 +246,15 @@ describe("runReviewSkipChecks", () => {
     );
 
     expect(outcome).toMatchObject({ kind: "skipped", reason: "empty-diff", reportPath: null });
-    expect(deps.persistReviewRun).toHaveBeenCalledWith(
+    expect(deps.persistSkippedReview).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({
-        targetRef: "main",
-        reviewInput: expect.objectContaining({
-          targetKind: "base",
-          headCommit: "abc123",
+        operation: expect.objectContaining({
+          targetRef: "main",
+          input: expect.objectContaining({
+            targetKind: "base",
+            headCommit: "abc123",
+          }),
         }),
         summary: "No committed branch changes to review.",
       }),
@@ -268,10 +287,12 @@ describe("runReviewSkipChecks", () => {
     await runReviewSkipChecks({ ...skipInput(), target }, deps);
 
     expect(deps.resolveTargetCommit).not.toHaveBeenCalled();
-    expect(deps.persistReviewRun).toHaveBeenCalledWith(
+    expect(deps.persistSkippedReview).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({
-        reviewInput: expect.objectContaining({ headCommit: "abc123" }),
+        operation: expect.objectContaining({
+          input: expect.objectContaining({ headCommit: "abc123" }),
+        }),
       }),
     );
   });
@@ -307,13 +328,15 @@ describe("runReviewPipeline", () => {
 
     expect(deps.mapReviewTarget).toHaveBeenCalledWith({ kind: "base", ref: "origin/main" });
     expect(deps.resolveTargetCommit).not.toHaveBeenCalled();
-    expect(deps.persistReviewRun).toHaveBeenCalledWith(
+    expect(deps.persistCanonicalReview).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({
-        targetRef: "origin/main",
-        reviewInput: expect.objectContaining({
-          targetKind: "base",
-          headCommit: "captured-head",
+        operation: expect.objectContaining({
+          targetRef: "origin/main",
+          input: expect.objectContaining({
+            targetKind: "base",
+            headCommit: "captured-head",
+          }),
         }),
       }),
     );
@@ -330,7 +353,7 @@ describe("runReviewPipeline", () => {
     const outside = makeFinding("src/other.ts");
     const provenance = {
       cohortId: null,
-      reviewerId: "single",
+      reviewerId: ReviewerIdSchema.parse("single"),
       role: "single" as const,
       backend: "codex" as const,
       requestedModel: "gpt-5.6-luna",
@@ -351,10 +374,10 @@ describe("runReviewPipeline", () => {
         headCommit: "captured-head",
         diffHash: "hash",
       },
-      id: "exe_1",
-      operationId: "op_test",
-      reviewId: "rev_1",
+      id: ReviewExecutionIdSchema.parse("exe_1"),
+      operationId: ReviewOperationIdSchema.parse("op_test"),
       createdAt: "2026-08-21T00:00:00.000Z",
+      attemptNumber: 1,
     };
     vi.mocked(deps.executor.execute).mockResolvedValue({
       review: {
@@ -370,7 +393,8 @@ describe("runReviewPipeline", () => {
       runtimeProvenance: provenance,
     });
     vi.mocked(deps.filterFindingsByChangedFiles).mockReturnValue({ findings: [kept], suppressed: [outside] });
-    vi.mocked(deps.persistReviewRun).mockResolvedValue({
+    vi.mocked(deps.persistReviewExecutionAttempt).mockResolvedValue(persistedExecution);
+    vi.mocked(deps.persistCanonicalReview).mockResolvedValue({
       ...persisted,
       execution: persistedExecution,
       actionableFindings: [kept],
@@ -402,19 +426,20 @@ describe("runReviewPipeline", () => {
       { phase: "preflight", label: "Preflight", ms: 1 },
       expect.objectContaining({ phase: "context-build" }),
     ]));
-    expect(deps.persistReviewRun).toHaveBeenCalledWith(
+    expect(deps.persistCanonicalReview).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({
-        reviewInput: {
-          targetKind: "base",
-          baseCommit: "resolved-base",
-          mergeBaseCommit: "merge-base",
-          headCommit: "captured-head",
-          diffHash: "hash",
-        },
-        execution: provenance,
+        operation: expect.objectContaining({
+          input: {
+            targetKind: "base",
+            baseCommit: "resolved-base",
+            mergeBaseCommit: "merge-base",
+            headCommit: "captured-head",
+            diffHash: "hash",
+          },
+        }),
+        sourceExecutionId: persistedExecution.id,
         findings: [kept],
-        sessionId: "session",
       }),
     );
     expect(deps.updatePersistedReview).toHaveBeenCalledWith("/repo/.diffowl", "rev_1", {
@@ -443,7 +468,7 @@ describe("runReviewPipeline", () => {
         effectiveModel: "gpt-5.4-mini",
         runtimeProvenance: {
           cohortId: null,
-          reviewerId: "single",
+          reviewerId: ReviewerIdSchema.parse("single"),
           role: "single",
           backend: "codex",
           requestedModel: "gpt-5.4-mini",
@@ -475,7 +500,7 @@ describe("runReviewPipeline", () => {
 
     await runReviewPipeline(skipInput(), deps);
 
-    expect(deps.persistReviewRun).toHaveBeenCalledWith(
+    expect(deps.persistReviewExecutionAttempt).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({
         execution: expect.objectContaining({
@@ -532,7 +557,7 @@ describe("runReviewPipeline", () => {
           terminalOutcome,
         }),
       });
-      expect(deps.persistReviewRun).not.toHaveBeenCalled();
+      expect(deps.persistCanonicalReview).not.toHaveBeenCalled();
     },
   );
 
@@ -614,7 +639,7 @@ describe("runReviewPipeline", () => {
       "write-report",
       "model",
     ]);
-    expect(deps.persistReviewRun).toHaveBeenCalledWith(
+    expect(deps.persistCanonicalReview).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({
         timings: expect.arrayContaining([
@@ -663,7 +688,7 @@ describe("runReviewPipeline", () => {
 
     await runReviewPipeline(skipInput(), deps);
 
-    const persistInput = vi.mocked(deps.persistReviewRun).mock.calls.at(-1)?.[1];
+    const persistInput = vi.mocked(deps.persistCanonicalReview).mock.calls.at(-1)?.[1];
     expect(persistInput).toEqual(expect.objectContaining({
       symbolKeys: ["ts-v1|class:A/method:handle", "ts-v1|class:B/method:handle"],
     }));
@@ -694,7 +719,7 @@ describe("runReviewPipeline", () => {
 
     await runReviewPipeline(skipInput(), deps);
 
-    const persistInput = vi.mocked(deps.persistReviewRun).mock.calls.at(-1)?.[1];
+    const persistInput = vi.mocked(deps.persistCanonicalReview).mock.calls.at(-1)?.[1];
     expect(persistInput).toEqual(expect.objectContaining({
       symbolKeys: ["ts-v1|method:handle/method:handle"],
     }));
@@ -739,7 +764,7 @@ function completedRuntimeProvenance(
 ): ReviewExecutionRuntimeProvenance & { terminalOutcome: "completed" } {
   return {
     cohortId: null,
-    reviewerId: "single",
+    reviewerId: ReviewerIdSchema.parse("single"),
     role: "single",
     backend: "opencode",
     requestedModel: "provider/model",
@@ -770,7 +795,7 @@ function makeReviewContext(snapshot: LoadedReviewSnapshot): ReviewContext {
 
 function makeOperation(snapshot: LoadedReviewSnapshot): CapturedReviewOperation {
   return {
-    id: "op_test",
+    id: ReviewOperationIdSchema.parse("op_test"),
     createdAt: "2026-08-24T00:00:00.000Z",
     targetRef:
       snapshot.target.kind === "base" || snapshot.target.kind === "commit"
@@ -800,6 +825,8 @@ function makeOperation(snapshot: LoadedReviewSnapshot): CapturedReviewOperation 
               headCommit: snapshot.targetCommit!,
               diffHash: "hash",
             },
+    depth: "default",
+    contextKind: "captured",
     contextManifest: {
       schemaVersion: 1,
       depth: "default",

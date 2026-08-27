@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ReviewContextDepthSchema } from "../config.js";
 import type { LoadedReviewSnapshot, ReviewContext } from "./context.js";
 import type { RenderedReviewContext } from "./context-types.js";
+import { ReviewOperationIdSchema, type ReviewOperationId } from "./ids.js";
 import {
   createReviewInputIdentity,
   ReviewInputIdentitySchema,
@@ -53,19 +54,40 @@ export const ReviewContextManifestSchema = z
 
 export type ReviewContextManifest = z.output<typeof ReviewContextManifestSchema>;
 
-export interface CapturedReviewOperation {
-  readonly id: string;
+interface ReviewOperationIdentity {
+  readonly id: ReviewOperationId;
   readonly createdAt: string;
   readonly targetRef: string | null;
   readonly input: ReviewInputIdentity;
+  readonly depth: z.output<typeof ReviewContextDepthSchema>;
+}
+
+export type CapturedReviewOperation = ReviewOperationIdentity & {
+  readonly contextKind: "captured";
   readonly contextManifest: ReviewContextManifest;
   readonly contextManifestSha256: string;
-}
+};
+
+export type UnavailableContextReviewOperation = ReviewOperationIdentity & {
+  readonly contextKind: "unavailable";
+  readonly contextManifest: null;
+  readonly contextManifestSha256: null;
+};
+
+export type ReviewOperation = CapturedReviewOperation | UnavailableContextReviewOperation;
 
 export interface CaptureReviewOperationInput {
   snapshot: LoadedReviewSnapshot;
   context: ReviewContext;
   renderedContext: RenderedReviewContext;
+  id?: string;
+  createdAt?: string;
+}
+
+export interface CreateUnavailableContextReviewOperationInput {
+  targetRef: string | null;
+  reviewInput: ReviewInputIdentity;
+  depth: z.output<typeof ReviewContextDepthSchema>;
   id?: string;
   createdAt?: string;
 }
@@ -98,12 +120,29 @@ export function captureReviewOperation(
   };
 
   return {
-    id: input.id ?? `op_${randomUUID()}`,
+    id: ReviewOperationIdSchema.parse(input.id ?? `op_${randomUUID()}`),
     createdAt: input.createdAt ?? new Date().toISOString(),
     targetRef: targetRef(input.snapshot),
     input: ReviewInputIdentitySchema.parse(reviewInput),
+    depth: input.context.depth,
+    contextKind: "captured",
     contextManifest,
     contextManifestSha256: computeReviewContextManifestSha256(contextManifest),
+  };
+}
+
+export function createUnavailableContextReviewOperation(
+  input: CreateUnavailableContextReviewOperationInput,
+): UnavailableContextReviewOperation {
+  return {
+    id: ReviewOperationIdSchema.parse(input.id ?? `op_${randomUUID()}`),
+    createdAt: input.createdAt ?? new Date().toISOString(),
+    targetRef: input.targetRef,
+    input: ReviewInputIdentitySchema.parse(input.reviewInput),
+    depth: ReviewContextDepthSchema.parse(input.depth),
+    contextKind: "unavailable",
+    contextManifest: null,
+    contextManifestSha256: null,
   };
 }
 

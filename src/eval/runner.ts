@@ -428,9 +428,9 @@ function buildEvalPipelineDeps(
         ),
         dependencies.executor,
       ),
-    persistReviewRun: async (diffOwlDir, input) => {
+    persistCanonicalReview: async (diffOwlDir, input) => {
       onPersistInput(input.findings);
-      return defaultReviewPipelineDeps.persistReviewRun(diffOwlDir, input);
+      return defaultReviewPipelineDeps.persistCanonicalReview(diffOwlDir, input);
     },
     renderMarkdown: () => "",
     writeMarkdownReport: async () => "",

@@ -379,11 +379,12 @@ function queryUnresolvedObservationRows(db: SqliteDatabase): SummaryRow[] {
         f.status AS status,
         o.severity AS severity,
         o.id AS observationId,
-        r.target_commit AS targetCommit,
-        r.diff_hash AS diffHash
+        operation.head_commit AS targetCommit,
+        operation.diff_hash AS diffHash
       FROM finding_observations o
       JOIN findings f ON f.id = o.finding_id
       JOIN reviews r ON r.id = o.review_id
+      JOIN review_operations operation ON operation.id = r.operation_id
       WHERE f.status IN ('open', 'regressed')
     `)
     .all()

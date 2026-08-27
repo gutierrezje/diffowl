@@ -4,9 +4,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { captureReviewOperation } from "../review/operation.js";
 import type { ReviewExecutionRuntimeProvenance } from "../review/provenance.js";
+import { ReviewerIdSchema } from "../review/ids.js";
 import type { ReviewContext } from "../review/context.js";
 import { closeStateDatabase, openStateDatabase } from "./db.js";
-import { persistReviewExecutionAttempt, persistReviewRun } from "./persist.js";
+import { persistCanonicalReview, persistReviewExecutionAttempt } from "./persist.js";
 import { getReviewOperationById } from "./repositories/review-operations.js";
 import { listReviewExecutionsByOperationId } from "./repositories/review-executions.js";
 import { removeTempStateDir } from "./test-helpers.js";
@@ -40,8 +41,8 @@ describe("review operation persistence", () => {
           {
             id: execution.id,
             operationId: operation.id,
-            reviewId: null,
             createdAt: expect.any(String),
+            attemptNumber: 1,
             schemaVersion: 3,
             cohortId: null,
             reviewerId: "single",
@@ -63,35 +64,54 @@ describe("review operation persistence", () => {
     },
   );
 
-  it("links a completed execution and review to the same captured operation", async () => {
+  it("records repeated completed attempts before publishing one canonical review", async () => {
     const dir = await createTempDir();
     const operation = capturedOperation("op_completed");
 
-    const result = await persistReviewRun(dir, {
+    const firstExecution = await persistReviewExecutionAttempt(dir, {
       operation,
-      targetRef: operation.targetRef,
-      reviewInput: operation.input,
-      model: "gpt-5.6-luna",
-      reasoning: "max",
-      depth: "default",
-      sessionId: "session-completed",
+      execution: runtimeProvenance("completed"),
+    });
+    const secondExecution = await persistReviewExecutionAttempt(dir, {
+      operation,
+      execution: runtimeProvenance("completed"),
+    });
+
+    const result = await persistCanonicalReview(dir, {
+      operation,
+      sourceExecutionId: firstExecution.id,
       summary: "No findings.",
       diagnostics: [],
       timings: [],
       findings: [],
-      execution: runtimeProvenance("completed"),
     });
+    await expect(
+      persistCanonicalReview(dir, {
+        operation,
+        sourceExecutionId: secondExecution.id,
+        summary: "A conflicting second publication.",
+        diagnostics: [],
+        timings: [],
+        findings: [],
+      }),
+    ).rejects.toThrow();
 
     const state = await openStateDatabase(dir);
     try {
-      expect(result.execution).toMatchObject({
+      expect(firstExecution).toMatchObject({
         operationId: operation.id,
-        reviewId: result.reviewId,
-        terminalOutcome: "completed",
-        contextManifestSha256: operation.contextManifestSha256,
+        attemptNumber: 1,
+      });
+      expect(secondExecution).toMatchObject({
+        operationId: operation.id,
+        attemptNumber: 2,
       });
       expect(getReviewOperationById(state.db, operation.id)).toEqual(operation);
-      expect(listReviewExecutionsByOperationId(state.db, operation.id)).toHaveLength(1);
+      expect(listReviewExecutionsByOperationId(state.db, operation.id)).toHaveLength(2);
+      expect(state.db.prepare("SELECT COUNT(*) AS count FROM reviews").get()).toEqual({
+        count: 1,
+      });
+      expect(result.reviewId).toMatch(/^rev_/);
     } finally {
       closeStateDatabase(state);
     }
@@ -141,19 +161,39 @@ function capturedOperation(id: string) {
   });
 }
 
-function runtimeProvenance<Outcome extends ReviewExecutionRuntimeProvenance["terminalOutcome"]>(
-  terminalOutcome: Outcome,
-): ReviewExecutionRuntimeProvenance & { terminalOutcome: Outcome } {
-  return {
+function runtimeProvenance(
+  terminalOutcome: ReviewExecutionRuntimeProvenance["terminalOutcome"],
+): ReviewExecutionRuntimeProvenance {
+  const assignment: Pick<
+    ReviewExecutionRuntimeProvenance,
+    | "cohortId"
+    | "reviewerId"
+    | "role"
+    | "backend"
+    | "requestedModel"
+    | "preferenceSource"
+    | "reasoningEffort"
+  > = {
     cohortId: null,
-    reviewerId: "single",
+    reviewerId: ReviewerIdSchema.parse("single"),
     role: "single",
     backend: "codex",
     requestedModel: "gpt-5.6-luna",
-    effectiveModel: terminalOutcome === "completed" ? "gpt-5.6-luna" : null,
     preferenceSource: { backend: "local", model: "local" },
     reasoningEffort: "max",
-    sessionId: terminalOutcome === "completed" ? "session-completed" : null,
+  };
+  if (terminalOutcome === "completed") {
+    return {
+      ...assignment,
+      effectiveModel: "gpt-5.6-luna",
+      sessionId: "session-completed",
+      terminalOutcome,
+    };
+  }
+  return {
+    ...assignment,
+    effectiveModel: null,
+    sessionId: null,
     terminalOutcome,
   };
 }

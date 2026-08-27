@@ -1,15 +1,22 @@
 import { randomUUID } from "node:crypto";
+import type { ReviewContextDepth } from "../config.js";
+import {
+  ReviewExecutionIdSchema,
+  ReviewIdSchema,
+  type ReviewExecutionId,
+  type ReviewId,
+  type ReviewOperationId,
+} from "../review/ids.js";
 import type {
   ReviewExecutionProvenance,
   ReviewExecutionRuntimeProvenance,
-  ReviewInputIdentity,
 } from "../review/provenance.js";
 import type {
   CapturedReviewOperation,
-  ReviewContextManifest,
+  ReviewOperation,
 } from "../review/operation.js";
 
-export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_SCHEMA_VERSION = 6;
 
 export type ReviewTargetKind = "staged" | "commit" | "last-commit" | "base";
 export type FindingStatus = "open" | "deferred" | "dismissed" | "fixed" | "regressed";
@@ -27,26 +34,19 @@ export type ReviewConfidence = "low" | "medium" | "high";
 export type PossibleDuplicateStatus = "suggested" | "confirmed" | "rejected" | "expired";
 export type PossibleDuplicateInheritedStatus = "dismissed" | "deferred";
 
-export function createReviewId(): string {
-  return `rev_${randomUUID()}`;
+export function createReviewId(): ReviewId {
+  return ReviewIdSchema.parse(`rev_${randomUUID()}`);
 }
 
 export function createFindingId(): string {
   return `fnd_${randomUUID()}`;
 }
 
-export function createReviewExecutionId(): string {
-  return `exe_${randomUUID()}`;
+export function createReviewExecutionId(): ReviewExecutionId {
+  return ReviewExecutionIdSchema.parse(`exe_${randomUUID()}`);
 }
 
-export interface ReviewOperationRecord {
-  id: string;
-  createdAt: string;
-  targetRef: string | null;
-  input: ReviewInputIdentity;
-  contextManifest: ReviewContextManifest | null;
-  contextManifestSha256: string | null;
-}
+export type ReviewOperationRecord = ReviewOperation;
 
 export interface ReviewTiming {
   phase: string;
@@ -55,7 +55,9 @@ export interface ReviewTiming {
 }
 
 export interface ReviewRecord {
-  id: string;
+  id: ReviewId;
+  operationId: ReviewOperationId;
+  sourceExecutionId: ReviewExecutionId | null;
   createdAt: string;
   targetKind: ReviewTargetKind;
   targetRef: string | null;
@@ -65,7 +67,7 @@ export interface ReviewRecord {
   diffHash: string;
   model: string;
   reasoning: string;
-  depth: string;
+  depth: ReviewContextDepth;
   sessionId: string;
   summary: string;
   reportPath: string | null;
@@ -74,37 +76,40 @@ export interface ReviewRecord {
   skippedReason: string | null;
 }
 
-export interface InsertReviewInput {
+interface InsertReviewCommonInput {
   id?: string;
   createdAt?: string;
-  targetKind: ReviewTargetKind;
-  targetRef?: string | null;
-  baseCommit?: string | null;
-  mergeBaseCommit?: string | null;
-  targetCommit?: string | null;
-  diffHash: string;
-  model: string;
-  reasoning: string;
-  depth: string;
-  sessionId: string;
   summary: string;
   reportPath?: string | null;
   diagnostics?: string[];
   timings?: ReviewTiming[];
-  skippedReason?: string | null;
 }
 
+export type InsertReviewInput =
+  | (InsertReviewCommonInput & {
+      kind: "canonical";
+      operation: ReviewOperation;
+      sourceExecutionId: ReviewExecutionId;
+    })
+  | (InsertReviewCommonInput & {
+      kind: "skipped";
+      operation: ReviewOperation;
+      model: string;
+      reasoning: string;
+      sessionId: string;
+      skippedReason: string;
+    });
+
 export type ReviewExecutionRecord = ReviewExecutionProvenance & {
-  id: string;
-  operationId: string;
-  reviewId: string | null;
+  id: ReviewExecutionId;
+  operationId: ReviewOperationId;
   createdAt: string;
+  attemptNumber: number;
 };
 
 export interface InsertReviewExecutionInput {
   id?: string;
   operation: CapturedReviewOperation;
-  review?: ReviewRecord | null;
   createdAt?: string;
   provenance: ReviewExecutionRuntimeProvenance;
 }

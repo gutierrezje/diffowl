@@ -5,9 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { closeStateDatabase, InvalidFindingTransitionError, openStateDatabase } from "./db.js";
 import { deferFinding, dismissFinding, fixFinding, reopenFinding } from "./lifecycle.js";
 import { listFindingEvents } from "./repositories/events.js";
-import { insertReview } from "./repositories/reviews.js";
 import { reconcileReviewFindings } from "./reconcile.js";
-import { removeTempStateDir } from "./test-helpers.js";
+import { insertTestReview as insertReview, removeTempStateDir } from "./test-helpers.js";
 import type { FindingCandidate } from "./types.js";
 
 let tempDirs: string[] = [];

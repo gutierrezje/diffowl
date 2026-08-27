@@ -19,7 +19,7 @@ import { MIGRATION_001_INITIAL_SCHEMA } from "./state/migrations/001-initial-sch
 import { MIGRATION_002_BASE_REVIEW_TARGET } from "./state/migrations/002-base-review-target.js";
 import { suggestPossibleDuplicates } from "./state/possible-duplicates.js";
 import { reconcileReviewFindings } from "./state/reconcile.js";
-import { insertReview } from "./state/repositories/reviews.js";
+import { insertTestReview as insertReview } from "./state/test-helpers.js";
 import { openSqliteDatabase } from "./state/sqlite.js";
 import { getFindingSummary } from "./state/findings-summary.js";
 import type { FindingCandidate, PossibleDuplicateRecord, ReviewSeverity } from "./state/types.js";

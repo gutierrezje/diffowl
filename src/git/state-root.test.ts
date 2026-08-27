@@ -8,7 +8,7 @@ import {
   listUnresolvedFindings,
   withFindingDatabase,
 } from "../state/findings-query.js";
-import { persistReviewRun } from "../state/persist.js";
+import { persistTestReview as persistReviewRun } from "../state/test-helpers.js";
 import type { ReviewFinding } from "../review/types.js";
 import {
   getSharedDiffOwlDir,

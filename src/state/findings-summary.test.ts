@@ -22,9 +22,12 @@ import { computeDiffHash } from "./persist.js";
 import { reconcileReviewFindings } from "./reconcile.js";
 import { getFindingById } from "./repositories/findings.js";
 import { getLatestObservationForFinding } from "./repositories/observations.js";
-import { insertReview } from "./repositories/reviews.js";
-import { removeTempStateDir } from "./test-helpers.js";
-import type { FindingCandidate, InsertReviewInput } from "./types.js";
+import {
+  insertTestReview as insertReview,
+  removeTempStateDir,
+  type TestReviewInput as InsertReviewInput,
+} from "./test-helpers.js";
+import type { FindingCandidate } from "./types.js";
 
 // Delegates to the real getStagedDiff while counting calls and allowing failure injection, so the
 // "at most one git diff per summary" and "a diff failure excludes rather than throws" properties

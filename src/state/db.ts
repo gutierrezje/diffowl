@@ -7,8 +7,7 @@ import { MIGRATION_002_BASE_REVIEW_TARGET } from "./migrations/002-base-review-t
 import { MIGRATION_003_POSSIBLE_DUPLICATES } from "./migrations/003-possible-duplicates.js";
 import { MIGRATION_004_REVIEW_EXECUTIONS } from "./migrations/004-review-executions.js";
 import { MIGRATION_005_REVIEW_INPUT_IDENTITY } from "./migrations/005-review-input-identity.js";
-import { MIGRATION_006_NORMALIZE_REVIEW_INPUT_IDENTITY } from "./migrations/006-normalize-review-input-identity.js";
-import { MIGRATION_007_REVIEW_OPERATIONS } from "./migrations/007-review-operations.js";
+import { MIGRATION_006_REVIEW_OPERATIONS } from "./migrations/006-review-operations.js";
 import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.js";
 import { CURRENT_SCHEMA_VERSION } from "./types.js";
 
@@ -20,9 +19,65 @@ const MIGRATIONS = {
   3: MIGRATION_003_POSSIBLE_DUPLICATES,
   4: MIGRATION_004_REVIEW_EXECUTIONS,
   5: MIGRATION_005_REVIEW_INPUT_IDENTITY,
-  6: MIGRATION_006_NORMALIZE_REVIEW_INPUT_IDENTITY,
-  7: MIGRATION_007_REVIEW_OPERATIONS,
+  6: MIGRATION_006_REVIEW_OPERATIONS,
 } satisfies Record<number, string>;
+
+const CURRENT_SCHEMA_TABLE_COLUMNS = {
+  reviewOperations: {
+    table: "review_operations",
+    columns: [
+      "id",
+      "created_at",
+      "schema_version",
+      "target_kind",
+      "target_ref",
+      "base_commit",
+      "merge_base_commit",
+      "head_commit",
+      "diff_hash",
+      "context_depth",
+      "context_manifest_json",
+      "context_manifest_sha256",
+    ],
+  },
+  reviewExecutions: {
+    table: "review_executions",
+    columns: [
+      "id",
+      "operation_id",
+      "created_at",
+      "attempt_number",
+      "schema_version",
+      "cohort_id",
+      "reviewer_id",
+      "role",
+      "backend",
+      "requested_model",
+      "effective_model",
+      "preference_source_json",
+      "reasoning_effort",
+      "session_id",
+      "terminal_outcome",
+    ],
+  },
+  reviews: {
+    table: "reviews",
+    columns: [
+      "id",
+      "operation_id",
+      "source_execution_id",
+      "created_at",
+      "skipped_model",
+      "skipped_reasoning",
+      "skipped_session_id",
+      "summary",
+      "report_path",
+      "diagnostics_json",
+      "timings_json",
+      "skipped_reason",
+    ],
+  },
+} satisfies Record<string, { table: string; columns: string[] }>;
 
 export class StateDatabaseError extends Error {
   override name = "StateDatabaseError";
@@ -70,6 +125,7 @@ export async function openStateDatabase(
     configureDatabase(db, options.busyTimeoutMs ?? BUSY_TIMEOUT_MS);
     assertCompatibleSchema(db);
     applyMigrations(db, CURRENT_SCHEMA_VERSION);
+    assertCurrentReviewSchema(db);
     return { db, path };
   } catch (error) {
     try {
@@ -181,6 +237,21 @@ function assertReadableSchema(db: SqliteDatabase): void {
     throw new StateDatabaseError(
       `Database schema version ${maxVersion} is older than supported version ${CURRENT_SCHEMA_VERSION}; run a DiffOwl command that writes state to migrate it`,
     );
+  }
+  assertCurrentReviewSchema(db);
+}
+
+function assertCurrentReviewSchema(db: SqliteDatabase): void {
+  for (const expected of Object.values(CURRENT_SCHEMA_TABLE_COLUMNS)) {
+    const actualColumns = db
+      .prepare("SELECT name FROM pragma_table_info(?) ORDER BY cid ASC")
+      .all(expected.table)
+      .map((row) => z.object({ name: z.string() }).parse(row).name);
+    if (JSON.stringify(actualColumns) !== JSON.stringify(expected.columns)) {
+      throw new StateDatabaseError(
+        `Database schema version ${CURRENT_SCHEMA_VERSION} does not match the supported review schema; restore a schema 5 backup or move the unsupported database aside`,
+      );
+    }
   }
 }
 

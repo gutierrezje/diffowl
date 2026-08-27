@@ -10,7 +10,6 @@ import {
   enrichReviewFindingsWithDurableMetadata,
   formatLifecycleSuppressedSummary,
   mapReviewTarget,
-  persistReviewRun,
   splitFindingsByLifecycleSuppression,
   toFindingCandidate,
   updatePersistedReview,
@@ -20,10 +19,14 @@ import { listFindingEvents } from "./repositories/events.js";
 import { listAllFindings } from "./repositories/findings.js";
 import { listReviewExecutionsByReviewId } from "./repositories/review-executions.js";
 import { getReviewById } from "./repositories/reviews.js";
-import { removeTempStateDir } from "./test-helpers.js";
+import { persistTestReview as persistReviewRun, removeTempStateDir } from "./test-helpers.js";
 import type { ReviewFinding } from "../review/types.js";
 import type { ReviewInputIdentity } from "../review/provenance.js";
-import { computeReviewContextManifestSha256 } from "../review/operation.js";
+import {
+  computeReviewContextManifestSha256,
+  type CapturedReviewOperation,
+} from "../review/operation.js";
+import { ReviewOperationIdSchema, ReviewerIdSchema } from "../review/ids.js";
 
 let tempDirs: string[] = [];
 
@@ -42,7 +45,7 @@ const sampleFinding: ReviewFinding = {
   evidence: "if (!payload) return;",
 };
 
-describe("persistReviewRun", () => {
+describe("review output persistence", () => {
   it("persists a review and reconciles filtered findings", async () => {
     const dir = await createTempDir();
     const diffHash = computeDiffHash("diff --git a/src/auth.ts");
@@ -68,7 +71,7 @@ describe("persistReviewRun", () => {
       findings: [sampleFinding],
       execution: {
         cohortId: null,
-        reviewerId: "single",
+        reviewerId: ReviewerIdSchema.parse("single"),
         role: "single",
         backend: "codex",
         requestedModel: "gpt-5.6-luna",
@@ -98,18 +101,17 @@ describe("persistReviewRun", () => {
       expect(result.lifecycleSuppressedFindings).toHaveLength(0);
       expect(result.identityDiagnostics).toEqual([]);
       expect(result.execution).toMatchObject({
-        reviewId: result.reviewId,
         backend: "codex",
         requestedModel: "gpt-5.6-luna",
         effectiveModel: "gpt-5.6-luna-2026-08-20",
-        reviewerId: "single",
+        reviewerId: ReviewerIdSchema.parse("single"),
         role: "single",
       });
       expect(listReviewExecutionsByReviewId(state.db, result.reviewId)).toEqual([
         {
           id: expect.stringMatching(/^exe_/),
-          reviewId: result.reviewId,
           createdAt: expect.any(String),
+          attemptNumber: 1,
           schemaVersion: 3,
           operationId: expect.stringMatching(/^op_/),
           contextManifestSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
@@ -250,25 +252,21 @@ describe("persistReviewRun", () => {
   it("round-trips an explicitly unknown preference source", async () => {
     const dir = await createTempDir();
     const input = basePersistInput([]);
-    const result = await persistReviewRun(dir, {
-      ...input,
-      operation: reviewOperation(input.reviewInput, input.targetRef, "unknown-preference"),
-      execution: {
-        cohortId: null,
-        reviewerId: "single",
-        role: "single",
-        backend: null,
-        requestedModel: "provider/model",
-        effectiveModel: null,
-        preferenceSource: null,
-        reasoningEffort: null,
-        sessionId: "legacy-session",
-        terminalOutcome: "completed",
-      },
-    });
+    const result = await persistReviewRun(dir, input);
+    if (!result.execution) {
+      throw new Error("Expected a completed test execution.");
+    }
 
     const state = await openStateDatabase(dir);
     try {
+      state.db.prepare(`
+        UPDATE review_executions
+        SET schema_version = 1,
+            backend = NULL,
+            preference_source_json = NULL,
+            reasoning_effort = NULL
+        WHERE id = ?
+      `).run(result.execution.id);
       expect(listReviewExecutionsByReviewId(state.db, result.reviewId)).toEqual([
         expect.objectContaining({
           backend: null,
@@ -289,7 +287,7 @@ describe("persistReviewRun", () => {
       operation: reviewOperation(input.reviewInput, input.targetRef, "corrupt-execution"),
       execution: {
         cohortId: null,
-        reviewerId: "single",
+        reviewerId: ReviewerIdSchema.parse("single"),
         role: "single",
         backend: "opencode",
         requestedModel: "provider/model",
@@ -303,9 +301,12 @@ describe("persistReviewRun", () => {
 
     const state = await openStateDatabase(dir);
     try {
+      if (!result.execution) {
+        throw new Error("Expected a completed test execution.");
+      }
       state.db
-        .prepare("UPDATE review_executions SET reasoning_effort = ? WHERE review_id = ?")
-        .run("future-effort", result.reviewId);
+        .prepare("UPDATE review_executions SET reasoning_effort = ? WHERE id = ?")
+        .run("future-effort", result.execution.id);
 
       expect(() => listReviewExecutionsByReviewId(state.db, result.reviewId)).toThrow(
         StateDatabaseError,
@@ -702,7 +703,11 @@ function stagedReviewInput(diffSeed: string): ReviewInputIdentity {
   };
 }
 
-function reviewOperation(input: ReviewInputIdentity, targetRef: string | null, seed: string) {
+function reviewOperation(
+  input: ReviewInputIdentity,
+  targetRef: string | null,
+  seed: string,
+): CapturedReviewOperation {
   const contextManifest = {
     schemaVersion: 1 as const,
     depth: "default" as const,
@@ -714,10 +719,12 @@ function reviewOperation(input: ReviewInputIdentity, targetRef: string | null, s
     degradationCounts: [],
   };
   return {
-    id: `op_${seed}`,
+    id: ReviewOperationIdSchema.parse(`op_${seed}`),
     createdAt: "2026-08-24T00:00:00.000Z",
     targetRef,
     input,
+    depth: "default",
+    contextKind: "captured",
     contextManifest,
     contextManifestSha256: computeReviewContextManifestSha256(contextManifest),
   };

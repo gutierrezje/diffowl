@@ -1,6 +1,12 @@
 import { z } from "zod";
-import type { ReasoningEffort } from "../config.js";
-import type { ReviewBackend, ReviewSelection } from "./backend-selection.js";
+import { ReasoningEffortSchema, type ReasoningEffort } from "../config.js";
+import {
+  ReviewBackendSchema,
+  ReviewPreferenceSourceSchema,
+  type ReviewBackend,
+  type ReviewSelection,
+} from "./backend-selection.js";
+import { ReviewerIdSchema, type ReviewerId } from "./ids.js";
 import type { ReviewTarget } from "./target.js";
 
 export const REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION = 3 as const;
@@ -9,16 +15,56 @@ export type ReviewRole = "single" | "proposer" | "checker";
 
 export interface ReviewAssignment {
   /** Stable lane identity within one immutable review operation. */
-  reviewerId: string;
+  reviewerId: ReviewerId;
   role: ReviewRole;
   cohortId: string | null;
   selection: ReviewSelection;
   reasoningEffort: ReasoningEffort;
 }
 
-export interface ReviewExecutionRuntimeProvenance {
+const AssignedReviewExecutionProvenanceSchema = z.object({
+  cohortId: z.string().nullable(),
+  reviewerId: ReviewerIdSchema,
+  role: z.enum(["single", "proposer", "checker"]),
+  backend: ReviewBackendSchema,
+  requestedModel: z.string(),
+  preferenceSource: ReviewPreferenceSourceSchema,
+  reasoningEffort: ReasoningEffortSchema,
+});
+
+export const ReviewExecutionRuntimeProvenanceSchema = z.discriminatedUnion(
+  "terminalOutcome",
+  [
+    AssignedReviewExecutionProvenanceSchema.extend({
+      terminalOutcome: z.literal("completed"),
+      effectiveModel: z.string().nullable(),
+      sessionId: z.string(),
+    }).strict(),
+    AssignedReviewExecutionProvenanceSchema.extend({
+      terminalOutcome: z.enum(["cancelled", "timed-out", "failed"]),
+      effectiveModel: z.string().nullable(),
+      sessionId: z.string().nullable(),
+    }).strict(),
+  ],
+);
+
+export type ReviewExecutionRuntimeProvenance = z.output<
+  typeof ReviewExecutionRuntimeProvenanceSchema
+>;
+
+export type CompletedReviewExecutionProvenance = Extract<
+  ReviewExecutionRuntimeProvenance,
+  { terminalOutcome: "completed" }
+>;
+
+export type IncompleteReviewExecutionProvenance = Exclude<
+  ReviewExecutionRuntimeProvenance,
+  CompletedReviewExecutionProvenance
+>;
+
+interface LegacyReviewExecutionRuntimeProvenance {
   cohortId: string | null;
-  reviewerId: string;
+  reviewerId: ReviewerId;
   role: ReviewRole;
   backend: ReviewBackend | null;
   requestedModel: string | null;
@@ -61,11 +107,11 @@ export const ReviewInputIdentitySchema = z.discriminatedUnion("targetKind", [
 
 export type ReviewInputIdentity = z.output<typeof ReviewInputIdentitySchema>;
 
-export type ReviewExecutionProvenanceV1 = ReviewExecutionRuntimeProvenance & {
+export type ReviewExecutionProvenanceV1 = LegacyReviewExecutionRuntimeProvenance & {
   schemaVersion: 1;
 };
 
-export type ReviewExecutionProvenanceV2 = ReviewExecutionRuntimeProvenance & {
+export type ReviewExecutionProvenanceV2 = LegacyReviewExecutionRuntimeProvenance & {
   schemaVersion: 2;
   input: ReviewInputIdentity;
 };
@@ -86,7 +132,7 @@ export function createSingleReviewAssignment(
   reasoningEffort: ReasoningEffort,
 ): ReviewAssignment {
   return {
-    reviewerId: "single",
+    reviewerId: ReviewerIdSchema.parse("single"),
     role: "single",
     cohortId: null,
     selection,
