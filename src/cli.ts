@@ -26,8 +26,10 @@ import {
   loadReviewPreferences,
   resetReviewBackendModel,
   resetReviewBackendPreference,
+  resetReviewBackendReasoning,
   saveReviewBackendModel,
   saveReviewBackendPreference,
+  saveReviewBackendReasoning,
 } from "./review-preference.js";
 import {
   formatReviewBackend,
@@ -188,7 +190,7 @@ program
   .option("--depth <depth>", "Review context depth: shallow or default")
   .option(
     "--reasoning <effort>",
-    "Reasoning variant: auto, none, minimal, low, medium, high, max, or xhigh",
+    "Backend-native reasoning variant, or auto for the backend default",
   )
   .option("--model <id>", "Review model override")
   .option("--backend <backend>", "Review backend override: opencode or codex")
@@ -235,6 +237,7 @@ program
     }
     const effective = await loadEffectiveReviewConfigOrExit(reviewOverrides, format);
     const { config, selection } = effective;
+    const reviewWarnings = [...effective.warnings];
     const projectRoot = getProjectRoot();
     const diffOwlDir = await getSharedDiffOwlDir();
     const baseRequested = options.base !== undefined;
@@ -288,6 +291,10 @@ program
 
     if (!jsonMode) {
       printHeader();
+      for (const warning of reviewWarnings) {
+        console.warn(chalk.yellow(`⚠ ${warning}`));
+      }
+      if (reviewWarnings.length > 0) console.log();
     }
 
     const hookFailure = await checkRecentHookFailure();
@@ -307,8 +314,6 @@ program
     let interruptExitCode: number | undefined;
     let interruptForceExit: ReturnType<typeof setTimeout> | undefined;
     let interruptMessage: string | undefined;
-    const reviewWarnings: string[] = [];
-
     // Register signal handlers immediately after spinner starts so they
     // cover the entire review lifecycle (context build, server connect, SSE).
     // discardStdin: false above ensures the terminal delivers SIGINT natively
@@ -346,6 +351,7 @@ program
         diffOwlDir,
         timings,
         persistEmptyDiff: jsonMode,
+        initialDiagnostics: effective.warnings,
         signal: cancelController.signal,
         executor: createSelectedReviewExecutor(
           createSingleReviewAssignment(selection, config.reasoning.effort),
@@ -594,7 +600,7 @@ function resolveReasoningEffort(
     return parseReasoningEffort(value);
   } catch {
     console.error(chalk.red(`Invalid reasoning effort: ${String(value)}`));
-    console.error(chalk.dim("Expected one of: auto, none, minimal, low, medium, high, max, xhigh"));
+    console.error(chalk.dim("Expected a non-empty backend-native variant, or auto."));
     process.exit(1);
   }
 }
@@ -918,6 +924,61 @@ program
       backend,
       currentModel: config.model,
     });
+  });
+
+program
+  .command("reasoning")
+  .description("View or change reasoning for the selected backend model")
+  .argument("[variant]", "Backend-native reasoning variant")
+  .option("--reset", "Use the backend default for the selected model")
+  .action(async (variant: string | undefined, options: { reset?: boolean }) => {
+    if (variant !== undefined && options.reset) {
+      console.error(chalk.red("Cannot pass a reasoning variant and --reset together"));
+      process.exit(1);
+    }
+
+    const preferences = await loadReviewPreferencesOrExit();
+    const { backend } = resolveReviewBackendPreference(preferences);
+    const normalizedVariant = variant?.trim();
+    if (options.reset || normalizedVariant === "auto") {
+      if (normalizedVariant === "auto") {
+        console.error(
+          chalk.yellow(
+            "`auto` means backend default and is not stored. Prefer `diffowl reasoning --reset`.",
+          ),
+        );
+      }
+      await resetReviewBackendReasoning(backend);
+      console.log(chalk.green("✓ Reasoning preference reset to backend default"));
+      console.log(chalk.dim(`Backend: ${formatReviewBackend(backend)}`));
+      return;
+    }
+
+    if (normalizedVariant !== undefined) {
+      try {
+        const configPath = await saveReviewBackendReasoning(backend, normalizedVariant);
+        console.log(chalk.green(`✓ Reasoning variant set to ${chalk.cyan(normalizedVariant)}`));
+        console.log(chalk.dim(`Backend: ${formatReviewBackend(backend)}`));
+        console.log(chalk.dim(`Local preference: ${configPath}`));
+      } catch (error) {
+        failConfigError(CliErrorSchema.parse(error));
+      }
+      return;
+    }
+
+    const selection = preferences.models.find((candidate) => candidate.backend === backend);
+    if (selection === undefined) {
+      failConfigError(new MissingModelError(backend));
+    }
+    const selectedVariant =
+      "reasoning" in selection ? selection.reasoning?.variant : undefined;
+    console.log(
+      `${chalk.bold("Reasoning variant:")} ${chalk.cyan(
+        selectedVariant ?? "backend default",
+      )}`,
+    );
+    console.log(chalk.dim(`Backend: ${formatReviewBackend(backend)}`));
+    console.log(chalk.dim(`Model: ${selection.model}`));
   });
 
 async function selectModelInteractively(

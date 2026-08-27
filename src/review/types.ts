@@ -72,6 +72,7 @@ export interface ReviewResult {
 export interface ReviewExecutorOptions {
   review: ReviewOptions;
   onStatus?: (message: string) => void;
+  onWarning?: (message: string) => void;
 }
 
 export interface ReviewExecutionResult {

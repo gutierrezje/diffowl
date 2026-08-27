@@ -17,6 +17,12 @@ if (
     "output-schema-default",
     "output-schema-retry",
     "output-schema-three-invalid",
+    "reasoning-no-variant",
+    "reasoning-supported",
+    "reasoning-unsupported",
+    "reasoning-empty",
+    "reasoning-model-list-error",
+    "reasoning-model-list-malformed",
     "auth-null",
     "auth-apikey",
     "policy-approval",
@@ -119,6 +125,12 @@ const markerModes = [
   "output-schema-default",
   "output-schema-retry",
   "output-schema-three-invalid",
+  "reasoning-no-variant",
+  "reasoning-supported",
+  "reasoning-unsupported",
+  "reasoning-empty",
+  "reasoning-model-list-error",
+  "reasoning-model-list-malformed",
   "auth-null",
   "auth-apikey",
   "policy-approval",
@@ -148,6 +160,8 @@ const markerModes = [
   "spike-cancel-active",
 ].includes(mode);
 const outputSchemaModes = markerModes;
+const expectedReasoningVariant = process.env.MOCK_APP_SERVER_REASONING_VARIANT;
+const modelListVariants = process.env.MOCK_APP_SERVER_MODEL_LIST_VARIANTS;
 const retryModes = [
   "marker-retry",
   "marker-three-invalid",
@@ -155,6 +169,14 @@ const retryModes = [
   "output-schema-three-invalid",
   "spike-three-invalid",
 ].includes(mode);
+const reasoningModes = [
+  "reasoning-no-variant",
+  "reasoning-supported",
+  "reasoning-unsupported",
+  "reasoning-empty",
+  "reasoning-model-list-error",
+  "reasoning-model-list-malformed",
+];
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -258,7 +280,50 @@ function handleMarker(message) {
     send({ id: message.id, result: { account, requiresOpenaiAuth: true } });
     return;
   }
-  if (markerStep === 3 && message.method === "thread/start" && isNumber(message.id)) {
+  if (
+    reasoningModes.includes(mode) &&
+    markerStep === 3 &&
+    message.method === "model/list" &&
+    isNumber(message.id)
+  ) {
+    if (!isRecord(params) || params.includeHidden !== true || params.limit !== 100)
+      return markerError(message);
+    markerStep = 3.5;
+    if (mode === "reasoning-model-list-error") {
+      send({
+        id: message.id,
+        error: { code: -32602, message: "model list unavailable", data: null },
+      });
+      return;
+    }
+    if (mode === "reasoning-model-list-malformed") {
+      send({ id: message.id, result: { data: "not-an-array", nextCursor: null } });
+      return;
+    }
+    const variants =
+      modelListVariants === undefined || modelListVariants === ""
+        ? []
+        : modelListVariants.split(",");
+    send({
+      id: message.id,
+      result: {
+        data: [
+          {
+            id: expectedModel,
+            model: expectedModel,
+            supportedReasoningEfforts: variants.map((reasoningEffort) => ({ reasoningEffort })),
+          },
+        ],
+        nextCursor: null,
+      },
+    });
+    return;
+  }
+  if (
+    (markerStep === 3 || markerStep === 3.5) &&
+    message.method === "thread/start" &&
+    isNumber(message.id)
+  ) {
     if (["auth-null", "auth-apikey"].includes(mode)) return markerError(message);
     const systemPromptOk =
       isRecord(params) &&
@@ -391,6 +456,10 @@ function handleMarker(message) {
     const outputSchemaOk = outputSchemaModes
       ? isRecord(params) && isOutputSchema(params.outputSchema)
       : isRecord(params) && !Object.hasOwn(params, "outputSchema");
+    const reasoningVariantOk =
+      expectedReasoningVariant === undefined
+        ? isRecord(params) && !Object.hasOwn(params, "effort")
+        : isRecord(params) && params.effort === expectedReasoningVariant;
     if (
       !isRecord(params) ||
       params.threadId !== "thread-1" ||
@@ -408,7 +477,8 @@ function handleMarker(message) {
       !retryPromptOk ||
       !Array.isArray(item.text_elements) ||
       item.text_elements.length !== 0 ||
-      !outputSchemaOk
+      !outputSchemaOk ||
+      !reasoningVariantOk
     )
       return markerError(message);
     markerStep = 5;
@@ -702,6 +772,12 @@ input.on("close", () => {
       "output-schema-default",
       "output-schema-retry",
       "output-schema-three-invalid",
+      "reasoning-no-variant",
+      "reasoning-supported",
+      "reasoning-unsupported",
+      "reasoning-empty",
+      "reasoning-model-list-error",
+      "reasoning-model-list-malformed",
       "auth-null",
       "auth-apikey",
       "policy-approval",

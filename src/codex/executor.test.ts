@@ -35,11 +35,13 @@ describe("createCodexReviewExecutor", () => {
         env: {
           MOCK_APP_SERVER_MODE: "output-schema-default",
           MOCK_APP_SERVER_MODEL: "gpt-5-codex",
+          MOCK_APP_SERVER_REASONING_VARIANT: "thinking",
           MOCK_APP_SERVER_USER: "review this change",
           OPENAI_API_KEY: "must-not-cross-the-child-boundary",
         },
       },
       model: "gpt-5-codex",
+      reasoningVariant: "thinking",
       protocolTimeoutMs: 10_000,
       interruptTimeoutMs: 300,
       closeTimeoutMs: 500,

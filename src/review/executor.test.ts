@@ -26,7 +26,7 @@ describe("createSelectedReviewExecutor", () => {
     expect(createCodex).not.toHaveBeenCalled();
   });
 
-  it("passes the explicit Codex model and executable to the Codex adapter", () => {
+  it("passes the explicit Codex model, reasoning variant, and executable to the Codex adapter", () => {
     let options: CodexReviewExecutorOptions | undefined;
     const createCodex = vi.fn((input: CodexReviewExecutorOptions) => {
       options = input;
@@ -38,7 +38,7 @@ describe("createSelectedReviewExecutor", () => {
         backend: "codex",
         requestedModel: "gpt-5.4",
         source: { backend: "command", model: "command" },
-      }, "auto"),
+      }, "thinking"),
       { createOpenCode: () => openCodeExecutor, createCodex },
       { DIFFOWL_CODEX_EXECUTABLE: "/opt/codex" },
     );
@@ -47,6 +47,7 @@ describe("createSelectedReviewExecutor", () => {
     expect(options).toMatchObject({
       command: { executable: "/opt/codex" },
       model: "gpt-5.4",
+      reasoningVariant: "thinking",
     });
   });
 

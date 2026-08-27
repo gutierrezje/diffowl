@@ -4,8 +4,6 @@ server:
   auto_start: true
 context:
   depth: default
-reasoning:
-  effort: auto
 retention:
   hook_log_kb: 512
 timeout: 900

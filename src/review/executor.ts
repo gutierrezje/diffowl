@@ -61,8 +61,8 @@ function createReviewExecutor(
   switch (assignment.selection.backend) {
     case "opencode":
       return dependencies.createOpenCode();
-    case "codex":
-      return dependencies.createCodex({
+    case "codex": {
+      const options: CodexReviewExecutorOptions = {
         command: {
           executable: env["DIFFOWL_CODEX_EXECUTABLE"]?.trim() || "codex",
         },
@@ -70,6 +70,11 @@ function createReviewExecutor(
         protocolTimeoutMs: CODEX_PROTOCOL_TIMEOUT_MS,
         interruptTimeoutMs: CODEX_INTERRUPT_TIMEOUT_MS,
         closeTimeoutMs: CODEX_CLOSE_TIMEOUT_MS,
-      });
+      };
+      if (assignment.reasoningEffort !== "auto") {
+        options.reasoningVariant = assignment.reasoningEffort;
+      }
+      return dependencies.createCodex(options);
+    }
   }
 }

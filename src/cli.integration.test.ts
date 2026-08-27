@@ -121,12 +121,47 @@ describe("diffowl CLI", () => {
     expect(stdout).toContain("Model set to provider/local");
     await expect(readFile(configPath, "utf8")).resolves.toBe(originalConfig);
     await expect(readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).resolves.toBe(
+      ["models:", "  - backend: opencode", "    model: provider/local", ""].join("\n"),
+    );
+  });
+
+  it("stores and resets an arbitrary reasoning variant for the selected model", async () => {
+    const repo = await createRepo("diffowl-cli-reasoning-");
+    const configPath = join(repo, ".diffowl.yml");
+    const originalConfig = await readFile(configPath, "utf8");
+
+    const set = await execa("node", [cliPath, "reasoning", "thinking"], { cwd: repo });
+
+    expect(set.stdout).toContain("Reasoning variant set to thinking");
+    await expect(readFile(configPath, "utf8")).resolves.toBe(originalConfig);
+    await expect(readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).resolves.toBe(
       [
         "models:",
         "  - backend: opencode",
-        "    model: provider/local",
+        "    model: provider/model",
+        "    reasoning:",
+        "      variant: thinking",
         "",
       ].join("\n"),
+    );
+
+    const reset = await execa("node", [cliPath, "reasoning", "--reset"], { cwd: repo });
+
+    expect(reset.stdout).toContain("Reasoning preference reset to backend default");
+    await expect(readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).resolves.toBe(
+      ["models:", "  - backend: opencode", "    model: provider/model", ""].join("\n"),
+    );
+  });
+
+  it("treats reasoning auto as a reset alias with exact setup guidance", async () => {
+    const repo = await createRepo("diffowl-cli-reasoning-auto-");
+    await execa("node", [cliPath, "reasoning", "thinking"], { cwd: repo });
+
+    const result = await execa("node", [cliPath, "reasoning", "auto"], { cwd: repo });
+
+    expect(result.stdout).toContain("Reasoning preference reset to backend default");
+    expect(result.stderr).toContain(
+      "`auto` means backend default and is not stored. Prefer `diffowl reasoning --reset`.",
     );
   });
 
@@ -226,6 +261,28 @@ describe("diffowl CLI", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("No model selected for OpenCode");
+  });
+
+  it("returns legacy reasoning migration guidance as structured review diagnostics", async () => {
+    const repo = await createRepo("diffowl-cli-reasoning-warning-");
+    const configPath = join(repo, ".diffowl.yml");
+    await writeFile(
+      configPath,
+      `${await readFile(configPath, "utf8")}reasoning:\n  effort: auto\n`,
+      "utf8",
+    );
+
+    const { stdout, stderr } = await execa(
+      "node",
+      [cliPath, "review", "--staged", "--format", "json"],
+      { cwd: repo },
+    );
+    const document = z.object({ diagnostics: z.array(z.string()) }).parse(JSON.parse(stdout));
+
+    expect(stderr).toBe("");
+    expect(document.diagnostics).toContain(
+      'Deprecated .diffowl.yml reasoning.effort is "auto" (the backend default). Run `diffowl reasoning --reset` to clear any local override in .diffowl/preferences.yml, then remove the deprecated reasoning block from .diffowl.yml.',
+    );
   });
 
   it("uses a one-off review model without changing saved model settings", async () => {
@@ -1533,8 +1590,6 @@ async function createRepo(
       "  auto_start: false",
       "context:",
       "  depth: default",
-      "reasoning:",
-      "  effort: auto",
       "retention:",
       "  hook_log_kb: 512",
       "timeout: 300",

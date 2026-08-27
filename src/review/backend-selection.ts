@@ -19,10 +19,31 @@ export const CodexModelSchema = z
   .trim()
   .min(1, "Codex model must not be empty")
   .regex(/^[^/\s]+$/, "Codex model must be a bare model id");
+export const ReasoningVariantSchema = z
+  .string()
+  .trim()
+  .min(1, "Reasoning variant must not be empty");
+const PersistedReasoningVariantSchema = ReasoningVariantSchema.refine(
+  (value) => value !== "auto",
+  'Reasoning variant "auto" cannot be persisted; run `diffowl reasoning --reset`.',
+);
+const BackendModelReasoningSchema = z.object({ variant: PersistedReasoningVariantSchema }).strict();
 
 export const BackendModelSelectionSchema = z.discriminatedUnion("backend", [
-  z.object({ backend: z.literal("opencode"), model: OpenCodeModelSchema }).strict(),
-  z.object({ backend: z.literal("codex"), model: CodexModelSchema }).strict(),
+  z
+    .object({
+      backend: z.literal("opencode"),
+      model: OpenCodeModelSchema,
+      reasoning: BackendModelReasoningSchema.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      backend: z.literal("codex"),
+      model: CodexModelSchema,
+      reasoning: BackendModelReasoningSchema.optional(),
+    })
+    .strict(),
 ]);
 
 export type ReviewBackend = z.output<typeof ReviewBackendSchema>;
@@ -50,6 +71,10 @@ export function parseBackendModel(backend: ReviewBackend, value: string): string
     case "codex":
       return CodexModelSchema.parse(value);
   }
+}
+
+export function parseReasoningVariant(value: string): string {
+  return ReasoningVariantSchema.parse(value);
 }
 
 export function formatReviewBackend(backend: ReviewBackend): string {

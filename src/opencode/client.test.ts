@@ -268,7 +268,9 @@ describe("resolveReasoningVariant", () => {
   it("requests explicit variants when metadata is unavailable", async () => {
     await expect(resolveReasoningVariant({}, "provider", "model", "high")).resolves.toEqual({
       variant: "high",
-      diagnostics: [],
+      diagnostics: [
+        'Could not validate reasoning variant "high" for provider/model; sending the backend-native value unchanged. If the backend rejects it, remove the one-review `--reasoning` override or run `diffowl reasoning --reset` to clear the saved preference.',
+      ],
     });
   });
 

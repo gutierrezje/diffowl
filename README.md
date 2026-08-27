@@ -172,14 +172,11 @@ diffowl agent-hook install --client claude
 
 ## Configuration
 
-Project review policy lives in `.diffowl.yml`. Backend and model selection stay in the shared, gitignored `.diffowl/preferences.yml`. Linked worktrees use the same preference file.
+Project review policy lives in `.diffowl.yml`. Backend, model, and model-specific reasoning choices stay in the shared, gitignored `.diffowl/preferences.yml`. Linked worktrees use the same preference file.
 
 ```yaml
 context:
   depth: default
-
-reasoning:
-  effort: auto
 
 gate:
   fail_on_findings: false
@@ -212,9 +209,15 @@ diffowl backend --reset
 diffowl model
 diffowl model provider/model
 diffowl model --reset
+
+diffowl reasoning
+diffowl reasoning thinking
+diffowl reasoning --reset
 ```
 
-Each backend keeps its own model choice. Switching backends does not erase the other model. A legacy preference containing only `model: provider/model` still selects OpenCode.
+Reasoning names are backend-native identifiers, not a shared DiffOwl scale. A model might advertise `low` and `high`, `thinking`, only one value, or no selectable value. An absent preference means the backend default; DiffOwl never translates one backend's names into another's. Changing a model clears its old reasoning preference so a stale value cannot carry over. Use `diffowl review --reasoning <variant>` for a one-review override.
+
+Each backend keeps its own model choice. Switching backends does not erase the other model. A legacy preference containing only `model: provider/model` still selects OpenCode. Legacy `.diffowl.yml` `reasoning.effort` values remain readable for migration and produce an exact cleanup warning; DiffOwl no longer writes them to project config.
 
 Configuration is deep-merged with defaults, so the file only needs the settings your repository changes.
 
@@ -222,7 +225,7 @@ Configuration is deep-merged with defaults, so the file only needs the settings 
 
 ```text
 .diffowl.yml                                  # Committed project policy
-.diffowl/preferences.yml                      # Gitignored backend and model choices
+.diffowl/preferences.yml                      # Gitignored backend, model, and reasoning choices
 .diffowl/state.db                             # Authoritative findings backlog
 .diffowl/reviews/review-<timestamp>.md        # Immutable review snapshot
 .diffowl/reviews/latest.md                    # Copy of the newest report
@@ -239,6 +242,7 @@ Linked Git worktrees share the durable backlog and review reports from the prima
 | `diffowl review`     | Run a review                                |
 | `diffowl backend`    | Inspect or change the local review backend  |
 | `diffowl model`      | View or change the selected model           |
+| `diffowl reasoning`  | View or change model-specific reasoning     |
 | `diffowl findings`   | Inspect and update durable findings         |
 | `diffowl hook`       | Manage the post-commit hook                 |
 | `diffowl agent-hook` | Manage supported agent client hooks         |

@@ -67,8 +67,6 @@ server:
   auto_start: false
 context:
   depth: shallow
-reasoning:
-  effort: auto
 retention:
   hook_log_kb: 512
 gate:

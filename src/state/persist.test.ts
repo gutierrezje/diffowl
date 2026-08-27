@@ -306,7 +306,7 @@ describe("review output persistence", () => {
       }
       state.db
         .prepare("UPDATE review_executions SET reasoning_effort = ? WHERE id = ?")
-        .run("future-effort", result.execution.id);
+        .run("", result.execution.id);
 
       expect(() => listReviewExecutionsByReviewId(state.db, result.reviewId)).toThrow(
         StateDatabaseError,
@@ -314,6 +314,35 @@ describe("review output persistence", () => {
       expect(() => listReviewExecutionsByReviewId(state.db, result.reviewId)).toThrow(
         `Review ${result.reviewId} contains invalid execution provenance.`,
       );
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
+  it("preserves backend-native execution reasoning variants", async () => {
+    const dir = await createTempDir();
+    const input = basePersistInput([]);
+    const result = await persistReviewRun(dir, {
+      ...input,
+      execution: {
+        cohortId: null,
+        reviewerId: "single",
+        role: "single",
+        backend: "opencode",
+        requestedModel: "provider/model",
+        effectiveModel: null,
+        preferenceSource: { backend: "local", model: "local" },
+        reasoningEffort: "thinking",
+        sessionId: "session-native-reasoning",
+        terminalOutcome: "completed",
+      },
+    });
+
+    const state = await openStateDatabase(dir);
+    try {
+      expect(listReviewExecutionsByReviewId(state.db, result.reviewId)).toMatchObject([
+        { reasoningEffort: "thinking" },
+      ]);
     } finally {
       closeStateDatabase(state);
     }

@@ -145,6 +145,68 @@ describe("executeCodexReview", () => {
     expect(outcome.evidence.attempts).toBe(2);
   });
 
+  it("does not query model capabilities or send effort when no variant is selected", async () => {
+    const outcome = await executeCodexReview(makeInput("reasoning-no-variant"));
+
+    expect(outcome.reviewResult.report).toEqual({ summary: "schema summary", findings: [] });
+  });
+
+  it("validates and forwards a supported opaque reasoning effort", async () => {
+    const input = makeInput("reasoning-supported");
+    const warnings: string[] = [];
+    const outcome = await executeCodexReview({
+      ...input,
+      reasoningVariant: "thinking",
+      env: {
+        ...input.env,
+        MOCK_APP_SERVER_MODEL_LIST_VARIANTS: "thinking",
+        MOCK_APP_SERVER_REASONING_VARIANT: "thinking",
+      },
+      onWarning: (message) => warnings.push(message),
+    });
+
+    expect(outcome.reviewResult.report).toEqual({ summary: "schema summary", findings: [] });
+    expect(warnings).toEqual([]);
+  });
+
+  it.each([
+    ["reasoning-unsupported", "high"],
+    ["reasoning-empty", ""],
+  ] as const)("omits an advertised unsupported reasoning effort for %s", async (mode, variants) => {
+    const input = makeInput(mode);
+    const warnings: string[] = [];
+    const outcome = await executeCodexReview({
+      ...input,
+      reasoningVariant: "thinking",
+      env: { ...input.env, MOCK_APP_SERVER_MODEL_LIST_VARIANTS: variants },
+      onWarning: (message) => warnings.push(message),
+    });
+
+    expect(warnings).toEqual([
+      'Codex model "gpt-5-codex" does not advertise reasoning variant "thinking"; continuing with backend default. Choose an advertised variant, remove the one-review `--reasoning` override, or run `diffowl reasoning --reset` to clear the saved preference.',
+    ]);
+    expect(outcome.reviewResult.report.diagnostics).toEqual(warnings);
+  });
+
+  it.each(["reasoning-model-list-error", "reasoning-model-list-malformed"] as const)(
+    "forwards an explicit effort when capability validation is unavailable (%s)",
+    async (mode) => {
+      const input = makeInput(mode);
+      const warnings: string[] = [];
+      const outcome = await executeCodexReview({
+        ...input,
+        reasoningVariant: "thinking",
+        env: { ...input.env, MOCK_APP_SERVER_REASONING_VARIANT: "thinking" },
+        onWarning: (message) => warnings.push(message),
+      });
+
+      expect(warnings).toEqual([
+        'Codex model "gpt-5-codex" reasoning variant validation was unavailable; forwarding requested variant "thinking" unchanged. If Codex rejects it, remove the one-review `--reasoning` override or run `diffowl reasoning --reset` to clear the saved preference.',
+      ]);
+      expect(outcome.reviewResult.report.diagnostics).toEqual(warnings);
+    },
+  );
+
   it("exhausts output-schema validation after exactly three turns", async () => {
     const error = await executeCodexReview(makeInput("output-schema-three-invalid", false)).catch(
       (cause: unknown) => cause,

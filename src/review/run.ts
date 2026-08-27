@@ -69,6 +69,7 @@ export interface ReviewPipelineInput {
   diffOwlDir: string;
   timings: ReviewTiming[];
   persistEmptyDiff: boolean;
+  initialDiagnostics?: string[];
   signal?: AbortSignal;
   executor?: AssignedReviewExecutor;
   onProgress?: (event: ReviewProgressEvent) => void;
@@ -174,6 +175,7 @@ export async function runReviewPipeline(
   if (input.signal) executorOptions.review.signal = input.signal;
   if (input.onProgress) executorOptions.review.onProgress = input.onProgress;
   if (input.onStatus) executorOptions.onStatus = input.onStatus;
+  if (input.onWarning) executorOptions.onWarning = input.onWarning;
   const executor = input.executor ?? deps.createExecutor(input.config);
   let execution: Awaited<ReturnType<AssignedReviewExecutor["execute"]>>;
   try {
@@ -195,7 +197,7 @@ export async function runReviewPipeline(
   const reviewResult = execution.review;
   const report: ReviewReport = reviewResult.report;
 
-  const diagnostics = report.diagnostics ?? [];
+  const diagnostics = [...(input.initialDiagnostics ?? []), ...(report.diagnostics ?? [])];
   const confidenceFilter = deps.filterFindingsByConfidence(report.findings, input.config.min_confidence);
   report.findings = confidenceFilter.findings;
 
@@ -323,7 +325,7 @@ export async function runReviewSkipChecks(
     reasoning: input.config.reasoning.effort,
     depth: input.depth,
     sessionId: "",
-    diagnostics: [],
+    diagnostics: [...(input.initialDiagnostics ?? [])],
     timings,
     findings: [],
   };

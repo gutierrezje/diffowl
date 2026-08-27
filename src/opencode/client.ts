@@ -655,13 +655,18 @@ export async function resolveReasoningVariant(
   const variant = effort;
   const model = await getProviderModelMetadata(client, providerID, modelID);
   if (!model) {
-    return { variant, diagnostics: [] };
+    return {
+      variant,
+      diagnostics: [
+        `Could not validate reasoning variant "${variant}" for ${providerID}/${modelID}; sending the backend-native value unchanged. If the backend rejects it, remove the one-review \`--reasoning\` override or run \`diffowl reasoning --reset\` to clear the saved preference.`,
+      ],
+    };
   }
 
   if (model.reasoning === false) {
     return {
       diagnostics: [
-        `Reasoning variant "${variant}" was requested, but ${providerID}/${modelID} does not advertise reasoning support; continuing with provider default.`,
+        `Reasoning variant "${variant}" was requested, but ${providerID}/${modelID} does not advertise reasoning support; continuing with provider default. Remove the one-review \`--reasoning\` override or run \`diffowl reasoning --reset\` to clear the saved preference.`,
       ],
     };
   }
@@ -669,7 +674,7 @@ export async function resolveReasoningVariant(
   if (model.variants && !model.variants.has(variant)) {
     return {
       diagnostics: [
-        `Reasoning variant "${variant}" was requested, but ${providerID}/${modelID} does not advertise that variant; continuing with provider default.`,
+        `Reasoning variant "${variant}" was requested, but ${providerID}/${modelID} does not advertise that variant; continuing with provider default. Choose an advertised variant, remove the one-review \`--reasoning\` override, or run \`diffowl reasoning --reset\` to clear the saved preference.`,
       ],
     };
   }

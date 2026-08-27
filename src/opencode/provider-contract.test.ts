@@ -40,7 +40,7 @@ describe("provider payload contracts", () => {
       resolveReasoningVariant(providerClient(response), "github-copilot", "gpt-4.1", "high"),
     ).resolves.toEqual({
       diagnostics: [
-        'Reasoning variant "high" was requested, but github-copilot/gpt-4.1 does not advertise reasoning support; continuing with provider default.',
+        'Reasoning variant "high" was requested, but github-copilot/gpt-4.1 does not advertise reasoning support; continuing with provider default. Remove the one-review `--reasoning` override or run `diffowl reasoning --reset` to clear the saved preference.',
       ],
     });
   });
