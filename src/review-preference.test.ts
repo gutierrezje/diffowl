@@ -112,25 +112,22 @@ describe("review preferences", () => {
     });
   });
 
-  it("rejects persisted auto reasoning with a reset command", async () => {
+  it("persists auto as an opaque backend-native reasoning variant", async () => {
     const repo = await createRepo("diffowl-review-preference-auto-");
     process.chdir(repo);
-    await writeFile(
-      join(repo, ".diffowl/preferences.yml"),
-      [
-        "models:",
-        "  - backend: opencode",
-        "    model: provider/local",
-        "    reasoning:",
-        "      variant: auto",
-        "",
-      ].join("\n"),
-      "utf8",
-    );
+    await saveReviewBackendModel("opencode", "provider/local");
 
-    await expect(loadReviewPreferences()).rejects.toThrow(
-      /Reasoning variant "auto" cannot be persisted; run `diffowl reasoning --reset`\./,
-    );
+    await saveReviewBackendReasoning("opencode", "auto");
+
+    await expect(loadReviewPreferences()).resolves.toMatchObject({
+      models: [
+        {
+          backend: "opencode",
+          model: "provider/local",
+          reasoning: { variant: "auto" },
+        },
+      ],
+    });
   });
 
   it("clears a backend reasoning override when its model changes", async () => {

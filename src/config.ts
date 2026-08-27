@@ -3,29 +3,25 @@ import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { parse, stringify } from "yaml";
 import { z, ZodError } from "zod";
-import { OpenCodeModelSchema, ReasoningVariantSchema } from "./review/backend-selection.js";
+import { OpenCodeModelSchema } from "./review/backend-selection.js";
+import {
+  ReasoningVariantSchema,
+  type ReasoningVariant,
+} from "./review/reasoning.js";
 
 export const ReviewConfidenceSchema = z.enum(["low", "medium", "high"]);
 export const ReviewContextDepthSchema = z.enum(["shallow", "default"]);
-export const DEFAULT_REASONING_EFFORT = "auto" as const;
-export const ReasoningEffortSchema = ReasoningVariantSchema;
-export const ModelSchema = OpenCodeModelSchema;
 
 export type ReviewConfidence = z.output<typeof ReviewConfidenceSchema>;
 export type ReviewContextDepth = z.output<typeof ReviewContextDepthSchema>;
-export type ReasoningEffort = z.output<typeof ReasoningEffortSchema>;
 
 const DEFAULT_CONFIG = {
-  model: "opencode/big-pickle",
   server: {
     port: 4096,
     auto_start: true,
   },
   context: {
     depth: ReviewContextDepthSchema.enum.default,
-  },
-  reasoning: {
-    effort: DEFAULT_REASONING_EFFORT,
   },
   retention: {
     hook_log_kb: 1024,
@@ -56,7 +52,6 @@ const stringArraySchema = z.array(z.string().trim().min(1));
 
 export const DiffOwlConfigSchema = z
   .object({
-    model: ModelSchema.default(DEFAULT_CONFIG.model),
     server: z
       .object({
         port: z.number().int().min(1).max(65535).default(DEFAULT_CONFIG.server.port),
@@ -70,12 +65,6 @@ export const DiffOwlConfigSchema = z
       })
       .strict()
       .default(DEFAULT_CONFIG.context),
-    reasoning: z
-      .object({
-        effort: ReasoningEffortSchema.default(DEFAULT_CONFIG.reasoning.effort),
-      })
-      .strict()
-      .default(DEFAULT_CONFIG.reasoning),
     retention: z
       .object({
         hook_log_kb: z.number().int().nonnegative().default(DEFAULT_CONFIG.retention.hook_log_kb),
@@ -98,42 +87,30 @@ export const DiffOwlConfigSchema = z
   })
   .strict();
 
-const ProjectConfigSchema = DiffOwlConfigSchema.omit({ model: true, reasoning: true });
-const LegacyReasoningInputSchema = z
-  .object({
-    reasoning: z
-      .object({
-        effort: ReasoningEffortSchema.optional(),
-      })
-      .strict()
-      .optional(),
-  })
-  .passthrough();
+const LegacyProjectConfigInputSchema = DiffOwlConfigSchema.extend({
+  model: OpenCodeModelSchema.optional(),
+  reasoning: z
+    .object({
+      effort: ReasoningVariantSchema.optional(),
+    })
+    .strict()
+    .optional(),
+}).strict();
 
 export type DiffOwlConfig = z.output<typeof DiffOwlConfigSchema>;
 export type ConfigDiagnostic = {
   kind: "legacy-reasoning";
-  effort: ReasoningEffort;
+  effort: ReasoningVariant;
 };
 export type LoadedConfig = {
   config: DiffOwlConfig;
   diagnostics: ConfigDiagnostic[];
 };
 
-export function parseModel(value: Parameters<typeof ModelSchema.parse>[0]): string {
-  return ModelSchema.parse(value);
-}
-
 export function parseReviewContextDepth(
   value: Parameters<typeof ReviewContextDepthSchema.parse>[0],
 ): ReviewContextDepth {
   return ReviewContextDepthSchema.parse(value);
-}
-
-export function parseReasoningEffort(
-  value: Parameters<typeof ReasoningEffortSchema.parse>[0],
-): ReasoningEffort {
-  return ReasoningEffortSchema.parse(value);
 }
 
 function formatZodError(err: ZodError): string {
@@ -178,12 +155,13 @@ export async function loadConfigWithDiagnosticsFromRoot(root: string): Promise<L
   try {
     const raw = await readFile(configPath, "utf-8");
     const input = parse(raw) ?? {};
-    const config = DiffOwlConfigSchema.parse(input);
-    const legacyInput = LegacyReasoningInputSchema.parse(input);
+    const legacyInput = LegacyProjectConfigInputSchema.parse(input);
+    const { model: _legacyModel, reasoning: legacyReasoning, ...projectInput } = legacyInput;
+    const config = DiffOwlConfigSchema.parse(projectInput);
     const diagnostics: ConfigDiagnostic[] =
-      legacyInput.reasoning?.effort === undefined
+      legacyReasoning?.effort === undefined
         ? []
-        : [{ kind: "legacy-reasoning", effort: legacyInput.reasoning.effort }];
+        : [{ kind: "legacy-reasoning", effort: legacyReasoning.effort }];
     return { config, diagnostics };
   } catch (err) {
     const message =
@@ -198,8 +176,7 @@ export async function loadConfigWithDiagnosticsFromRoot(root: string): Promise<L
 
 export async function saveConfig(config: DiffOwlConfig): Promise<string> {
   const configPath = findConfigPath();
-  const { model: _backendModel, reasoning: _legacyReasoning, ...projectConfigInput } = config;
-  const projectConfig = ProjectConfigSchema.parse(projectConfigInput);
+  const projectConfig = DiffOwlConfigSchema.parse(config);
   const content = stringify(projectConfig, { lineWidth: 0 });
   await writeFile(configPath, content, "utf-8");
   return configPath;

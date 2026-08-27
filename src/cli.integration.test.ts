@@ -153,16 +153,31 @@ describe("diffowl CLI", () => {
     );
   });
 
-  it("treats reasoning auto as a reset alias with exact setup guidance", async () => {
+  it("stores auto as an opaque backend-native reasoning variant", async () => {
     const repo = await createRepo("diffowl-cli-reasoning-auto-");
-    await execa("node", [cliPath, "reasoning", "thinking"], { cwd: repo });
 
     const result = await execa("node", [cliPath, "reasoning", "auto"], { cwd: repo });
 
-    expect(result.stdout).toContain("Reasoning preference reset to backend default");
-    expect(result.stderr).toContain(
-      "`auto` means backend default and is not stored. Prefer `diffowl reasoning --reset`.",
+    expect(result.stdout).toContain("Reasoning variant set to auto");
+    expect(result.stderr).toBe("");
+    await expect(readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).resolves.toBe(
+      [
+        "models:",
+        "  - backend: opencode",
+        "    model: provider/model",
+        "    reasoning:",
+        "      variant: auto",
+        "",
+      ].join("\n"),
     );
+  });
+
+  it("describes review reasoning without reserving a provider-native value", async () => {
+    const result = await execa("node", [cliPath, "review", "--help"]);
+
+    expect(result.stdout).toContain("--reasoning <variant>");
+    expect(result.stdout).toContain("Backend-native reasoning variant");
+    expect(result.stdout).not.toContain("auto for the backend default");
   });
 
   it("stores an explicit backend and keeps model choices for both backends", async () => {
@@ -414,7 +429,7 @@ describe("diffowl CLI", () => {
           requested_model: "gpt-5-codex",
           effective_model: "gpt-5-codex",
           preference_source: { backend: "command", model: "command" },
-          reasoning_effort: "auto",
+          reasoning_effort: null,
           session_id: "thread-1",
           terminal_outcome: "completed",
           context_manifest_sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
@@ -537,6 +552,62 @@ describe("diffowl CLI", () => {
         state.db.exec("ROLLBACK");
         closeStateDatabase(state);
       }
+    },
+    30_000,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "prints backend reasoning diagnostics in text mode",
+    async () => {
+      const repo = await createRepo("diffowl-cli-review-codex-warning-");
+      await writeFile(join(repo, ".gitignore"), ".diffowl/\n", "utf8");
+      await mkdir(join(repo, "src"));
+      await writeFile(join(repo, "src/app.ts"), "export const value = 1;\n", "utf8");
+      await commitAll(repo, "initial");
+      await writeFile(join(repo, "src/app.ts"), "export const value = 2;\n", "utf8");
+      await commitAll(repo, "change");
+      const bin = await mkdtemp(join(tmpdir(), "diffowl-cli-codex-warning-wrapper-"));
+      tempDirs.push(bin);
+      const executable = join(bin, "codex");
+      await writeFile(
+        executable,
+        [
+          `#!${process.execPath}`,
+          `(async () => import(${JSON.stringify(pathToFileURL(mockCodexCliPath).href)}))().catch((error) => {`,
+          "  console.error(error);",
+          "  process.exit(1);",
+          "});",
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+
+      const result = await execa(
+        process.execPath,
+        [
+          cliPath,
+          "review",
+          "--backend",
+          "codex",
+          "--model",
+          "gpt-5-codex",
+          "--reasoning",
+          "thinking",
+        ],
+        {
+          cwd: repo,
+          env: {
+            DIFFOWL_CODEX_EXECUTABLE: executable,
+            MOCK_APP_SERVER_MODE: "reasoning-unsupported",
+            MOCK_APP_SERVER_MODEL: "gpt-5-codex",
+            MOCK_APP_SERVER_MODEL_LIST_VARIANTS: "high",
+          },
+        },
+      );
+
+      expect(result.stderr).toContain(
+        'Codex model "gpt-5-codex" does not advertise reasoning variant "thinking"',
+      );
     },
     30_000,
   );

@@ -7,7 +7,6 @@ import {
   loadConfig,
   loadConfigWithDiagnostics,
   saveConfig,
-  type DiffOwlConfig,
 } from "./config.js";
 
 const originalCwd = process.cwd();
@@ -58,39 +57,30 @@ describe("config", () => {
 
     process.chdir(child);
 
-    const config: DiffOwlConfig = {
-      ...(await loadConfig()),
-      model: "provider/updated",
-    };
+    const config = await loadConfig();
+    config.min_confidence = "high";
     const savedPath = await saveConfig(config);
 
     expect(await realpath(savedPath)).toBe(await realpath(parentConfig));
     expect(await readFile(parentConfig, "utf-8")).not.toContain("model:");
   });
 
-  it("omits a transient Codex model before validating project policy", async () => {
+  it("does not expose or save legacy runtime selection as project config", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
     tempDirs.push(root);
+    await writeFile(
+      join(root, ".diffowl.yml"),
+      ["model: provider/legacy", "reasoning:", "  effort: provider-native"].join("\n"),
+      "utf8",
+    );
     process.chdir(root);
     const config = await loadConfig();
-    config.model = "gpt-5.4";
-
-    const savedPath = await saveConfig(config);
-
-    expect(await readFile(savedPath, "utf-8")).not.toContain("model:");
-  });
-
-  it("omits transient model and legacy reasoning fields when saving project config", async () => {
-    const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
-    tempDirs.push(root);
-    process.chdir(root);
-    const config = await loadConfig();
-    config.model = "provider/transient";
-    config.reasoning.effort = "provider-native";
 
     const savedPath = await saveConfig(config);
     const saved = await readFile(savedPath, "utf-8");
 
+    expect(config).not.toHaveProperty("model");
+    expect(config).not.toHaveProperty("reasoning");
     expect(saved).not.toContain("model:");
     expect(saved).not.toContain("reasoning:");
   });
@@ -106,7 +96,7 @@ describe("config", () => {
     expect(config.server.port).toBe(4096);
     expect(config.min_confidence).toBe("medium");
     expect(config.context.depth).toBe("default");
-    expect(config.reasoning.effort).toBe("auto");
+    expect(config).not.toHaveProperty("reasoning");
     expect(config.retention).toEqual({ hook_log_kb: 1024 });
     expect(config.gate).toEqual({ fail_on_findings: false });
     expect(config.skip_doc_only).toBe(false);
@@ -142,7 +132,9 @@ describe("config", () => {
       );
       process.chdir(root);
 
-      expect((await loadConfig()).reasoning.effort).toBe(effort);
+      await expect(loadConfigWithDiagnostics()).resolves.toMatchObject({
+        diagnostics: [{ kind: "legacy-reasoning", effort }],
+      });
     });
   }
 
@@ -156,11 +148,8 @@ describe("config", () => {
     );
     process.chdir(root);
 
-    await expect(loadConfig()).resolves.toMatchObject({
-      reasoning: { effort: "provider-native" },
-    });
+    await expect(loadConfig()).resolves.not.toHaveProperty("reasoning");
     await expect(loadConfigWithDiagnostics()).resolves.toMatchObject({
-      config: { reasoning: { effort: "provider-native" } },
       diagnostics: [{ kind: "legacy-reasoning", effort: "provider-native" }],
     });
   });
@@ -172,7 +161,6 @@ describe("config", () => {
     process.chdir(root);
 
     await expect(loadConfigWithDiagnostics()).resolves.toMatchObject({
-      config: { reasoning: { effort: "auto" } },
       diagnostics: [],
     });
   });

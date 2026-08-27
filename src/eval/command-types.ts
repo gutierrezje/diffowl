@@ -1,5 +1,6 @@
 import { isAbsolute, join } from "node:path";
-import type { ReasoningEffort, ReviewConfidence, ReviewContextDepth } from "../config.js";
+import type { ReviewConfidence, ReviewContextDepth } from "../config.js";
+import type { ReasoningVariant } from "../review/reasoning.js";
 import type { EvalReportMode } from "./manifest-types.js";
 
 export type EvalOutputFormat = "text" | "json";
@@ -27,7 +28,7 @@ export interface ParsedEvalCliOptions {
   mode: EvalReportMode;
   model?: string;
   depth?: ReviewContextDepth;
-  reasoning?: ReasoningEffort;
+  reasoning?: ReasoningVariant;
   minConfidence?: ReviewConfidence;
   out?: string;
   gatePath?: string;

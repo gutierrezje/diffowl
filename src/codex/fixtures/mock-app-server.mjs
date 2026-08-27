@@ -491,7 +491,9 @@ function handleMarker(message) {
         ? isRecord(item) &&
           (["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode)
             ? isText(item.text) && item.text.length > 0
-            : item.text === expectedUser)
+            : expectedUser === undefined
+              ? isText(item.text) && item.text.length > 0
+              : item.text === expectedUser)
         : isRecord(item) &&
           (outputSchemaModes
             ? isText(item.text) &&

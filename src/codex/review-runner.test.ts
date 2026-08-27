@@ -4,9 +4,9 @@ import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
-import type { DiffOwlConfig } from "../config.js";
 import type { ReviewProgressEvent } from "../review/types.js";
 import { ReviewCancelledError } from "../review/errors.js";
+import type { EffectiveReviewConfig } from "../review/runtime-config.js";
 import { SchemaValidationError } from "../review/document.js";
 import {
   CodexRepositoryMutatedError,
@@ -19,11 +19,11 @@ import {
 const fixture = fileURLToPath(new URL("./fixtures/mock-app-server.mjs", import.meta.url));
 const systemPrompt = "system instructions";
 const userPrompt = "user prompt";
-const config: DiffOwlConfig = {
+const config: EffectiveReviewConfig = {
   model: "ignored/provider-model",
   server: { port: 4096, auto_start: false },
   context: { depth: "default" },
-  reasoning: { effort: "auto" },
+  reasoning: { kind: "backend-default" },
   retention: { hook_log_kb: 1024 },
   gate: { fail_on_findings: false },
   timeout: 30,
@@ -153,7 +153,6 @@ describe("executeCodexReview", () => {
 
   it("validates and forwards a supported opaque reasoning effort", async () => {
     const input = makeInput("reasoning-supported");
-    const warnings: string[] = [];
     const outcome = await executeCodexReview({
       ...input,
       reasoningVariant: "thinking",
@@ -162,16 +161,13 @@ describe("executeCodexReview", () => {
         MOCK_APP_SERVER_MODEL_LIST_VARIANTS: "thinking",
         MOCK_APP_SERVER_REASONING_VARIANT: "thinking",
       },
-      onWarning: (message) => warnings.push(message),
     });
 
     expect(outcome.reviewResult.report).toEqual({ summary: "schema summary", findings: [] });
-    expect(warnings).toEqual([]);
   });
 
   it("follows model-list pagination before validating an opaque reasoning effort", async () => {
     const input = makeInput("reasoning-paginated");
-    const warnings: string[] = [];
     const outcome = await executeCodexReview({
       ...input,
       reasoningVariant: "thinking",
@@ -180,16 +176,13 @@ describe("executeCodexReview", () => {
         MOCK_APP_SERVER_MODEL_LIST_VARIANTS: "thinking",
         MOCK_APP_SERVER_REASONING_VARIANT: "thinking",
       },
-      onWarning: (message) => warnings.push(message),
     });
 
     expect(outcome.reviewResult.report).toEqual({ summary: "schema summary", findings: [] });
-    expect(warnings).toEqual([]);
   });
 
   it("does not require a pagination cursor after finding the selected model", async () => {
     const input = makeInput("reasoning-supported-no-cursor");
-    const warnings: string[] = [];
     const outcome = await executeCodexReview({
       ...input,
       reasoningVariant: "thinking",
@@ -198,11 +191,9 @@ describe("executeCodexReview", () => {
         MOCK_APP_SERVER_MODEL_LIST_VARIANTS: "thinking",
         MOCK_APP_SERVER_REASONING_VARIANT: "thinking",
       },
-      onWarning: (message) => warnings.push(message),
     });
 
     expect(outcome.reviewResult.report).toEqual({ summary: "schema summary", findings: [] });
-    expect(warnings).toEqual([]);
   });
 
   it.each([
@@ -210,18 +201,15 @@ describe("executeCodexReview", () => {
     ["reasoning-empty", ""],
   ] as const)("omits an advertised unsupported reasoning effort for %s", async (mode, variants) => {
     const input = makeInput(mode);
-    const warnings: string[] = [];
     const outcome = await executeCodexReview({
       ...input,
       reasoningVariant: "thinking",
       env: { ...input.env, MOCK_APP_SERVER_MODEL_LIST_VARIANTS: variants },
-      onWarning: (message) => warnings.push(message),
     });
 
-    expect(warnings).toEqual([
+    expect(outcome.reviewResult.report.diagnostics).toEqual([
       'Codex model "gpt-5-codex" does not advertise reasoning variant "thinking"; continuing with backend default. Choose an advertised variant, remove the one-review `--reasoning` override, or run `diffowl reasoning --reset` to clear the saved preference.',
     ]);
-    expect(outcome.reviewResult.report.diagnostics).toEqual(warnings);
   });
 
   it.each([
@@ -232,18 +220,15 @@ describe("executeCodexReview", () => {
     "forwards an explicit effort when capability validation is unavailable (%s)",
     async (mode) => {
       const input = makeInput(mode);
-      const warnings: string[] = [];
       const outcome = await executeCodexReview({
         ...input,
         reasoningVariant: "thinking",
         env: { ...input.env, MOCK_APP_SERVER_REASONING_VARIANT: "thinking" },
-        onWarning: (message) => warnings.push(message),
       });
 
-      expect(warnings).toEqual([
+      expect(outcome.reviewResult.report.diagnostics).toEqual([
         'Codex model "gpt-5-codex" reasoning variant validation was unavailable; forwarding requested variant "thinking" unchanged. If Codex rejects it, remove the one-review `--reasoning` override or run `diffowl reasoning --reset` to clear the saved preference.',
       ]);
-      expect(outcome.reviewResult.report.diagnostics).toEqual(warnings);
     },
   );
 

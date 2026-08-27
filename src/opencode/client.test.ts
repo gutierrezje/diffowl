@@ -259,9 +259,18 @@ describe("updateTextPart", () => {
 });
 
 describe("resolveReasoningVariant", () => {
-  it("does not request a variant for auto reasoning", async () => {
-    await expect(resolveReasoningVariant({}, "provider", "model", "auto")).resolves.toEqual({
+  it("does not request a variant for backend-default reasoning", async () => {
+    await expect(resolveReasoningVariant({}, "provider", "model", undefined)).resolves.toEqual({
       diagnostics: [],
+    });
+  });
+
+  it("treats auto as an opaque explicit variant", async () => {
+    await expect(resolveReasoningVariant({}, "provider", "model", "auto")).resolves.toEqual({
+      variant: "auto",
+      diagnostics: [
+        'Could not validate reasoning variant "auto" for provider/model; sending the backend-native value unchanged. If the backend rejects it, remove the one-review `--reasoning` override or run `diffowl reasoning --reset` to clear the saved preference.',
+      ],
     });
   });
 

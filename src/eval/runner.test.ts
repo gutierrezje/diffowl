@@ -23,10 +23,8 @@ afterEach(() => {
 });
 
 const baseConfig: DiffOwlConfig = {
-  model: "provider/model",
   server: { port: 4096, auto_start: false },
   context: { depth: "default" },
-  reasoning: { effort: "auto" },
   retention: { hook_log_kb: 1024 },
   gate: { fail_on_findings: false },
   timeout: 300,
@@ -51,7 +49,6 @@ function withExecutor(runReview: (options: ReviewOptions) => Promise<ReviewResul
 
 interface ExtendedEvalConfig extends DiffOwlConfig {
   context: DiffOwlConfig["context"] & { max_files: number };
-  reasoning: DiffOwlConfig["reasoning"] & { model_variant: string };
 }
 
 describe("resolveEvalRunnerConfig", () => {
@@ -68,7 +65,7 @@ describe("resolveEvalRunnerConfig", () => {
       model: "override/model",
       min_confidence: "high",
       context: { depth: "shallow" },
-      reasoning: { effort: "low" },
+      reasoning: { kind: "variant", value: "low" },
     });
   });
 
@@ -76,7 +73,6 @@ describe("resolveEvalRunnerConfig", () => {
     const config: ExtendedEvalConfig = {
       ...baseConfig,
       context: { ...baseConfig.context, max_files: 25 },
-      reasoning: { ...baseConfig.reasoning, model_variant: "balanced" },
     };
 
     const resolved = resolveEvalRunnerConfig(config, {
@@ -86,7 +82,7 @@ describe("resolveEvalRunnerConfig", () => {
 
     expect(resolved).toMatchObject({
       context: { depth: "shallow", max_files: 25 },
-      reasoning: { effort: "low", model_variant: "balanced" },
+      reasoning: { kind: "variant", value: "low" },
     });
   });
 

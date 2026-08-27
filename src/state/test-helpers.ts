@@ -1,7 +1,8 @@
 import { rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { ReasoningEffortSchema, ReviewContextDepthSchema } from "../config.js";
+import { ReviewContextDepthSchema } from "../config.js";
 import { ReviewOperationIdSchema, ReviewerIdSchema } from "../review/ids.js";
+import { ReasoningVariantSchema } from "../review/reasoning.js";
 import {
   computeReviewContextManifestSha256,
   type CapturedReviewOperation,
@@ -199,7 +200,8 @@ function completedTestExecution(input: TestReviewInput): ReviewExecutionRuntimeP
     requestedModel: input.model,
     effectiveModel: null,
     preferenceSource: { backend: "legacy", model: "legacy" },
-    reasoningEffort: ReasoningEffortSchema.parse(input.reasoning),
+    reasoningEffort:
+      input.reasoning === null ? null : ReasoningVariantSchema.parse(input.reasoning),
     sessionId: input.sessionId,
     terminalOutcome: "completed",
   };

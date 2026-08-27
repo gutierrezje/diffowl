@@ -6,6 +6,7 @@ import { hashCase } from "./corpus.js";
 import type { EvalCase, EvalCorpus } from "./case-types.js";
 import type { EvalRunnerOptions } from "./runner-types.js";
 import { resolveEvalRunnerConfig } from "./runner.js";
+import { formatReasoningSelection } from "../review/reasoning.js";
 import type {
   EvalManifestCase,
   EvalManifestVersions,
@@ -50,7 +51,7 @@ export async function buildEvalManifest(input: BuildEvalManifestInput): Promise<
     corpus_version: input.corpus.version,
     cases: await buildEvalManifestCaseHashes(input.cases),
     model: effectiveConfig.model,
-    reasoning: effectiveConfig.reasoning.effort,
+    reasoning: formatReasoningSelection(effectiveConfig.reasoning),
     depth: effectiveConfig.context.depth,
     min_confidence: effectiveConfig.min_confidence,
     trials: input.trials,

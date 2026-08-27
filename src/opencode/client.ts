@@ -34,7 +34,10 @@ import {
 export { buildToolPolicy, extractPermissionRequest } from "./tools.js";
 export { getAvailableModels } from "./models.js";
 export { isQuotaOrRateLimitError };
-import type { ReasoningEffort } from "../config.js";
+import {
+  reasoningVariant,
+  type ReasoningVariant,
+} from "../review/reasoning.js";
 import type { ReviewOptions, ReviewResult, ReviewTiming, ReviewUsage } from "../review/types.js";
 import { aggregateReviewUsage, parseAssistantUsage } from "../review/usage.js";
 
@@ -292,7 +295,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
     client,
     providerID,
     modelID,
-    config.reasoning.effort,
+    reasoningVariant(config.reasoning),
   );
 
   let fullResponse = "";
@@ -646,13 +649,13 @@ export async function resolveReasoningVariant(
   client: ProviderClient,
   providerID: string,
   modelID: string,
-  effort: ReasoningEffort,
+  requestedVariant: ReasoningVariant | undefined,
 ): Promise<{ variant?: string; diagnostics: string[] }> {
-  if (effort === "auto") {
+  if (requestedVariant === undefined) {
     return { diagnostics: [] };
   }
 
-  const variant = effort;
+  const variant = requestedVariant;
   const model = await getProviderModelMetadata(client, providerID, modelID);
   if (!model) {
     return {

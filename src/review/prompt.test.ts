@@ -7,10 +7,8 @@ import {
 } from "./prompt.js";
 
 const config = {
-  model: "provider/model",
   server: { port: 4096, auto_start: false },
   context: { depth: "default" as const },
-  reasoning: { effort: "auto" as const },
   retention: { hook_log_kb: 1024 },
   gate: { fail_on_findings: false },
   timeout: 300,

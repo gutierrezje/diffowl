@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import type { DiffOwlConfig } from "../config.js";
+import type { EffectiveReviewConfig } from "../review/runtime-config.js";
 import type { ReviewOptions, ReviewResult } from "../review/types.js";
 import { createOpenCodeReviewExecutor } from "./executor.js";
 
-const config: DiffOwlConfig = {
+const config: EffectiveReviewConfig = {
   model: "provider/model",
   server: { port: 4096, auto_start: false },
   context: { depth: "default" },
-  reasoning: { effort: "auto" },
+  reasoning: { kind: "backend-default" },
   retention: { hook_log_kb: 1024 },
   gate: { fail_on_findings: false },
   timeout: 300,

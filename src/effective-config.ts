@@ -1,8 +1,5 @@
 import {
-  DEFAULT_REASONING_EFFORT,
   loadConfigWithDiagnostics,
-  type DiffOwlConfig,
-  type ReasoningEffort,
 } from "./config.js";
 import { loadReviewPreferences, type ReviewPreferences } from "./review-preference.js";
 import {
@@ -13,6 +10,13 @@ import {
   type ReviewBackend,
   type ReviewSelection,
 } from "./review/backend-selection.js";
+import {
+  BACKEND_DEFAULT_REASONING,
+  selectReasoningVariant,
+  type ReasoningSelection,
+  type ReasoningVariant,
+} from "./review/reasoning.js";
+import type { EffectiveReviewConfig } from "./review/runtime-config.js";
 
 export class MissingModelError extends Error {
   readonly backend: ReviewBackend;
@@ -28,18 +32,25 @@ export class MissingModelError extends Error {
 }
 
 export type EffectiveConfig = {
-  config: DiffOwlConfig;
+  config: EffectiveReviewConfig;
   selection: ReviewSelection;
+  reasoning: ReasoningSelection;
   warnings: string[];
 };
 
 export type EffectiveReviewOverrides = {
   backend?: string;
   model?: string;
+  reasoning?: string;
 };
 
 type ResolvedReviewBackendPreference = Pick<ReviewSelection, "backend"> & {
   source: ReviewSelection["source"]["backend"];
+};
+
+type ResolvedReviewModel = {
+  requestedModel: string;
+  source: ReviewSelection["source"]["model"];
 };
 
 export async function loadEffectiveReviewConfig(
@@ -47,124 +58,79 @@ export async function loadEffectiveReviewConfig(
   env: Record<string, string | undefined> = process.env,
 ): Promise<EffectiveConfig> {
   const loaded = await loadConfigWithDiagnostics();
-  const config = loaded.config;
   const legacyReasoningEffort = loaded.diagnostics.find(
     (diagnostic) => diagnostic.kind === "legacy-reasoning",
   )?.effort;
   const directBackend =
     overrides.backend === undefined ? undefined : parseReviewBackend(overrides.backend);
   const environmentModel = env["DIFFOWL_MODEL"]?.trim() || undefined;
-
-  if (directBackend !== undefined && overrides.model !== undefined) {
-    const requestedModel = parseBackendModel(directBackend, overrides.model);
-    const { preferences, warnings } = await loadExplicitReviewPreferences();
-    config.model = requestedModel;
-    return effectiveConfig(
-      config,
-      {
-        backend: directBackend,
-        requestedModel,
-        source: { backend: "command", model: "command" },
-      },
-      legacyReasoningEffort,
-      savedReasoningVariant(preferences, directBackend, requestedModel),
-      warnings,
-    );
-  }
-  if (
+  const canSelectWithoutPreferences =
     directBackend !== undefined &&
-    environmentModel !== undefined &&
-    overrides.model === undefined
-  ) {
-    const requestedModel = parseBackendModel(directBackend, environmentModel);
-    const { preferences, warnings } = await loadExplicitReviewPreferences();
-    config.model = requestedModel;
-    return effectiveConfig(
-      config,
-      {
-        backend: directBackend,
-        requestedModel,
-        source: { backend: "command", model: "environment" },
-      },
-      legacyReasoningEffort,
-      savedReasoningVariant(preferences, directBackend, requestedModel),
-      warnings,
-    );
-  }
-
-  const preferences = await loadReviewPreferences();
+    (overrides.model !== undefined ||
+      (overrides.model === undefined && environmentModel !== undefined));
+  const loadedPreferences = canSelectWithoutPreferences
+    ? await loadExplicitReviewPreferences()
+    : { preferences: await loadReviewPreferences(), warnings: [] };
+  const { preferences } = loadedPreferences;
   const { backend, source: backendSource } = resolveReviewBackendPreference(
     preferences,
     directBackend,
   );
-  if (environmentModel !== undefined && overrides.model === undefined) {
-    const requestedModel = parseBackendModel(backend, environmentModel);
-    config.model = requestedModel;
-    return effectiveConfig(
-      config,
-      {
-        backend,
-        requestedModel,
-        source: { backend: backendSource, model: "environment" },
-      },
-      legacyReasoningEffort,
-      savedReasoningVariant(preferences, backend, requestedModel),
-    );
-  }
-
-  if (overrides.model !== undefined) {
-    const requestedModel = parseBackendModel(backend, overrides.model);
-    config.model = requestedModel;
-    return effectiveConfig(
-      config,
-      {
-        backend,
-        requestedModel,
-        source: { backend: backendSource, model: "command" },
-      },
-      legacyReasoningEffort,
-      savedReasoningVariant(preferences, backend, requestedModel),
-    );
-  }
-
-  const modelCandidate = savedModel(preferences, backend);
-
-  if (modelCandidate === undefined) {
-    throw new MissingModelError(backend);
-  }
-
-  const requestedModel = parseBackendModel(backend, modelCandidate.model);
-  config.model = requestedModel;
-  return effectiveConfig(
-    config,
-    {
-      backend,
-      requestedModel,
-      source: { backend: backendSource, model: modelCandidate.source },
-    },
-    legacyReasoningEffort,
-    modelCandidate.selection.reasoning?.variant,
-  );
-}
-
-function effectiveConfig(
-  config: DiffOwlConfig,
-  selection: ReviewSelection,
-  legacyReasoningEffort: ReasoningEffort | undefined,
-  savedReasoningVariant?: string,
-  additionalWarnings: string[] = [],
-): EffectiveConfig {
-  config.reasoning.effort =
-    savedReasoningVariant ?? legacyReasoningEffort ?? DEFAULT_REASONING_EFFORT;
-  const warnings = [...additionalWarnings];
+  const model = resolveReviewModel(preferences, backend, overrides.model, environmentModel);
+  const selection: ReviewSelection = {
+    backend,
+    requestedModel: model.requestedModel,
+    source: { backend: backendSource, model: model.source },
+  };
+  const savedVariant = savedReasoningVariant(preferences, backend, model.requestedModel);
+  const commandReasoning =
+    overrides.reasoning === undefined ? undefined : selectReasoningVariant(overrides.reasoning);
+  const reasoning =
+    commandReasoning ??
+    (savedVariant === undefined
+      ? legacyReasoningSelection(legacyReasoningEffort)
+      : selectReasoningVariant(savedVariant));
+  const warnings = [...loadedPreferences.warnings];
   if (legacyReasoningEffort !== undefined) {
-    warnings.push(formatLegacyReasoningWarning(legacyReasoningEffort, savedReasoningVariant));
+    warnings.push(
+      formatLegacyReasoningWarning(
+        legacyReasoningEffort,
+        commandReasoning,
+        savedVariant,
+      ),
+    );
   }
   return {
-    config,
+    config: { ...loaded.config, model: model.requestedModel, reasoning },
     selection,
+    reasoning,
     warnings,
   };
+}
+
+function resolveReviewModel(
+  preferences: ReviewPreferences,
+  backend: ReviewBackend,
+  commandModel: string | undefined,
+  environmentModel: string | undefined,
+): ResolvedReviewModel {
+  if (commandModel !== undefined) {
+    return { requestedModel: parseBackendModel(backend, commandModel), source: "command" };
+  }
+  if (environmentModel !== undefined) {
+    return { requestedModel: parseBackendModel(backend, environmentModel), source: "environment" };
+  }
+  const candidate = savedModel(preferences, backend);
+  if (candidate === undefined) throw new MissingModelError(backend);
+  return {
+    requestedModel: parseBackendModel(backend, candidate.model),
+    source: candidate.source,
+  };
+}
+
+function legacyReasoningSelection(effort: ReasoningVariant | undefined): ReasoningSelection {
+  if (effort === undefined || effort === "auto") return BACKEND_DEFAULT_REASONING;
+  return selectReasoningVariant(effort);
 }
 
 async function loadExplicitReviewPreferences(): Promise<{
@@ -230,13 +196,17 @@ function savedReasoningVariant(
 }
 
 function formatLegacyReasoningWarning(
-  effort: ReasoningEffort,
+  effort: ReasoningVariant,
+  commandReasoning: ReasoningSelection | undefined,
   savedReasoningVariant?: string,
 ): string {
+  if (commandReasoning?.kind === "variant") {
+    return `Deprecated .diffowl.yml reasoning.effort "${effort}" is ignored because this review uses --reasoning "${commandReasoning.value}". Remove the deprecated reasoning block from .diffowl.yml.`;
+  }
   if (savedReasoningVariant !== undefined) {
     return `Deprecated .diffowl.yml reasoning.effort "${effort}" is ignored because the selected model already uses reasoning.variant "${savedReasoningVariant}" from .diffowl/preferences.yml. Remove only the deprecated reasoning block from .diffowl.yml; run \`diffowl reasoning --reset\` only if you want the backend default.`;
   }
-  if (effort === DEFAULT_REASONING_EFFORT) {
+  if (effort === "auto") {
     return 'Deprecated .diffowl.yml reasoning.effort is "auto" (the backend default). Run `diffowl reasoning --reset` to clear any local override in .diffowl/preferences.yml, then remove the deprecated reasoning block from .diffowl.yml.';
   }
   return `Deprecated .diffowl.yml reasoning.effort "${effort}". Run \`diffowl reasoning ${effort}\` to save it in .diffowl/preferences.yml, then remove the deprecated reasoning block from .diffowl.yml.`;

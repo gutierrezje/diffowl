@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { ReviewConfidenceSchema, type DiffOwlConfig, type ReviewContextDepth } from "../config.js";
+import { ReviewConfidenceSchema, type ReviewContextDepth } from "../config.js";
+import type { EffectiveReviewConfig } from "./runtime-config.js";
 import type { ReviewTarget } from "./target.js";
 import type { ReviewUsage } from "./usage.js";
 import type {
@@ -54,7 +55,7 @@ export interface ReviewReport {
 export interface ReviewOptions {
   target: ReviewTarget;
   directory: string;
-  config: DiffOwlConfig;
+  config: EffectiveReviewConfig;
   localContext?: string;
   depth: ReviewContextDepth;
   systemPrompt?: string;

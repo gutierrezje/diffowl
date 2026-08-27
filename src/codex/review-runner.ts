@@ -24,6 +24,15 @@ import {
 } from "./repository-guard.js";
 import { buildCodexEnvironment } from "./environment.js";
 import {
+  CodexReviewError,
+  CodexTimeoutError,
+  codexProtocolError as protocolError,
+} from "./errors.js";
+import {
+  resolveCodexReasoningVariant,
+  type ResolveReasoningVariantInput,
+} from "./model-capabilities.js";
+import {
   ensureThrownValue,
   isBoolean,
   isFiniteNumber,
@@ -131,24 +140,7 @@ export type CodexReviewOutcome = {
   evidence: CodexReviewEvidence;
 };
 
-export type CodexReviewErrorKind =
-  | "protocol"
-  | "authentication"
-  | "policy-violation"
-  | "turn-failed"
-  | "timeout"
-  | "repository-mutated"
-  | "teardown-failed";
-
-export class CodexReviewError extends Error {
-  readonly kind: CodexReviewErrorKind;
-
-  constructor(kind: CodexReviewErrorKind, message: string) {
-    super(message);
-    this.name = "CodexReviewError";
-    this.kind = kind;
-  }
-}
+export { CodexReviewError, CodexTimeoutError, type CodexReviewErrorKind } from "./errors.js";
 
 export class CodexTeardownError extends CodexReviewError {
   readonly close: AppServerCloseResult | null;
@@ -196,16 +188,6 @@ export function getCodexReviewFailureEvidence(
 
 export function isCodexReviewFailure(cause: unknown): cause is Error {
   return getCodexReviewFailureEvidence(cause) !== undefined;
-}
-
-export class CodexTimeoutError extends CodexReviewError {
-  readonly phase: string;
-
-  constructor(phase: string) {
-    super("timeout", `Codex App Server timed out during ${phase}.`);
-    this.name = "CodexTimeoutError";
-    this.phase = phase;
-  }
 }
 
 class CodexInterruptedTimeoutError extends CodexTimeoutError {
@@ -485,14 +467,23 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
 
     let validatedReasoningVariant = input.reasoningVariant;
     if (input.reasoningVariant !== undefined) {
-      const reasoning = await resolveReasoningVariant(
-        peer,
-        input.model,
-        input.reasoningVariant,
+      const capabilityInput: ResolveReasoningVariantInput = {
+        model: input.model,
+        variant: input.reasoningVariant,
         deadline,
         events,
-        input.signal,
-      );
+        requestModelList: (params, requestDeadline, signal) =>
+          requestWithin(
+            peer,
+            "model/list",
+            params,
+            requestDeadline,
+            "model/list",
+            signal,
+          ),
+      };
+      if (input.signal !== undefined) capabilityInput.signal = input.signal;
+      const reasoning = await resolveCodexReasoningVariant(capabilityInput);
       switch (reasoning.kind) {
         case "supported":
           validatedReasoningVariant = reasoning.variant;
@@ -907,120 +898,6 @@ async function startTurn(
   return requiredString(turnValue, "id", "turn/start.turn.id");
 }
 
-type ReasoningVariantResolution =
-  | { kind: "supported"; variant: string }
-  | { kind: "unsupported"; warning: string }
-  | { kind: "unavailable"; variant: string; warning: string };
-
-const REASONING_VARIANT_VALIDATION_TIMEOUT_MS = 1_000;
-
-async function resolveReasoningVariant(
-  peer: AppServerPeer,
-  model: string,
-  variant: string,
-  deadline: number,
-  events: string[],
-  signal?: AbortSignal,
-): Promise<ReasoningVariantResolution> {
-  const validationDeadline = Math.min(
-    deadline,
-    performance.now() + REASONING_VARIANT_VALIDATION_TIMEOUT_MS,
-  );
-  try {
-    const supportedVariants = await loadSupportedReasoningEfforts(
-      peer,
-      model,
-      validationDeadline,
-      events,
-      signal,
-    );
-    if (supportedVariants.includes(variant)) return { kind: "supported", variant };
-    return {
-      kind: "unsupported",
-      warning: `Codex model "${model}" does not advertise reasoning variant "${variant}"; continuing with backend default. Choose an advertised variant, remove the one-review \`--reasoning\` override, or run \`diffowl reasoning --reset\` to clear the saved preference.`,
-    };
-  } catch (error) {
-    if (error instanceof ReviewCancelledError) throw error;
-    if (
-      error instanceof CodexTimeoutError &&
-      (validationDeadline === deadline || performance.now() >= deadline)
-    ) {
-      throw error;
-    }
-    return {
-      kind: "unavailable",
-      variant,
-      warning: `Codex model "${model}" reasoning variant validation was unavailable; forwarding requested variant "${variant}" unchanged. If Codex rejects it, remove the one-review \`--reasoning\` override or run \`diffowl reasoning --reset\` to clear the saved preference.`,
-    };
-  }
-}
-
-async function loadSupportedReasoningEfforts(
-  peer: AppServerPeer,
-  model: string,
-  deadline: number,
-  events: string[],
-  signal?: AbortSignal,
-): Promise<string[]> {
-  let cursor: string | undefined;
-  const seenCursors = new Set<string>();
-  while (true) {
-    const params =
-      cursor === undefined
-        ? { includeHidden: true, limit: 100 }
-        : { includeHidden: true, limit: 100, cursor };
-    events.push("sent:model/list");
-    const response = await requestWithin(
-      peer,
-      "model/list",
-      params,
-      deadline,
-      "model/list",
-      signal,
-    );
-    events.push("received:model/list");
-    const page = parseModelListPage(response);
-    const selected = page.models.find((candidate) => modelListEntryMatches(candidate, model));
-    if (selected !== undefined) return parseSupportedReasoningEfforts(selected);
-    const nextCursor = parseModelListNextCursor(page.nextCursor);
-    if (nextCursor === null) throw protocolError(`model/list missing model ${model}`);
-    if (seenCursors.has(nextCursor)) throw protocolError("model/list repeated nextCursor");
-    seenCursors.add(nextCursor);
-    cursor = nextCursor;
-  }
-}
-
-function parseModelListPage(value: CodexJsonValue | undefined) {
-  const payload = asRecord(value, "model/list");
-  const models = payload["data"];
-  if (!Array.isArray(models)) throw protocolError("model/list.data");
-  return { models: models.filter(isRecord), nextCursor: payload["nextCursor"] };
-}
-
-function parseModelListNextCursor(value: CodexJsonValue | undefined): string | null {
-  if (value === null) return null;
-  if (!isText(value) || value === "") throw protocolError("model/list.nextCursor");
-  return value;
-}
-
-function parseSupportedReasoningEfforts(model: CodexJsonObject): string[] {
-  const rawVariants = model["supportedReasoningEfforts"];
-  if (!Array.isArray(rawVariants)) throw protocolError("model/list.supportedReasoningEfforts");
-  return rawVariants.flatMap((candidate, index) => {
-    const effort = asRecord(candidate, `model/list.supportedReasoningEfforts[${index}]`)[
-      "reasoningEffort"
-    ];
-    if (!isText(effort)) {
-      throw protocolError(`model/list.supportedReasoningEfforts[${index}].reasoningEffort`);
-    }
-    return effort === "" ? [] : [effort];
-  });
-}
-
-function modelListEntryMatches(value: CodexJsonObject, model: string): boolean {
-  return value["id"] === model || value["model"] === model;
-}
-
 async function collectTurn(
   peer: AppServerPeer,
   reader: NotificationReader,
@@ -1390,10 +1267,6 @@ function requiredNumber(value: CodexJsonObject, key: string, context: string): n
 function optionalNumber(value: CodexJsonObject, key: string, context: string): number {
   if (value[key] === undefined) return 0;
   return requiredNumber(value, key, context);
-}
-
-function protocolError(context: string): CodexReviewError {
-  return new CodexReviewError("protocol", `Invalid Codex App Server payload: ${context}.`);
 }
 
 function policyError(context: string): CodexReviewError {

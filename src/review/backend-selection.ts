@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ReasoningVariantSchema, parseReasoningVariant } from "./reasoning.js";
 
 export const ReviewBackendSchema = z.enum(["opencode", "codex"]);
 export const BackendPreferenceSourceSchema = z.enum(["command", "local", "legacy", "default"]);
@@ -19,15 +20,7 @@ export const CodexModelSchema = z
   .trim()
   .min(1, "Codex model must not be empty")
   .regex(/^[^/\s]+$/, "Codex model must be a bare model id");
-export const ReasoningVariantSchema = z
-  .string()
-  .trim()
-  .min(1, "Reasoning variant must not be empty");
-const PersistedReasoningVariantSchema = ReasoningVariantSchema.refine(
-  (value) => value !== "auto",
-  'Reasoning variant "auto" cannot be persisted; run `diffowl reasoning --reset`.',
-);
-const BackendModelReasoningSchema = z.object({ variant: PersistedReasoningVariantSchema }).strict();
+const BackendModelReasoningSchema = z.object({ variant: ReasoningVariantSchema }).strict();
 
 export const BackendModelSelectionSchema = z.discriminatedUnion("backend", [
   z
@@ -73,10 +66,6 @@ export function parseBackendModel(backend: ReviewBackend, value: string): string
   }
 }
 
-export function parseReasoningVariant(value: string): string {
-  return ReasoningVariantSchema.parse(value);
-}
-
 export function formatReviewBackend(backend: ReviewBackend): string {
   switch (backend) {
     case "opencode":
@@ -85,3 +74,5 @@ export function formatReviewBackend(backend: ReviewBackend): string {
       return "Codex";
   }
 }
+
+export { ReasoningVariantSchema, parseReasoningVariant };

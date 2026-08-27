@@ -1,4 +1,4 @@
-import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
+import type { ReviewContextDepth } from "../config.js";
 import { isDocOnlyDiff, resolveCommitRef } from "../git/diff.js";
 import { createSelectedReviewExecutor } from "./executor.js";
 import type {
@@ -41,6 +41,8 @@ import {
   createUnavailableContextReviewOperation,
 } from "./operation.js";
 import { ReviewExecutionFailureSchema } from "./errors.js";
+import { reasoningVariant } from "./reasoning.js";
+import type { EffectiveReviewConfig } from "./runtime-config.js";
 
 export type ReviewPipelineOutcome =
   | {
@@ -62,7 +64,7 @@ export type ReviewSkipCheckOutcome =
 
 export interface ReviewPipelineInput {
   target: ReviewTarget;
-  config: DiffOwlConfig;
+  config: EffectiveReviewConfig;
   depth: ReviewContextDepth;
   verbose: boolean;
   projectRoot: string;
@@ -82,7 +84,7 @@ export interface ReviewPipelineDeps {
   loadReviewSnapshot: typeof loadReviewSnapshot;
   buildReviewContextFromDiff: typeof buildReviewContextFromDiff;
   renderReviewContextDocument: typeof renderReviewContextDocument;
-  createExecutor: (config: DiffOwlConfig) => AssignedReviewExecutor;
+  createExecutor: (config: EffectiveReviewConfig) => AssignedReviewExecutor;
   filterFindingsByConfidence: typeof filterFindingsByConfidence;
   filterFindingsByChangedFiles: typeof filterFindingsByChangedFiles;
   formatExcludedCandidateSummary: typeof formatExcludedCandidateSummary;
@@ -116,7 +118,7 @@ export const defaultReviewPipelineDeps: ReviewPipelineDeps = {
           requestedModel: config.model,
           source: { backend: "legacy", model: "legacy" },
         },
-        config.reasoning.effort,
+        config.reasoning,
       ),
     ),
   filterFindingsByChangedFiles,
@@ -175,7 +177,14 @@ export async function runReviewPipeline(
   if (input.signal) executorOptions.review.signal = input.signal;
   if (input.onProgress) executorOptions.review.onProgress = input.onProgress;
   if (input.onStatus) executorOptions.onStatus = input.onStatus;
-  if (input.onWarning) executorOptions.onWarning = input.onWarning;
+  const emittedWarnings = new Set<string>();
+  if (input.onWarning) {
+    executorOptions.onWarning = (message) => {
+      if (emittedWarnings.has(message)) return;
+      emittedWarnings.add(message);
+      input.onWarning?.(message);
+    };
+  }
   const executor = input.executor ?? deps.createExecutor(input.config);
   let execution: Awaited<ReturnType<AssignedReviewExecutor["execute"]>>;
   try {
@@ -196,6 +205,12 @@ export async function runReviewPipeline(
   timings.push(...execution.timings);
   const reviewResult = execution.review;
   const report: ReviewReport = reviewResult.report;
+
+  for (const diagnostic of report.diagnostics ?? []) {
+    if (emittedWarnings.has(diagnostic)) continue;
+    emittedWarnings.add(diagnostic);
+    input.onWarning?.(diagnostic);
+  }
 
   const diagnostics = [...(input.initialDiagnostics ?? []), ...(report.diagnostics ?? [])];
   const confidenceFilter = deps.filterFindingsByConfidence(report.findings, input.config.min_confidence);
@@ -322,7 +337,7 @@ export async function runReviewSkipChecks(
   const skippedReview = {
     operation,
     model: input.config.model,
-    reasoning: input.config.reasoning.effort,
+    reasoning: reasoningVariant(input.config.reasoning) ?? null,
     depth: input.depth,
     sessionId: "",
     diagnostics: [...(input.initialDiagnostics ?? [])],

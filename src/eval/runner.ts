@@ -22,6 +22,11 @@ import type {
 } from "../review/types.js";
 import { assignReviewExecutor } from "../review/executor.js";
 import { createSingleReviewAssignment } from "../review/provenance.js";
+import {
+  BACKEND_DEFAULT_REASONING,
+  selectReasoningVariant,
+} from "../review/reasoning.js";
+import type { EffectiveReviewConfig } from "../review/runtime-config.js";
 import type { ReviewUsage } from "../review/usage.js";
 import { BASELINE_AGENT_PROMPT, buildBaselinePrompt, renderBaselineDiff } from "./baseline.js";
 import type { EvalCase } from "./case-types.js";
@@ -55,6 +60,7 @@ export interface EvalRunnerDependencies {
 const defaultDependencies: EvalRunnerDependencies = {
   executor: createOpenCodeReviewExecutor(),
 };
+const DEFAULT_EVAL_MODEL = "opencode/big-pickle";
 
 function resolveEvalRunMode(options: EvalRunnerOptions): EvalRunMode {
   return options.mode ?? "diffowl";
@@ -309,7 +315,7 @@ async function runDiffowlReview(params: {
   workDir: string;
   diffOwlDir: string;
   target: ReviewTarget;
-  config: DiffOwlConfig;
+  config: EffectiveReviewConfig;
   options: EvalRunnerOptions;
   dependencies: EvalRunnerDependencies;
 }): Promise<EvalReviewOutcome> {
@@ -364,7 +370,7 @@ async function runDiffowlReview(params: {
  */
 async function runBaselineReview(
   materialized: MaterializedEvalCase,
-  config: DiffOwlConfig,
+  config: EffectiveReviewConfig,
   options: EvalRunnerOptions,
   dependencies: EvalRunnerDependencies,
 ): Promise<EvalReviewOutcome> {
@@ -424,7 +430,7 @@ function buildEvalPipelineDeps(
             requestedModel: config.model,
             source: { backend: "legacy", model: "legacy" },
           },
-          config.reasoning.effort,
+          config.reasoning,
         ),
         dependencies.executor,
       ),
@@ -441,8 +447,8 @@ function buildEvalPipelineDeps(
 export function resolveEvalRunnerConfig(
   base: DiffOwlConfig,
   options: EvalRunnerOptions,
-): DiffOwlConfig {
-  const model = resolveEvalModel(options.model) || base.model;
+): EffectiveReviewConfig {
+  const model = resolveEvalModel(options.model) || DEFAULT_EVAL_MODEL;
   return {
     ...base,
     model,
@@ -451,10 +457,10 @@ export function resolveEvalRunnerConfig(
       ...base.context,
       depth: options.depth ?? base.context.depth,
     },
-    reasoning: {
-      ...base.reasoning,
-      effort: options.reasoning ?? base.reasoning.effort,
-    },
+    reasoning:
+      options.reasoning === undefined
+        ? BACKEND_DEFAULT_REASONING
+        : selectReasoningVariant(options.reasoning),
   };
 }
 

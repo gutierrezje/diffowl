@@ -124,7 +124,7 @@ export interface ReviewJsonDocumentV5 {
     effective_model: string | null;
     preference_source: ReviewSelection["source"];
     execution: ReviewJsonExecutionV1 | ReviewJsonExecutionV2 | ReviewJsonExecutionV3 | null;
-    reasoning: string;
+    reasoning: ReviewRecord["reasoning"];
     depth: string;
     session_id: string;
     summary: string;

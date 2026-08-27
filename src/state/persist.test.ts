@@ -326,7 +326,7 @@ describe("review output persistence", () => {
       ...input,
       execution: {
         cohortId: null,
-        reviewerId: "single",
+        reviewerId: ReviewerIdSchema.parse("single"),
         role: "single",
         backend: "opencode",
         requestedModel: "provider/model",

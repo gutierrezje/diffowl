@@ -152,10 +152,6 @@ export async function saveReviewBackendReasoning(
 
   current.models = current.models.map((candidate) => {
     if (candidate.backend !== backend) return candidate;
-    if (parsedVariant === "auto") {
-      const { reasoning: _reasoning, ...withoutReasoning } = candidate;
-      return withoutReasoning;
-    }
     return { ...candidate, reasoning: { variant: parsedVariant } };
   });
   return writeReviewPreferences(current);

@@ -8,6 +8,7 @@ import type {
   ReviewOperation,
 } from "../review/operation.js";
 import type { ReviewExecutionId } from "../review/ids.js";
+import type { ReasoningVariant } from "../review/reasoning.js";
 import type { ReviewFinding, ReviewTiming } from "../review/types.js";
 import { closeStateDatabase, openStateDatabase, runInTransaction } from "./db.js";
 import { computeFindingFingerprint } from "./fingerprint.js";
@@ -51,7 +52,7 @@ export interface PersistCanonicalReviewInput extends PersistReviewOutputInput {
 export interface PersistSkippedReviewInput extends PersistReviewOutputInput {
   operation: ReviewOperation;
   model: string;
-  reasoning: string;
+  reasoning: ReasoningVariant | null;
   sessionId: string;
   skippedReason: string;
 }

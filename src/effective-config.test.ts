@@ -130,7 +130,8 @@ describe("effective config", () => {
     await saveReviewBackendReasoning("opencode", "saved-value");
 
     await expect(loadEffectiveReviewConfig()).resolves.toMatchObject({
-      config: { reasoning: { effort: "saved-value" } },
+      reasoning: { kind: "variant", value: "saved-value" },
+      config: { reasoning: { kind: "variant", value: "saved-value" } },
       warnings: [
         'Deprecated .diffowl.yml reasoning.effort "legacy-value" is ignored because the selected model already uses reasoning.variant "saved-value" from .diffowl/preferences.yml. Remove only the deprecated reasoning block from .diffowl.yml; run `diffowl reasoning --reset` only if you want the backend default.',
       ],
@@ -149,14 +150,39 @@ describe("effective config", () => {
     await saveReviewBackendReasoning("opencode", "saved-value");
 
     await expect(loadEffectiveReviewConfig({ model: "provider/other" })).resolves.toMatchObject({
-      config: { model: "provider/other", reasoning: { effort: "legacy-value" } },
+      config: {
+        model: "provider/other",
+        reasoning: { kind: "variant", value: "legacy-value" },
+      },
     });
 
     await expect(
       loadEffectiveReviewConfig({ backend: "opencode", model: "provider/local" }),
     ).resolves.toMatchObject({
-      config: { model: "provider/local", reasoning: { effort: "saved-value" } },
+      config: {
+        model: "provider/local",
+        reasoning: { kind: "variant", value: "saved-value" },
+      },
     });
+  });
+
+  it("describes the winning command override when legacy reasoning is present", async () => {
+    const root = await createRoot("diffowl-effective-reasoning-command-");
+    await writeFile(
+      join(root, ".diffowl.yml"),
+      ["reasoning:", "  effort: legacy-value"].join("\n"),
+      "utf8",
+    );
+    process.chdir(root);
+    await saveReviewBackendModel("opencode", "provider/local");
+    await saveReviewBackendReasoning("opencode", "saved-value");
+
+    const effective = await loadEffectiveReviewConfig({ reasoning: "thinking" });
+
+    expect(effective.reasoning).toEqual({ kind: "variant", value: "thinking" });
+    expect(effective.warnings).toEqual([
+      'Deprecated .diffowl.yml reasoning.effort "legacy-value" is ignored because this review uses --reasoning "thinking". Remove the deprecated reasoning block from .diffowl.yml.',
+    ]);
   });
 
   it("warns how to clean up an explicit auto legacy value", async () => {
@@ -170,7 +196,7 @@ describe("effective config", () => {
     await saveReviewBackendModel("opencode", "provider/local");
 
     await expect(loadEffectiveReviewConfig()).resolves.toMatchObject({
-      config: { reasoning: { effort: "auto" } },
+      config: { reasoning: { kind: "backend-default" } },
       warnings: [
         'Deprecated .diffowl.yml reasoning.effort is "auto" (the backend default). Run `diffowl reasoning --reset` to clear any local override in .diffowl/preferences.yml, then remove the deprecated reasoning block from .diffowl.yml.',
       ],
@@ -213,7 +239,7 @@ describe("effective config", () => {
       model: "gpt-5.4",
     });
     expect(commandSelection).toMatchObject({
-      config: { model: "gpt-5.4", reasoning: { effort: "auto" } },
+      config: { model: "gpt-5.4", reasoning: { kind: "backend-default" } },
       selection: {
         backend: "codex",
         requestedModel: "gpt-5.4",
@@ -232,7 +258,10 @@ describe("effective config", () => {
         { DIFFOWL_MODEL: "provider/environment" },
       ),
     ).resolves.toMatchObject({
-      config: { model: "provider/environment", reasoning: { effort: "auto" } },
+      config: {
+        model: "provider/environment",
+        reasoning: { kind: "backend-default" },
+      },
       selection: {
         backend: "opencode",
         requestedModel: "provider/environment",
