@@ -187,6 +187,24 @@ describe("executeCodexReview", () => {
     expect(warnings).toEqual([]);
   });
 
+  it("does not require a pagination cursor after finding the selected model", async () => {
+    const input = makeInput("reasoning-supported-no-cursor");
+    const warnings: string[] = [];
+    const outcome = await executeCodexReview({
+      ...input,
+      reasoningVariant: "thinking",
+      env: {
+        ...input.env,
+        MOCK_APP_SERVER_MODEL_LIST_VARIANTS: "thinking",
+        MOCK_APP_SERVER_REASONING_VARIANT: "thinking",
+      },
+      onWarning: (message) => warnings.push(message),
+    });
+
+    expect(outcome.reviewResult.report).toEqual({ summary: "schema summary", findings: [] });
+    expect(warnings).toEqual([]);
+  });
+
   it.each([
     ["reasoning-unsupported", "high"],
     ["reasoning-empty", ""],

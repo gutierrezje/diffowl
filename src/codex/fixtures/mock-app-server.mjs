@@ -19,6 +19,7 @@ if (
     "output-schema-three-invalid",
     "reasoning-no-variant",
     "reasoning-supported",
+    "reasoning-supported-no-cursor",
     "reasoning-paginated",
     "reasoning-unsupported",
     "reasoning-empty",
@@ -128,6 +129,7 @@ const markerModes = [
   "output-schema-three-invalid",
   "reasoning-no-variant",
   "reasoning-supported",
+  "reasoning-supported-no-cursor",
   "reasoning-paginated",
   "reasoning-unsupported",
   "reasoning-empty",
@@ -174,6 +176,7 @@ const retryModes = [
 const reasoningModes = [
   "reasoning-no-variant",
   "reasoning-supported",
+  "reasoning-supported-no-cursor",
   "reasoning-paginated",
   "reasoning-unsupported",
   "reasoning-empty",
@@ -327,6 +330,21 @@ function handleMarker(message) {
       modelListVariants === undefined || modelListVariants === ""
         ? []
         : modelListVariants.split(",");
+    if (mode === "reasoning-supported-no-cursor") {
+      send({
+        id: message.id,
+        result: {
+          data: [
+            {
+              id: expectedModel,
+              model: expectedModel,
+              supportedReasoningEfforts: variants.map((reasoningEffort) => ({ reasoningEffort })),
+            },
+          ],
+        },
+      });
+      return;
+    }
     send({
       id: message.id,
       result: {
@@ -797,6 +815,7 @@ input.on("close", () => {
       "output-schema-three-invalid",
       "reasoning-no-variant",
       "reasoning-supported",
+      "reasoning-supported-no-cursor",
       "reasoning-paginated",
       "reasoning-unsupported",
       "reasoning-empty",

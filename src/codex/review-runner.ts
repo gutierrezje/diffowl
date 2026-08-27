@@ -970,10 +970,11 @@ async function loadSupportedReasoningEfforts(
     const page = parseModelListPage(response);
     const selected = page.models.find((candidate) => modelListEntryMatches(candidate, model));
     if (selected !== undefined) return parseSupportedReasoningEfforts(selected);
-    if (page.nextCursor === null) throw protocolError(`model/list missing model ${model}`);
-    if (seenCursors.has(page.nextCursor)) throw protocolError("model/list repeated nextCursor");
-    seenCursors.add(page.nextCursor);
-    cursor = page.nextCursor;
+    const nextCursor = parseModelListNextCursor(page.nextCursor);
+    if (nextCursor === null) throw protocolError(`model/list missing model ${model}`);
+    if (seenCursors.has(nextCursor)) throw protocolError("model/list repeated nextCursor");
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
   }
 }
 
@@ -981,11 +982,13 @@ function parseModelListPage(value: CodexJsonValue | undefined) {
   const payload = asRecord(value, "model/list");
   const models = payload["data"];
   if (!Array.isArray(models)) throw protocolError("model/list.data");
-  const nextCursor = payload["nextCursor"];
-  if (nextCursor !== null && (!isText(nextCursor) || nextCursor === "")) {
-    throw protocolError("model/list.nextCursor");
-  }
-  return { models: models.filter(isRecord), nextCursor };
+  return { models: models.filter(isRecord), nextCursor: payload["nextCursor"] };
+}
+
+function parseModelListNextCursor(value: CodexJsonValue | undefined): string | null {
+  if (value === null) return null;
+  if (!isText(value) || value === "") throw protocolError("model/list.nextCursor");
+  return value;
 }
 
 function parseSupportedReasoningEfforts(model: CodexJsonObject): string[] {
