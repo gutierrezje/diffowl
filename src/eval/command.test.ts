@@ -27,10 +27,8 @@ import type { ReviewFinding } from "../review/types.js";
 const corpusDir = join(import.meta.dirname, "../../eval/corpus");
 
 const baseConfig: DiffOwlConfig = {
-  model: "provider/model",
   server: { port: 4096, auto_start: false },
   context: { depth: "default" },
-  reasoning: { effort: "auto" },
   retention: { hook_log_kb: 1024 },
   gate: { fail_on_findings: false },
   timeout: 300,

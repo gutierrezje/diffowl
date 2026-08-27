@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { ReasoningEffortSchema } from "../../config.js";
 import {
   ReviewExecutionIdSchema,
   ReviewOperationIdSchema,
@@ -10,6 +9,7 @@ import {
   ReviewBackendSchema,
   ReviewPreferenceSourceSchema,
 } from "../../review/backend-selection.js";
+import { ReasoningVariantSchema } from "../../review/reasoning.js";
 import {
   completeReviewExecutionProvenance,
   REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION,
@@ -36,7 +36,7 @@ const ReviewExecutionRowSchema = z.object({
   requestedModel: z.string().nullable(),
   effectiveModel: z.string().nullable(),
   preferenceSourceJson: z.string().nullable(),
-  reasoningEffort: ReasoningEffortSchema.nullable(),
+  reasoningEffort: ReasoningVariantSchema.nullable(),
   sessionId: z.string().nullable(),
   terminalOutcome: z.enum(["completed", "cancelled", "timed-out", "failed"]),
   schemaVersion: z.union([

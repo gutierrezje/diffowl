@@ -3,6 +3,17 @@ import { realpathSync, rmSync, writeFileSync } from "node:fs";
 import { execa } from "execa";
 
 const mode = process.env.MOCK_APP_SERVER_MODE ?? "basic";
+const reasoningModes = [
+  "reasoning-no-variant",
+  "reasoning-supported",
+  "reasoning-supported-no-cursor",
+  "reasoning-paginated",
+  "reasoning-unsupported",
+  "reasoning-empty",
+  "reasoning-model-list-error",
+  "reasoning-model-list-malformed",
+  "reasoning-model-list-timeout",
+];
 if (
   [
     "marker",
@@ -17,6 +28,7 @@ if (
     "output-schema-default",
     "output-schema-retry",
     "output-schema-three-invalid",
+    ...reasoningModes,
     "auth-null",
     "auth-apikey",
     "policy-approval",
@@ -119,6 +131,7 @@ const markerModes = [
   "output-schema-default",
   "output-schema-retry",
   "output-schema-three-invalid",
+  ...reasoningModes,
   "auth-null",
   "auth-apikey",
   "policy-approval",
@@ -148,6 +161,8 @@ const markerModes = [
   "spike-cancel-active",
 ].includes(mode);
 const outputSchemaModes = markerModes;
+const expectedReasoningVariant = process.env.MOCK_APP_SERVER_REASONING_VARIANT;
+const modelListVariants = process.env.MOCK_APP_SERVER_MODEL_LIST_VARIANTS;
 const retryModes = [
   "marker-retry",
   "marker-three-invalid",
@@ -155,7 +170,6 @@ const retryModes = [
   "output-schema-three-invalid",
   "spike-three-invalid",
 ].includes(mode);
-
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
@@ -258,7 +272,86 @@ function handleMarker(message) {
     send({ id: message.id, result: { account, requiresOpenaiAuth: true } });
     return;
   }
-  if (markerStep === 3 && message.method === "thread/start" && isNumber(message.id)) {
+  if (
+    reasoningModes.includes(mode) &&
+    (markerStep === 3 || (mode === "reasoning-paginated" && markerStep === 3.25)) &&
+    message.method === "model/list" &&
+    isNumber(message.id)
+  ) {
+    if (!isRecord(params) || params.includeHidden !== true || params.limit !== 100)
+      return markerError(message);
+    if (mode === "reasoning-paginated" && markerStep === 3) {
+      if ("cursor" in params) return markerError(message);
+      markerStep = 3.25;
+      send({
+        id: message.id,
+        result: {
+          data: [
+            {
+              id: "another-model",
+              model: "another-model",
+              supportedReasoningEfforts: [],
+            },
+          ],
+          nextCursor: "page-2",
+        },
+      });
+      return;
+    }
+    if (mode === "reasoning-paginated" && params.cursor !== "page-2")
+      return markerError(message);
+    markerStep = 3.5;
+    if (mode === "reasoning-model-list-timeout") return;
+    if (mode === "reasoning-model-list-error") {
+      send({
+        id: message.id,
+        error: { code: -32602, message: "model list unavailable", data: null },
+      });
+      return;
+    }
+    if (mode === "reasoning-model-list-malformed") {
+      send({ id: message.id, result: { data: "not-an-array", nextCursor: null } });
+      return;
+    }
+    const variants =
+      modelListVariants === undefined || modelListVariants === ""
+        ? []
+        : modelListVariants.split(",");
+    if (mode === "reasoning-supported-no-cursor") {
+      send({
+        id: message.id,
+        result: {
+          data: [
+            {
+              id: expectedModel,
+              model: expectedModel,
+              supportedReasoningEfforts: variants.map((reasoningEffort) => ({ reasoningEffort })),
+            },
+          ],
+        },
+      });
+      return;
+    }
+    send({
+      id: message.id,
+      result: {
+        data: [
+          {
+            id: expectedModel,
+            model: expectedModel,
+            supportedReasoningEfforts: variants.map((reasoningEffort) => ({ reasoningEffort })),
+          },
+        ],
+        nextCursor: null,
+      },
+    });
+    return;
+  }
+  if (
+    (markerStep === 3 || markerStep === 3.5) &&
+    message.method === "thread/start" &&
+    isNumber(message.id)
+  ) {
     if (["auth-null", "auth-apikey"].includes(mode)) return markerError(message);
     const systemPromptOk =
       isRecord(params) &&
@@ -381,7 +474,9 @@ function handleMarker(message) {
         ? isRecord(item) &&
           (["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode)
             ? isText(item.text) && item.text.length > 0
-            : item.text === expectedUser)
+            : expectedUser === undefined
+              ? isText(item.text) && item.text.length > 0
+              : item.text === expectedUser)
         : isRecord(item) &&
           (outputSchemaModes
             ? isText(item.text) &&
@@ -391,6 +486,10 @@ function handleMarker(message) {
     const outputSchemaOk = outputSchemaModes
       ? isRecord(params) && isOutputSchema(params.outputSchema)
       : isRecord(params) && !Object.hasOwn(params, "outputSchema");
+    const reasoningVariantOk =
+      expectedReasoningVariant === undefined
+        ? isRecord(params) && !Object.hasOwn(params, "effort")
+        : isRecord(params) && params.effort === expectedReasoningVariant;
     if (
       !isRecord(params) ||
       params.threadId !== "thread-1" ||
@@ -408,7 +507,8 @@ function handleMarker(message) {
       !retryPromptOk ||
       !Array.isArray(item.text_elements) ||
       item.text_elements.length !== 0 ||
-      !outputSchemaOk
+      !outputSchemaOk ||
+      !reasoningVariantOk
     )
       return markerError(message);
     markerStep = 5;
@@ -702,6 +802,7 @@ input.on("close", () => {
       "output-schema-default",
       "output-schema-retry",
       "output-schema-three-invalid",
+      ...reasoningModes,
       "auth-null",
       "auth-apikey",
       "policy-approval",

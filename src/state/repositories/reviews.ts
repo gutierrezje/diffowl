@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { ReasoningEffortSchema, ReviewContextDepthSchema } from "../../config.js";
+import { ReviewContextDepthSchema } from "../../config.js";
+import { ReasoningVariantSchema } from "../../review/reasoning.js";
 import {
   ReviewExecutionIdSchema,
   ReviewIdSchema,
@@ -47,7 +48,7 @@ const ReviewRowSchema = z.object({
   targetCommit: z.string().nullable(),
   diffHash: z.string(),
   model: z.string(),
-  reasoning: ReasoningEffortSchema,
+  reasoning: ReasoningVariantSchema.nullable(),
   depth: ReviewContextDepthSchema,
   sessionId: z.string(),
   summary: z.string(),

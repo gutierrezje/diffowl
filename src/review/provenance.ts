@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { ReasoningEffortSchema, type ReasoningEffort } from "../config.js";
 import {
   ReviewBackendSchema,
   ReviewPreferenceSourceSchema,
@@ -7,6 +6,12 @@ import {
   type ReviewSelection,
 } from "./backend-selection.js";
 import { ReviewerIdSchema, type ReviewerId } from "./ids.js";
+import {
+  ReasoningVariantSchema,
+  reasoningVariant,
+  type ReasoningSelection,
+  type ReasoningVariant,
+} from "./reasoning.js";
 import type { ReviewTarget } from "./target.js";
 
 export const REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION = 3 as const;
@@ -19,7 +24,7 @@ export interface ReviewAssignment {
   role: ReviewRole;
   cohortId: string | null;
   selection: ReviewSelection;
-  reasoningEffort: ReasoningEffort;
+  reasoning: ReasoningSelection;
 }
 
 const AssignedReviewExecutionProvenanceSchema = z.object({
@@ -29,7 +34,7 @@ const AssignedReviewExecutionProvenanceSchema = z.object({
   backend: ReviewBackendSchema,
   requestedModel: z.string(),
   preferenceSource: ReviewPreferenceSourceSchema,
-  reasoningEffort: ReasoningEffortSchema,
+  reasoningEffort: ReasoningVariantSchema.nullable(),
 });
 
 export const ReviewExecutionRuntimeProvenanceSchema = z.discriminatedUnion(
@@ -70,7 +75,7 @@ interface LegacyReviewExecutionRuntimeProvenance {
   requestedModel: string | null;
   effectiveModel: string | null;
   preferenceSource: ReviewSelection["source"] | null;
-  reasoningEffort: ReasoningEffort | null;
+  reasoningEffort: ReasoningVariant | null;
   sessionId: string | null;
   terminalOutcome: "completed" | "cancelled" | "timed-out" | "failed";
 }
@@ -129,14 +134,14 @@ export type ReviewExecutionProvenance =
 
 export function createSingleReviewAssignment(
   selection: ReviewSelection,
-  reasoningEffort: ReasoningEffort,
+  reasoning: ReasoningSelection,
 ): ReviewAssignment {
   return {
     reviewerId: ReviewerIdSchema.parse("single"),
     role: "single",
     cohortId: null,
     selection,
-    reasoningEffort,
+    reasoning,
   };
 }
 
@@ -154,7 +159,7 @@ export function createFailedReviewExecutionProvenance(
     requestedModel: assignment.selection.requestedModel,
     effectiveModel: null,
     preferenceSource: assignment.selection.source,
-    reasoningEffort: assignment.reasoningEffort,
+    reasoningEffort: reasoningVariant(assignment.reasoning) ?? null,
     sessionId: null,
     terminalOutcome,
   };

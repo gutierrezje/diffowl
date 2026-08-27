@@ -26,16 +26,12 @@ afterEach(async () => {
 });
 
 const config: DiffOwlConfig = {
-  model: "provider/model",
   server: {
     port: 4096,
     auto_start: true,
   },
   context: {
     depth: "default",
-  },
-  reasoning: {
-    effort: "auto",
   },
   retention: {
     hook_log_kb: 1024,

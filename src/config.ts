@@ -4,36 +4,24 @@ import { join, dirname } from "node:path";
 import { parse, stringify } from "yaml";
 import { z, ZodError } from "zod";
 import { OpenCodeModelSchema } from "./review/backend-selection.js";
+import {
+  ReasoningVariantSchema,
+  type ReasoningVariant,
+} from "./review/reasoning.js";
 
 export const ReviewConfidenceSchema = z.enum(["low", "medium", "high"]);
 export const ReviewContextDepthSchema = z.enum(["shallow", "default"]);
-export const ReasoningEffortSchema = z.enum([
-  "auto",
-  "none",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "max",
-  "xhigh",
-]);
-export const ModelSchema = OpenCodeModelSchema;
 
 export type ReviewConfidence = z.output<typeof ReviewConfidenceSchema>;
 export type ReviewContextDepth = z.output<typeof ReviewContextDepthSchema>;
-export type ReasoningEffort = z.output<typeof ReasoningEffortSchema>;
 
 const DEFAULT_CONFIG = {
-  model: "opencode/big-pickle",
   server: {
     port: 4096,
     auto_start: true,
   },
   context: {
     depth: ReviewContextDepthSchema.enum.default,
-  },
-  reasoning: {
-    effort: ReasoningEffortSchema.enum.auto,
   },
   retention: {
     hook_log_kb: 1024,
@@ -64,7 +52,6 @@ const stringArraySchema = z.array(z.string().trim().min(1));
 
 export const DiffOwlConfigSchema = z
   .object({
-    model: ModelSchema.default(DEFAULT_CONFIG.model),
     server: z
       .object({
         port: z.number().int().min(1).max(65535).default(DEFAULT_CONFIG.server.port),
@@ -78,12 +65,6 @@ export const DiffOwlConfigSchema = z
       })
       .strict()
       .default(DEFAULT_CONFIG.context),
-    reasoning: z
-      .object({
-        effort: ReasoningEffortSchema.default(DEFAULT_CONFIG.reasoning.effort),
-      })
-      .strict()
-      .default(DEFAULT_CONFIG.reasoning),
     retention: z
       .object({
         hook_log_kb: z.number().int().nonnegative().default(DEFAULT_CONFIG.retention.hook_log_kb),
@@ -106,24 +87,29 @@ export const DiffOwlConfigSchema = z
   })
   .strict();
 
-const ProjectConfigSchema = DiffOwlConfigSchema.omit({ model: true });
+const LegacyProjectConfigInputSchema = DiffOwlConfigSchema.extend({
+  model: OpenCodeModelSchema.optional(),
+  reasoning: z
+    .object({
+      effort: ReasoningVariantSchema.optional(),
+    })
+    .strict()
+    .optional(),
+}).strict();
 
 export type DiffOwlConfig = z.output<typeof DiffOwlConfigSchema>;
-
-export function parseModel(value: Parameters<typeof ModelSchema.parse>[0]): string {
-  return ModelSchema.parse(value);
-}
+export type ConfigDiagnostic =
+  | { kind: "legacy-model"; model: string }
+  | { kind: "legacy-reasoning"; effort: ReasoningVariant };
+export type LoadedConfig = {
+  config: DiffOwlConfig;
+  diagnostics: ConfigDiagnostic[];
+};
 
 export function parseReviewContextDepth(
   value: Parameters<typeof ReviewContextDepthSchema.parse>[0],
 ): ReviewContextDepth {
   return ReviewContextDepthSchema.parse(value);
-}
-
-export function parseReasoningEffort(
-  value: Parameters<typeof ReasoningEffortSchema.parse>[0],
-): ReasoningEffort {
-  return ReasoningEffortSchema.parse(value);
 }
 
 function formatZodError(err: ZodError): string {
@@ -149,17 +135,36 @@ function findConfigPath(): string {
 }
 
 export async function loadConfig(): Promise<DiffOwlConfig> {
-  return loadConfigFromRoot(dirname(findConfigPath()));
+  return (await loadConfigWithDiagnostics()).config;
 }
 
 export async function loadConfigFromRoot(root: string): Promise<DiffOwlConfig> {
+  return (await loadConfigWithDiagnosticsFromRoot(root)).config;
+}
+
+export async function loadConfigWithDiagnostics(): Promise<LoadedConfig> {
+  return loadConfigWithDiagnosticsFromRoot(dirname(findConfigPath()));
+}
+
+export async function loadConfigWithDiagnosticsFromRoot(root: string): Promise<LoadedConfig> {
   const configPath = join(root, CONFIG_FILENAME);
   if (!existsSync(configPath)) {
-    return DiffOwlConfigSchema.parse({});
+    return { config: DiffOwlConfigSchema.parse({}), diagnostics: [] };
   }
   try {
     const raw = await readFile(configPath, "utf-8");
-    return DiffOwlConfigSchema.parse(parse(raw) ?? {});
+    const input = parse(raw) ?? {};
+    const legacyInput = LegacyProjectConfigInputSchema.parse(input);
+    const { model: legacyModel, reasoning: legacyReasoning, ...projectInput } = legacyInput;
+    const config = DiffOwlConfigSchema.parse(projectInput);
+    const diagnostics: ConfigDiagnostic[] = [];
+    if (legacyReasoning?.effort !== undefined) {
+      diagnostics.push({ kind: "legacy-reasoning", effort: legacyReasoning.effort });
+    }
+    if (legacyModel !== undefined) {
+      diagnostics.push({ kind: "legacy-model", model: legacyModel });
+    }
+    return { config, diagnostics };
   } catch (err) {
     const message =
       err instanceof ZodError
@@ -173,8 +178,7 @@ export async function loadConfigFromRoot(root: string): Promise<DiffOwlConfig> {
 
 export async function saveConfig(config: DiffOwlConfig): Promise<string> {
   const configPath = findConfigPath();
-  const { model: _backendModel, ...projectConfigInput } = config;
-  const projectConfig = ProjectConfigSchema.parse(projectConfigInput);
+  const projectConfig = DiffOwlConfigSchema.parse(config);
   const content = stringify(projectConfig, { lineWidth: 0 });
   await writeFile(configPath, content, "utf-8");
   return configPath;

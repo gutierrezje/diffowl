@@ -16,7 +16,7 @@ import type {
   ReviewTargetKind,
 } from "../state/types.js";
 
-export const JSON_OUTPUT_SCHEMA_VERSION = 5 as const;
+export const JSON_OUTPUT_SCHEMA_VERSION = 6 as const;
 
 const ReviewOutputFormatSchema = z.preprocess(
   (value) => (value === undefined ? "text" : value),
@@ -105,7 +105,7 @@ export interface ReviewJsonExecutionV3 extends Omit<ReviewJsonExecutionV2, "sche
   context_manifest_sha256: string;
 }
 
-export interface ReviewJsonDocumentV5 {
+export interface ReviewJsonDocumentV6 {
   schema_version: typeof JSON_OUTPUT_SCHEMA_VERSION;
   review: {
     id: string;
@@ -124,7 +124,7 @@ export interface ReviewJsonDocumentV5 {
     effective_model: string | null;
     preference_source: ReviewSelection["source"];
     execution: ReviewJsonExecutionV1 | ReviewJsonExecutionV2 | ReviewJsonExecutionV3 | null;
-    reasoning: string;
+    reasoning: ReviewRecord["reasoning"];
     depth: string;
     session_id: string;
     summary: string;
@@ -172,14 +172,14 @@ export function parseReviewOutputFormat(
   throw new Error(`Invalid output format: ${String(value)}. Expected text or json.`);
 }
 
-export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJsonDocumentV5 {
+export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJsonDocumentV6 {
   const observations = selectJsonObservations(
     input.persisted.reconcile.observations,
     input.verbose,
   );
   const untracked = untrackedActionableFindings(input.persisted.actionableFindings);
 
-  const document: ReviewJsonDocumentV5 = {
+  const document: ReviewJsonDocumentV6 = {
     schema_version: JSON_OUTPUT_SCHEMA_VERSION,
     review: {
       id: input.review.id,
@@ -224,7 +224,7 @@ export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJson
   return document;
 }
 
-export function renderReviewJsonDocument(document: ReviewJsonDocumentV5): string {
+export function renderReviewJsonDocument(document: ReviewJsonDocumentV6): string {
   return `${JSON.stringify(document)}\n`;
 }
 
@@ -236,7 +236,7 @@ export function renderJsonErrorDocument(message: string): string {
   return `${JSON.stringify(document)}\n`;
 }
 
-export async function writeReviewJsonSuccess(document: ReviewJsonDocumentV5): Promise<void> {
+export async function writeReviewJsonSuccess(document: ReviewJsonDocumentV6): Promise<void> {
   await writeFully(process.stdout, renderReviewJsonDocument(document));
 }
 

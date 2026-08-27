@@ -7,8 +7,10 @@ import { resetSharedDiffOwlDirForTests } from "./git/state-root.js";
 import {
   loadReviewPreferences,
   resetReviewBackendPreference,
+  resetReviewBackendReasoning,
   saveReviewBackendModel,
   saveReviewBackendPreference,
+  saveReviewBackendReasoning,
 } from "./review-preference.js";
 
 const originalCwd = process.cwd();
@@ -77,6 +79,86 @@ describe("review preferences", () => {
       models: [
         { backend: "opencode", model: "provider/local" },
         { backend: "codex", model: "gpt-5.4" },
+      ],
+    });
+  });
+
+  it("stores and resets an arbitrary reasoning variant on the selected backend model", async () => {
+    const repo = await createRepo("diffowl-review-preference-reasoning-");
+    process.chdir(repo);
+    await saveReviewBackendModel("opencode", "provider/local");
+
+    await saveReviewBackendReasoning("opencode", "thinking");
+
+    await expect(loadReviewPreferences()).resolves.toEqual({
+      kind: "current",
+      models: [
+        {
+          backend: "opencode",
+          model: "provider/local",
+          reasoning: { variant: "thinking" },
+        },
+      ],
+    });
+    await expect(readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).resolves.toContain(
+      "reasoning:\n      variant: thinking",
+    );
+
+    await resetReviewBackendReasoning("opencode");
+
+    await expect(loadReviewPreferences()).resolves.toEqual({
+      kind: "current",
+      models: [{ backend: "opencode", model: "provider/local" }],
+    });
+  });
+
+  it("persists auto as an opaque backend-native reasoning variant", async () => {
+    const repo = await createRepo("diffowl-review-preference-auto-");
+    process.chdir(repo);
+    await saveReviewBackendModel("opencode", "provider/local");
+
+    await saveReviewBackendReasoning("opencode", "auto");
+
+    await expect(loadReviewPreferences()).resolves.toMatchObject({
+      models: [
+        {
+          backend: "opencode",
+          model: "provider/local",
+          reasoning: { variant: "auto" },
+        },
+      ],
+    });
+  });
+
+  it("clears a backend reasoning override when its model changes", async () => {
+    const repo = await createRepo("diffowl-review-preference-model-change-");
+    process.chdir(repo);
+    await saveReviewBackendModel("opencode", "provider/old");
+    await saveReviewBackendReasoning("opencode", "thinking");
+
+    await saveReviewBackendModel("opencode", "provider/new");
+
+    await expect(loadReviewPreferences()).resolves.toEqual({
+      kind: "current",
+      models: [{ backend: "opencode", model: "provider/new" }],
+    });
+  });
+
+  it("preserves reasoning when the selected model is saved again unchanged", async () => {
+    const repo = await createRepo("diffowl-review-preference-same-model-");
+    process.chdir(repo);
+    await saveReviewBackendModel("opencode", "provider/local");
+    await saveReviewBackendReasoning("opencode", "thinking");
+
+    await saveReviewBackendModel("opencode", "provider/local");
+
+    await expect(loadReviewPreferences()).resolves.toMatchObject({
+      models: [
+        {
+          backend: "opencode",
+          model: "provider/local",
+          reasoning: { variant: "thinking" },
+        },
       ],
     });
   });

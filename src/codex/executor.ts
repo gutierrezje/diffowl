@@ -17,6 +17,7 @@ export type CodexCommandOptions = {
 export type CodexReviewExecutorOptions = {
   command: CodexCommandOptions;
   model: string;
+  reasoningVariant?: string;
   protocolTimeoutMs: number;
   interruptTimeoutMs: number;
   closeTimeoutMs: number;
@@ -78,7 +79,11 @@ export function createCodexReviewExecutor(options: CodexReviewExecutorOptions): 
         closeTimeoutMs: options.closeTimeoutMs,
         includeIgnoredRepositoryPaths: options.includeIgnoredRepositoryPaths ?? false,
       };
+      if (options.reasoningVariant !== undefined) {
+        reviewOptions.reasoningVariant = options.reasoningVariant;
+      }
       if (options.command.env !== undefined) reviewOptions.env = options.command.env;
+      if (input.onWarning !== undefined) reviewOptions.onWarning = input.onWarning;
       let outcome: Awaited<ReturnType<typeof executeCodexReview>>;
       try {
         outcome = await executeCodexReview(reviewOptions);

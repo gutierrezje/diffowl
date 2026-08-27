@@ -1,16 +1,18 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
-import { z } from "zod";
+import { z, ZodError } from "zod";
 import { getSharedDiffOwlDir } from "./git/state-root.js";
 import {
   BackendModelSelectionSchema,
+  formatReviewBackend,
   OpenCodeModelSchema,
   parseBackendModel,
   ReviewBackendSchema,
   type BackendModelSelection,
   type ReviewBackend,
 } from "./review/backend-selection.js";
+import { parseReasoningVariant } from "./review/reasoning.js";
 
 const PREFERENCES_FILENAME = "preferences.yml";
 const MODEL_PREFERENCE_ORDER = {
@@ -109,9 +111,12 @@ export async function saveReviewBackendModel(
   if (preferences.kind === "legacy") {
     delete current.selectedBackend;
   }
+  const previous = current.models.find((selection) => selection.backend === backend);
+  const nextSelection =
+    previous?.model === parsedModel ? previous : { backend, model: parsedModel };
   current.models = [
     ...current.models.filter((selection) => selection.backend !== backend),
-    { backend, model: parsedModel },
+    nextSelection,
   ];
   return writeReviewPreferences(current);
 }
@@ -123,6 +128,46 @@ export async function resetReviewBackendModel(backend: ReviewBackend): Promise<v
     delete current.selectedBackend;
   }
   current.models = current.models.filter((selection) => selection.backend !== backend);
+  await writeReviewPreferences(current);
+}
+
+export async function saveReviewBackendReasoning(
+  backend: ReviewBackend,
+  variant: string,
+): Promise<string> {
+  const parsedVariant = parseReasoningVariant(variant);
+  const preferences = await loadReviewPreferences();
+  const current = toCurrentPreferences(preferences);
+  if (preferences.kind === "legacy") {
+    delete current.selectedBackend;
+  }
+  const selection = current.models.find((candidate) => candidate.backend === backend);
+  if (selection === undefined) {
+    throw new Error(
+      `No ${formatReviewBackend(backend)} model selected. Run \`diffowl model <${
+        backend === "opencode" ? "provider/model" : "model-id"
+      }>\` first.`,
+    );
+  }
+
+  current.models = current.models.map((candidate) => {
+    if (candidate.backend !== backend) return candidate;
+    return { ...candidate, reasoning: { variant: parsedVariant } };
+  });
+  return writeReviewPreferences(current);
+}
+
+export async function resetReviewBackendReasoning(backend: ReviewBackend): Promise<void> {
+  const preferences = await loadReviewPreferences();
+  const current = toCurrentPreferences(preferences);
+  if (preferences.kind === "legacy") {
+    delete current.selectedBackend;
+  }
+  current.models = current.models.map((candidate) => {
+    if (candidate.backend !== backend) return candidate;
+    const { reasoning: _reasoning, ...withoutReasoning } = candidate;
+    return withoutReasoning;
+  });
   await writeReviewPreferences(current);
 }
 
@@ -174,7 +219,13 @@ function canonicalizeModels(models: BackendModelSelection[]): BackendModelSelect
 }
 
 function preferenceError(path: string, error: Error): Error {
-  return new Error(`Failed to load ${path}: ${error.message}`);
+  const message =
+    error instanceof ZodError
+      ? error.issues
+          .map((issue) => `${issue.path.join(".") || "preferences"}: ${issue.message}`)
+          .join("; ")
+      : error.message;
+  return new Error(`Failed to load ${path}: ${message}`);
 }
 
 function isMissingFile(error: Error): boolean {

@@ -145,7 +145,7 @@ export async function runCodexAppServerSpike(input: SpikeInput): Promise<SpikeOu
               requestedModel: input.codex.model,
               source: { backend: "command", model: "command" },
             },
-            input.review.config.reasoning.effort,
+            input.review.config.reasoning,
           ),
           {
             execute: async (

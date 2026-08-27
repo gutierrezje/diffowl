@@ -121,13 +121,63 @@ describe("diffowl CLI", () => {
     expect(stdout).toContain("Model set to provider/local");
     await expect(readFile(configPath, "utf8")).resolves.toBe(originalConfig);
     await expect(readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).resolves.toBe(
+      ["models:", "  - backend: opencode", "    model: provider/local", ""].join("\n"),
+    );
+  });
+
+  it("stores and resets an arbitrary reasoning variant for the selected model", async () => {
+    const repo = await createRepo("diffowl-cli-reasoning-");
+    const configPath = join(repo, ".diffowl.yml");
+    const originalConfig = await readFile(configPath, "utf8");
+
+    const set = await execa("node", [cliPath, "reasoning", "thinking"], { cwd: repo });
+
+    expect(set.stdout).toContain("Reasoning variant set to thinking");
+    await expect(readFile(configPath, "utf8")).resolves.toBe(originalConfig);
+    await expect(readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).resolves.toBe(
       [
         "models:",
         "  - backend: opencode",
-        "    model: provider/local",
+        "    model: provider/model",
+        "    reasoning:",
+        "      variant: thinking",
         "",
       ].join("\n"),
     );
+
+    const reset = await execa("node", [cliPath, "reasoning", "--reset"], { cwd: repo });
+
+    expect(reset.stdout).toContain("Reasoning preference reset to backend default");
+    await expect(readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).resolves.toBe(
+      ["models:", "  - backend: opencode", "    model: provider/model", ""].join("\n"),
+    );
+  });
+
+  it("stores auto as an opaque backend-native reasoning variant", async () => {
+    const repo = await createRepo("diffowl-cli-reasoning-auto-");
+
+    const result = await execa("node", [cliPath, "reasoning", "auto"], { cwd: repo });
+
+    expect(result.stdout).toContain("Reasoning variant set to auto");
+    expect(result.stderr).toBe("");
+    await expect(readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).resolves.toBe(
+      [
+        "models:",
+        "  - backend: opencode",
+        "    model: provider/model",
+        "    reasoning:",
+        "      variant: auto",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("describes review reasoning without reserving a provider-native value", async () => {
+    const result = await execa("node", [cliPath, "review", "--help"]);
+
+    expect(result.stdout).toContain("--reasoning <variant>");
+    expect(result.stdout).toContain("Backend-native reasoning variant");
+    expect(result.stdout).not.toContain("auto for the backend default");
   });
 
   it("stores an explicit backend and keeps model choices for both backends", async () => {
@@ -226,6 +276,31 @@ describe("diffowl CLI", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("No model selected for OpenCode");
+    expect(result.stderr).toContain(
+      'Legacy .diffowl.yml model "provider/model" is no longer used',
+    );
+  });
+
+  it("returns legacy reasoning migration guidance as structured review diagnostics", async () => {
+    const repo = await createRepo("diffowl-cli-reasoning-warning-");
+    const configPath = join(repo, ".diffowl.yml");
+    await writeFile(
+      configPath,
+      `${await readFile(configPath, "utf8")}reasoning:\n  effort: auto\n`,
+      "utf8",
+    );
+
+    const { stdout, stderr } = await execa(
+      "node",
+      [cliPath, "review", "--staged", "--format", "json"],
+      { cwd: repo },
+    );
+    const document = z.object({ diagnostics: z.array(z.string()) }).parse(JSON.parse(stdout));
+
+    expect(stderr).toBe("");
+    expect(document.diagnostics).toContain(
+      'Deprecated .diffowl.yml reasoning.effort is "auto" (the backend default). Run `diffowl reasoning --reset` to clear any local override in .diffowl/preferences.yml, then remove the deprecated reasoning block from .diffowl.yml.',
+    );
   });
 
   it("uses a one-off review model without changing saved model settings", async () => {
@@ -278,7 +353,7 @@ describe("diffowl CLI", () => {
     );
     const document = CliReviewDocumentSchema.parse(JSON.parse(stdout));
 
-    expect(document.schema_version).toBe(5);
+    expect(document.schema_version).toBe(6);
     expect(document.review).toMatchObject({
       backend: "codex",
       model: "gpt-5.4",
@@ -304,21 +379,7 @@ describe("diffowl CLI", () => {
       await writeFile(join(repo, "src/app.ts"), "export const value = 2;\n", "utf8");
       await commitAll(repo, "change");
       const { stdout: headCommit } = await execa("git", ["rev-parse", "HEAD"], { cwd: repo });
-      const bin = await mkdtemp(join(tmpdir(), "diffowl-cli-codex-wrapper-"));
-      tempDirs.push(bin);
-      const executable = join(bin, "codex");
-      await writeFile(
-        executable,
-        [
-          `#!${process.execPath}`,
-          `(async () => import(${JSON.stringify(pathToFileURL(mockCodexCliPath).href)}))().catch((error) => {`,
-          "  console.error(error);",
-          "  process.exit(1);",
-          "});",
-          "",
-        ].join("\n"),
-        { mode: 0o755 },
-      );
+      const executable = await createMockCodexExecutable("diffowl-cli-codex-wrapper-");
 
       const { stdout } = await execa(
         process.execPath,
@@ -357,7 +418,7 @@ describe("diffowl CLI", () => {
           requested_model: "gpt-5-codex",
           effective_model: "gpt-5-codex",
           preference_source: { backend: "command", model: "command" },
-          reasoning_effort: "auto",
+          reasoning_effort: null,
           session_id: "thread-1",
           terminal_outcome: "completed",
           context_manifest_sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
@@ -484,6 +545,97 @@ describe("diffowl CLI", () => {
     30_000,
   );
 
+  it.skipIf(process.platform === "win32")(
+    "prints backend reasoning diagnostics in text mode",
+    async () => {
+      const repo = await createRepo("diffowl-cli-review-codex-warning-");
+      await stageCodeChange(repo);
+      const executable = await createMockCodexExecutable(
+        "diffowl-cli-codex-warning-wrapper-",
+      );
+
+      const result = await execa(
+        process.execPath,
+        [
+          cliPath,
+          "review",
+          "--staged",
+          "--backend",
+          "codex",
+          "--model",
+          "gpt-5-codex",
+          "--reasoning",
+          "thinking",
+        ],
+        {
+          cwd: repo,
+          env: {
+            DIFFOWL_CODEX_EXECUTABLE: executable,
+            MOCK_APP_SERVER_MODE: "reasoning-unsupported",
+            MOCK_APP_SERVER_MODEL: "gpt-5-codex",
+            MOCK_APP_SERVER_MODEL_LIST_VARIANTS: "high",
+          },
+        },
+      );
+
+      expect(result.stderr).toContain(
+        'Codex model "gpt-5-codex" does not advertise reasoning variant "thinking"',
+      );
+      expect(result.stderr).toContain('Advertised variants: "high".');
+    },
+    30_000,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "prints reasoning guidance before a forwarded variant fails",
+    async () => {
+      const repo = await createRepo("diffowl-cli-review-codex-warning-failure-");
+      await stageCodeChange(repo);
+      const executable = await createMockCodexExecutable(
+        "diffowl-cli-codex-warning-failure-wrapper-",
+      );
+      const args = [
+        cliPath,
+        "review",
+        "--staged",
+        "--backend",
+        "codex",
+        "--model",
+        "gpt-5-codex",
+        "--reasoning",
+        "thinking",
+      ];
+      const options = {
+        cwd: repo,
+        reject: false,
+        env: {
+          DIFFOWL_CODEX_EXECUTABLE: executable,
+          MOCK_APP_SERVER_MODE: "reasoning-model-list-malformed",
+          MOCK_APP_SERVER_MODEL: "gpt-5-codex",
+        },
+      };
+      const result = await execa(process.execPath, args, options);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(
+        'Codex model "gpt-5-codex" reasoning variant validation was unavailable',
+      );
+      expect(result.stderr).toContain("Codex review failed");
+
+      const jsonResult = await execa(
+        process.execPath,
+        [...args, "--format", "json"],
+        options,
+      );
+      const errorDocument = CliErrorDocumentSchema.parse(JSON.parse(jsonResult.stderr));
+
+      expect(errorDocument.error.message).toContain(
+        'Codex model "gpt-5-codex" reasoning variant validation was unavailable',
+      );
+    },
+    30_000,
+  );
+
   it("names a missing Codex runtime and gives a deterministic JSON next action", async () => {
     const repo = await createRepo("diffowl-cli-review-codex-missing-");
     await mkdir(join(repo, "src"));
@@ -595,7 +747,7 @@ describe("diffowl CLI", () => {
     );
 
     expect(JSON.parse(result.stderr)).toMatchObject({
-      schema_version: 5,
+      schema_version: 6,
       error: { message: expect.stringContaining("Codex model must be a bare model id") },
     });
   });
@@ -1533,8 +1685,6 @@ async function createRepo(
       "  auto_start: false",
       "context:",
       "  depth: default",
-      "reasoning:",
-      "  effort: auto",
       "retention:",
       "  hook_log_kb: 512",
       "timeout: 300",
@@ -1555,25 +1705,10 @@ async function createRepo(
   return repo;
 }
 
-async function commitAll(repo: string, message: string): Promise<void> {
-  await execa("git", ["add", "."], { cwd: repo });
-  await execa(
-    "git",
-    [
-      "-c",
-      "user.name=DiffOwl Test",
-      "-c",
-      "user.email=diffowl@example.test",
-      "commit",
-      "-m",
-      message,
-    ],
-    { cwd: repo },
-  );
-}
-
-async function createMockCodexExecutable(): Promise<string> {
-  const bin = await mkdtemp(join(tmpdir(), "diffowl-cli-codex-wrapper-"));
+async function createMockCodexExecutable(
+  prefix = "diffowl-cli-codex-wrapper-",
+): Promise<string> {
+  const bin = await mkdtemp(join(tmpdir(), prefix));
   tempDirs.push(bin);
   const executable = join(bin, "codex");
   await writeFile(
@@ -1589,6 +1724,29 @@ async function createMockCodexExecutable(): Promise<string> {
     { mode: 0o755 },
   );
   return executable;
+}
+
+async function stageCodeChange(repo: string): Promise<void> {
+  await mkdir(join(repo, "src"));
+  await writeFile(join(repo, "src/app.ts"), "export const value = 1;\n", "utf8");
+  await execa("git", ["add", "src/app.ts"], { cwd: repo });
+}
+
+async function commitAll(repo: string, message: string): Promise<void> {
+  await execa("git", ["add", "."], { cwd: repo });
+  await execa(
+    "git",
+    [
+      "-c",
+      "user.name=DiffOwl Test",
+      "-c",
+      "user.email=diffowl@example.test",
+      "commit",
+      "-m",
+      message,
+    ],
+    { cwd: repo },
+  );
 }
 
 async function waitForPath(path: string): Promise<void> {

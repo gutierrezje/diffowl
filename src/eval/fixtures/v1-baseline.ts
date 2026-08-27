@@ -9,10 +9,8 @@ import { join } from "node:path";
 const corpusDir = join(import.meta.dirname, "../../../eval/corpus");
 
 const baseConfig: DiffOwlConfig = {
-  model: "provider/model",
   server: { port: 4096, auto_start: false },
   context: { depth: "default" },
-  reasoning: { effort: "auto" },
   retention: { hook_log_kb: 1024 },
   gate: { fail_on_findings: false },
   timeout: 300,
@@ -110,7 +108,7 @@ export async function buildV1BaselineDocument(): Promise<EvalResultsDocumentV1> 
   return buildEvalReport({
     corpus,
     config: baseConfig,
-    options: { model: baseConfig.model, trials: 3 },
+    options: { model: "provider/model", trials: 3 },
     mode: "diffowl",
     trials: 3,
     startedAt: "2026-06-29T12:00:00.000Z",

@@ -2,7 +2,12 @@ import { mkdtemp, mkdir, readFile, writeFile, rm, realpath } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { getProjectRoot, loadConfig, saveConfig, type DiffOwlConfig } from "./config.js";
+import {
+  getProjectRoot,
+  loadConfig,
+  loadConfigWithDiagnostics,
+  saveConfig,
+} from "./config.js";
 
 const originalCwd = process.cwd();
 let tempDirs: string[] = [];
@@ -52,26 +57,37 @@ describe("config", () => {
 
     process.chdir(child);
 
-    const config: DiffOwlConfig = {
-      ...(await loadConfig()),
-      model: "provider/updated",
-    };
+    const config = await loadConfig();
+    config.min_confidence = "high";
     const savedPath = await saveConfig(config);
 
     expect(await realpath(savedPath)).toBe(await realpath(parentConfig));
     expect(await readFile(parentConfig, "utf-8")).not.toContain("model:");
   });
 
-  it("omits a transient Codex model before validating project policy", async () => {
+  it("does not expose or save legacy runtime selection as project config", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
     tempDirs.push(root);
+    await writeFile(
+      join(root, ".diffowl.yml"),
+      ["model: provider/legacy", "reasoning:", "  effort: provider-native"].join("\n"),
+      "utf8",
+    );
     process.chdir(root);
-    const config = await loadConfig();
-    config.model = "gpt-5.4";
+    const loaded = await loadConfigWithDiagnostics();
+    const { config } = loaded;
 
     const savedPath = await saveConfig(config);
+    const saved = await readFile(savedPath, "utf-8");
 
-    expect(await readFile(savedPath, "utf-8")).not.toContain("model:");
+    expect(config).not.toHaveProperty("model");
+    expect(config).not.toHaveProperty("reasoning");
+    expect(loaded.diagnostics).toEqual([
+      { kind: "legacy-reasoning", effort: "provider-native" },
+      { kind: "legacy-model", model: "provider/legacy" },
+    ]);
+    expect(saved).not.toContain("model:");
+    expect(saved).not.toContain("reasoning:");
   });
 
   it("defaults missing optional fields", async () => {
@@ -85,7 +101,7 @@ describe("config", () => {
     expect(config.server.port).toBe(4096);
     expect(config.min_confidence).toBe("medium");
     expect(config.context.depth).toBe("default");
-    expect(config.reasoning.effort).toBe("auto");
+    expect(config).not.toHaveProperty("reasoning");
     expect(config.retention).toEqual({ hook_log_kb: 1024 });
     expect(config.gate).toEqual({ fail_on_findings: false });
     expect(config.skip_doc_only).toBe(false);
@@ -110,20 +126,35 @@ describe("config", () => {
     expect(second.include).toEqual(["**/*"]);
   });
 
-  for (const effort of ["auto", "none", "minimal", "low", "medium", "high", "max", "xhigh"]) {
-    it(`loads ${effort} reasoning effort`, async () => {
-      const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
-      tempDirs.push(root);
-      await writeFile(
-        join(root, ".diffowl.yml"),
-        ["model: provider/model", "reasoning:", `  effort: ${effort}`].join("\n"),
-        "utf-8",
-      );
-      process.chdir(root);
+  it("loads arbitrary trimmed reasoning values and reports explicit legacy usage", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
+    tempDirs.push(root);
+    await writeFile(
+      join(root, ".diffowl.yml"),
+      ["model: provider/model", "reasoning:", "  effort: '  provider-native  '"].join("\n"),
+      "utf-8",
+    );
+    process.chdir(root);
 
-      expect((await loadConfig()).reasoning.effort).toBe(effort);
+    await expect(loadConfig()).resolves.not.toHaveProperty("reasoning");
+    await expect(loadConfigWithDiagnostics()).resolves.toMatchObject({
+      diagnostics: [
+        { kind: "legacy-reasoning", effort: "provider-native" },
+        { kind: "legacy-model", model: "provider/model" },
+      ],
     });
-  }
+  });
+
+  it("does not report legacy reasoning when the block has no effort", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
+    tempDirs.push(root);
+    await writeFile(join(root, ".diffowl.yml"), "reasoning: {}\n", "utf-8");
+    process.chdir(root);
+
+    await expect(loadConfigWithDiagnostics()).resolves.toMatchObject({
+      diagnostics: [],
+    });
+  });
 
   it("loads boolean review output settings when set", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
@@ -166,12 +197,12 @@ describe("config", () => {
     expect((await loadConfig()).context.depth).toBe("shallow");
   });
 
-  it("fails fast for invalid explicit values", async () => {
+  it("fails fast for empty explicit values", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
     tempDirs.push(root);
     await writeFile(
       join(root, ".diffowl.yml"),
-      "model: provider/model\nreasoning:\n  effort: noisy\n",
+      "model: provider/model\nreasoning:\n  effort: ''\n",
       "utf-8",
     );
     process.chdir(root);

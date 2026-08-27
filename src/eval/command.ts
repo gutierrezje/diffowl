@@ -4,10 +4,10 @@ import chalk from "chalk";
 import ora, { type Ora } from "ora";
 import {
   loadConfigFromRoot,
-  parseReasoningEffort,
   parseReviewContextDepth,
   ReviewConfidenceSchema,
 } from "../config.js";
+import { parseReasoningVariant } from "../review/reasoning.js";
 import { getInstalledOpencodeVersion } from "../opencode/server.js";
 import type { EvalCase, EvalCorpus } from "./case-types.js";
 import {
@@ -115,7 +115,7 @@ export function parseEvalCliOptions(cwd: string, raw: RawEvalCliOptions): Parsed
     options.depth = parseReviewContextDepth(raw.depth);
   }
   if (raw.reasoning) {
-    options.reasoning = parseReasoningEffort(raw.reasoning);
+    options.reasoning = parseReasoningVariant(raw.reasoning);
   }
   if (raw.minConfidence) {
     options.minConfidence = ReviewConfidenceSchema.parse(raw.minConfidence);

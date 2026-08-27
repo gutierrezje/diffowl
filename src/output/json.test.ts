@@ -287,7 +287,7 @@ describe("buildReviewJsonDocument", () => {
     });
   });
 
-  it("renders immutable base review identity in schema version 5", () => {
+  it("renders immutable base review identity in schema version 6", () => {
     const document = buildDocument({
       review: {
         ...review,
@@ -302,7 +302,7 @@ describe("buildReviewJsonDocument", () => {
       suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
     });
 
-    expect(document.schema_version).toBe(5);
+    expect(document.schema_version).toBe(6);
     expect(document.review.target).toEqual({
       kind: "base",
       ref: "origin/main",
@@ -313,7 +313,7 @@ describe("buildReviewJsonDocument", () => {
     });
   });
 
-  it("renders schema version 5 with review metadata and findings", () => {
+  it("renders schema version 6 with review metadata and findings", () => {
     const document = buildDocument({
       review,
       persisted,
@@ -327,7 +327,7 @@ describe("buildReviewJsonDocument", () => {
       },
     });
 
-    expect(document.schema_version).toBe(5);
+    expect(document.schema_version).toBe(6);
     expect(document.review.id).toBe("rev_test");
     expect(document.review.status).toBe("open");
     expect(document.findings).toHaveLength(1);
@@ -339,6 +339,24 @@ describe("buildReviewJsonDocument", () => {
       below_confidence: 2,
     });
     expect(document.diagnostics).toEqual(["context warning"]);
+  });
+
+  it("distinguishes backend-default reasoning from a provider variant with the same name", () => {
+    const backendDefault = buildDocument({
+      review: { ...review, reasoning: null },
+      persisted,
+      occurrenceCounts: new Map(),
+      suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+    });
+    const namedVariant = buildDocument({
+      review: { ...review, reasoning: "backend-default" },
+      persisted,
+      occurrenceCounts: new Map(),
+      suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+    });
+
+    expect(backendDefault.review.reasoning).toBeNull();
+    expect(namedVariant.review.reasoning).toBe("backend-default");
   });
 
   it("includes suppressed lifecycle findings when verbose", () => {
@@ -593,7 +611,7 @@ describe("renderReviewJsonDocument", () => {
 
     expect(rendered.endsWith("\n")).toBe(true);
     expect(JSON.parse(rendered.trim())).toMatchObject({
-      schema_version: 5,
+      schema_version: 6,
       review: { id: "rev_test" },
     });
   });
@@ -603,7 +621,7 @@ describe("renderJsonErrorDocument", () => {
   it("renders a versioned error envelope", () => {
     const rendered = renderJsonErrorDocument("Review failed.");
     expect(JSON.parse(rendered.trim())).toEqual({
-      schema_version: 5,
+      schema_version: 6,
       error: { message: "Review failed." },
     });
   });

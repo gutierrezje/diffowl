@@ -1,6 +1,7 @@
 import { createCodexReviewExecutor, type CodexReviewExecutorOptions } from "../codex/executor.js";
 import { createOpenCodeReviewExecutor } from "../opencode/executor.js";
 import type { ReviewAssignment } from "./provenance.js";
+import { reasoningVariant } from "./reasoning.js";
 import type { AssignedReviewExecutor, ReviewExecutor } from "./types.js";
 
 const CODEX_PROTOCOL_TIMEOUT_MS = 30_000;
@@ -44,7 +45,7 @@ export function assignReviewExecutor(
           requestedModel: assignment.selection.requestedModel,
           effectiveModel: result.effectiveModel ?? null,
           preferenceSource: assignment.selection.source,
-          reasoningEffort: assignment.reasoningEffort,
+          reasoningEffort: reasoningVariant(assignment.reasoning) ?? null,
           sessionId: result.review.sessionId,
           terminalOutcome: "completed",
         },
@@ -61,8 +62,8 @@ function createReviewExecutor(
   switch (assignment.selection.backend) {
     case "opencode":
       return dependencies.createOpenCode();
-    case "codex":
-      return dependencies.createCodex({
+    case "codex": {
+      const options: CodexReviewExecutorOptions = {
         command: {
           executable: env["DIFFOWL_CODEX_EXECUTABLE"]?.trim() || "codex",
         },
@@ -70,6 +71,12 @@ function createReviewExecutor(
         protocolTimeoutMs: CODEX_PROTOCOL_TIMEOUT_MS,
         interruptTimeoutMs: CODEX_INTERRUPT_TIMEOUT_MS,
         closeTimeoutMs: CODEX_CLOSE_TIMEOUT_MS,
-      });
+      };
+      const variant = reasoningVariant(assignment.reasoning);
+      if (variant !== undefined) {
+        options.reasoningVariant = variant;
+      }
+      return dependencies.createCodex(options);
+    }
   }
 }

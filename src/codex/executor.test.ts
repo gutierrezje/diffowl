@@ -3,17 +3,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
-import type { DiffOwlConfig } from "../config.js";
 import { ReviewCancelledError } from "../review/errors.js";
+import type { EffectiveReviewConfig } from "../review/runtime-config.js";
 import { createCodexReviewExecutor } from "./executor.js";
 
 const cliFixture = fileURLToPath(new URL("./fixtures/mock-codex-cli.mjs", import.meta.url));
 
-const config: DiffOwlConfig = {
+const config: EffectiveReviewConfig = {
   model: "ignored/provider-model",
   server: { port: 4096, auto_start: false },
   context: { depth: "default" },
-  reasoning: { effort: "auto" },
+  reasoning: { kind: "backend-default" },
   retention: { hook_log_kb: 1024 },
   gate: { fail_on_findings: false },
   timeout: 30,
@@ -35,11 +35,13 @@ describe("createCodexReviewExecutor", () => {
         env: {
           MOCK_APP_SERVER_MODE: "output-schema-default",
           MOCK_APP_SERVER_MODEL: "gpt-5-codex",
+          MOCK_APP_SERVER_REASONING_VARIANT: "thinking",
           MOCK_APP_SERVER_USER: "review this change",
           OPENAI_API_KEY: "must-not-cross-the-child-boundary",
         },
       },
       model: "gpt-5-codex",
+      reasoningVariant: "thinking",
       protocolTimeoutMs: 10_000,
       interruptTimeoutMs: 300,
       closeTimeoutMs: 500,

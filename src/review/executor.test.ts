@@ -17,7 +17,7 @@ describe("createSelectedReviewExecutor", () => {
         backend: "opencode",
         requestedModel: "provider/model",
         source: { backend: "default", model: "local" },
-      }, "auto"),
+      }, { kind: "backend-default" }),
       { createOpenCode, createCodex },
     );
 
@@ -26,7 +26,7 @@ describe("createSelectedReviewExecutor", () => {
     expect(createCodex).not.toHaveBeenCalled();
   });
 
-  it("passes the explicit Codex model and executable to the Codex adapter", () => {
+  it("passes the explicit Codex model, reasoning variant, and executable to the Codex adapter", () => {
     let options: CodexReviewExecutorOptions | undefined;
     const createCodex = vi.fn((input: CodexReviewExecutorOptions) => {
       options = input;
@@ -38,7 +38,7 @@ describe("createSelectedReviewExecutor", () => {
         backend: "codex",
         requestedModel: "gpt-5.4",
         source: { backend: "command", model: "command" },
-      }, "auto"),
+      }, { kind: "variant", value: "thinking" }),
       { createOpenCode: () => openCodeExecutor, createCodex },
       { DIFFOWL_CODEX_EXECUTABLE: "/opt/codex" },
     );
@@ -47,6 +47,7 @@ describe("createSelectedReviewExecutor", () => {
     expect(options).toMatchObject({
       command: { executable: "/opt/codex" },
       model: "gpt-5.4",
+      reasoningVariant: "thinking",
     });
   });
 
@@ -58,7 +59,7 @@ describe("createSelectedReviewExecutor", () => {
         requestedModel: "gpt-5.6-luna",
         source: { backend: "local", model: "local" },
       },
-      "max",
+      { kind: "variant", value: "max" },
     );
     const executor = createSelectedReviewExecutor(
       assignment,
@@ -91,7 +92,7 @@ describe("createSelectedReviewExecutor", () => {
           requestedModel: "provider/model",
           source: { backend: "default", model: "local" },
         },
-        "high",
+        { kind: "variant", value: "high" },
       ),
       { createOpenCode: () => adapter, createCodex: () => codexExecutor },
     );
@@ -134,7 +135,7 @@ function reviewExecutorOptions(model: string, effort: "high" | "max") {
         model,
         server: { port: 4096, auto_start: false },
         context: { depth: "default" as const },
-        reasoning: { effort },
+        reasoning: { kind: "variant" as const, value: effort },
         retention: { hook_log_kb: 1024 },
         gate: { fail_on_findings: false },
         timeout: 300,

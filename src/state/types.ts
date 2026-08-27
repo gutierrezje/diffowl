@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ReviewContextDepth } from "../config.js";
+import type { ReasoningVariant } from "../review/reasoning.js";
 import {
   ReviewExecutionIdSchema,
   ReviewIdSchema,
@@ -66,7 +67,7 @@ export interface ReviewRecord {
   targetCommit: string | null;
   diffHash: string;
   model: string;
-  reasoning: string;
+  reasoning: ReasoningVariant | null;
   depth: ReviewContextDepth;
   sessionId: string;
   summary: string;
@@ -95,7 +96,7 @@ export type InsertReviewInput =
       kind: "skipped";
       operation: ReviewOperation;
       model: string;
-      reasoning: string;
+      reasoning: ReasoningVariant | null;
       sessionId: string;
       skippedReason: string;
     });

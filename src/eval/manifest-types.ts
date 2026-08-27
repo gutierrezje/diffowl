@@ -1,9 +1,9 @@
 import { z } from "zod";
 import {
-  ReasoningEffortSchema,
   ReviewConfidenceSchema,
   ReviewContextDepthSchema,
 } from "../config.js";
+import { ReasoningVariantSchema } from "../review/reasoning.js";
 
 export const EvalReportModeSchema = z.enum(["diffowl", "baseline", "both"]);
 
@@ -17,7 +17,7 @@ export const EvalRunManifestSchema = z.object({
   corpus_version: z.string(),
   cases: z.array(EvalManifestCaseSchema),
   model: z.string(),
-  reasoning: ReasoningEffortSchema,
+  reasoning: ReasoningVariantSchema.nullable(),
   depth: ReviewContextDepthSchema,
   min_confidence: ReviewConfidenceSchema,
   trials: z.number().int().positive(),

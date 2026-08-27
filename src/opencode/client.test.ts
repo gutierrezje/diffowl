@@ -259,16 +259,27 @@ describe("updateTextPart", () => {
 });
 
 describe("resolveReasoningVariant", () => {
-  it("does not request a variant for auto reasoning", async () => {
-    await expect(resolveReasoningVariant({}, "provider", "model", "auto")).resolves.toEqual({
+  it("does not request a variant for backend-default reasoning", async () => {
+    await expect(resolveReasoningVariant({}, "provider", "model", undefined)).resolves.toEqual({
       diagnostics: [],
+    });
+  });
+
+  it("treats auto as an opaque explicit variant", async () => {
+    await expect(resolveReasoningVariant({}, "provider", "model", "auto")).resolves.toEqual({
+      variant: "auto",
+      diagnostics: [
+        'Could not validate reasoning variant "auto" for provider/model; sending the backend-native value unchanged. If the backend rejects it, remove the one-review `--reasoning` override or run `diffowl reasoning --reset` to clear the saved preference.',
+      ],
     });
   });
 
   it("requests explicit variants when metadata is unavailable", async () => {
     await expect(resolveReasoningVariant({}, "provider", "model", "high")).resolves.toEqual({
       variant: "high",
-      diagnostics: [],
+      diagnostics: [
+        'Could not validate reasoning variant "high" for provider/model; sending the backend-native value unchanged. If the backend rejects it, remove the one-review `--reasoning` override or run `diffowl reasoning --reset` to clear the saved preference.',
+      ],
     });
   });
 
@@ -324,7 +335,40 @@ describe("resolveReasoningVariant", () => {
     const result = await resolveReasoningVariant(client, "provider", "model", "max");
 
     expect(result.variant).toBeUndefined();
-    expect(result.diagnostics[0]).toContain("does not advertise that variant");
+    expect(result.diagnostics).toEqual([
+      'Reasoning variant "max" was requested, but provider/model does not advertise that variant; continuing with provider default. Advertised variants: "low", "high". Use one of those values, remove the one-review `--reasoning` override, or run `diffowl reasoning --reset` to clear the saved preference.',
+    ]);
+  });
+
+  it("explains when a reasoning model advertises no selectable variants", async () => {
+    const client = {
+      provider: {
+        list: async () => ({
+          data: {
+            all: [
+              {
+                id: "provider",
+                models: {
+                  model: {
+                    id: "model",
+                    capabilities: { reasoning: true },
+                    variants: {},
+                  },
+                },
+              },
+            ],
+          },
+        }),
+      },
+    };
+
+    const result = await resolveReasoningVariant(client, "provider", "model", "high");
+
+    expect(result).toEqual({
+      diagnostics: [
+        'Reasoning variant "high" was requested, but provider/model does not advertise that variant; continuing with provider default. This model advertises no selectable reasoning variants. Remove the one-review `--reasoning` override or run `diffowl reasoning --reset` to clear the saved preference.',
+      ],
+    });
   });
 });
 

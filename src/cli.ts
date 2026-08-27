@@ -11,10 +11,8 @@ import {
   getDiffOwlDir,
   getProjectRoot,
   parseReviewContextDepth,
-  parseReasoningEffort,
   type DiffOwlConfig,
   type ReviewContextDepth,
-  type ReasoningEffort,
 } from "./config.js";
 import {
   loadEffectiveReviewConfig,
@@ -26,8 +24,10 @@ import {
   loadReviewPreferences,
   resetReviewBackendModel,
   resetReviewBackendPreference,
+  resetReviewBackendReasoning,
   saveReviewBackendModel,
   saveReviewBackendPreference,
+  saveReviewBackendReasoning,
 } from "./review-preference.js";
 import {
   formatReviewBackend,
@@ -36,6 +36,7 @@ import {
   type ReviewBackend,
   type ReviewSelection,
 } from "./review/backend-selection.js";
+import { parseReasoningVariant } from "./review/reasoning.js";
 import {
   getAvailableModels,
 } from "./opencode/client.js";
@@ -186,10 +187,7 @@ program
   .option("--hook", "Running from git hook (non-blocking mode)")
   .option("--fail-on-findings", "Exit 1 when the review status is open")
   .option("--depth <depth>", "Review context depth: shallow or default")
-  .option(
-    "--reasoning <effort>",
-    "Reasoning variant: auto, none, minimal, low, medium, high, max, or xhigh",
-  )
+  .option("--reasoning <variant>", "Backend-native reasoning variant")
   .option("--model <id>", "Review model override")
   .option("--backend <backend>", "Review backend override: opencode or codex")
   .option("--verbose", "Include suppressed findings and extra review details")
@@ -233,8 +231,12 @@ program
     if (options.model !== undefined) {
       reviewOverrides.model = options.model;
     }
+    if (options.reasoning !== undefined) {
+      reviewOverrides.reasoning = options.reasoning;
+    }
     const effective = await loadEffectiveReviewConfigOrExit(reviewOverrides, format);
     const { config, selection } = effective;
+    const reviewWarnings = [...effective.warnings];
     const projectRoot = getProjectRoot();
     const diffOwlDir = await getSharedDiffOwlDir();
     const baseRequested = options.base !== undefined;
@@ -271,7 +273,6 @@ program
       target = { kind: "last-commit" };
     }
     const depth = resolveReviewDepth(options.depth, config);
-    config.reasoning.effort = resolveReasoningEffort(options.reasoning, config);
     const verbose = Boolean(config.verbose || options.verbose);
 
     if (target.kind !== "staged") {
@@ -288,6 +289,10 @@ program
 
     if (!jsonMode) {
       printHeader();
+      for (const warning of reviewWarnings) {
+        console.warn(chalk.yellow(`⚠ ${warning}`));
+      }
+      if (reviewWarnings.length > 0) console.log();
     }
 
     const hookFailure = await checkRecentHookFailure();
@@ -307,8 +312,6 @@ program
     let interruptExitCode: number | undefined;
     let interruptForceExit: ReturnType<typeof setTimeout> | undefined;
     let interruptMessage: string | undefined;
-    const reviewWarnings: string[] = [];
-
     // Register signal handlers immediately after spinner starts so they
     // cover the entire review lifecycle (context build, server connect, SSE).
     // discardStdin: false above ensures the terminal delivers SIGINT natively
@@ -346,9 +349,10 @@ program
         diffOwlDir,
         timings,
         persistEmptyDiff: jsonMode,
+        initialDiagnostics: effective.warnings,
         signal: cancelController.signal,
         executor: createSelectedReviewExecutor(
-          createSingleReviewAssignment(selection, config.reasoning.effort),
+          createSingleReviewAssignment(selection, config.reasoning),
         ),
         onProgress: (event) => {
           if (spinner) {
@@ -373,12 +377,11 @@ program
         },
         onWarning: (message) => {
           reviewWarnings.push(message);
-          if (jsonMode) return;
           if (spinner) {
+            const status = spinner.text;
             spinner.warn(message);
-            return;
+            spinner.start(status);
           }
-          console.error(chalk.yellow(message));
         },
       });
       if (interruptForceExit !== undefined) clearTimeout(interruptForceExit);
@@ -578,23 +581,6 @@ function resolveReviewDepth(
   } catch {
     console.error(chalk.red(`Invalid review depth: ${String(value)}`));
     console.error(chalk.dim("Expected one of: shallow, default"));
-    process.exit(1);
-  }
-}
-
-function resolveReasoningEffort(
-  value: Parameters<typeof parseReasoningEffort>[0],
-  config: DiffOwlConfig,
-): ReasoningEffort {
-  if (value === undefined) {
-    return config.reasoning.effort;
-  }
-
-  try {
-    return parseReasoningEffort(value);
-  } catch {
-    console.error(chalk.red(`Invalid reasoning effort: ${String(value)}`));
-    console.error(chalk.dim("Expected one of: auto, none, minimal, low, medium, high, max, xhigh"));
     process.exit(1);
   }
 }
@@ -916,8 +902,57 @@ program
     await selectModelInteractively(config, {
       allowKeepCurrent: true,
       backend,
-      currentModel: config.model,
+      currentModel: effective.selection.requestedModel,
     });
+  });
+
+program
+  .command("reasoning")
+  .description("View or change reasoning for the selected backend model")
+  .argument("[variant]", "Backend-native reasoning variant")
+  .option("--reset", "Use the backend default for the selected model")
+  .action(async (variant: string | undefined, options: { reset?: boolean }) => {
+    if (variant !== undefined && options.reset) {
+      console.error(chalk.red("Cannot pass a reasoning variant and --reset together"));
+      process.exit(1);
+    }
+
+    const preferences = await loadReviewPreferencesOrExit();
+    const { backend } = resolveReviewBackendPreference(preferences);
+    const normalizedVariant = variant?.trim();
+    if (options.reset) {
+      await resetReviewBackendReasoning(backend);
+      console.log(chalk.green("✓ Reasoning preference reset to backend default"));
+      console.log(chalk.dim(`Backend: ${formatReviewBackend(backend)}`));
+      return;
+    }
+
+    if (normalizedVariant !== undefined) {
+      try {
+        const parsedVariant = parseReasoningVariant(normalizedVariant);
+        const configPath = await saveReviewBackendReasoning(backend, parsedVariant);
+        console.log(chalk.green(`✓ Reasoning variant set to ${chalk.cyan(parsedVariant)}`));
+        console.log(chalk.dim(`Backend: ${formatReviewBackend(backend)}`));
+        console.log(chalk.dim(`Local preference: ${configPath}`));
+      } catch (error) {
+        failConfigError(CliErrorSchema.parse(error));
+      }
+      return;
+    }
+
+    const selection = preferences.models.find((candidate) => candidate.backend === backend);
+    if (selection === undefined) {
+      failConfigError(new MissingModelError(backend));
+    }
+    const selectedVariant =
+      "reasoning" in selection ? selection.reasoning?.variant : undefined;
+    console.log(
+      `${chalk.bold("Reasoning variant:")} ${chalk.cyan(
+        selectedVariant ?? "backend default",
+      )}`,
+    );
+    console.log(chalk.dim(`Backend: ${formatReviewBackend(backend)}`));
+    console.log(chalk.dim(`Model: ${selection.model}`));
   });
 
 async function selectModelInteractively(
@@ -925,7 +960,7 @@ async function selectModelInteractively(
   options: { allowKeepCurrent: boolean; backend: ReviewBackend; currentModel?: string },
 ): Promise<void> {
   if (options.backend === "codex") {
-    await selectCodexModelInteractively(config, options);
+    await selectCodexModelInteractively(options);
     return;
   }
 
@@ -945,7 +980,7 @@ async function selectModelInteractively(
     process.exit(1);
   }
 
-  let selectedModel = options.currentModel ?? config.model;
+  let selectedModel = options.currentModel ?? models[0] ?? "";
 
   if (models.length > 0) {
     if (!canSelectModelInteractively(process.stdin.isTTY, process.stdout.isTTY)) {
@@ -1004,7 +1039,6 @@ async function selectModelInteractively(
 
   // Only update/save if a new model was selected or config is being initialized
   if (selectedModel !== options.currentModel || !options.allowKeepCurrent) {
-    config.model = selectedModel;
     await saveReviewBackendModel("opencode", selectedModel);
     console.log(chalk.green(`✓ OpenCode model set to ${chalk.cyan(selectedModel)}`));
     console.log();
@@ -1012,7 +1046,6 @@ async function selectModelInteractively(
 }
 
 async function selectCodexModelInteractively(
-  config: DiffOwlConfig,
   options: { allowKeepCurrent: boolean; currentModel?: string },
 ): Promise<void> {
   if (!canSelectModelInteractively(process.stdin.isTTY, process.stdout.isTTY)) {
@@ -1035,7 +1068,6 @@ async function selectCodexModelInteractively(
       if (raw.trim() === "" && options.allowKeepCurrent && options.currentModel) return;
       try {
         const model = parseBackendModel("codex", raw);
-        config.model = model;
         await saveReviewBackendModel("codex", model);
         console.log(chalk.green(`✓ Codex model set to ${chalk.cyan(model)}`));
         console.log();
@@ -1623,7 +1655,7 @@ async function loadConfigOrExit(): Promise<DiffOwlConfig> {
 }
 
 async function loadEffectiveReviewConfigOrExit(
-  overrides: { backend?: string; model?: string },
+  overrides: Parameters<typeof loadEffectiveReviewConfig>[0],
   format: ReviewOutputFormat,
 ) {
   try {

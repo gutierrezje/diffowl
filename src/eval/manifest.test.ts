@@ -7,10 +7,8 @@ import { buildEvalManifest } from "./manifest.js";
 const corpusDir = join(import.meta.dirname, "../../eval/corpus");
 
 const baseConfig: DiffOwlConfig = {
-  model: "provider/model",
   server: { port: 4096, auto_start: false },
   context: { depth: "default" },
-  reasoning: { effort: "auto" },
   retention: { hook_log_kb: 1024 },
   gate: { fail_on_findings: false },
   timeout: 300,
@@ -27,7 +25,7 @@ describe("buildEvalManifest", () => {
     const corpus = await loadEvalCorpus(corpusDir);
     const evalCase = await loadEvalCase(join(corpusDir, "missing-validation"));
 
-    const manifest = await buildEvalManifest({
+    const input = {
       corpus,
       cases: [evalCase],
       config: baseConfig,
@@ -41,12 +39,19 @@ describe("buildEvalManifest", () => {
         nodeVersion: "v22.14.0",
         opencodeVersion: "1.2.3",
       },
+    } satisfies Parameters<typeof buildEvalManifest>[0];
+    const manifest = await buildEvalManifest(input);
+    const explicitBackendDefaultVariant = await buildEvalManifest({
+      ...input,
+      options: { ...input.options, reasoning: "backend-default" },
     });
 
     expect(manifest.corpus_version).toBe(corpus.version);
     expect(manifest.cases).toHaveLength(1);
     expect(manifest.cases[0]?.id).toBe("missing-validation");
     expect(manifest.model).toBe("override/model");
+    expect(manifest.reasoning).toBeNull();
+    expect(explicitBackendDefaultVariant.reasoning).toBe("backend-default");
     expect(manifest.min_confidence).toBe("high");
     expect(manifest.trials).toBe(3);
     expect(manifest.mode).toBe("both");

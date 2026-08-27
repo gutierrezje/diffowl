@@ -210,7 +210,7 @@ async function runMatchedCase(
                   requestedModel: config.model,
                   source: { backend: "legacy", model: "legacy" },
                 },
-                config.reasoning.effort,
+                config.reasoning,
               ),
               createOpenCodeReviewExecutor({
                 ensureServer: async (port) => {

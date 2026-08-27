@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { DiffOwlConfig } from "../config.js";
+import type { EffectiveReviewConfig } from "./runtime-config.js";
 import type { AssignedReviewExecutor, ReviewFinding } from "./types.js";
 import type { PersistReviewRunResult } from "../state/persist.js";
 import type { LoadedReviewSnapshot, ReviewContext } from "./context.js";
@@ -17,6 +17,7 @@ import {
   createSingleReviewAssignment,
   type ReviewExecutionRuntimeProvenance,
 } from "./provenance.js";
+import { BACKEND_DEFAULT_REASONING, selectReasoningVariant } from "./reasoning.js";
 import {
   buildDocOnlySkipMarkdown,
   defaultReviewPipelineDeps,
@@ -26,11 +27,11 @@ import {
   type ReviewPipelineDeps,
 } from "./run.js";
 
-const config: DiffOwlConfig = {
+const config: EffectiveReviewConfig = {
   model: "provider/model",
   server: { port: 4096, auto_start: false },
   context: { depth: "default" },
-  reasoning: { effort: "auto" },
+  reasoning: { kind: "backend-default" },
   retention: { hook_log_kb: 1024 },
   gate: { fail_on_findings: false },
   timeout: 300,
@@ -87,7 +88,7 @@ function makeDeps(
       requestedModel: "provider/model",
       source: { backend: "legacy", model: "legacy" },
     },
-    "auto",
+    BACKEND_DEFAULT_REASONING,
   );
   const executor: AssignedReviewExecutor = {
     assignment,
@@ -108,7 +109,7 @@ function makeDeps(
           requestedModel: "provider/model",
           effectiveModel: null,
           preferenceSource: { backend: "legacy", model: "legacy" },
-          reasoningEffort: "auto",
+          reasoningEffort: null,
           sessionId: "session",
           terminalOutcome: "completed",
         } satisfies ReviewExecutionRuntimeProvenance,
@@ -227,6 +228,7 @@ describe("runReviewSkipChecks", () => {
             diffHash: "hash",
           },
         }),
+        reasoning: null,
         sessionId: "",
         skippedReason: "empty-diff",
         summary: "No staged changes to review.",
@@ -459,7 +461,7 @@ describe("runReviewPipeline", () => {
           requestedModel: "gpt-5.4-mini",
           source: { backend: "command", model: "command" },
         },
-        "max",
+        selectReasoningVariant("max"),
       ),
       execute: vi.fn(async () => ({
         review: {
@@ -548,7 +550,7 @@ describe("runReviewPipeline", () => {
             requestedModel: "gpt-5.6-luna",
             source: { backend: "local", model: "local" },
           },
-          "max",
+          selectReasoningVariant("max"),
         ),
         execute: vi.fn(async () => Promise.reject(error)),
       };
@@ -577,7 +579,7 @@ describe("runReviewPipeline", () => {
           requestedModel: "gpt-5.6-luna",
           source: { backend: "local", model: "local" },
         },
-        "max",
+        selectReasoningVariant("max"),
       ),
       execute: vi.fn(async () => Promise.reject(thrownValue)),
     };
@@ -601,7 +603,7 @@ describe("runReviewPipeline", () => {
           requestedModel: "gpt-5.6-luna",
           source: { backend: "local", model: "local" },
         },
-        "max",
+        selectReasoningVariant("max"),
       ),
       execute: vi.fn(async () => Promise.reject(reviewError)),
     };
@@ -613,6 +615,34 @@ describe("runReviewPipeline", () => {
     expect(onWarning).toHaveBeenCalledWith(
       "Review failed, and its terminal outcome could not be persisted.",
     );
+  });
+
+  it("emits backend diagnostics through the runtime warning sink", async () => {
+    const deps = makeDeps(makeSnapshot([codeFile()]));
+    vi.mocked(deps.executor.execute).mockImplementation(async (options) => {
+      expect(options.onWarning).toBeTypeOf("function");
+      options.onWarning?.("Selected reasoning variant is unavailable.");
+      return {
+        review: {
+          report: {
+            summary: "summary",
+            findings: [],
+            diagnostics: ["Selected reasoning variant is unavailable."],
+          },
+          sessionId: "session",
+        },
+        timings: [],
+        runtimeProvenance: completedRuntimeProvenance("session"),
+      };
+    });
+    const warnings: string[] = [];
+
+    await runReviewPipeline(
+      { ...skipInput(), onWarning: (message) => warnings.push(message) },
+      deps,
+    );
+
+    expect(warnings).toEqual(["Selected reasoning variant is unavailable."]);
   });
 
   it("appends executor timings without mutating provider report timings", async () => {
@@ -776,7 +806,7 @@ function completedRuntimeProvenance(
     requestedModel: "provider/model",
     effectiveModel: null,
     preferenceSource: { backend: "legacy", model: "legacy" },
-    reasoningEffort: "auto",
+    reasoningEffort: null,
     sessionId,
     terminalOutcome: "completed",
   };

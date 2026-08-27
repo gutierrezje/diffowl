@@ -24,6 +24,15 @@ import {
 } from "./repository-guard.js";
 import { buildCodexEnvironment } from "./environment.js";
 import {
+  CodexReviewError,
+  CodexTimeoutError,
+  codexProtocolError as protocolError,
+} from "./errors.js";
+import {
+  resolveCodexReasoningVariant,
+  type ResolveReasoningVariantInput,
+} from "./model-capabilities.js";
+import {
   ensureThrownValue,
   isBoolean,
   isFiniteNumber,
@@ -41,10 +50,12 @@ export type CodexReviewInput = ReviewOptions & {
   args?: readonly string[];
   env?: NodeJS.ProcessEnv;
   model: string;
+  reasoningVariant?: string;
   timeoutMs: number;
   interruptTimeoutMs: number;
   closeTimeoutMs: number;
   includeIgnoredRepositoryPaths: boolean;
+  onWarning?: (message: string) => void;
 };
 
 export type CodexInterruptEvidence = {
@@ -129,24 +140,7 @@ export type CodexReviewOutcome = {
   evidence: CodexReviewEvidence;
 };
 
-export type CodexReviewErrorKind =
-  | "protocol"
-  | "authentication"
-  | "policy-violation"
-  | "turn-failed"
-  | "timeout"
-  | "repository-mutated"
-  | "teardown-failed";
-
-export class CodexReviewError extends Error {
-  readonly kind: CodexReviewErrorKind;
-
-  constructor(kind: CodexReviewErrorKind, message: string) {
-    super(message);
-    this.name = "CodexReviewError";
-    this.kind = kind;
-  }
-}
+export { CodexReviewError, CodexTimeoutError, type CodexReviewErrorKind } from "./errors.js";
 
 export class CodexTeardownError extends CodexReviewError {
   readonly close: AppServerCloseResult | null;
@@ -194,16 +188,6 @@ export function getCodexReviewFailureEvidence(
 
 export function isCodexReviewFailure(cause: unknown): cause is Error {
   return getCodexReviewFailureEvidence(cause) !== undefined;
-}
-
-export class CodexTimeoutError extends CodexReviewError {
-  readonly phase: string;
-
-  constructor(phase: string) {
-    super("timeout", `Codex App Server timed out during ${phase}.`);
-    this.name = "CodexTimeoutError";
-    this.phase = phase;
-  }
 }
 
 class CodexInterruptedTimeoutError extends CodexTimeoutError {
@@ -359,12 +343,17 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
   const pid = peer.pid;
   const timings: Array<{ phase: string; ms: number }> = [];
   const events: string[] = [];
+  const runtimeDiagnostics: string[] = [];
   const validationAttempts: Array<{
     turnId: string;
     outcome: "accepted" | "retry" | "failed";
     issues: readonly SchemaIssue[];
   }> = [];
   const totalStart = performance.now();
+  const addRuntimeDiagnostic = (message: string): void => {
+    runtimeDiagnostics.push(message);
+    input.onWarning?.(message);
+  };
   const promptSha256 = sha256(prompts.user);
   const localContextSha256 = sha256(input.localContext ?? "");
   const developerInstructionsSha256 = sha256(developerInstructions);
@@ -476,6 +465,44 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     const email = accountValue["email"];
     if (email !== null && !isText(email)) throw protocolError("account/read.account.email");
 
+    let validatedReasoningVariant = input.reasoningVariant;
+    if (input.reasoningVariant !== undefined) {
+      const capabilityInput: ResolveReasoningVariantInput = {
+        model: input.model,
+        variant: input.reasoningVariant,
+        deadline,
+        events,
+        requestModelList: (params, requestDeadline, signal) =>
+          requestWithin(
+            peer,
+            "model/list",
+            params,
+            requestDeadline,
+            "model/list",
+            signal,
+          ),
+      };
+      if (input.signal !== undefined) capabilityInput.signal = input.signal;
+      const reasoning = await resolveCodexReasoningVariant(capabilityInput);
+      switch (reasoning.kind) {
+        case "supported":
+          validatedReasoningVariant = reasoning.variant;
+          break;
+        case "unsupported":
+          validatedReasoningVariant = undefined;
+          addRuntimeDiagnostic(reasoning.warning);
+          break;
+        case "unavailable":
+          validatedReasoningVariant = reasoning.variant;
+          addRuntimeDiagnostic(reasoning.warning);
+          break;
+        default: {
+          const exhaustive: never = reasoning;
+          throw new Error(`Unhandled reasoning variant resolution: ${String(exhaustive)}`);
+        }
+      }
+    }
+
     events.push("sent:thread/start");
     const thread = asRecord(
       await timed("thread-start", () =>
@@ -544,7 +571,15 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
       let turnId: string;
       try {
         turnId = await timed("turn-start", () =>
-          startTurn(peer, executionInput, threadId, prompt, deadline, events),
+          startTurn(
+            peer,
+            executionInput,
+            threadId,
+            prompt,
+            deadline,
+            events,
+            validatedReasoningVariant,
+          ),
         );
       } catch (error) {
         await checkRepositoryAfterTurn(ensureThrownValue(error));
@@ -782,6 +817,12 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     throw error;
   }
   const reviewResult: ReviewResult = { report, sessionId: threadId };
+  if (runtimeDiagnostics.length > 0) {
+    reviewResult.report.diagnostics = [
+      ...(reviewResult.report.diagnostics ?? []),
+      ...runtimeDiagnostics,
+    ];
+  }
   if (usage !== undefined) reviewResult.usage = usage;
   return {
     reviewResult,
@@ -829,8 +870,9 @@ async function startTurn(
   prompt: string,
   deadline: number,
   events: string[],
+  reasoningVariant: string | undefined,
 ): Promise<string> {
-  const params = {
+  const baseParams = {
     threadId,
     input: [{ type: "text", text: prompt, text_elements: [] }],
     cwd: input.directory,
@@ -839,6 +881,10 @@ async function startTurn(
     sandboxPolicy: { type: "readOnly", networkAccess: false },
     outputSchema: REVIEW_DOCUMENT_OUTPUT_SCHEMA,
   };
+  const params =
+    reasoningVariant === undefined
+      ? baseParams
+      : { ...baseParams, effort: reasoningVariant };
   events.push("sent:turn/start");
   const turn = asRecord(
     await requestWithin(peer, "turn/start", params, deadline, "turn/start", input.signal),
@@ -1221,10 +1267,6 @@ function requiredNumber(value: CodexJsonObject, key: string, context: string): n
 function optionalNumber(value: CodexJsonObject, key: string, context: string): number {
   if (value[key] === undefined) return 0;
   return requiredNumber(value, key, context);
-}
-
-function protocolError(context: string): CodexReviewError {
-  return new CodexReviewError("protocol", `Invalid Codex App Server payload: ${context}.`);
 }
 
 function policyError(context: string): CodexReviewError {

@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { execa } from "execa";
 import { isRecord, isText, type CodexJsonObject, type CodexJsonValue } from "../../codex/types.js";
-import type { DiffOwlConfig } from "../../config.js";
 import { getServerHealth } from "../../opencode/server.js";
 import type { ReviewPipelineInput } from "../../review/run.js";
+import type { EffectiveReviewConfig } from "../../review/runtime-config.js";
 import type { ReviewTarget } from "../../review/target.js";
 
 export const CODEX_MODEL_ENV = "DIFFOWL_CODEX_MODEL";
@@ -42,11 +42,11 @@ type WindowsProcessInfo = {
   executablePath: string;
 };
 
-export const liveConfig: DiffOwlConfig = {
+export const liveConfig: EffectiveReviewConfig = {
   model: "opencode/big-pickle",
   server: { port: 4096, auto_start: true },
   context: { depth: "default" },
-  reasoning: { effort: "auto" },
+  reasoning: { kind: "backend-default" },
   retention: { hook_log_kb: 1024 },
   gate: { fail_on_findings: false },
   timeout: 600,
@@ -264,7 +264,7 @@ export function gitEnv(): NodeJS.ProcessEnv {
 export function reviewInput(
   root: string,
   target: ReviewTarget = { kind: "staged" },
-  config: DiffOwlConfig = liveConfig,
+  config: EffectiveReviewConfig = liveConfig,
 ): ReviewPipelineInput {
   return {
     target,

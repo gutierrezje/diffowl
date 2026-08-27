@@ -157,7 +157,6 @@ CREATE TABLE reviews (
     OR (
       source_execution_id IS NULL
       AND skipped_model IS NOT NULL
-      AND skipped_reasoning IS NOT NULL
       AND skipped_session_id IS NOT NULL
       AND skipped_reason IS NOT NULL
     )
