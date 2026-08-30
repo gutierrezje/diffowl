@@ -81,6 +81,7 @@ describe("checker document contract", () => {
       kind: "retry",
       nextAttempt: 2,
       issues: [{ message: "missing outcome for fnd_beta" }],
+      userMessage: expect.stringContaining("- outcomes: missing outcome for fnd_beta"),
     });
     expect(decideCheckerAttempt({ input, value: incomplete, attempt: 3 })).toEqual({
       kind: "uncertain",
@@ -221,6 +222,23 @@ describe("checker document contract", () => {
     expect(() =>
       createCheckerInput({ operation: capturedOperation(), claims: [malformed] }),
     ).toThrow();
+  });
+
+  it("normalizes safe relative claim paths and rejects repository escapes", () => {
+    const normalized = createCheckerInput({
+      operation: capturedOperation(),
+      claims: [{ ...claim("fnd_alpha", "First claim"), file: ".\\src\\app.ts" }],
+    });
+
+    expect(normalized.claims[0]?.file).toBe("src/app.ts");
+    for (const file of ["../outside.ts", "/etc/passwd", "C:\\outside.ts"]) {
+      expect(() =>
+        createCheckerInput({
+          operation: capturedOperation(),
+          claims: [{ ...claim("fnd_alpha", "First claim"), file }],
+        }),
+      ).toThrow();
+    }
   });
 
   it("does not accept a structurally forged checker ledger", () => {

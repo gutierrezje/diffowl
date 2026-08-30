@@ -3,7 +3,12 @@ import { FindingIdSchema, ReviewOperationIdSchema, type FindingId } from "./ids.
 import type { CapturedReviewOperation } from "./operation.js";
 import { ReviewInputIdentitySchema } from "./provenance.js";
 import { ReviewFindingSchema } from "./types.js";
-import { SCHEMA_VALIDATION_MAX_ATTEMPTS, type JsonValue, type SchemaIssue } from "./document.js";
+import {
+  ReviewFindingPathSchema,
+  SCHEMA_VALIDATION_MAX_ATTEMPTS,
+  type JsonValue,
+  type SchemaIssue,
+} from "./document.js";
 
 export const CHECKER_INPUT_SCHEMA_VERSION = 1 as const;
 export const CHECKER_DOCUMENT_SCHEMA_VERSION = 1 as const;
@@ -44,7 +49,7 @@ export const CheckerClaimSchema = ReviewFindingSchema.pick({
 })
   .extend({
     findingId: FindingIdSchema,
-    file: NonEmptyTextSchema,
+    file: ReviewFindingPathSchema,
     line: z.number().int().positive(),
     evidence: NonEmptyEvidenceSchema.optional(),
     title: NonEmptyTextSchema,
@@ -313,7 +318,7 @@ function formatCheckerRetryPrompt(issues: readonly SchemaIssue[]): string {
   return [
     "The previous checker document was invalid. Emit one complete replacement JSON object with exactly one outcome for every finding id. Do not include markdown or commentary.",
     "",
-    ...issues.map((issue) => `- ${issue.message}`),
+    ...issues.map((issue) => `- ${issue.locator}: ${issue.message}`),
   ].join("\n");
 }
 

@@ -100,7 +100,7 @@ const ReviewFindingLineSchema = z
       .positive("must be a positive integer"),
   );
 
-const ReviewFindingPathSchema = z
+export const ReviewFindingPathSchema = z
   .string({ error: "must be a relative path without .. or a drive prefix" })
   .trim()
   .min(1, "must be a relative path without .. or a drive prefix")
