@@ -9,7 +9,7 @@
 
 Review agent-written code with a second model before it ships.
 
-DiffOwl is a local code review CLI. It builds focused context from a Git diff, runs a model through OpenCode or Codex, and records actionable findings in your repository.
+DiffOwl is a local code review CLI. It builds focused context from a Git diff, runs a model through OpenCode, Codex, or Cursor, and records actionable findings in your repository.
 
 It works with changes from any coding agent or human. You choose the backend and model on your machine. DiffOwl does not require a hosted DiffOwl account.
 
@@ -20,7 +20,7 @@ The agent that wrote a change should not be its only reviewer. Asking it to revi
 DiffOwl adds an independent pass between writing code and shipping it:
 
 - Review the last commit, staged changes, a specific commit, or a whole branch.
-- Review through OpenCode or a local Codex CLI authenticated with ChatGPT.
+- Review through OpenCode, a local Codex CLI authenticated with ChatGPT, or a local Cursor CLI authenticated with Cursor.
 - Give the reviewer bounded local context instead of dumping the entire repository into a prompt.
 - Keep findings after the review ends, with stable IDs and lifecycle states.
 - Inspect and disposition durable findings after the review ends.
@@ -55,7 +55,7 @@ cd your-repository
 diffowl init
 ```
 
-`diffowl init` reports the selected runtime and the gitignored preference path. With OpenCode selected, it lists the models from your connected providers. Use `diffowl backend codex` before initialization if you want Codex, then choose a bare Codex model ID. The committed `.diffowl.yml` contains review policy, never your backend or model choice.
+`diffowl init` reports the selected runtime and the gitignored preference path. With OpenCode selected, it lists the models from your connected providers. Select `codex` or `cursor` before initialization to use one of those local CLIs, then choose a bare model ID. The committed `.diffowl.yml` contains review policy, never your backend or model choice.
 
 Codex reviews use an existing ChatGPT login from the local Codex CLI:
 
@@ -63,6 +63,15 @@ Codex reviews use an existing ChatGPT login from the local Codex CLI:
 codex
 diffowl backend codex
 diffowl model gpt-5-codex
+```
+
+Cursor reviews use the local Cursor Agent login and its read-only ACP ask mode:
+
+```bash
+cursor-agent login
+diffowl backend cursor
+diffowl model --list
+diffowl model default
 ```
 
 Review the last commit:
@@ -101,6 +110,9 @@ diffowl review --staged --model openai/gpt-5.6-luna
 
 # Use Codex once without changing saved preferences
 diffowl review --staged --backend codex --model gpt-5-codex
+
+# Use Cursor once without changing saved preferences
+diffowl review --staged --backend cursor --model <cursor-model-id>
 
 # Emit a versioned JSON document for scripts
 diffowl review --base --format json
@@ -204,6 +216,7 @@ Inspect or change the local backend and its model without editing project policy
 diffowl backend
 diffowl backend opencode
 diffowl backend codex
+diffowl backend cursor
 diffowl backend --reset
 
 diffowl model
@@ -259,6 +272,9 @@ Run `diffowl <command> --help` for every option.
 - No models found: run `opencode`, connect or re-authenticate a provider, then rerun `diffowl init`.
 - Codex runtime missing: install the Codex CLI and make sure `codex` is on `PATH`.
 - Codex authentication missing: run `codex` and sign in with ChatGPT.
+- Cursor runtime missing: install the Cursor CLI and make sure `cursor-agent` is on `PATH`.
+- Cursor authentication missing: run `cursor-agent login`.
+- Cursor model rejected: run `diffowl model --list`, then save one of the advertised ACP base IDs with `diffowl model <model-id>`.
 - Review timed out: retry with `diffowl review --depth shallow`.
 - Hook review failed: run the retry command shown by the next foreground DiffOwl command, or inspect `.diffowl/hook.log`.
 - Agent did not load `diffowl-resolve`: verify it with `npx skills list`, then restart or reload the agent.

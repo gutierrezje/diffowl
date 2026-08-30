@@ -20,6 +20,9 @@ describe("isQuotaOrRateLimitError", () => {
         "5 hour usage limit reached. It will reset in 46 minutes. To continue using this model now, enable usage from your available balance",
       ),
     ).toBe(true);
+    expect(isQuotaOrRateLimitError("You're out of usage. Switch to Auto.")).toBe(true);
+    expect(isQuotaOrRateLimitError("Increase limits for faster responses")).toBe(true);
+    expect(isQuotaOrRateLimitError("Upgrade your plan to continue")).toBe(true);
   });
 
   it("matches OpenAI quota and billing errors", () => {

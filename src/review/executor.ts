@@ -1,4 +1,8 @@
 import { createCodexReviewExecutor, type CodexReviewExecutorOptions } from "../codex/executor.js";
+import {
+  createCursorReviewExecutor,
+  type CursorReviewExecutorOptions,
+} from "../cursor/executor.js";
 import { createOpenCodeReviewExecutor } from "../opencode/executor.js";
 import type { ReviewAssignment } from "./provenance.js";
 import { reasoningVariant } from "./reasoning.js";
@@ -7,15 +11,18 @@ import type { AssignedReviewExecutor, ReviewExecutor } from "./types.js";
 const CODEX_PROTOCOL_TIMEOUT_MS = 30_000;
 const CODEX_INTERRUPT_TIMEOUT_MS = 5_000;
 const CODEX_CLOSE_TIMEOUT_MS = 5_000;
+const CURSOR_CLOSE_TIMEOUT_MS = 5_000;
 
 export interface SelectedReviewExecutorDependencies {
   createOpenCode(): ReviewExecutor;
   createCodex(options: CodexReviewExecutorOptions): ReviewExecutor;
+  createCursor(options: CursorReviewExecutorOptions): ReviewExecutor;
 }
 
 const defaultDependencies: SelectedReviewExecutorDependencies = {
   createOpenCode: createOpenCodeReviewExecutor,
   createCodex: createCodexReviewExecutor,
+  createCursor: createCursorReviewExecutor,
 };
 
 export function createSelectedReviewExecutor(
@@ -77,6 +84,18 @@ function createReviewExecutor(
         options.reasoningVariant = variant;
       }
       return dependencies.createCodex(options);
+    }
+    case "cursor": {
+      const options: CursorReviewExecutorOptions = {
+        command: {
+          executable: env["DIFFOWL_CURSOR_EXECUTABLE"]?.trim() || "cursor-agent",
+        },
+        model: assignment.selection.requestedModel,
+        closeTimeoutMs: CURSOR_CLOSE_TIMEOUT_MS,
+      };
+      const variant = reasoningVariant(assignment.reasoning);
+      if (variant !== undefined) options.reasoningVariant = variant;
+      return dependencies.createCursor(options);
     }
   }
 }

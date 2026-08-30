@@ -17,7 +17,7 @@ import type {
   ReviewOperation,
 } from "../review/operation.js";
 
-export const CURRENT_SCHEMA_VERSION = 6;
+export const CURRENT_SCHEMA_VERSION = 7;
 
 export type ReviewTargetKind = "staged" | "commit" | "last-commit" | "base";
 export type FindingStatus = "open" | "deferred" | "dismissed" | "fixed" | "regressed";

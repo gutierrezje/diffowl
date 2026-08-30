@@ -18,6 +18,7 @@ const PREFERENCES_FILENAME = "preferences.yml";
 const MODEL_PREFERENCE_ORDER = {
   opencode: 0,
   codex: 1,
+  cursor: 2,
 } satisfies Record<ReviewBackend, number>;
 const LegacyPreferenceFileSchema = z.object({ model: OpenCodeModelSchema }).strict();
 const CurrentPreferenceFileSchema = z

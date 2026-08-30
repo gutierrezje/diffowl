@@ -96,11 +96,12 @@ describe("effective config", () => {
     });
   });
 
-  it("selects one saved backend model while preserving the other", async () => {
+  it("selects one saved backend model while preserving the others", async () => {
     const root = await createRoot("diffowl-effective-both-");
     process.chdir(root);
     await saveReviewBackendModel("opencode", "provider/local");
     await saveReviewBackendModel("codex", "gpt-5.4");
+    await saveReviewBackendModel("cursor", "gpt-5.6-luna");
     await saveReviewBackendPreference("codex");
 
     await expect(loadEffectiveReviewConfig()).resolves.toMatchObject({
@@ -116,6 +117,14 @@ describe("effective config", () => {
       selection: {
         backend: "opencode",
         requestedModel: "provider/local",
+        source: { backend: "command", model: "local" },
+      },
+    });
+    await expect(loadEffectiveReviewConfig({ backend: "cursor" })).resolves.toMatchObject({
+      config: { model: "gpt-5.6-luna" },
+      selection: {
+        backend: "cursor",
+        requestedModel: "gpt-5.6-luna",
         source: { backend: "command", model: "local" },
       },
     });
@@ -234,6 +243,15 @@ describe("effective config", () => {
     await expect(
       loadEffectiveReviewConfig({ backend: "codex", model: "provider/model" }),
     ).rejects.toThrow("Codex model must be a bare model id");
+    await expect(
+      loadEffectiveReviewConfig({ backend: "cursor", model: "gpt-5.6-luna" }),
+    ).resolves.toMatchObject({
+      config: { model: "gpt-5.6-luna" },
+      selection: { backend: "cursor", requestedModel: "gpt-5.6-luna" },
+    });
+    await expect(
+      loadEffectiveReviewConfig({ backend: "cursor", model: "provider/model" }),
+    ).rejects.toThrow("Cursor model must be a bare model id");
     await expect(loadEffectiveReviewConfig({ model: "gpt-5.4" })).rejects.toThrow(
       "OpenCode model must use provider/model format",
     );
@@ -296,6 +314,9 @@ describe("effective config", () => {
     await expect(loadEffectiveReviewConfig()).rejects.toThrow("No model selected for OpenCode");
     await expect(loadEffectiveReviewConfig({ backend: "codex" })).rejects.toThrow(
       "No model selected for Codex",
+    );
+    await expect(loadEffectiveReviewConfig({ backend: "cursor" })).rejects.toThrow(
+      "No model selected for Cursor",
     );
   });
 });

@@ -52,6 +52,20 @@ describe("isHookQueueStopFailure", () => {
     ).toBe(true);
   });
 
+  it("stops on Cursor runtime, authentication, and protocol failures", () => {
+    expect(
+      isHookQueueStopFailure("Cursor review failed: Cursor ACP executable was not found."),
+    ).toBe(true);
+    expect(isHookQueueStopFailure("Cursor review failed: Cursor authentication failed.")).toBe(
+      true,
+    );
+    expect(
+      isHookQueueStopFailure(
+        "Cursor review failed: Invalid Cursor ACP payload: initialize.protocolVersion.",
+      ),
+    ).toBe(true);
+  });
+
   it("allows timeouts and generic review failures to keep draining the queue", () => {
     expect(isHookQueueStopFailure("Review timed out after 900s")).toBe(false);
     expect(

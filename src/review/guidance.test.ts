@@ -31,6 +31,29 @@ describe("getReviewBackendFailureGuidance", () => {
     );
   });
 
+  it.each([
+    {
+      message: "Cursor ACP executable was not found.",
+      expected: ["Cursor runtime is not installed", "ensure `cursor-agent` is on PATH"],
+    },
+    {
+      message: "Cursor authentication failed.",
+      expected: ["Cursor authentication is missing", "Run `cursor-agent login`"],
+    },
+    {
+      message: 'Cursor does not advertise model "missing".',
+      expected: ["Cursor rejected the selected model", "Run `diffowl model --list`"],
+    },
+    {
+      message: "Invalid Cursor ACP payload: initialize.protocolVersion.",
+      expected: ["Cursor runtime is incompatible", "Update the Cursor CLI"],
+    },
+  ])("names Cursor and gives a deterministic action for $message", ({ message, expected }) => {
+    const guidance = getReviewBackendFailureGuidance("cursor", message).join("\n");
+
+    for (const fragment of expected) expect(guidance).toContain(fragment);
+  });
+
   it("classifies a Codex RPC model rejection without echoing provider data", () => {
     const guidance = getReviewBackendFailureGuidance("codex", {
       message: "App Server request failed.",

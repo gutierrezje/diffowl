@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CodexReviewExecutorOptions } from "../codex/executor.js";
+import type { CursorReviewExecutorOptions } from "../cursor/executor.js";
 import type { ReviewExecutionResult, ReviewExecutor } from "./types.js";
 import { createSelectedReviewExecutor } from "./executor.js";
 import { createSingleReviewAssignment } from "./provenance.js";
 
 const openCodeExecutor: ReviewExecutor = { execute: vi.fn() };
 const codexExecutor: ReviewExecutor = { execute: vi.fn() };
+const cursorExecutor: ReviewExecutor = { execute: vi.fn() };
 
 describe("createSelectedReviewExecutor", () => {
   it("constructs only the selected OpenCode adapter", () => {
@@ -18,7 +20,7 @@ describe("createSelectedReviewExecutor", () => {
         requestedModel: "provider/model",
         source: { backend: "default", model: "local" },
       }, { kind: "backend-default" }),
-      { createOpenCode, createCodex },
+      { createOpenCode, createCodex, createCursor: () => cursorExecutor },
     );
 
     expect(executor).not.toBe(openCodeExecutor);
@@ -39,7 +41,7 @@ describe("createSelectedReviewExecutor", () => {
         requestedModel: "gpt-5.4",
         source: { backend: "command", model: "command" },
       }, { kind: "variant", value: "thinking" }),
-      { createOpenCode: () => openCodeExecutor, createCodex },
+      { createOpenCode: () => openCodeExecutor, createCodex, createCursor: () => cursorExecutor },
       { DIFFOWL_CODEX_EXECUTABLE: "/opt/codex" },
     );
 
@@ -48,6 +50,30 @@ describe("createSelectedReviewExecutor", () => {
       command: { executable: "/opt/codex" },
       model: "gpt-5.4",
       reasoningVariant: "thinking",
+    });
+  });
+
+  it("passes the explicit Cursor model, reasoning variant, and executable to the Cursor adapter", () => {
+    let options: CursorReviewExecutorOptions | undefined;
+    const createCursor = vi.fn((input: CursorReviewExecutorOptions) => {
+      options = input;
+      return cursorExecutor;
+    });
+
+    createSelectedReviewExecutor(
+      createSingleReviewAssignment({
+        backend: "cursor",
+        requestedModel: "gpt-5.6-luna",
+        source: { backend: "command", model: "command" },
+      }, { kind: "variant", value: "high" }),
+      { createOpenCode: () => openCodeExecutor, createCodex: () => codexExecutor, createCursor },
+      { DIFFOWL_CURSOR_EXECUTABLE: "/opt/cursor-agent" },
+    );
+
+    expect(options).toMatchObject({
+      command: { executable: "/opt/cursor-agent" },
+      model: "gpt-5.6-luna",
+      reasoningVariant: "high",
     });
   });
 
@@ -63,7 +89,11 @@ describe("createSelectedReviewExecutor", () => {
     );
     const executor = createSelectedReviewExecutor(
       assignment,
-      { createOpenCode: () => openCodeExecutor, createCodex: () => adapter },
+      {
+        createOpenCode: () => openCodeExecutor,
+        createCodex: () => adapter,
+        createCursor: () => cursorExecutor,
+      },
       {},
     );
 
@@ -94,7 +124,11 @@ describe("createSelectedReviewExecutor", () => {
         },
         { kind: "variant", value: "high" },
       ),
-      { createOpenCode: () => adapter, createCodex: () => codexExecutor },
+      {
+        createOpenCode: () => adapter,
+        createCodex: () => codexExecutor,
+        createCursor: () => cursorExecutor,
+      },
     );
 
     const result = await executor.execute(reviewExecutorOptions("provider/model", "high"));
