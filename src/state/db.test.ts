@@ -46,7 +46,7 @@ afterEach(async () => {
 });
 
 describe("openStateDatabase", () => {
-  it("rejects the abandoned schema 7 instead of supporting an unreleased state", async () => {
+  it("rejects a schema newer than the current release", async () => {
     const dir = await createTempDir();
     const db = await openSqliteDatabase(getStateDbPath(dir));
     try {
@@ -59,7 +59,7 @@ describe("openStateDatabase", () => {
       const insert = db.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
       );
-      for (let version = 1; version <= 7; version++) {
+      for (let version = 1; version <= 8; version++) {
         insert.run(version, "2026-08-27T00:00:00.000Z");
       }
     } finally {
@@ -67,11 +67,11 @@ describe("openStateDatabase", () => {
     }
 
     await expect(openStateDatabase(dir)).rejects.toThrow(
-      "Database schema version 7 is newer than supported version 6",
+      "Database schema version 8 is newer than supported version 7",
     );
   });
 
-  it("rejects the abandoned schema 6 table shape", async () => {
+  it("rejects a malformed current schema", async () => {
     const dir = await createTempDir();
     const db = await openSqliteDatabase(getStateDbPath(dir));
     try {
@@ -89,7 +89,7 @@ describe("openStateDatabase", () => {
       const insert = db.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
       );
-      for (let version = 1; version <= 6; version++) {
+      for (let version = 1; version <= 7; version++) {
         insert.run(version, "2026-08-27T00:00:00.000Z");
       }
     } finally {
@@ -97,7 +97,7 @@ describe("openStateDatabase", () => {
     }
 
     await expect(openStateDatabase(dir)).rejects.toThrow(
-      "Database schema version 6 does not match the supported review schema",
+      "Database schema version 7 does not match the supported review schema",
     );
   });
 

@@ -27,6 +27,7 @@ import type { FindingCandidate, PossibleDuplicateRecord, ReviewSeverity } from "
 const projectRoot = join(import.meta.dirname, "..");
 const cliPath = join(projectRoot, "dist/cli.js");
 const mockCodexCliPath = join(projectRoot, "src/codex/fixtures/mock-codex-cli.mjs");
+const mockCursorAgentPath = join(projectRoot, "src/cursor/fixtures/mock-cursor-agent.mjs");
 const ReviewTargetDocumentSchema = z.object({
   kind: z.enum(["staged", "commit", "last-commit", "base"]),
   ref: z.string().nullable(),
@@ -37,7 +38,7 @@ const ReviewTargetDocumentSchema = z.object({
 });
 const CliReviewSchema = z.object({
   model: z.string(),
-  backend: z.enum(["opencode", "codex"]),
+  backend: z.enum(["opencode", "codex", "cursor"]),
   requested_model: z.string(),
   effective_model: z.string().nullable(),
   preference_source: z.json(),
@@ -118,7 +119,7 @@ describe("diffowl CLI", () => {
 
     const { stdout } = await execa("node", [cliPath, "model", "provider/local"], { cwd: repo });
 
-    expect(stdout).toContain("Model set to provider/local");
+    expect(stdout).toContain("OpenCode model set to provider/local");
     await expect(readFile(configPath, "utf8")).resolves.toBe(originalConfig);
     await expect(readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).resolves.toBe(
       ["models:", "  - backend: opencode", "    model: provider/local", ""].join("\n"),
@@ -202,6 +203,52 @@ describe("diffowl CLI", () => {
     );
   });
 
+  it("stores a Cursor backend and bare model selection", async () => {
+    const repo = await createRepo("diffowl-cli-backend-cursor-");
+
+    const selected = await execa("node", [cliPath, "backend", "cursor"], { cwd: repo });
+    const model = await execa("node", [cliPath, "model", "gpt-5.6-luna"], { cwd: repo });
+
+    expect(selected.stdout).toContain("Backend set to Cursor");
+    expect(model.stdout).toContain("Cursor model set to gpt-5.6-luna");
+    await expect(readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).resolves.toBe(
+      [
+        "backend: cursor",
+        "models:",
+        "  - backend: opencode",
+        "    model: provider/model",
+        "  - backend: cursor",
+        "    model: gpt-5.6-luna",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "lists Cursor ACP base models without starting a review",
+    async () => {
+      const repo = await createRepo("diffowl-cli-model-list-cursor-");
+      await execa("node", [cliPath, "backend", "cursor"], { cwd: repo });
+      const executable = await createMockCursorExecutable();
+
+      const result = await execa(process.execPath, [cliPath, "model", "--list"], {
+        cwd: repo,
+        env: {
+          DIFFOWL_CURSOR_EXECUTABLE: executable,
+          MOCK_CURSOR_MODE: "model-discovery",
+          MOCK_CURSOR_MODEL: "gpt-5.6-luna",
+        },
+        reject: false,
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("default");
+      expect(result.stdout).toContain("Auto");
+      expect(result.stdout).toContain("gpt-5.6-luna");
+      expect(result.stdout).toContain("Test model");
+    },
+  );
+
   it("resets the explicit backend without deleting either saved model", async () => {
     const repo = await createRepo("diffowl-cli-backend-reset-");
     await execa("node", [cliPath, "backend", "codex"], { cwd: repo });
@@ -226,10 +273,11 @@ describe("diffowl CLI", () => {
     expect(stdout).toContain("Model: provider/model");
     expect(stdout).toContain("OpenCode runtime:");
     expect(stdout).toContain("Codex runtime:");
+    expect(stdout).toContain("Cursor runtime:");
   });
 
   it.skipIf(process.platform === "win32")(
-    "selects and resets a backend without invoking either provider runtime",
+    "selects and resets a backend without invoking any provider runtime",
     async () => {
       const repo = await createRepo("diffowl-cli-backend-no-provider-");
       const bin = await mkdtemp(join(tmpdir(), "diffowl-cli-backend-bin-"));
@@ -238,6 +286,7 @@ describe("diffowl CLI", () => {
       const runtime = `#!${process.execPath}\nrequire("node:fs").writeFileSync(process.env.MARKER, "started");\n`;
       await writeFile(join(bin, "opencode"), runtime, { mode: 0o755 });
       await writeFile(join(bin, "codex"), runtime, { mode: 0o755 });
+      await writeFile(join(bin, "cursor-agent"), runtime, { mode: 0o755 });
       const env = { PATH: bin, MARKER: marker };
 
       await execa(process.execPath, [cliPath, "backend", "codex"], { cwd: repo, env });
@@ -262,7 +311,7 @@ describe("diffowl CLI", () => {
 
     const { stdout } = await execa("node", [cliPath, "model", "--reset"], { cwd: repo });
 
-    expect(stdout).toContain("Local model preference reset");
+    expect(stdout).toContain("OpenCode model preference reset");
     await expect(access(join(repo, ".diffowl/preferences.yml"))).rejects.toThrow();
   });
 
@@ -420,6 +469,75 @@ describe("diffowl CLI", () => {
           preference_source: { backend: "command", model: "command" },
           reasoning_effort: null,
           session_id: "thread-1",
+          terminal_outcome: "completed",
+          context_manifest_sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+          input: {
+            target_kind: "last-commit",
+            base_commit: null,
+            merge_base_commit: null,
+            head_commit: headCommit,
+            diff_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+          },
+        },
+      });
+    },
+    30_000,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "runs the selected Cursor adapter and reports its effective model",
+    async () => {
+      const repo = await createRepo("diffowl-cli-review-cursor-");
+      await writeFile(join(repo, ".gitignore"), ".diffowl/\n", "utf8");
+      await mkdir(join(repo, "src"));
+      await writeFile(join(repo, "src/app.ts"), "export const value = 1;\n", "utf8");
+      await commitAll(repo, "initial");
+      await writeFile(join(repo, "src/app.ts"), "export const value = 2;\n", "utf8");
+      await commitAll(repo, "change");
+      const { stdout: headCommit } = await execa("git", ["rev-parse", "HEAD"], { cwd: repo });
+      const executable = await createMockCursorExecutable();
+
+      const { stdout } = await execa(
+        process.execPath,
+        [
+          cliPath,
+          "review",
+          "--backend",
+          "cursor",
+          "--model",
+          "gpt-5.6-luna",
+          "--reasoning",
+          "high",
+          "--format",
+          "json",
+        ],
+        {
+          cwd: repo,
+          env: {
+            DIFFOWL_CURSOR_EXECUTABLE: executable,
+            MOCK_CURSOR_MODEL: "gpt-5.6-luna",
+            MOCK_CURSOR_REASONING: "high",
+          },
+        },
+      );
+      const document = CliReviewDocumentSchema.parse(JSON.parse(stdout));
+
+      expect(document.review).toMatchObject({
+        backend: "cursor",
+        requested_model: "gpt-5.6-luna",
+        effective_model: "gpt-5.6-luna",
+        session_id: "cursor-session-1",
+        execution: {
+          schema_version: 3,
+          cohort_id: null,
+          reviewer_id: "single",
+          role: "single",
+          backend: "cursor",
+          requested_model: "gpt-5.6-luna",
+          effective_model: "gpt-5.6-luna",
+          preference_source: { backend: "command", model: "command" },
+          reasoning_effort: "high",
+          session_id: "cursor-session-1",
           terminal_outcome: "completed",
           context_manifest_sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
           input: {
@@ -1716,6 +1834,25 @@ async function createMockCodexExecutable(
     [
       `#!${process.execPath}`,
       `(async () => import(${JSON.stringify(pathToFileURL(mockCodexCliPath).href)}))().catch((error) => {`,
+      "  console.error(error);",
+      "  process.exit(1);",
+      "});",
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  return executable;
+}
+
+async function createMockCursorExecutable(): Promise<string> {
+  const bin = await mkdtemp(join(tmpdir(), "diffowl-cli-cursor-wrapper-"));
+  tempDirs.push(bin);
+  const executable = join(bin, "cursor-agent");
+  await writeFile(
+    executable,
+    [
+      `#!${process.execPath}`,
+      `(async () => import(${JSON.stringify(pathToFileURL(mockCursorAgentPath).href)}))().catch((error) => {`,
       "  console.error(error);",
       "  process.exit(1);",
       "});",

@@ -328,6 +328,18 @@ export function isHookQueueStopFailure(message: string | undefined): boolean {
     return true;
   }
 
+  if (
+    normalized.includes("cursor review failed:") &&
+    (normalized.includes("executable was not found") ||
+      normalized.includes("authentication") ||
+      normalized.includes("does not advertise model") ||
+      normalized.includes("incompatible") ||
+      normalized.includes("protocol") ||
+      normalized.includes("enoent"))
+  ) {
+    return true;
+  }
+
   return false;
 }
 
@@ -722,6 +734,8 @@ export async function getHookCommand(): Promise<HookCommand> {
 async function resolveHookCommand(): Promise<HookCommand> {
   const diffowl = await resolveCommand("diffowl");
   const opencode = await resolveCommand("opencode");
+  const codex = await resolveCommand("codex");
+  const cursor = await resolveCommand("cursor-agent");
   // Pin the exact Node runtime that launched this CLI. Hook environments can
   // resolve a different `node` from PATH than the user's interactive shell.
   const node = process.execPath;
@@ -729,7 +743,7 @@ async function resolveHookCommand(): Promise<HookCommand> {
     diffowl,
     node,
     cli: fileURLToPath(import.meta.url),
-    pathDirs: uniqueDirs([node, diffowl, opencode]),
+    pathDirs: uniqueDirs([node, diffowl, opencode, codex, cursor]),
   };
 }
 

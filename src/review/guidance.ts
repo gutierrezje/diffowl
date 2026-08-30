@@ -11,8 +11,17 @@ export function getReviewBackendFailureGuidance<Failure>(
   error: Failure,
 ): string[] {
   const message = searchableErrorText(error);
-  if (backend === "opencode") return getOpenCodeFailureGuidance(message);
+  switch (backend) {
+    case "opencode":
+      return getOpenCodeFailureGuidance(message);
+    case "codex":
+      return getCodexFailureGuidance(message);
+    case "cursor":
+      return getCursorFailureGuidance(message);
+  }
+}
 
+function getCodexFailureGuidance(message: string): string[] {
   const normalized = message.toLowerCase();
   if (
     normalized.includes("executable was not found") ||
@@ -50,6 +59,45 @@ export function getReviewBackendFailureGuidance<Failure>(
     ];
   }
   return ["Codex review failed. Run `codex` directly to verify the local runtime, then retry."];
+}
+
+function getCursorFailureGuidance(message: string): string[] {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("quota or rate limit")) {
+    return [
+      "Cursor usage limit reached.",
+      "Switch to a model available on your Cursor plan or ask your administrator to increase the limit, then retry.",
+    ];
+  }
+  if (
+    normalized.includes("executable was not found") ||
+    normalized.includes("command not found") ||
+    normalized.includes("enoent")
+  ) {
+    return [
+      "Cursor runtime is not installed.",
+      "Install the Cursor CLI and ensure `cursor-agent` is on PATH, then retry.",
+    ];
+  }
+  if (normalized.includes("authentication") || normalized.includes("cursor_login")) {
+    return [
+      "Cursor authentication is missing.",
+      "Run `cursor-agent login` on this machine, then retry.",
+    ];
+  }
+  if (normalized.includes("does not advertise model") || normalized.includes("did not select model")) {
+    return [
+      "Cursor rejected the selected model.",
+      "Run `diffowl model --list`, then save an advertised ACP base model with `diffowl model <model-id>`.",
+    ];
+  }
+  if (normalized.includes("protocol") || normalized.includes("incompatible")) {
+    return [
+      "Cursor runtime is incompatible with this DiffOwl adapter.",
+      "Update the Cursor CLI, then retry.",
+    ];
+  }
+  return ["Cursor review failed. Run `cursor-agent` directly to verify the local runtime, then retry."];
 }
 
 function searchableErrorText<Failure>(error: Failure): string {

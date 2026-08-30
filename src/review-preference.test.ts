@@ -36,30 +36,34 @@ describe("review preferences", () => {
     });
   });
 
-  it("stores discriminated model choices for both backends without overwriting either", async () => {
+  it("stores discriminated model choices for every backend without overwriting any", async () => {
     const repo = await createRepo("diffowl-review-preference-both-");
     process.chdir(repo);
 
     await saveReviewBackendModel("opencode", "provider/local");
     await saveReviewBackendModel("codex", "gpt-5.4");
-    const preferencePath = await saveReviewBackendPreference("codex");
+    await saveReviewBackendModel("cursor", "gpt-5.6-luna");
+    const preferencePath = await saveReviewBackendPreference("cursor");
 
     await expect(loadReviewPreferences()).resolves.toEqual({
       kind: "current",
-      selectedBackend: "codex",
+      selectedBackend: "cursor",
       models: [
         { backend: "opencode", model: "provider/local" },
         { backend: "codex", model: "gpt-5.4" },
+        { backend: "cursor", model: "gpt-5.6-luna" },
       ],
     });
     await expect(readFile(preferencePath, "utf8")).resolves.toBe(
       [
-        "backend: codex",
+        "backend: cursor",
         "models:",
         "  - backend: opencode",
         "    model: provider/local",
         "  - backend: codex",
         "    model: gpt-5.4",
+        "  - backend: cursor",
+        "    model: gpt-5.6-luna",
         "",
       ].join("\n"),
     );
