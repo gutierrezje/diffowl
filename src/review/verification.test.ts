@@ -231,7 +231,7 @@ describe("checker document contract", () => {
     });
 
     expect(normalized.claims[0]?.file).toBe("src/app.ts");
-    for (const file of ["../outside.ts", "/etc/passwd", "C:\\outside.ts"]) {
+    for (const file of ["../outside.ts", "/etc/passwd", "C:\\outside.ts", "C:outside.ts"]) {
       expect(() =>
         createCheckerInput({
           operation: capturedOperation(),

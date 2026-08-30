@@ -109,7 +109,7 @@ export const ReviewFindingPathSchema = z
     (normalized) =>
       normalized !== "" &&
       !normalized.startsWith("/") &&
-      !/^[A-Za-z]:\//.test(normalized) &&
+      !/^[A-Za-z]:/.test(normalized) &&
       !normalized.split("/").includes(".."),
     "must be a relative path without .. or a drive prefix",
   );
