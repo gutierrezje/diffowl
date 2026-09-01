@@ -17,8 +17,10 @@ const tsFiles = {
   "ClientNotification.ts": "initialized\n",
   "ClientRequest.ts": "initialize account/read thread/start turn/start turn/interrupt\n",
   "ServerNotification.ts":
-    "item/completed turn/completed thread/tokenUsage/updated item/agentMessage/delta model/rerouted\n",
+    "item/started item/completed item/commandExecution/outputDelta turn/completed thread/tokenUsage/updated item/agentMessage/delta model/rerouted\n",
   "v2/AgentMessageDeltaNotification.ts": "threadId turnId itemId delta\n",
+  "v2/ItemStartedNotification.ts": "threadId turnId item startedAtMs\n",
+  "v2/CommandExecutionOutputDeltaNotification.ts": "threadId turnId itemId delta\n",
   "v2/ItemCompletedNotification.ts": "threadId turnId item completedAtMs\n",
   "v2/GetAccountParams.ts": "refreshToken\n",
   "v2/GetAccountResponse.ts": "account requiresOpenaiAuth\n",
@@ -70,9 +72,11 @@ const jsonFiles = {
     ["initialize", "account/read", "thread/start", "turn/start", "turn/interrupt"],
   ),
   "ServerNotification.json": methodSchema(
-    "item/completed turn/completed thread/tokenUsage/updated item/agentMessage/delta model/rerouted",
+    "item/started item/completed item/commandExecution/outputDelta turn/completed thread/tokenUsage/updated item/agentMessage/delta model/rerouted",
     [
+      "item/started",
       "item/completed",
+      "item/commandExecution/outputDelta",
       "turn/completed",
       "thread/tokenUsage/updated",
       "item/agentMessage/delta",
@@ -85,6 +89,20 @@ const jsonFiles = {
     itemId: stringSchema,
     delta: stringSchema,
   }),
+  "v2/ItemStartedNotification.json": objectSchema("threadId turnId item startedAtMs", {
+    threadId: stringSchema,
+    turnId: stringSchema,
+    item: { type: "object" },
+  }),
+  "v2/CommandExecutionOutputDeltaNotification.json": objectSchema(
+    "threadId turnId itemId delta",
+    {
+      threadId: stringSchema,
+      turnId: stringSchema,
+      itemId: stringSchema,
+      delta: stringSchema,
+    },
+  ),
   "v2/ItemCompletedNotification.json": objectSchema("threadId turnId item completedAtMs", {
     threadId: stringSchema,
     turnId: stringSchema,

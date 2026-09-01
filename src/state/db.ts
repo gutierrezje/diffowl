@@ -11,6 +11,7 @@ import { MIGRATION_006_REVIEW_OPERATIONS } from "./migrations/006-review-operati
 import { MIGRATION_007_COMMIT_COMPARISON_PARENT } from "./migrations/007-commit-comparison-parent.js";
 import { MIGRATION_008_REVIEW_EXECUTION_TELEMETRY } from "./migrations/008-review-execution-telemetry.js";
 import { MIGRATION_009_REVIEW_EXECUTION_OWNER_LEASE } from "./migrations/009-review-execution-owner-lease.js";
+import { MIGRATION_010_REVIEW_OPERATION_CONTEXT_CAPTURE } from "./migrations/010-review-operation-context-capture.js";
 import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.js";
 import { CURRENT_SCHEMA_VERSION } from "./types.js";
 
@@ -26,6 +27,7 @@ const MIGRATIONS = {
   7: MIGRATION_007_COMMIT_COMPARISON_PARENT,
   8: MIGRATION_008_REVIEW_EXECUTION_TELEMETRY,
   9: MIGRATION_009_REVIEW_EXECUTION_OWNER_LEASE,
+  10: MIGRATION_010_REVIEW_OPERATION_CONTEXT_CAPTURE,
 } satisfies Record<number, string>;
 
 const CURRENT_SCHEMA_TABLE_COLUMNS = {

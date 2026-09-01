@@ -7,12 +7,17 @@ import {
   type ReviewExecutionTelemetryEvent,
 } from "../review/execution-telemetry.js";
 import { ReviewerIdSchema } from "../review/ids.js";
-import { captureReviewOperation } from "../review/operation.js";
+import {
+  captureReviewOperation,
+  createUnavailableContextReviewOperation,
+} from "../review/operation.js";
 import { createSingleReviewAssignment } from "../review/provenance.js";
 import { selectReasoningVariant } from "../review/reasoning.js";
 import type { ReviewContext } from "../review/context.js";
 import { closeStateDatabase, openStateDatabase } from "./db.js";
+import { withFindingDatabase } from "./findings-query.js";
 import { startReviewExecutionJournal } from "./review-execution-journal.js";
+import { getReviewOperationById } from "./repositories/review-operations.js";
 import { listReviewExecutionsByOperationId } from "./repositories/review-executions.js";
 import { removeTempStateDir } from "./test-helpers.js";
 
@@ -89,6 +94,41 @@ describe("review execution journal", () => {
     });
   });
 
+  it("captures the completed context on an already-running execution", async () => {
+    const dir = await createTempDir();
+    const operation = capturedOperation("op_context_capture");
+    const pendingOperation = createUnavailableContextReviewOperation({
+      targetRef: operation.targetRef,
+      reviewInput: operation.input,
+      depth: operation.depth,
+      id: operation.id,
+      createdAt: operation.createdAt,
+    });
+    const telemetry = createReviewExecutionTelemetry();
+    telemetry.record({ type: "phase", phase: "context-build" });
+    const journal = await startReviewExecutionJournal(dir, {
+      operation: pendingOperation,
+      assignment: assignment(),
+      telemetry,
+    });
+
+    journal.captureContext(operation);
+
+    const state = await openStateDatabase(dir);
+    try {
+      expect(getReviewOperationById(state.db, operation.id)).toEqual(operation);
+      expect(listReviewExecutionsByOperationId(state.db, operation.id)).toEqual([
+        expect.objectContaining({
+          terminalOutcome: "running",
+          contextManifestSha256: operation.contextManifestSha256,
+        }),
+      ]);
+    } finally {
+      closeStateDatabase(state);
+      journal.close();
+    }
+  });
+
   it("stores only the sanitized telemetry contract", async () => {
     const dir = await createTempDir();
     const operation = capturedOperation("op_private");
@@ -143,9 +183,11 @@ describe("review execution journal", () => {
     }
   });
 
-  it("coalesces bursty provider activity writes and flushes the final count", async () => {
+  it.each(["provider", "tool"] as const)(
+    "coalesces bursty %s activity writes and flushes the final count",
+    async (activity) => {
     const dir = await createTempDir();
-    const operation = capturedOperation("op_activity_flush");
+    const operation = capturedOperation(`op_${activity}_activity_flush`);
     const telemetry = createReviewExecutionTelemetry();
     telemetry.record({ type: "phase", phase: "turn-start", attempt: 1 });
     const journal = await startReviewExecutionJournal(dir, {
@@ -154,8 +196,8 @@ describe("review execution journal", () => {
       telemetry,
     });
 
-    journal.record({ type: "activity", activity: "provider" });
-    journal.record({ type: "activity", activity: "provider" });
+    journal.record({ type: "activity", activity });
+    journal.record({ type: "activity", activity });
 
     const runningState = await openStateDatabase(dir);
     try {
@@ -183,8 +225,41 @@ describe("review execution journal", () => {
     expect(execution.telemetry).toMatchObject({
       terminal: { outcome: "completed", phase: "completion" },
       transitions: expect.arrayContaining([expect.objectContaining({ phase: "completion" })]),
-      activity: { count: 2 },
+      activity: { count: 2, toolCount: activity === "tool" ? 2 : 0 },
     });
+    },
+  );
+
+  it("flushes the first activity of a quick retry before coalescing its burst", async () => {
+    const dir = await createTempDir();
+    const operation = capturedOperation("op_retry_activity_flush");
+    const telemetry = createReviewExecutionTelemetry();
+    telemetry.record({ type: "phase", phase: "turn-start", attempt: 1 });
+    const journal = await startReviewExecutionJournal(dir, {
+      operation,
+      assignment: assignment(),
+      telemetry,
+    });
+
+    journal.record({ type: "activity", activity: "provider" });
+    journal.record({ type: "phase", phase: "validation-repair", attempt: 1 });
+    journal.record({ type: "phase", phase: "turn-start", attempt: 2 });
+    journal.record({ type: "phase", phase: "provider-work", attempt: 2 });
+    journal.record({ type: "activity", activity: "provider" });
+    journal.record({ type: "activity", activity: "provider" });
+
+    const state = await openStateDatabase(dir);
+    try {
+      expect(listReviewExecutionsByOperationId(state.db, operation.id)[0]?.telemetry)
+        .toMatchObject({
+          activity: { count: 2 },
+          provider: { window: { kind: "active", attempt: 2 } },
+        });
+      expect(journal.snapshot()).toMatchObject({ activity: { count: 3 } });
+    } finally {
+      closeStateDatabase(state);
+      journal.close();
+    }
   });
 
   it("reconciles a dead process's running execution as interrupted on the next write open", async () => {
@@ -205,14 +280,7 @@ describe("review execution journal", () => {
       .run(2_147_483_647, journal.executionId);
     closeStateDatabase(stale);
 
-    const nextTelemetry = createReviewExecutionTelemetry();
-    nextTelemetry.record({ type: "phase", phase: "context-build" });
-    const nextJournal = await startReviewExecutionJournal(dir, {
-      operation: capturedOperation("op_next"),
-      assignment: assignment(),
-      telemetry: nextTelemetry,
-    });
-    nextJournal.close();
+    await withFindingDatabase(dir, () => undefined);
 
     const reconciled = await openStateDatabase(dir);
     try {

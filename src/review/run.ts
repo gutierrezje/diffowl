@@ -42,6 +42,7 @@ import type { ReviewTarget } from "./target.js";
 import {
   captureReviewOperation,
   createUnavailableContextReviewOperation,
+  type UnavailableContextReviewOperation,
   type ReviewOperation,
 } from "./operation.js";
 import {
@@ -77,7 +78,12 @@ export type ReviewPipelineOutcome =
 
 export type ReviewSkipCheckOutcome =
   | ReviewPipelineOutcome
-  | { kind: "continue"; snapshot: LoadedReviewSnapshot; timings: ReviewTiming[] };
+  | {
+      kind: "continue";
+      snapshot: LoadedReviewSnapshot;
+      timings: ReviewTiming[];
+      operation: UnavailableContextReviewOperation;
+    };
 
 export interface ReviewPipelineInput {
   target: ReviewTarget;
@@ -164,31 +170,42 @@ export async function runReviewPipeline(
     return outcome;
   }
 
-  const { snapshot, timings } = outcome;
+  const { snapshot, timings, operation: pendingOperation } = outcome;
   const executionTelemetry = createReviewExecutionTelemetry();
   executionTelemetry.record({ type: "phase", phase: "context-build" });
-  const contextStart = performance.now();
-  const reviewContext = await deps.buildReviewContextFromDiff(snapshot, input.config, input.depth);
-  recordReviewTiming(timings, "context-build", "Local review context build", contextStart);
-
-  const contextRenderStart = performance.now();
-  const renderedContext = deps.renderReviewContextDocument(reviewContext, { depth: input.depth });
-  const localContext = renderedContext.text;
-  recordReviewTiming(timings, "context-render", "Local review context render", contextRenderStart);
-  if (reviewContext.diagnostics.length > 0) {
-    input.onDiagnostics?.(reviewContext.diagnostics);
-  }
-  const operation = deps.captureReviewOperation({
-    snapshot,
-    context: reviewContext,
-    renderedContext,
-  });
   const executor = input.executor ?? deps.createExecutor(input.config);
   const executionJournal = await deps.startReviewExecutionJournal(input.diffOwlDir, {
-    operation,
+    operation: pendingOperation,
     assignment: executor.assignment,
     telemetry: executionTelemetry,
   });
+  let reviewContext: Awaited<ReturnType<typeof buildReviewContextFromDiff>>;
+  let localContext: string;
+  let operation: ReturnType<typeof captureReviewOperation>;
+  try {
+    const contextStart = performance.now();
+    reviewContext = await deps.buildReviewContextFromDiff(snapshot, input.config, input.depth);
+    recordReviewTiming(timings, "context-build", "Local review context build", contextStart);
+
+    const contextRenderStart = performance.now();
+    const renderedContext = deps.renderReviewContextDocument(reviewContext, { depth: input.depth });
+    localContext = renderedContext.text;
+    recordReviewTiming(timings, "context-render", "Local review context render", contextRenderStart);
+    if (reviewContext.diagnostics.length > 0) {
+      input.onDiagnostics?.(reviewContext.diagnostics);
+    }
+    operation = deps.captureReviewOperation({
+      snapshot,
+      context: reviewContext,
+      renderedContext,
+      id: pendingOperation.id,
+      createdAt: pendingOperation.createdAt,
+    });
+    executionJournal.captureContext(operation);
+  } catch (error) {
+    finishFailedExecutionJournal(executionJournal, executor, null, input.onWarning);
+    throw error;
+  }
   executionJournal.record({ type: "phase", phase: "protocol-check" });
 
   const executorOptions: ReviewExecutorOptions = {
@@ -472,7 +489,7 @@ export async function runReviewSkipChecks(
   }
 
   if (!input.config.skip_doc_only || !isDocOnlyDiff(diff)) {
-    return { kind: "continue", snapshot, timings };
+    return { kind: "continue", snapshot, timings, operation };
   }
 
   const persisted = await deps.persistSkippedReview(input.diffOwlDir, {

@@ -29,6 +29,24 @@ const ReviewExecutionTransitionSchema = z
   })
   .strict();
 
+const ReviewExecutionProviderWindowSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("closed") }).strict(),
+  z
+    .object({
+      kind: z.literal("queued"),
+      attempt: z.number().int().positive(),
+      startedAt: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("active"),
+      attempt: z.number().int().positive(),
+      startedAt: z.string(),
+    })
+    .strict(),
+]);
+
 export const ReviewExecutionTelemetrySchema = z
   .object({
     schemaVersion: z.literal(REVIEW_EXECUTION_TELEMETRY_SCHEMA_VERSION),
@@ -60,6 +78,7 @@ export const ReviewExecutionTelemetrySchema = z
       .object({
         queueWaitMs: z.number().nonnegative(),
         executionMs: z.number().nonnegative(),
+        window: ReviewExecutionProviderWindowSchema.default({ kind: "closed" }),
       })
       .strict(),
     validation: z
@@ -89,6 +108,25 @@ export interface ReviewExecutionTelemetryTracker {
   snapshot(): ReviewExecutionTelemetry;
 }
 
+export function getSlowestReviewExecutionPhase(
+  telemetry: ReviewExecutionTelemetry,
+): { phase: ReviewExecutionPhase; durationMs: number } | null {
+  const durationByPhase = new Map<ReviewExecutionPhase, number>();
+  for (const transition of telemetry.transitions) {
+    durationByPhase.set(
+      transition.phase,
+      (durationByPhase.get(transition.phase) ?? 0) + transition.durationMs,
+    );
+  }
+  let slowest: { phase: ReviewExecutionPhase; durationMs: number } | null = null;
+  for (const [phase, durationMs] of durationByPhase) {
+    if (slowest === null || durationMs > slowest.durationMs) {
+      slowest = { phase, durationMs };
+    }
+  }
+  return slowest;
+}
+
 export function finishPersistedReviewExecutionTelemetry(
   telemetry: ReviewExecutionTelemetry,
   outcome: ReviewExecutionTerminalOutcome,
@@ -113,17 +151,14 @@ export function finishPersistedReviewExecutionTelemetry(
       .find((transition) => transition.phase === "turn-start")?.startedAt ??
     telemetry.startedAt;
   const activityAgeMs = Math.max(0, Date.parse(completedAt) - Date.parse(activityReference));
-  const activeProviderWindow =
-    telemetry.activePhase === "turn-start" ||
-    telemetry.activePhase === "provider-work" ||
-    telemetry.activePhase === "tool-activity";
   const provider = {
     queueWaitMs:
       telemetry.provider.queueWaitMs +
-      (activeProviderWindow && telemetry.activity.lastAt === null ? elapsedSinceUpdateMs : 0),
+      (telemetry.provider.window.kind === "queued" ? elapsedSinceUpdateMs : 0),
     executionMs:
       telemetry.provider.executionMs +
-      (activeProviderWindow && telemetry.activity.lastAt !== null ? elapsedSinceUpdateMs : 0),
+      (telemetry.provider.window.kind === "active" ? elapsedSinceUpdateMs : 0),
+    window: { kind: "closed" } as const,
   };
   return ReviewExecutionTelemetrySchema.parse({
     ...telemetry,
@@ -158,6 +193,13 @@ interface MutableTransition {
   durationMs: number;
 }
 
+type TelemetryClockReading = ReturnType<ReviewExecutionTelemetryClock["read"]>;
+
+type MutableProviderWindow =
+  | { kind: "closed" }
+  | { kind: "queued"; attempt: number; started: TelemetryClockReading }
+  | { kind: "active"; attempt: number; started: TelemetryClockReading };
+
 export function createReviewExecutionTelemetry(
   options: {
     clock?: ReviewExecutionTelemetryClock;
@@ -176,35 +218,41 @@ export function createReviewExecutionTelemetry(
   const transitions: MutableTransition[] = [];
   let activityCount = 0;
   let toolActivityCount = 0;
-  let firstActivity: ReturnType<ReviewExecutionTelemetryClock["read"]> | null = null;
-  let lastActivity: ReturnType<ReviewExecutionTelemetryClock["read"]> | null = null;
-  let queueStartedElapsedMs: number | null = null;
-  let providerWorkStartedElapsedMs: number | null = null;
+  let firstActivity: TelemetryClockReading | null = null;
+  let lastActivity: TelemetryClockReading | null = null;
+  let providerWindow: MutableProviderWindow = { kind: "closed" };
   let queueWaitMs = 0;
   let executionMs = 0;
   let validationAttempts = 0;
   let repairAttempts = 0;
 
-  const read = (): ReturnType<ReviewExecutionTelemetryClock["read"]> => {
+  const read = (): TelemetryClockReading => {
     latest = normalizeReading(clock.read(), latest.elapsedMs);
     return latest;
   };
 
   const closeProviderWindow = (elapsedMs: number): void => {
-    if (queueStartedElapsedMs !== null) {
-      queueWaitMs += elapsedMs - queueStartedElapsedMs;
-      queueStartedElapsedMs = null;
+    switch (providerWindow.kind) {
+      case "queued":
+        queueWaitMs += elapsedMs - providerWindow.started.elapsedMs;
+        break;
+      case "active":
+        executionMs += elapsedMs - providerWindow.started.elapsedMs;
+        break;
+      case "closed":
+        break;
+      default: {
+        const _exhaustive: never = providerWindow;
+        return _exhaustive;
+      }
     }
-    if (providerWorkStartedElapsedMs !== null) {
-      executionMs += elapsedMs - providerWorkStartedElapsedMs;
-      providerWorkStartedElapsedMs = null;
-    }
+    providerWindow = { kind: "closed" };
   };
 
   const recordPhase = (
     phase: ReviewExecutionPhase,
     attempt: number | undefined,
-    reading: ReturnType<ReviewExecutionTelemetryClock["read"]>,
+    reading: TelemetryClockReading,
   ): void => {
     const normalizedAttempt = attempt ?? null;
     const previous = transitions.at(-1);
@@ -215,8 +263,11 @@ export function createReviewExecutionTelemetry(
       previous.durationMs = reading.elapsedMs - previous.elapsedMs;
     }
     if (phase === "turn-start") {
+      if (attempt === undefined) {
+        throw new Error("turn-start telemetry requires an attempt number.");
+      }
       closeProviderWindow(reading.elapsedMs);
-      queueStartedElapsedMs = reading.elapsedMs;
+      providerWindow = { kind: "queued", attempt, started: reading };
     } else if (
       phase === "validation-repair" ||
       phase === "persistence" ||
@@ -237,17 +288,20 @@ export function createReviewExecutionTelemetry(
 
   const recordActivity = (
     activity: "provider" | "tool",
-    reading: ReturnType<ReviewExecutionTelemetryClock["read"]>,
+    reading: TelemetryClockReading,
   ): void => {
     activityCount += 1;
     if (activity === "tool") toolActivityCount += 1;
     firstActivity ??= reading;
     lastActivity = reading;
-    if (queueStartedElapsedMs !== null) {
-      queueWaitMs += reading.elapsedMs - queueStartedElapsedMs;
-      queueStartedElapsedMs = null;
+    if (providerWindow.kind === "queued") {
+      queueWaitMs += reading.elapsedMs - providerWindow.started.elapsedMs;
+      providerWindow = {
+        kind: "active",
+        attempt: providerWindow.attempt,
+        started: reading,
+      };
     }
-    providerWorkStartedElapsedMs ??= reading.elapsedMs;
   };
 
   return {
@@ -295,7 +349,9 @@ export function createReviewExecutionTelemetry(
           durationMs: isActive ? reading.elapsedMs - transition.elapsedMs : transition.durationMs,
         };
       });
-      const activityReference = lastActivity?.elapsedMs ?? queueStartedElapsedMs ?? started.elapsedMs;
+      const activityReference =
+        lastActivity?.elapsedMs ??
+        (providerWindow.kind === "queued" ? providerWindow.started.elapsedMs : started.elapsedMs);
       const activityAgeMs = Math.max(0, reading.elapsedMs - activityReference);
       const activityStatus =
         lastActivity === null
@@ -304,11 +360,17 @@ export function createReviewExecutionTelemetry(
             ? "stalled"
             : "active";
       const pendingQueueWaitMs =
-        queueStartedElapsedMs === null ? 0 : reading.elapsedMs - queueStartedElapsedMs;
+        providerWindow.kind === "queued" ? reading.elapsedMs - providerWindow.started.elapsedMs : 0;
       const pendingExecutionMs =
-        providerWorkStartedElapsedMs === null
-          ? 0
-          : reading.elapsedMs - providerWorkStartedElapsedMs;
+        providerWindow.kind === "active" ? reading.elapsedMs - providerWindow.started.elapsedMs : 0;
+      const persistedProviderWindow =
+        providerWindow.kind === "closed"
+          ? providerWindow
+          : {
+              kind: providerWindow.kind,
+              attempt: providerWindow.attempt,
+              startedAt: providerWindow.started.wallTime,
+            };
       return ReviewExecutionTelemetrySchema.parse({
         schemaVersion: REVIEW_EXECUTION_TELEMETRY_SCHEMA_VERSION,
         stallIntervalMs,
@@ -329,6 +391,7 @@ export function createReviewExecutionTelemetry(
         provider: {
           queueWaitMs: queueWaitMs + pendingQueueWaitMs,
           executionMs: executionMs + pendingExecutionMs,
+          window: persistedProviderWindow,
         },
         validation: {
           attempts: validationAttempts,

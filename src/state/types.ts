@@ -21,7 +21,7 @@ import type {
   ReviewOperation,
 } from "../review/operation.js";
 
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 10;
 
 export type ReviewTargetKind = "staged" | "commit" | "last-commit" | "base";
 export type FindingStatus = "open" | "deferred" | "dismissed" | "fixed" | "regressed";
@@ -124,7 +124,7 @@ export type ReviewExecutionRecord =
       ReviewExecutionRecordIdentity & {
         schemaVersion: 4;
         input: ReviewInputIdentity;
-        contextManifestSha256: string;
+        contextManifestSha256: string | null;
         ownerProcessId: number;
         ownerLease: ProcessLease | null;
         telemetry: ReviewExecutionTelemetry;

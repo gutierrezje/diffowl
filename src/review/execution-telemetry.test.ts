@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   createReviewExecutionTelemetry,
+  finishPersistedReviewExecutionTelemetry,
+  getSlowestReviewExecutionPhase,
+  ReviewExecutionTelemetrySchema,
   type ReviewExecutionTelemetryClock,
 } from "./execution-telemetry.js";
 
@@ -140,6 +143,65 @@ describe("review execution telemetry", () => {
     expect(stalled.snapshot()).toMatchObject({
       activity: { status: "stalled", count: 1, ageMs: 1_100 },
       provider: { queueWaitMs: 100, executionMs: 1_100 },
+    });
+  });
+
+  it("counts a later attempt's pre-activity crash as queue wait", () => {
+    const time = createClock();
+    const telemetry = createReviewExecutionTelemetry({ clock: time.clock });
+
+    telemetry.record({ type: "phase", phase: "turn-start", attempt: 1 });
+    time.advance(100);
+    telemetry.record({ type: "activity", activity: "provider" });
+    time.advance(200);
+    telemetry.record({ type: "phase", phase: "validation-repair", attempt: 1 });
+    time.advance(50);
+    telemetry.record({ type: "phase", phase: "turn-start", attempt: 2 });
+    telemetry.record({ type: "phase", phase: "provider-work", attempt: 2 });
+
+    const finished = finishPersistedReviewExecutionTelemetry(
+      telemetry.snapshot(),
+      "interrupted",
+      "2026-09-01T20:00:00.850Z",
+    );
+
+    expect(finished.provider).toEqual({
+      queueWaitMs: 600,
+      executionMs: 200,
+      window: { kind: "closed" },
+    });
+  });
+
+  it("parses legacy persisted telemetry without a provider window", () => {
+    const telemetry = createReviewExecutionTelemetry().snapshot();
+
+    const parsed = ReviewExecutionTelemetrySchema.parse({
+      ...telemetry,
+      provider: {
+        queueWaitMs: telemetry.provider.queueWaitMs,
+        executionMs: telemetry.provider.executionMs,
+      },
+    });
+
+    expect(parsed.provider.window).toEqual({ kind: "closed" });
+  });
+
+  it("totals repeated phase spans when selecting the slowest phase", () => {
+    const time = createClock();
+    const telemetry = createReviewExecutionTelemetry({ clock: time.clock });
+    telemetry.record({ type: "phase", phase: "provider-work", attempt: 1 });
+    time.advance(300);
+    telemetry.record({ type: "phase", phase: "tool-activity", attempt: 1 });
+    time.advance(50);
+    telemetry.record({ type: "phase", phase: "provider-work", attempt: 1 });
+    time.advance(300);
+    telemetry.record({ type: "phase", phase: "persistence" });
+    time.advance(400);
+    telemetry.record({ type: "terminal", outcome: "completed" });
+
+    expect(getSlowestReviewExecutionPhase(telemetry.snapshot())).toEqual({
+      phase: "provider-work",
+      durationMs: 600,
     });
   });
 });

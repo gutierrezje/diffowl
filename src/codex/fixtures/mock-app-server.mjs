@@ -606,6 +606,33 @@ function handleMarker(message) {
     }
     if (mode === "authoritative") {
       send({
+        method: "item/started",
+        params: {
+          threadId: "thread-1",
+          turnId,
+          item: { type: "commandExecution", id: "command-1" },
+          startedAtMs: 1,
+        },
+      });
+      send({
+        method: "item/commandExecution/outputDelta",
+        params: {
+          threadId: "thread-1",
+          turnId,
+          itemId: "command-1",
+          delta: "first output",
+        },
+      });
+      send({
+        method: "item/commandExecution/outputDelta",
+        params: {
+          threadId: "thread-1",
+          turnId,
+          itemId: "command-1",
+          delta: "second output",
+        },
+      });
+      send({
         method: "item/completed",
         params: {
           threadId: "thread-1",

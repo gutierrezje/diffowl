@@ -99,6 +99,9 @@ describe("executeCodexReview", () => {
         { type: "activity", activity: "tool" },
       ]),
     );
+    expect(
+      telemetry.filter((event) => event.type === "activity" && event.activity === "tool"),
+    ).toHaveLength(4);
   });
 
   it("correlates agent deltas and completions by item id", async () => {

@@ -26,6 +26,7 @@ import {
   ReviewExecutionTelemetrySchema,
   type ReviewExecutionTelemetry,
 } from "../../review/execution-telemetry.js";
+import type { ReviewOperation } from "../../review/operation.js";
 import { StateDatabaseError } from "../db.js";
 import {
   ProcessLeaseSchema,
@@ -135,7 +136,7 @@ export function insertReviewExecution(
 export function insertRunningReviewExecution(
   db: SqliteDatabase,
   input: {
-    operation: InsertReviewExecutionInput["operation"];
+    operation: ReviewOperation;
     assignment: ReviewAssignment;
     telemetry: ReviewExecutionTelemetry;
     ownerProcessId: number;
@@ -211,6 +212,9 @@ export function finalizeReviewExecution(
     return updateReviewExecutionTelemetry(db, executionId, terminalTelemetry);
   }
   assertSameAssignment(existing, provenance);
+  if (provenance.terminalOutcome === "completed" && existing.contextManifestSha256 === null) {
+    throw new StateDatabaseError("A completed review execution requires captured context.");
+  }
   const result = db
     .prepare(`
       UPDATE review_executions
@@ -368,10 +372,7 @@ function mapReviewExecutionRow(
   };
 
   if (row.terminalOutcome === "running") {
-    if (
-      row.schemaVersion !== REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION ||
-      row.contextManifestSha256 === null
-    ) {
+    if (row.schemaVersion !== REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION) {
       throw new StateDatabaseError(`${owner} contains invalid running execution provenance.`);
     }
     const input = ReviewInputIdentitySchema.safeParse({
@@ -449,16 +450,15 @@ function mapReviewExecutionRow(
       input: input.data,
     };
   }
-  if (row.contextManifestSha256 === null) {
-    throw new StateDatabaseError(`${owner} contains missing context manifest identity.`);
-  }
-
   const currentRuntime = ReviewExecutionRuntimeProvenanceSchema.safeParse(runtime);
   if (!currentRuntime.success) {
     throw new StateDatabaseError(`${owner} contains invalid current execution provenance.`);
   }
 
   if (row.schemaVersion === 3) {
+    if (row.contextManifestSha256 === null) {
+      throw new StateDatabaseError(`${owner} contains missing context manifest identity.`);
+    }
     const input = LegacyReviewInputIdentitySchema.safeParse(rawInput);
     if (!input.success) {
       throw new StateDatabaseError(`${owner} contains invalid input identity.`);

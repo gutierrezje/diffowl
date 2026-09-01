@@ -14,6 +14,7 @@ import { computeReviewContextManifestSha256 } from "../../review/operation.js";
 import { ReviewOperationIdSchema, ReviewerIdSchema } from "../../review/ids.js";
 import { listReviewExecutionsByReviewId } from "../repositories/review-executions.js";
 import { openSqliteDatabase } from "../sqlite.js";
+import { CURRENT_SCHEMA_VERSION } from "../types.js";
 import { persistTestReview as persistReviewRun, removeTempStateDir } from "../test-helpers.js";
 import { MIGRATION_001_INITIAL_SCHEMA } from "./001-initial-schema.js";
 import { MIGRATION_002_BASE_REVIEW_TARGET } from "./002-base-review-target.js";
@@ -456,7 +457,7 @@ async function persistCompletedReview(
 
 function expectMigrationVersions(db: Awaited<ReturnType<typeof openSqliteDatabase>>): void {
   expect(db.prepare("SELECT version FROM schema_migrations ORDER BY version ASC").all()).toEqual(
-    [1, 2, 3, 4, 5, 6, 7, 8, 9].map((version) => ({ version })),
+    Array.from({ length: CURRENT_SCHEMA_VERSION }, (_, index) => ({ version: index + 1 })),
   );
 }
 

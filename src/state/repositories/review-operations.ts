@@ -4,7 +4,9 @@ import { ReviewOperationIdSchema } from "../../review/ids.js";
 import {
   computeReviewContextManifestSha256,
   ReviewContextManifestSchema,
+  type CapturedReviewOperation,
   type ReviewOperation,
+  type UnavailableContextReviewOperation,
 } from "../../review/operation.js";
 import { ReviewInputIdentitySchema } from "../../review/provenance.js";
 import { StateDatabaseError } from "../db.js";
@@ -82,6 +84,62 @@ export function insertReviewOperation(
     );
   }
   return persisted;
+}
+
+export function captureReviewOperationContext(
+  db: SqliteDatabase,
+  operation: CapturedReviewOperation,
+): ReviewOperationRecord {
+  const contextManifest = ReviewContextManifestSchema.parse(operation.contextManifest);
+  if (computeReviewContextManifestSha256(contextManifest) !== operation.contextManifestSha256) {
+    throw new StateDatabaseError(
+      `Review operation ${operation.id} contains an invalid context manifest hash.`,
+    );
+  }
+  const existing = getReviewOperationById(db, operation.id);
+  if (existing === undefined) {
+    throw new StateDatabaseError(`Review operation ${operation.id} was not found.`);
+  }
+  if (existing.contextKind === "captured") {
+    if (JSON.stringify(existing) === JSON.stringify(operation)) return existing;
+    throw new StateDatabaseError(
+      `Review operation ${operation.id} already exists with different identity.`,
+    );
+  }
+  const expectedUnavailable: UnavailableContextReviewOperation = {
+    id: operation.id,
+    createdAt: operation.createdAt,
+    targetRef: operation.targetRef,
+    input: operation.input,
+    depth: operation.depth,
+    contextKind: "unavailable",
+    contextManifest: null,
+    contextManifestSha256: null,
+  };
+  if (JSON.stringify(existing) !== JSON.stringify(expectedUnavailable)) {
+    throw new StateDatabaseError(
+      `Review operation ${operation.id} already exists with different identity.`,
+    );
+  }
+  const result = db
+    .prepare(`
+      UPDATE review_operations
+      SET context_manifest_json = ?, context_manifest_sha256 = ?
+      WHERE id = ? AND context_manifest_json IS NULL AND context_manifest_sha256 IS NULL
+    `)
+    .run(JSON.stringify(contextManifest), operation.contextManifestSha256, operation.id);
+  if (result.changes !== 1) {
+    throw new StateDatabaseError(
+      `Review operation ${operation.id} context could not be captured.`,
+    );
+  }
+  const captured = getReviewOperationById(db, operation.id);
+  if (captured === undefined || JSON.stringify(captured) !== JSON.stringify(operation)) {
+    throw new StateDatabaseError(
+      `Review operation ${operation.id} context was not captured correctly.`,
+    );
+  }
+  return captured;
 }
 
 export function getReviewOperationById(

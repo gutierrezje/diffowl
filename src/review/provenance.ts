@@ -167,11 +167,17 @@ export type ReviewExecutionProvenanceV3 = ReviewExecutionRuntimeProvenance & {
   contextManifestSha256: string;
 };
 
-export type ReviewExecutionProvenanceV4 = ReviewExecutionRuntimeProvenance & {
-  schemaVersion: typeof REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION;
-  input: ReviewInputIdentity;
-  contextManifestSha256: string;
-};
+export type ReviewExecutionProvenanceV4 =
+  | (Extract<ReviewExecutionRuntimeProvenance, { terminalOutcome: "completed" }> & {
+      schemaVersion: typeof REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION;
+      input: ReviewInputIdentity;
+      contextManifestSha256: string;
+    })
+  | (Exclude<ReviewExecutionRuntimeProvenance, { terminalOutcome: "completed" }> & {
+      schemaVersion: typeof REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION;
+      input: ReviewInputIdentity;
+      contextManifestSha256: string | null;
+    });
 
 export type ReviewExecutionProvenance =
   | ReviewExecutionProvenanceV1
@@ -282,8 +288,19 @@ export function createReviewInputIdentity(input: {
 export function completeReviewExecutionProvenance(
   runtime: ReviewExecutionRuntimeProvenance,
   input: ReviewInputIdentity,
-  contextManifestSha256: string,
+  contextManifestSha256: string | null,
 ): ReviewExecutionProvenanceV4 {
+  if (runtime.terminalOutcome === "completed") {
+    if (contextManifestSha256 === null) {
+      throw new Error("A completed review execution requires captured context.");
+    }
+    return {
+      ...runtime,
+      schemaVersion: REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION,
+      input,
+      contextManifestSha256,
+    };
+  }
   return {
     ...runtime,
     schemaVersion: REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION,

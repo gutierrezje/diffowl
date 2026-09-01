@@ -165,8 +165,10 @@ export interface ReviewJsonExecutionTelemetryV1 {
   };
 }
 
-export interface ReviewJsonExecutionV5 extends Omit<ReviewJsonExecutionV4, "schema_version"> {
+export interface ReviewJsonExecutionV5
+  extends Omit<ReviewJsonExecutionV4, "schema_version" | "context_manifest_sha256"> {
   schema_version: 5;
+  context_manifest_sha256: string | null;
   telemetry: ReviewJsonExecutionTelemetryV1;
 }
 
@@ -369,6 +371,9 @@ function mapJsonExecution(
       context_manifest_sha256: execution.contextManifestSha256,
       telemetry: mapJsonExecutionTelemetry(execution.telemetry),
     };
+  }
+  if (execution.contextManifestSha256 === null) {
+    throw new Error("A review execution without telemetry requires captured context.");
   }
   return {
     ...common,

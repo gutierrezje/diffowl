@@ -262,6 +262,8 @@ type TurnError = {
 
 type MarkerEvent =
   | { kind: "delta"; threadId: string; turnId: string; itemId: string; delta: string }
+  | { kind: "started-item"; threadId: string; turnId: string; item: MarkerItem }
+  | { kind: "tool-output"; threadId: string; turnId: string; itemId: string }
   | {
       kind: "model-rerouted";
       threadId: string;
@@ -954,6 +956,16 @@ async function collectTurn(
           reportOutput(input.onProgress, deltaText);
           break;
         }
+        case "started-item":
+          if (event.item.type === "commandExecution") {
+            recordToolActivity(input.onTelemetry, attempt);
+          } else {
+            recordProviderActivity(input.onTelemetry, attempt);
+          }
+          break;
+        case "tool-output":
+          recordToolActivity(input.onTelemetry, attempt);
+          break;
         case "completed-item":
           if (event.item.type === "commandExecution") {
             recordToolActivity(input.onTelemetry, attempt);
@@ -1153,6 +1165,8 @@ function parseMarkerEvent(notification: AppServerNotification): MarkerEvent | un
   if (
     ![
       "item/agentMessage/delta",
+      "item/started",
+      "item/commandExecution/outputDelta",
       "item/completed",
       "thread/tokenUsage/updated",
       "model/rerouted",
@@ -1178,6 +1192,22 @@ function parseMarkerEvent(notification: AppServerNotification): MarkerEvent | un
         turnId: requiredString(params, "turnId", "delta.turnId"),
         itemId: requiredString(params, "itemId", "delta.itemId"),
         delta: requiredString(params, "delta", "delta.delta"),
+      };
+    case "item/started": {
+      const item = asRecord(params["item"], "item/started.item");
+      return {
+        kind: "started-item",
+        threadId: requiredString(params, "threadId", "item/started.threadId"),
+        turnId: requiredString(params, "turnId", "item/started.turnId"),
+        item: parseItem(item, "item/started.item"),
+      };
+    }
+    case "item/commandExecution/outputDelta":
+      return {
+        kind: "tool-output",
+        threadId: requiredString(params, "threadId", "command output.threadId"),
+        turnId: requiredString(params, "turnId", "command output.turnId"),
+        itemId: requiredString(params, "itemId", "command output.itemId"),
       };
     case "item/completed": {
       const item = asRecord(params["item"], "item/completed.item");

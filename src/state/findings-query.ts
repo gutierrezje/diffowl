@@ -8,10 +8,10 @@ import {
 } from "../output/locator.js";
 import {
   closeStateDatabase,
-  openStateDatabase,
   openStateDatabaseForRead,
   runInTransaction,
 } from "./db.js";
+import { openStateDatabaseForWrite } from "./write-database.js";
 import { deferFinding, dismissFinding, fixFinding, reopenFinding } from "./lifecycle.js";
 import { countObservationsByFindingIds } from "./repositories/observations.js";
 import { listFindingEvents } from "./repositories/events.js";
@@ -51,7 +51,7 @@ export async function withFindingDatabase<T>(
   diffOwlDir: string,
   fn: (db: SqliteDatabase) => T,
 ): Promise<T> {
-  const state = await openStateDatabase(diffOwlDir);
+  const state = await openStateDatabaseForWrite(diffOwlDir);
   try {
     return fn(state.db);
   } finally {

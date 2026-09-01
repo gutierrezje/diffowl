@@ -140,6 +140,7 @@ import {
 } from "./state/possible-duplicates.js";
 import { resolveCompletedReviewExit } from "./review/gate.js";
 import { getReviewFailureExecution, runReviewPipeline } from "./review/run.js";
+import { getSlowestReviewExecutionPhase } from "./review/execution-telemetry.js";
 import { createSelectedReviewExecutor } from "./review/executor.js";
 import {
   createSingleReviewAssignment,
@@ -614,9 +615,8 @@ function printTimingSummary(timings: ReviewTiming[]): void {
 function printExecutionTelemetrySummary(execution: ReviewExecutionRecord | null): void {
   const telemetry = execution?.telemetry;
   if (telemetry === null || telemetry === undefined || telemetry.transitions.length === 0) return;
-  const slowest = telemetry.transitions.reduce((current, candidate) =>
-    candidate.durationMs > current.durationMs ? candidate : current,
-  );
+  const slowest = getSlowestReviewExecutionPhase(telemetry);
+  if (slowest === null) return;
   console.log(
     chalk.dim(
       `Slowest execution phase: ${slowest.phase.replaceAll("-", " ")} (${formatDuration(slowest.durationMs)}).`,

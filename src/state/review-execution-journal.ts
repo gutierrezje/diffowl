@@ -4,37 +4,37 @@ import type {
   ReviewExecutionRuntimeProvenance,
 } from "../review/provenance.js";
 import {
-  finishPersistedReviewExecutionTelemetry,
   type ReviewExecutionTelemetry,
   type ReviewExecutionTelemetryEvent,
   type ReviewExecutionTelemetryTracker,
 } from "../review/execution-telemetry.js";
-import type { CapturedReviewOperation } from "../review/operation.js";
+import type { CapturedReviewOperation, ReviewOperation } from "../review/operation.js";
 import {
   closeStateDatabase,
-  openStateDatabase,
   runInTransaction,
   type StateDatabase,
 } from "./db.js";
-import { insertReviewOperation } from "./repositories/review-operations.js";
 import {
-  isProcessLeaseAlive,
+  captureReviewOperationContext,
+  insertReviewOperation,
+} from "./repositories/review-operations.js";
+import {
   startProcessLease,
   type OwnedProcessLease,
 } from "./process-lease.js";
 import {
   finalizeReviewExecution,
-  getReviewExecutionById,
   insertRunningReviewExecution,
-  listRunningReviewExecutions,
   updateReviewExecutionTelemetry,
 } from "./repositories/review-executions.js";
 import type { ReviewExecutionRecord } from "./types.js";
+import { openStateDatabaseForWrite } from "./write-database.js";
 
 const ACTIVITY_FLUSH_INTERVAL_MS = 1_000;
 
 export interface ReviewExecutionJournal {
   readonly executionId: ReviewExecutionId;
+  captureContext(operation: CapturedReviewOperation): void;
   record(event: ReviewExecutionTelemetryEvent): void;
   snapshot(): ReviewExecutionTelemetry;
   finish(provenance: ReviewExecutionRuntimeProvenance): ReviewExecutionRecord;
@@ -44,15 +44,14 @@ export interface ReviewExecutionJournal {
 export async function startReviewExecutionJournal(
   diffOwlDir: string,
   input: {
-    operation: CapturedReviewOperation;
+    operation: ReviewOperation;
     assignment: ReviewAssignment;
     telemetry: ReviewExecutionTelemetryTracker;
   },
 ): Promise<ReviewExecutionJournal> {
-  const state = await openStateDatabase(diffOwlDir);
+  const state = await openStateDatabaseForWrite(diffOwlDir);
   let processLease: OwnedProcessLease | undefined;
   try {
-    await reconcileStaleReviewExecutions(state);
     const ownedProcessLease = await startProcessLease();
     processLease = ownedProcessLease;
     const execution = runInTransaction(state.db, () => {
@@ -65,7 +64,13 @@ export async function startReviewExecutionJournal(
         ownerLease: ownedProcessLease.identity,
       });
     });
-    return createJournal(state, execution.id, input.telemetry, ownedProcessLease);
+    return createJournal(
+      state,
+      execution.id,
+      execution.operationId,
+      input.telemetry,
+      ownedProcessLease,
+    );
   } catch (error) {
     processLease?.close();
     closeStateDatabase(state);
@@ -76,6 +81,7 @@ export async function startReviewExecutionJournal(
 function createJournal(
   state: StateDatabase,
   executionId: ReviewExecutionId,
+  operationId: ReviewOperation["id"],
   telemetry: ReviewExecutionTelemetryTracker,
   processLease: OwnedProcessLease,
 ): ReviewExecutionJournal {
@@ -84,12 +90,21 @@ function createJournal(
   const initialTelemetry = telemetry.snapshot();
   let persistedTransitionCount = initialTelemetry.transitions.length;
   let persistedActivityCount = initialTelemetry.activity.count;
+  let persistedProviderWindow = providerWindowKey(initialTelemetry.provider.window);
   let lastActivityFlushMs = Date.parse(initialTelemetry.updatedAt);
   const requireOpen = (): void => {
     if (closed) throw new Error("Review execution journal is closed.");
   };
   return {
     executionId,
+    captureContext(operation) {
+      requireOpen();
+      if (terminal) throw new Error("Review execution journal is already terminal.");
+      if (operation.id !== operationId) {
+        throw new Error("Captured context belongs to a different review operation.");
+      }
+      captureReviewOperationContext(state.db, operation);
+    },
     record(event) {
       requireOpen();
       if (terminal) throw new Error("Review execution journal is already terminal.");
@@ -100,8 +115,8 @@ function createJournal(
       }
       if (
         event.type === "activity" &&
-        event.activity === "provider" &&
         persistedActivityCount > 0 &&
+        providerWindowKey(snapshot.provider.window) === persistedProviderWindow &&
         Date.parse(snapshot.updatedAt) - lastActivityFlushMs < ACTIVITY_FLUSH_INTERVAL_MS
       ) {
         return;
@@ -109,6 +124,7 @@ function createJournal(
       updateReviewExecutionTelemetry(state.db, executionId, snapshot);
       persistedTransitionCount = snapshot.transitions.length;
       persistedActivityCount = snapshot.activity.count;
+      persistedProviderWindow = providerWindowKey(snapshot.provider.window);
       if (event.type === "activity") lastActivityFlushMs = Date.parse(snapshot.updatedAt);
     },
     snapshot() {
@@ -141,51 +157,8 @@ function createJournal(
   };
 }
 
-async function reconcileStaleReviewExecutions(state: StateDatabase): Promise<void> {
-  const running = listRunningReviewExecutions(state.db);
-  const alive = await Promise.all(
-    running.map((execution) =>
-      execution.ownerLease === null
-        ? isProcessAlive(execution.ownerProcessId)
-        : isProcessLeaseAlive(execution.ownerLease),
-    ),
-  );
-  const stale = running.filter((_, index) => !alive[index]);
-  if (stale.length === 0) return;
-  runInTransaction(state.db, () => {
-    for (const execution of stale) {
-      const current = getReviewExecutionById(state.db, execution.id);
-      if (current === undefined || current.terminalOutcome !== "running") continue;
-      const telemetry = finishPersistedReviewExecutionTelemetry(
-        current.telemetry,
-        "interrupted",
-      );
-      finalizeReviewExecution(
-        state.db,
-        current.id,
-        {
-          cohortId: current.cohortId,
-          reviewerId: current.reviewerId,
-          role: current.role,
-          backend: current.backend,
-          requestedModel: current.requestedModel,
-          effectiveModel: current.effectiveModel,
-          preferenceSource: current.preferenceSource,
-          reasoningEffort: current.reasoningEffort,
-          sessionId: current.sessionId,
-          terminalOutcome: "interrupted",
-        },
-        telemetry,
-      );
-    }
-  });
-}
-
-function isProcessAlive(processId: number): boolean {
-  try {
-    process.kill(processId, 0);
-    return true;
-  } catch (error) {
-    return !(error instanceof Error && "code" in error && error.code === "ESRCH");
-  }
+function providerWindowKey(
+  window: ReviewExecutionTelemetry["provider"]["window"],
+): string {
+  return window.kind === "closed" ? window.kind : `${window.kind}:${window.attempt}`;
 }
