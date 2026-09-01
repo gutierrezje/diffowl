@@ -31,6 +31,7 @@ const HOOK_MARKER = "# diffowl-managed";
 const HOOK_END_MARKER = "# end-diffowl";
 const HOOK_SHEBANG = "#!/bin/sh";
 const HOOK_FAILURE_MAX_AGE_MS = 60 * 60 * 1000;
+const ACTIVE_HOOK_REVIEW_FILE = "active-hook-review.json";
 
 function loggedStdio(outFd: number): ExecaOptions["stdio"] {
   // SAFETY: Node accepts any open file descriptor here; Execa's async tuple type lists literals.
@@ -142,6 +143,10 @@ const PendingReviewSchema = z.object({
   sha: z.string(),
   queuedAt: z.string(),
   attemptedAt: z.string().optional(),
+});
+const ActiveHookReviewSchema = z.object({
+  sha: z.string(),
+  pid: z.number().int().positive(),
 });
 
 export interface PendingReview {
@@ -446,6 +451,7 @@ export async function runPendingHookReviews(
       const attempt = next.attempt === "first-attempt" ? "first attempt" : "retry";
       writeSync(outFd, `diffowl: reviewing queued commit ${next.sha} (${attempt})\n`);
       await markPendingReviewAttempt(next);
+      await markActiveHookReview(dir, next.sha);
       try {
         await unlink(resultPath);
       } catch {}
@@ -468,6 +474,7 @@ export async function runPendingHookReviews(
         await writeHookStatus(1, next.sha, message, resultPath, dir);
       }
     } finally {
+      await clearActiveHookReview(dir);
       closeSync(outFd);
     }
 
@@ -571,6 +578,7 @@ export async function listPendingReviews(
   const markerFiles = new Set(
     files.filter((file) => !file.endsWith(".result.json") && !file.endsWith(".tmp")),
   );
+  const activeReviewSha = await readActiveHookReviewSha(dir);
   await Promise.all(
     [...resultFiles]
       .filter((file) => !markerFiles.has(file.slice(0, -".result.json".length)))
@@ -584,9 +592,6 @@ export async function listPendingReviews(
         const parsed = PendingReviewSchema.safeParse(JSON.parse(await readFile(path, "utf-8")));
         if (!parsed.success) return undefined;
         const resultFile = `${file}.result.json`;
-        const result = resultFiles.has(resultFile)
-          ? await readHookResult(join(pendingDir, resultFile))
-          : undefined;
         return {
           sha: parsed.data.sha,
           queuedAt: parsed.data.queuedAt,
@@ -595,9 +600,7 @@ export async function listPendingReviews(
             parsed.data.attemptedAt !== undefined || resultFiles.has(resultFile)
               ? "retry"
               : "first-attempt",
-          state: result?.exitCode === 0 && result.message === "Review started."
-            ? "in-progress"
-            : "pending",
+          state: parsed.data.sha === activeReviewSha ? "in-progress" : "pending",
         } satisfies PendingReview;
       } catch {
         return undefined;
@@ -632,6 +635,39 @@ async function markPendingReviewAttempt(review: PendingReview): Promise<void> {
     await rename(temporaryPath, review.path);
   } finally {
     await unlink(temporaryPath).catch(() => {});
+  }
+}
+
+async function markActiveHookReview(dir: string, sha: string): Promise<void> {
+  const path = join(dir, ACTIVE_HOOK_REVIEW_FILE);
+  const temporaryPath = `${path}.${process.pid}.tmp`;
+  try {
+    await writeFile(
+      temporaryPath,
+      JSON.stringify({ sha, pid: process.pid }, null, 2),
+      "utf-8",
+    );
+    await rename(temporaryPath, path);
+  } finally {
+    await unlink(temporaryPath).catch(() => {});
+  }
+}
+
+async function clearActiveHookReview(dir: string): Promise<void> {
+  await unlink(join(dir, ACTIVE_HOOK_REVIEW_FILE)).catch(() => {});
+}
+
+async function readActiveHookReviewSha(dir: string): Promise<string | undefined> {
+  try {
+    const parsed = ActiveHookReviewSchema.safeParse(
+      JSON.parse(await readFile(join(dir, ACTIVE_HOOK_REVIEW_FILE), "utf-8")),
+    );
+    if (!parsed.success) return undefined;
+    const lockFile = join(dir, "hook-review.lock");
+    if (readHookReviewLockPid(lockFile) !== parsed.data.pid) return undefined;
+    return isHookReviewLockActive(lockFile) ? parsed.data.sha : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -690,18 +726,23 @@ export function releaseHookReviewLock(lockFile: string): void {
 }
 
 function isHookReviewLockActive(lockFile: string): boolean {
+  const pid = readHookReviewLockPid(lockFile);
+  if (pid === undefined) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM means the PID exists but belongs to a process we cannot signal.
+    return err instanceof Error && "code" in err && err.code === "EPERM";
+  }
+}
+
+function readHookReviewLockPid(lockFile: string): number | undefined {
   try {
     const pid = Number.parseInt(readFileSync(lockFile, "utf-8"), 10);
-    if (!Number.isInteger(pid) || pid <= 0) return false;
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch (err) {
-      // EPERM means the PID exists but belongs to a process we cannot signal.
-      return err instanceof Error && "code" in err && err.code === "EPERM";
-    }
+    return Number.isInteger(pid) && pid > 0 ? pid : undefined;
   } catch {
-    return false;
+    return undefined;
   }
 }
 

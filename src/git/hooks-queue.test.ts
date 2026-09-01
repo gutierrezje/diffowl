@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -84,18 +85,25 @@ describe("runPendingHookReviews", () => {
     );
     await new Promise((resolve) => setTimeout(resolve, 2));
     await enqueuePendingReview(dir, "fresh-b");
+    await writeFile(join(dir, "hook-review.lock"), String(process.pid), "utf-8");
 
     const observedRetryStates: string[] = [];
+    const observedQueueStates: string[] = [];
     const review = createReviewProcess("Review timed out after 900s", async (commit) => {
       if (commit !== "failed-a") return;
       const failed = (await listPendingReviews(dir)).find((item) => item.sha === commit);
-      if (failed) observedRetryStates.push(failed.attempt);
+      if (failed) {
+        observedRetryStates.push(failed.attempt);
+        observedQueueStates.push(failed.state);
+      }
     });
 
     await runPendingHookReviews({ reviewProcess: review.process });
 
     expect(review.commits).toEqual(["fresh-b", "failed-a"]);
     expect(observedRetryStates).toEqual(["retry"]);
+    expect(observedQueueStates).toEqual(["in-progress"]);
+    expect(existsSync(join(dir, "active-hook-review.json"))).toBe(false);
     const log = await readFile(join(dir, "hook.log"), "utf-8");
     expect(log).toContain("reviewing queued commit fresh-b (first attempt)");
     expect(log).toContain("reviewing queued commit failed-a (retry)");
