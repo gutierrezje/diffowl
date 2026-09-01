@@ -59,6 +59,7 @@ import {
   checkHookStale,
   checkRecentHookFailure,
   formatHookFailure,
+  listPendingReviews,
   runHookReview,
   runHookWorker,
   releaseHookReviewLock,
@@ -104,6 +105,7 @@ import {
   renderPossibleDuplicateDetailJson,
   renderPossibleDuplicateListJson,
 } from "./output/findings.js";
+import { formatPendingReview, renderHookStatusJson } from "./output/hook-status.js";
 import {
   deferFindingByLocator,
   dismissFindingByLocator,
@@ -1099,22 +1101,32 @@ hookCmd
 hookCmd
   .command("status")
   .description("Check if the post-commit hook is installed and up to date")
-  .action(async () => {
-    const status = await checkHookStale();
+  .option("--format <format>", "Output format: text or json", "text")
+  .action(async (options: { format?: string }) => {
+    const format = resolveReviewOutputFormat(options.format);
+    const [status, pending] = await Promise.all([
+      checkHookStale(),
+      listPendingReviews(getDiffOwlDir()),
+    ]);
+
+    if (format === "json") {
+      process.stdout.write(renderHookStatusJson(status, pending));
+      return;
+    }
 
     if (!status.installed) {
       console.log(chalk.yellow(`✗ ${status.reason ?? "Hook not installed"}`));
-      return;
-    }
-
-    if (status.stale) {
+    } else if (status.stale) {
       console.log(chalk.yellow("⚠ Hook is installed but stale"));
       console.log(chalk.dim(`Reason: ${status.reason}`));
       console.log(chalk.dim("Run `diffowl hook install` to update it."));
-      return;
+    } else {
+      console.log(chalk.green("✓ Hook is installed and up to date"));
     }
 
-    console.log(chalk.green("✓ Hook is installed and up to date"));
+    for (const item of pending) {
+      console.log(formatPendingReview(item));
+    }
   });
 
 hookCmd

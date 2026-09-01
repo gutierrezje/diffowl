@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
@@ -7,6 +8,7 @@ import { removeTempDir } from "../test/helpers.js";
 import {
   enqueuePendingReview,
   isHookQueueStopFailure,
+  listPendingReviews,
   type HookReviewProcess,
   type HookReviewProcessRequest,
   runPendingHookReviews,
@@ -66,6 +68,47 @@ describe("isHookQueueStopFailure", () => {
 });
 
 describe("runPendingHookReviews", () => {
+  it("reviews untouched commits before retrying older failures", async () => {
+    const root = await createHookStatusRoot();
+    process.chdir(root);
+    const dir = join(root, ".diffowl");
+    await enqueuePendingReview(dir, "failed-a");
+    await writeFile(
+      join(dir, "pending-reviews", "failed-a.result.json"),
+      JSON.stringify({
+        commit: "failed-a",
+        exitCode: 1,
+        timestamp: new Date().toISOString(),
+        message: "Review timed out after 900s",
+      }),
+      "utf-8",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    await enqueuePendingReview(dir, "fresh-b");
+    await writeFile(join(dir, "hook-review.lock"), String(process.pid), "utf-8");
+
+    const observedRetryStates: string[] = [];
+    const observedQueueStates: string[] = [];
+    const review = createReviewProcess("Review timed out after 900s", async (commit) => {
+      if (commit !== "failed-a") return;
+      const failed = (await listPendingReviews(dir)).find((item) => item.sha === commit);
+      if (failed) {
+        observedRetryStates.push(failed.attempt);
+        observedQueueStates.push(failed.state);
+      }
+    });
+
+    await runPendingHookReviews({ reviewProcess: review.process });
+
+    expect(review.commits).toEqual(["fresh-b", "failed-a"]);
+    expect(observedRetryStates).toEqual(["retry"]);
+    expect(observedQueueStates).toEqual(["in-progress"]);
+    expect(existsSync(join(dir, "active-hook-review.json"))).toBe(false);
+    const log = await readFile(join(dir, "hook.log"), "utf-8");
+    expect(log).toContain("reviewing queued commit fresh-b (first attempt)");
+    expect(log).toContain("reviewing queued commit failed-a (retry)");
+  });
+
   it("stops processing after a quota failure instead of retrying the whole queue", async () => {
     const root = await createHookStatusRoot();
     process.chdir(root);
@@ -122,7 +165,10 @@ async function createHookStatusRoot(): Promise<string> {
   return root;
 }
 
-function createReviewProcess(message: string): ReviewProcessFixture {
+function createReviewProcess(
+  message: string,
+  beforeResult?: (commit: string) => Promise<void>,
+): ReviewProcessFixture {
   const commits: string[] = [];
   const process: HookReviewProcess = {
     async run({ args, options }: HookReviewProcessRequest): Promise<void> {
@@ -133,6 +179,7 @@ function createReviewProcess(message: string): ReviewProcessFixture {
         throw new Error("Hook review process request is missing its commit or result path.");
       }
       commits.push(commit);
+      await beforeResult?.(commit);
       await writeFile(
         resultPath,
         JSON.stringify({
