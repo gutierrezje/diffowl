@@ -44,6 +44,11 @@ describe("review execution journal", () => {
           attemptNumber: 1,
           terminalOutcome: "running",
           ownerProcessId: process.pid,
+          ownerLease: expect.objectContaining({
+            schemaVersion: 1,
+            port: expect.any(Number),
+            token: expect.any(String),
+          }),
           telemetry: expect.objectContaining({
             schemaVersion: 1,
             activePhase: "context-build",
@@ -76,6 +81,7 @@ describe("review execution journal", () => {
       id: journal.executionId,
       terminalOutcome: "timed-out",
       ownerProcessId: null,
+      ownerLease: null,
       telemetry: {
         terminal: { outcome: "timed-out", phase: "turn-start" },
         activity: expect.objectContaining({ status: "active", count: 1 }),
@@ -214,9 +220,121 @@ describe("review execution journal", () => {
         expect.objectContaining({
           terminalOutcome: "interrupted",
           ownerProcessId: null,
+          ownerLease: null,
           telemetry: expect.objectContaining({
             terminal: { outcome: "interrupted", phase: "turn-start", at: expect.any(String) },
           }),
+        }),
+      ]);
+    } finally {
+      closeStateDatabase(reconciled);
+    }
+  });
+
+  it("keeps another execution running while its owner lease responds", async () => {
+    const dir = await createTempDir();
+    const operation = capturedOperation("op_live_owner");
+    const telemetry = createReviewExecutionTelemetry();
+    telemetry.record({ type: "phase", phase: "turn-start", attempt: 1 });
+    const journal = await startReviewExecutionJournal(dir, {
+      operation,
+      assignment: assignment(),
+      telemetry,
+    });
+
+    const nextTelemetry = createReviewExecutionTelemetry();
+    nextTelemetry.record({ type: "phase", phase: "context-build" });
+    const nextJournal = await startReviewExecutionJournal(dir, {
+      operation: capturedOperation("op_while_owner_live"),
+      assignment: assignment(),
+      telemetry: nextTelemetry,
+    });
+
+    const state = await openStateDatabase(dir);
+    try {
+      expect(listReviewExecutionsByOperationId(state.db, operation.id)).toEqual([
+        expect.objectContaining({
+          terminalOutcome: "running",
+          ownerProcessId: process.pid,
+          ownerLease: expect.objectContaining({ schemaVersion: 1 }),
+        }),
+      ]);
+    } finally {
+      closeStateDatabase(state);
+      nextJournal.close();
+      journal.close();
+    }
+  });
+
+  it("keeps a migrated v8 execution running while its legacy PID is live", async () => {
+    const dir = await createTempDir();
+    const operation = capturedOperation("op_live_v8_owner");
+    const telemetry = createReviewExecutionTelemetry();
+    telemetry.record({ type: "phase", phase: "turn-start", attempt: 1 });
+    const journal = await startReviewExecutionJournal(dir, {
+      operation,
+      assignment: assignment(),
+      telemetry,
+    });
+
+    const migrated = await openStateDatabase(dir);
+    migrated.db
+      .prepare("UPDATE review_executions SET owner_lease_json = NULL WHERE id = ?")
+      .run(journal.executionId);
+    closeStateDatabase(migrated);
+
+    const nextTelemetry = createReviewExecutionTelemetry();
+    nextTelemetry.record({ type: "phase", phase: "context-build" });
+    const nextJournal = await startReviewExecutionJournal(dir, {
+      operation: capturedOperation("op_while_v8_owner_live"),
+      assignment: assignment(),
+      telemetry: nextTelemetry,
+    });
+
+    const state = await openStateDatabase(dir);
+    try {
+      expect(listReviewExecutionsByOperationId(state.db, operation.id)).toEqual([
+        expect.objectContaining({
+          terminalOutcome: "running",
+          ownerProcessId: process.pid,
+          ownerLease: null,
+        }),
+      ]);
+    } finally {
+      closeStateDatabase(state);
+      nextJournal.close();
+      journal.close();
+    }
+  });
+
+  it("reconciles a running execution when its owner lease ended but the PID is still live", async () => {
+    const dir = await createTempDir();
+    const operation = capturedOperation("op_reused_pid");
+    const telemetry = createReviewExecutionTelemetry();
+    telemetry.record({ type: "phase", phase: "turn-start", attempt: 1 });
+    const journal = await startReviewExecutionJournal(dir, {
+      operation,
+      assignment: assignment(),
+      telemetry,
+    });
+    journal.close();
+
+    const nextTelemetry = createReviewExecutionTelemetry();
+    nextTelemetry.record({ type: "phase", phase: "context-build" });
+    const nextJournal = await startReviewExecutionJournal(dir, {
+      operation: capturedOperation("op_after_pid_reuse"),
+      assignment: assignment(),
+      telemetry: nextTelemetry,
+    });
+    nextJournal.close();
+
+    const reconciled = await openStateDatabase(dir);
+    try {
+      expect(listReviewExecutionsByOperationId(reconciled.db, operation.id)).toEqual([
+        expect.objectContaining({
+          terminalOutcome: "interrupted",
+          ownerProcessId: null,
+          ownerLease: null,
         }),
       ]);
     } finally {

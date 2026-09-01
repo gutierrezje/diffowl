@@ -456,7 +456,7 @@ async function persistCompletedReview(
 
 function expectMigrationVersions(db: Awaited<ReturnType<typeof openSqliteDatabase>>): void {
   expect(db.prepare("SELECT version FROM schema_migrations ORDER BY version ASC").all()).toEqual(
-    [1, 2, 3, 4, 5, 6, 7, 8].map((version) => ({ version })),
+    [1, 2, 3, 4, 5, 6, 7, 8, 9].map((version) => ({ version })),
   );
 }
 
@@ -487,6 +487,7 @@ function expectCanonicalReviewExecutionColumns(
     "updated_at",
     "owner_process_id",
     "telemetry_json",
+    "owner_lease_json",
   ]);
 }
 
@@ -494,6 +495,8 @@ function expectTriggerNames(db: Awaited<ReturnType<typeof openSqliteDatabase>>):
   expect(
     db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' ORDER BY name ASC").all(),
   ).toEqual([
+    { name: "enforce_review_execution_owner_lease_insert" },
+    { name: "enforce_review_execution_owner_lease_update" },
     { name: "enforce_review_operation_input_identity" },
     { name: "enforce_review_source_execution" },
     { name: "prevent_review_operation_identity_update" },

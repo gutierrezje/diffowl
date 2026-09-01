@@ -18,7 +18,13 @@ import {
 } from "./db.js";
 import { insertReviewOperation } from "./repositories/review-operations.js";
 import {
+  isProcessLeaseAlive,
+  startProcessLease,
+  type OwnedProcessLease,
+} from "./process-lease.js";
+import {
   finalizeReviewExecution,
+  getReviewExecutionById,
   insertRunningReviewExecution,
   listRunningReviewExecutions,
   updateReviewExecutionTelemetry,
@@ -44,8 +50,11 @@ export async function startReviewExecutionJournal(
   },
 ): Promise<ReviewExecutionJournal> {
   const state = await openStateDatabase(diffOwlDir);
+  let processLease: OwnedProcessLease | undefined;
   try {
-    reconcileStaleReviewExecutions(state);
+    await reconcileStaleReviewExecutions(state);
+    const ownedProcessLease = await startProcessLease();
+    processLease = ownedProcessLease;
     const execution = runInTransaction(state.db, () => {
       insertReviewOperation(state.db, input.operation);
       return insertRunningReviewExecution(state.db, {
@@ -53,10 +62,12 @@ export async function startReviewExecutionJournal(
         assignment: input.assignment,
         telemetry: input.telemetry.snapshot(),
         ownerProcessId: process.pid,
+        ownerLease: ownedProcessLease.identity,
       });
     });
-    return createJournal(state, execution.id, input.telemetry);
+    return createJournal(state, execution.id, input.telemetry, ownedProcessLease);
   } catch (error) {
+    processLease?.close();
     closeStateDatabase(state);
     throw error;
   }
@@ -66,6 +77,7 @@ function createJournal(
   state: StateDatabase,
   executionId: ReviewExecutionId,
   telemetry: ReviewExecutionTelemetryTracker,
+  processLease: OwnedProcessLease,
 ): ReviewExecutionJournal {
   let closed = false;
   let terminal = false;
@@ -117,42 +129,50 @@ function createJournal(
         telemetry.snapshot(),
       );
       terminal = true;
+      processLease.close();
       return execution;
     },
     close() {
       if (closed) return;
       closed = true;
+      processLease.close();
       closeStateDatabase(state);
     },
   };
 }
 
-function reconcileStaleReviewExecutions(state: StateDatabase): void {
-  const stale = listRunningReviewExecutions(state.db).filter(
-    (execution) =>
-      execution.ownerProcessId !== null && !isProcessAlive(execution.ownerProcessId),
+async function reconcileStaleReviewExecutions(state: StateDatabase): Promise<void> {
+  const running = listRunningReviewExecutions(state.db);
+  const alive = await Promise.all(
+    running.map((execution) =>
+      execution.ownerLease === null
+        ? isProcessAlive(execution.ownerProcessId)
+        : isProcessLeaseAlive(execution.ownerLease),
+    ),
   );
+  const stale = running.filter((_, index) => !alive[index]);
   if (stale.length === 0) return;
   runInTransaction(state.db, () => {
     for (const execution of stale) {
-      if (execution.telemetry === null || execution.terminalOutcome !== "running") continue;
+      const current = getReviewExecutionById(state.db, execution.id);
+      if (current === undefined || current.terminalOutcome !== "running") continue;
       const telemetry = finishPersistedReviewExecutionTelemetry(
-        execution.telemetry,
+        current.telemetry,
         "interrupted",
       );
       finalizeReviewExecution(
         state.db,
-        execution.id,
+        current.id,
         {
-          cohortId: execution.cohortId,
-          reviewerId: execution.reviewerId,
-          role: execution.role,
-          backend: execution.backend,
-          requestedModel: execution.requestedModel,
-          effectiveModel: execution.effectiveModel,
-          preferenceSource: execution.preferenceSource,
-          reasoningEffort: execution.reasoningEffort,
-          sessionId: execution.sessionId,
+          cohortId: current.cohortId,
+          reviewerId: current.reviewerId,
+          role: current.role,
+          backend: current.backend,
+          requestedModel: current.requestedModel,
+          effectiveModel: current.effectiveModel,
+          preferenceSource: current.preferenceSource,
+          reasoningEffort: current.reasoningEffort,
+          sessionId: current.sessionId,
           terminalOutcome: "interrupted",
         },
         telemetry,

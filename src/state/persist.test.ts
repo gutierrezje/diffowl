@@ -127,6 +127,7 @@ describe("review output persistence", () => {
           terminalOutcome: "completed",
           updatedAt: expect.any(String),
           ownerProcessId: null,
+          ownerLease: null,
           telemetry: null,
           input: {
             targetKind: "base",

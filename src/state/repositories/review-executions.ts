@@ -27,11 +27,16 @@ import {
   type ReviewExecutionTelemetry,
 } from "../../review/execution-telemetry.js";
 import { StateDatabaseError } from "../db.js";
+import {
+  ProcessLeaseSchema,
+  type ProcessLease,
+} from "../process-lease.js";
 import type { SqliteDatabase } from "../sqlite.js";
 import {
   createReviewExecutionId,
   type InsertReviewExecutionInput,
   type ReviewExecutionRecord,
+  type RunningReviewExecutionRecord,
 } from "../types.js";
 
 const ReviewExecutionRowSchema = z.object({
@@ -41,6 +46,7 @@ const ReviewExecutionRowSchema = z.object({
   updatedAt: z.string(),
   attemptNumber: z.number().int().positive(),
   ownerProcessId: z.number().int().positive().nullable(),
+  ownerLeaseJson: z.string().nullable(),
   telemetryJson: z.string().nullable(),
   cohortId: z.string().nullable(),
   reviewerId: ReviewerIdSchema,
@@ -80,6 +86,7 @@ const selectColumns = `
   execution.updated_at AS updatedAt,
   execution.attempt_number AS attemptNumber,
   execution.owner_process_id AS ownerProcessId,
+  execution.owner_lease_json AS ownerLeaseJson,
   execution.telemetry_json AS telemetryJson,
   execution.schema_version AS schemaVersion,
   execution.cohort_id AS cohortId,
@@ -117,6 +124,7 @@ export function insertReviewExecution(
     updatedAt: createdAt,
     attemptNumber: nextAttemptNumber(db, input.operation.id, input.provenance.reviewerId),
     ownerProcessId: null,
+    ownerLease: null,
     telemetry: null,
     ...provenance,
   } satisfies ReviewExecutionRecord;
@@ -131,6 +139,7 @@ export function insertRunningReviewExecution(
     assignment: ReviewAssignment;
     telemetry: ReviewExecutionTelemetry;
     ownerProcessId: number;
+    ownerLease: ProcessLease;
   },
 ): ReviewExecutionRecord {
   const runtime = createRunningReviewExecutionProvenance(input.assignment);
@@ -143,6 +152,7 @@ export function insertRunningReviewExecution(
     attemptNumber: nextAttemptNumber(db, input.operation.id, runtime.reviewerId),
     schemaVersion: REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION,
     ownerProcessId: input.ownerProcessId,
+    ownerLease: input.ownerLease,
     telemetry: input.telemetry,
     input: input.operation.input,
     contextManifestSha256: input.operation.contextManifestSha256,
@@ -205,7 +215,7 @@ export function finalizeReviewExecution(
     .prepare(`
       UPDATE review_executions
       SET effective_model = ?, session_id = ?, terminal_outcome = ?, updated_at = ?,
-          owner_process_id = NULL, telemetry_json = ?
+          owner_process_id = NULL, owner_lease_json = NULL, telemetry_json = ?
       WHERE id = ? AND terminal_outcome = 'running'
     `)
     .run(
@@ -239,12 +249,18 @@ function normalizeTerminalTelemetry(
   return telemetry;
 }
 
-export function listRunningReviewExecutions(db: SqliteDatabase): ReviewExecutionRecord[] {
+export function listRunningReviewExecutions(db: SqliteDatabase): RunningReviewExecutionRecord[] {
   const ids = z
     .object({ id: ReviewExecutionIdSchema })
     .array()
     .parse(db.prepare("SELECT id FROM review_executions WHERE terminal_outcome = 'running'").all());
-  return ids.map(({ id }) => requireReviewExecution(db, id));
+  return ids.map(({ id }) => {
+    const execution = requireReviewExecution(db, id);
+    if (execution.terminalOutcome !== "running") {
+      throw new StateDatabaseError(`Review execution ${id} is no longer running.`);
+    }
+    return execution;
+  });
 }
 
 export function listReviewExecutionsByReviewId(
@@ -347,6 +363,7 @@ function mapReviewExecutionRow(
     updatedAt: row.updatedAt,
     attemptNumber: row.attemptNumber,
     ownerProcessId: row.ownerProcessId,
+    ownerLease: parseOwnerLease(row.ownerLeaseJson, row.id),
     telemetry: parseTelemetry(row.telemetryJson, row.id),
   };
 
@@ -377,6 +394,7 @@ function mapReviewExecutionRow(
       ...recordIdentity,
       ...running.data,
       ownerProcessId: recordIdentity.ownerProcessId,
+      ownerLease: recordIdentity.ownerLease,
       telemetry: recordIdentity.telemetry,
       schemaVersion: REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION,
       input: input.data,
@@ -384,10 +402,17 @@ function mapReviewExecutionRow(
     };
   }
 
-  if (recordIdentity.ownerProcessId !== null) {
+  if (
+    recordIdentity.ownerProcessId !== null ||
+    recordIdentity.ownerLease !== null
+  ) {
     throw new StateDatabaseError(`${owner} contains an owner process on a terminal execution.`);
   }
-  const terminalIdentity = { ...recordIdentity, ownerProcessId: null } as const;
+  const terminalIdentity = {
+    ...recordIdentity,
+    ownerProcessId: null,
+    ownerLease: null,
+  } as const;
 
   if (row.schemaVersion === 1) {
     if (row.terminalOutcome === "interrupted") {
@@ -473,16 +498,29 @@ function parseTelemetry(raw: string | null, executionId: string): ReviewExecutio
   }
 }
 
+function parseOwnerLease(raw: string | null, executionId: string): ProcessLease | null {
+  if (raw === null) return null;
+  try {
+    return ProcessLeaseSchema.parse(JSON.parse(raw));
+  } catch {
+    throw new StateDatabaseError(
+      `Review execution ${executionId} contains invalid owner lease JSON.`,
+    );
+  }
+}
+
 function insertReviewExecutionRow(db: SqliteDatabase, record: ReviewExecutionRecord): void {
   db.prepare(`
     INSERT INTO review_executions (
       id, operation_id, created_at, attempt_number, schema_version, cohort_id, reviewer_id, role,
       backend, requested_model, effective_model, preference_source_json, reasoning_effort,
-      session_id, terminal_outcome, updated_at, owner_process_id, telemetry_json
+      session_id, terminal_outcome, updated_at, owner_process_id, telemetry_json,
+      owner_lease_json
     ) VALUES (
       @id, @operationId, @createdAt, @attemptNumber, @schemaVersion, @cohortId, @reviewerId, @role,
       @backend, @requestedModel, @effectiveModel, @preferenceSourceJson, @reasoningEffort,
-      @sessionId, @terminalOutcome, @updatedAt, @ownerProcessId, @telemetryJson
+      @sessionId, @terminalOutcome, @updatedAt, @ownerProcessId, @telemetryJson,
+      @ownerLeaseJson
     )
   `).run({
     id: record.id,
@@ -503,6 +541,7 @@ function insertReviewExecutionRow(db: SqliteDatabase, record: ReviewExecutionRec
     terminalOutcome: record.terminalOutcome,
     updatedAt: record.updatedAt,
     ownerProcessId: record.ownerProcessId,
+    ownerLeaseJson: record.ownerLease === null ? null : JSON.stringify(record.ownerLease),
     telemetryJson: record.telemetry === null ? null : JSON.stringify(record.telemetry),
   });
 }

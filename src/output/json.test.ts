@@ -723,6 +723,7 @@ function telemetryExecution(): ReviewExecutionRecord {
     updatedAt: snapshot.updatedAt,
     attemptNumber: 1,
     ownerProcessId: null,
+    ownerLease: null,
     telemetry: snapshot,
     schemaVersion: 4,
     cohortId: null,

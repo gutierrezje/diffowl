@@ -148,6 +148,7 @@ function makeDeps(
         updatedAt: telemetry.updatedAt,
         attemptNumber: 1,
         ownerProcessId: null,
+        ownerLease: null,
         telemetry,
         schemaVersion: 4,
         input: journalOperation.input,
@@ -440,6 +441,7 @@ describe("runReviewPipeline", () => {
       updatedAt: "2026-08-21T00:00:00.000Z",
       attemptNumber: 1,
       ownerProcessId: null,
+      ownerLease: null,
       telemetry: null,
     };
     vi.mocked(deps.executor.execute).mockResolvedValue({

@@ -45,6 +45,7 @@ describe("review operation persistence", () => {
             updatedAt: expect.any(String),
             attemptNumber: 1,
             ownerProcessId: null,
+            ownerLease: null,
             telemetry: null,
             schemaVersion: 4,
             cohortId: null,
