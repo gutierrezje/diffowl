@@ -16,6 +16,18 @@ import type { ReviewTarget } from "./target.js";
 
 export const REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION = 4 as const;
 
+export const ReviewExecutionTerminalOutcomeSchema = z.enum([
+  "completed",
+  "cancelled",
+  "timed-out",
+  "failed",
+  "interrupted",
+]);
+
+export type ReviewExecutionTerminalOutcome = z.output<
+  typeof ReviewExecutionTerminalOutcomeSchema
+>;
+
 export type ReviewRole = "single" | "proposer" | "checker";
 
 export interface ReviewAssignment {
@@ -46,15 +58,26 @@ export const ReviewExecutionRuntimeProvenanceSchema = z.discriminatedUnion(
       sessionId: z.string(),
     }).strict(),
     AssignedReviewExecutionProvenanceSchema.extend({
-      terminalOutcome: z.enum(["cancelled", "timed-out", "failed"]),
+      terminalOutcome: ReviewExecutionTerminalOutcomeSchema.exclude(["completed"]),
       effectiveModel: z.string().nullable(),
       sessionId: z.string().nullable(),
     }).strict(),
   ],
 );
 
+export const RunningReviewExecutionRuntimeProvenanceSchema =
+  AssignedReviewExecutionProvenanceSchema.extend({
+    terminalOutcome: z.literal("running"),
+    effectiveModel: z.null(),
+    sessionId: z.null(),
+  }).strict();
+
 export type ReviewExecutionRuntimeProvenance = z.output<
   typeof ReviewExecutionRuntimeProvenanceSchema
+>;
+
+export type RunningReviewExecutionRuntimeProvenance = z.output<
+  typeof RunningReviewExecutionRuntimeProvenanceSchema
 >;
 
 export type CompletedReviewExecutionProvenance = Extract<
@@ -144,11 +167,17 @@ export type ReviewExecutionProvenanceV3 = ReviewExecutionRuntimeProvenance & {
   contextManifestSha256: string;
 };
 
-export type ReviewExecutionProvenanceV4 = ReviewExecutionRuntimeProvenance & {
-  schemaVersion: typeof REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION;
-  input: ReviewInputIdentity;
-  contextManifestSha256: string;
-};
+export type ReviewExecutionProvenanceV4 =
+  | (Extract<ReviewExecutionRuntimeProvenance, { terminalOutcome: "completed" }> & {
+      schemaVersion: typeof REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION;
+      input: ReviewInputIdentity;
+      contextManifestSha256: string;
+    })
+  | (Exclude<ReviewExecutionRuntimeProvenance, { terminalOutcome: "completed" }> & {
+      schemaVersion: typeof REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION;
+      input: ReviewInputIdentity;
+      contextManifestSha256: string | null;
+    });
 
 export type ReviewExecutionProvenance =
   | ReviewExecutionProvenanceV1
@@ -186,6 +215,23 @@ export function createFailedReviewExecutionProvenance(
     reasoningEffort: reasoningVariant(assignment.reasoning) ?? null,
     sessionId: null,
     terminalOutcome,
+  };
+}
+
+export function createRunningReviewExecutionProvenance(
+  assignment: ReviewAssignment,
+): RunningReviewExecutionRuntimeProvenance {
+  return {
+    cohortId: assignment.cohortId,
+    reviewerId: assignment.reviewerId,
+    role: assignment.role,
+    backend: assignment.selection.backend,
+    requestedModel: assignment.selection.requestedModel,
+    effectiveModel: null,
+    preferenceSource: assignment.selection.source,
+    reasoningEffort: reasoningVariant(assignment.reasoning) ?? null,
+    sessionId: null,
+    terminalOutcome: "running",
   };
 }
 
@@ -242,8 +288,19 @@ export function createReviewInputIdentity(input: {
 export function completeReviewExecutionProvenance(
   runtime: ReviewExecutionRuntimeProvenance,
   input: ReviewInputIdentity,
-  contextManifestSha256: string,
+  contextManifestSha256: string | null,
 ): ReviewExecutionProvenanceV4 {
+  if (runtime.terminalOutcome === "completed") {
+    if (contextManifestSha256 === null) {
+      throw new Error("A completed review execution requires captured context.");
+    }
+    return {
+      ...runtime,
+      schemaVersion: REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION,
+      input,
+      contextManifestSha256,
+    };
+  }
   return {
     ...runtime,
     schemaVersion: REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION,

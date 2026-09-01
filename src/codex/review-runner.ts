@@ -3,6 +3,7 @@ import { realpath } from "node:fs/promises";
 import { resolveReviewPrompts } from "../review/prompt.js";
 import { ReviewCancelledError } from "../review/errors.js";
 import type { ReviewOptions, ReviewResult } from "../review/types.js";
+import type { ReviewExecutionTelemetryEvent } from "../review/execution-telemetry.js";
 import {
   decideReviewAttempt,
   inspectNativeReviewText,
@@ -56,6 +57,7 @@ export type CodexReviewInput = ReviewOptions & {
   closeTimeoutMs: number;
   includeIgnoredRepositoryPaths: boolean;
   onWarning?: (message: string) => void;
+  onTelemetry?: (event: ReviewExecutionTelemetryEvent) => void;
 };
 
 export type CodexInterruptEvidence = {
@@ -260,6 +262,8 @@ type TurnError = {
 
 type MarkerEvent =
   | { kind: "delta"; threadId: string; turnId: string; itemId: string; delta: string }
+  | { kind: "started-item"; threadId: string; turnId: string; item: MarkerItem }
+  | { kind: "tool-output"; threadId: string; turnId: string; itemId: string }
   | {
       kind: "model-rerouted";
       threadId: string;
@@ -570,6 +574,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
       const turnNumber = turnIds.length + 1;
       let turnId: string;
       try {
+        input.onTelemetry?.({ type: "phase", phase: "turn-start", attempt: turnNumber });
         turnId = await timed("turn-start", () =>
           startTurn(
             peer,
@@ -586,6 +591,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
         throw error;
       }
       turnIds.push(turnId);
+      input.onTelemetry?.({ type: "phase", phase: "provider-work", attempt: turnNumber });
       const activeTurnStart = performance.now();
       try {
         if (input.signal?.aborted) {
@@ -603,7 +609,16 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
         }
         let completed: { text: string; usage?: ReviewUsage; modelReroute?: string };
         try {
-          completed = await collectTurn(peer, reader, threadId, turnId, input, deadline, events);
+          completed = await collectTurn(
+            peer,
+            reader,
+            threadId,
+            turnId,
+            turnNumber,
+            input,
+            deadline,
+            events,
+          );
           if (completed.modelReroute !== undefined) effectiveModel = completed.modelReroute;
         } catch (error) {
           if (error instanceof CodexInterruptedTimeoutError) {
@@ -617,6 +632,11 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
         await timed("repository-after", () => checkRepositoryAfterTurn());
         if (completed.usage !== undefined) usage = completed.usage;
         const closed = inspectNativeReviewText(completed.text);
+        input.onTelemetry?.({
+          type: "phase",
+          phase: "validation-repair",
+          attempt: turnNumber,
+        });
         const decision = decideReviewAttempt({
           closed,
           attempt: turnIds.length,
@@ -624,14 +644,17 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
         });
         switch (decision.kind) {
           case "accept":
+            input.onTelemetry?.({ type: "validation", outcome: "accepted" });
             validationAttempts.push({ turnId, outcome: "accepted", issues: [] });
             report = decision.report;
             break;
           case "retry":
+            input.onTelemetry?.({ type: "validation", outcome: "retry" });
             validationAttempts.push({ turnId, outcome: "retry", issues: decision.issues });
             prompt = decision.userMessage;
             continue;
           case "fail":
+            input.onTelemetry?.({ type: "validation", outcome: "failed" });
             validationAttempts.push({ turnId, outcome: "failed", issues: decision.error.issues });
             throw decision.error;
           default: {
@@ -903,6 +926,7 @@ async function collectTurn(
   reader: NotificationReader,
   threadId: string,
   turnId: string,
+  attempt: number,
   input: CodexReviewInput,
   deadline: number,
   events: string[],
@@ -922,24 +946,43 @@ async function collectTurn(
       );
       switch (event.kind) {
         case "model-rerouted":
+          recordProviderActivity(input.onTelemetry, attempt);
           modelReroute = event.toModel;
           break;
         case "delta": {
+          recordProviderActivity(input.onTelemetry, attempt);
           const deltaText = `${deltaTextByItem.get(event.itemId) ?? ""}${event.delta}`;
           deltaTextByItem.set(event.itemId, deltaText);
           reportOutput(input.onProgress, deltaText);
           break;
         }
+        case "started-item":
+          if (event.item.type === "commandExecution") {
+            recordToolActivity(input.onTelemetry, attempt);
+          } else {
+            recordProviderActivity(input.onTelemetry, attempt);
+          }
+          break;
+        case "tool-output":
+          recordToolActivity(input.onTelemetry, attempt);
+          break;
         case "completed-item":
+          if (event.item.type === "commandExecution") {
+            recordToolActivity(input.onTelemetry, attempt);
+          } else {
+            recordProviderActivity(input.onTelemetry, attempt);
+          }
           if (event.item.type === "agentMessage" && event.item.text !== undefined) {
             completedTextByItem.set(event.item.id, event.item.text);
             reportOutput(input.onProgress, event.item.text);
           }
           break;
         case "usage":
+          recordProviderActivity(input.onTelemetry, attempt);
           usage = mapUsage(event.total);
           break;
         case "turn-completed": {
+          recordProviderActivity(input.onTelemetry, attempt);
           if (event.status === "failed") {
             if (event.error === null) throw protocolError("turn/completed.turn.error");
             throw new CodexTurnFailedError(turnId, event.error);
@@ -1001,6 +1044,22 @@ async function collectTurn(
     }
     throw error;
   }
+}
+
+function recordProviderActivity(
+  onTelemetry: CodexReviewInput["onTelemetry"],
+  attempt: number,
+): void {
+  onTelemetry?.({ type: "phase", phase: "provider-work", attempt });
+  onTelemetry?.({ type: "activity", activity: "provider" });
+}
+
+function recordToolActivity(
+  onTelemetry: CodexReviewInput["onTelemetry"],
+  attempt: number,
+): void {
+  onTelemetry?.({ type: "phase", phase: "tool-activity", attempt });
+  onTelemetry?.({ type: "activity", activity: "tool" });
 }
 
 async function interruptTurn(
@@ -1106,6 +1165,8 @@ function parseMarkerEvent(notification: AppServerNotification): MarkerEvent | un
   if (
     ![
       "item/agentMessage/delta",
+      "item/started",
+      "item/commandExecution/outputDelta",
       "item/completed",
       "thread/tokenUsage/updated",
       "model/rerouted",
@@ -1131,6 +1192,22 @@ function parseMarkerEvent(notification: AppServerNotification): MarkerEvent | un
         turnId: requiredString(params, "turnId", "delta.turnId"),
         itemId: requiredString(params, "itemId", "delta.itemId"),
         delta: requiredString(params, "delta", "delta.delta"),
+      };
+    case "item/started": {
+      const item = asRecord(params["item"], "item/started.item");
+      return {
+        kind: "started-item",
+        threadId: requiredString(params, "threadId", "item/started.threadId"),
+        turnId: requiredString(params, "turnId", "item/started.turnId"),
+        item: parseItem(item, "item/started.item"),
+      };
+    }
+    case "item/commandExecution/outputDelta":
+      return {
+        kind: "tool-output",
+        threadId: requiredString(params, "threadId", "command output.threadId"),
+        turnId: requiredString(params, "turnId", "command output.turnId"),
+        itemId: requiredString(params, "itemId", "command output.itemId"),
       };
     case "item/completed": {
       const item = asRecord(params["item"], "item/completed.item");

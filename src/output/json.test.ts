@@ -9,8 +9,13 @@ import {
 } from "./json.js";
 import type { BuildReviewJsonInput } from "./json.js";
 import type { PersistReviewRunResult } from "../state/persist.js";
-import type { PersistedObservation, ReviewRecord } from "../state/types.js";
+import type {
+  PersistedObservation,
+  ReviewExecutionRecord,
+  ReviewRecord,
+} from "../state/types.js";
 import type { ReviewFinding } from "../review/types.js";
+import { createReviewExecutionTelemetry } from "../review/execution-telemetry.js";
 import {
   ReviewExecutionIdSchema,
   ReviewIdSchema,
@@ -287,7 +292,44 @@ describe("buildReviewJsonDocument", () => {
     });
   });
 
-  it("renders immutable base review identity in schema version 7", () => {
+  it("renders versioned execution telemetry without provider payloads", () => {
+    const execution = telemetryExecution();
+    const document = buildDocument({
+      review,
+      persisted: { ...persisted, execution },
+      occurrenceCounts: new Map(),
+      suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+      execution,
+    });
+
+    expect(document.review.execution).toMatchObject({
+      schema_version: 5,
+      terminal_outcome: "completed",
+      telemetry: {
+        schema_version: 1,
+        active_phase: "completion",
+        terminal: { outcome: "completed", phase: "completion" },
+        transitions: expect.arrayContaining([
+          expect.objectContaining({ phase: "context-build" }),
+          expect.objectContaining({ phase: "completion" }),
+        ]),
+        activity: {
+          status: "silent",
+          count: 0,
+          tool_count: 0,
+          first_at: null,
+          last_at: null,
+          age_ms: expect.any(Number),
+        },
+        provider: { queue_wait_ms: 0, execution_ms: 0 },
+        validation: { attempts: 0, repairs: 0 },
+      },
+    });
+    expect(JSON.stringify(document.review.execution)).not.toContain("prompt");
+    expect(JSON.stringify(document.review.execution)).not.toContain("payload");
+  });
+
+  it("renders immutable base review identity in schema version 8", () => {
     const document = buildDocument({
       review: {
         ...review,
@@ -302,7 +344,7 @@ describe("buildReviewJsonDocument", () => {
       suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
     });
 
-    expect(document.schema_version).toBe(7);
+    expect(document.schema_version).toBe(8);
     expect(document.review.target).toEqual({
       kind: "base",
       ref: "origin/main",
@@ -313,7 +355,7 @@ describe("buildReviewJsonDocument", () => {
     });
   });
 
-  it("renders a commit comparison parent in schema version 7", () => {
+  it("renders a commit comparison parent in schema version 8", () => {
     const document = buildDocument({
       review: {
         ...review,
@@ -328,7 +370,7 @@ describe("buildReviewJsonDocument", () => {
       suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
     });
 
-    expect(document.schema_version).toBe(7);
+    expect(document.schema_version).toBe(8);
     expect(document.review.target).toEqual({
       kind: "commit",
       ref: "merge-head",
@@ -339,7 +381,7 @@ describe("buildReviewJsonDocument", () => {
     });
   });
 
-  it("renders schema version 7 with review metadata and findings", () => {
+  it("renders schema version 8 with review metadata and findings", () => {
     const document = buildDocument({
       review,
       persisted,
@@ -353,7 +395,7 @@ describe("buildReviewJsonDocument", () => {
       },
     });
 
-    expect(document.schema_version).toBe(7);
+    expect(document.schema_version).toBe(8);
     expect(document.review.id).toBe("rev_test");
     expect(document.review.status).toBe("open");
     expect(document.findings).toHaveLength(1);
@@ -637,7 +679,7 @@ describe("renderReviewJsonDocument", () => {
 
     expect(rendered.endsWith("\n")).toBe(true);
     expect(JSON.parse(rendered.trim())).toMatchObject({
-      schema_version: 7,
+      schema_version: 8,
       review: { id: "rev_test" },
     });
   });
@@ -647,11 +689,63 @@ describe("renderJsonErrorDocument", () => {
   it("renders a versioned error envelope", () => {
     const rendered = renderJsonErrorDocument("Review failed.");
     expect(JSON.parse(rendered.trim())).toEqual({
-      schema_version: 7,
+      schema_version: 8,
       error: { message: "Review failed." },
     });
   });
+
+  it("includes terminal execution telemetry for failed review commands", () => {
+    const rendered = renderJsonErrorDocument("Review failed.", telemetryExecution());
+    expect(JSON.parse(rendered.trim())).toMatchObject({
+      schema_version: 8,
+      error: { message: "Review failed." },
+      execution: {
+        schema_version: 5,
+        telemetry: {
+          schema_version: 1,
+          terminal: { outcome: "completed" },
+        },
+      },
+    });
+  });
 });
+
+function telemetryExecution(): ReviewExecutionRecord {
+  const telemetry = createReviewExecutionTelemetry();
+  telemetry.record({ type: "phase", phase: "context-build" });
+  telemetry.record({ type: "phase", phase: "completion" });
+  telemetry.record({ type: "terminal", outcome: "completed" });
+  const snapshot = telemetry.snapshot();
+  return {
+    id: ReviewExecutionIdSchema.parse("exe_telemetry"),
+    operationId: ReviewOperationIdSchema.parse("op_test"),
+    createdAt: snapshot.startedAt,
+    updatedAt: snapshot.updatedAt,
+    attemptNumber: 1,
+    ownerProcessId: null,
+    ownerLease: null,
+    telemetry: snapshot,
+    schemaVersion: 4,
+    cohortId: null,
+    reviewerId: ReviewerIdSchema.parse("single"),
+    role: "single",
+    backend: "codex",
+    requestedModel: "gpt-5.6-luna",
+    effectiveModel: "gpt-5.6-luna",
+    preferenceSource: { backend: "local", model: "local" },
+    reasoningEffort: "high",
+    sessionId: "thread-1",
+    terminalOutcome: "completed",
+    input: {
+      targetKind: "staged",
+      baseCommit: null,
+      mergeBaseCommit: null,
+      headCommit: null,
+      diffHash: review.diffHash,
+    },
+    contextManifestSha256: "context-hash",
+  };
+}
 
 describe("writeReviewJsonSuccess", () => {
   it("resolves only after stdout reports the document was written", async () => {

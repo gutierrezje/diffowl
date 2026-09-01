@@ -125,6 +125,10 @@ describe("review output persistence", () => {
           reasoningEffort: "max",
           sessionId: "session-1",
           terminalOutcome: "completed",
+          updatedAt: expect.any(String),
+          ownerProcessId: null,
+          ownerLease: null,
+          telemetry: null,
           input: {
             targetKind: "base",
             baseCommit: "base-tip",

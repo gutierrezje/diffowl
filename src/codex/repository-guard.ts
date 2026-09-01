@@ -4,6 +4,12 @@ import { lstat, readlink } from "node:fs/promises";
 import { join } from "node:path";
 import { execa } from "execa";
 
+const DIFFOWL_RUNTIME_PATHS = new Set([
+  ".diffowl/state.db",
+  ".diffowl/state.db-wal",
+  ".diffowl/state.db-shm",
+]);
+
 export type RepositoryStateEntry = {
   path: string;
   sha256: string;
@@ -42,8 +48,9 @@ export async function captureRepositoryState(
   const headSha = headResult.exitCode === 0 ? headResult.stdout.trim() : "<NO_HEAD>";
   const statuses = parseStatus(statusOutput);
   for (const path of ignoredOutput.split("\0")) {
-    if (path !== "") statuses.set(path, "!!");
+    if (path !== "" && !DIFFOWL_RUNTIME_PATHS.has(path)) statuses.set(path, "!!");
   }
+  for (const path of DIFFOWL_RUNTIME_PATHS) statuses.delete(path);
   const paths = [...statuses.keys()].sort();
   const entries = await Promise.all(
     paths.map(async (path): Promise<RepositoryStateEntry> => {

@@ -127,7 +127,11 @@ import {
 } from "./state/findings-summary.js";
 import { InvalidFindingTransitionError } from "./state/db.js";
 import type { SqliteDatabase } from "./state/sqlite.js";
-import type { FindingActor, PossibleDuplicateStatus } from "./state/types.js";
+import type {
+  FindingActor,
+  PossibleDuplicateStatus,
+  ReviewExecutionRecord,
+} from "./state/types.js";
 import {
   confirmPossibleDuplicate,
   getPossibleDuplicateDetailById,
@@ -135,11 +139,11 @@ import {
   rejectPossibleDuplicate,
 } from "./state/possible-duplicates.js";
 import { resolveCompletedReviewExit } from "./review/gate.js";
-import { runReviewPipeline } from "./review/run.js";
+import { getReviewFailureExecution, runReviewPipeline } from "./review/run.js";
+import { getSlowestReviewExecutionPhase } from "./review/execution-telemetry.js";
 import { createSelectedReviewExecutor } from "./review/executor.js";
 import {
   createSingleReviewAssignment,
-  type ReviewExecutionProvenance,
 } from "./review/provenance.js";
 import type { ReviewTarget } from "./review/target.js";
 import { inspectReviewRuntimes } from "./review/runtime.js";
@@ -471,6 +475,7 @@ program
         });
       } else {
         printFooter(report, outcome.reportPath);
+        printExecutionTelemetrySummary(outcome.execution);
         printTimingSummary(outputTimings);
       }
       const status = reviewStatusFromPersisted(
@@ -500,7 +505,7 @@ program
           reviewWarnings,
         );
         if (jsonMode) {
-          writeJsonError(message);
+          writeJsonError(message, getReviewFailureExecution(err));
         } else if (!cancelController.signal.aborted) {
           console.log(chalk.yellow(`\n${message}`));
         }
@@ -526,6 +531,7 @@ program
               : `${failureMessage} Next action: ${guidance.join(" ")}`,
             reviewWarnings,
           ),
+          getReviewFailureExecution(err),
         );
       } else {
         console.error(chalk.red(`\n${failureMessage}`));
@@ -604,6 +610,18 @@ function printTimingSummary(timings: ReviewTiming[]): void {
     console.log(chalk.dim(`  ${timing.label}: ${formatDuration(timing.ms)}`));
   }
   console.log();
+}
+
+function printExecutionTelemetrySummary(execution: ReviewExecutionRecord | null): void {
+  const telemetry = execution?.telemetry;
+  if (telemetry === null || telemetry === undefined || telemetry.transitions.length === 0) return;
+  const slowest = getSlowestReviewExecutionPhase(telemetry);
+  if (slowest === null) return;
+  console.log(
+    chalk.dim(
+      `Slowest execution phase: ${slowest.phase.replaceAll("-", " ")} (${formatDuration(slowest.durationMs)}).`,
+    ),
+  );
 }
 
 function formatDuration(ms: number): string {
@@ -1793,7 +1811,7 @@ async function emitReviewJsonSuccess(input: {
   usage?: ReviewUsage | null;
   selection: ReviewSelection;
   effectiveModel: string | null;
-  execution?: ReviewExecutionProvenance | null;
+  execution?: ReviewExecutionRecord | null;
 }): Promise<void> {
   const review = await getPersistedReview(input.diffOwlDir, input.reviewId);
   if (!review) {

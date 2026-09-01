@@ -1,0 +1,473 @@
+import { mkdir, mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  createReviewExecutionTelemetry,
+  type ReviewExecutionTelemetryEvent,
+} from "../review/execution-telemetry.js";
+import { ReviewerIdSchema } from "../review/ids.js";
+import {
+  captureReviewOperation,
+  createUnavailableContextReviewOperation,
+} from "../review/operation.js";
+import { createSingleReviewAssignment } from "../review/provenance.js";
+import { selectReasoningVariant } from "../review/reasoning.js";
+import type { ReviewContext } from "../review/context.js";
+import { closeStateDatabase, openStateDatabase } from "./db.js";
+import { withFindingDatabase } from "./findings-query.js";
+import { startReviewExecutionJournal } from "./review-execution-journal.js";
+import { getReviewOperationById } from "./repositories/review-operations.js";
+import { listReviewExecutionsByOperationId } from "./repositories/review-executions.js";
+import { removeTempStateDir } from "./test-helpers.js";
+
+const tempDirs: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(tempDirs.map((dir) => removeTempStateDir(dir)));
+  tempDirs.length = 0;
+});
+
+describe("review execution journal", () => {
+  it("persists running state before provider work and finalizes the same execution", async () => {
+    const dir = await createTempDir();
+    const operation = capturedOperation("op_running");
+    const telemetry = createReviewExecutionTelemetry();
+    telemetry.record({ type: "phase", phase: "context-build" });
+    const journal = await startReviewExecutionJournal(dir, {
+      operation,
+      assignment: assignment(),
+      telemetry,
+    });
+
+    const runningState = await openStateDatabase(dir);
+    try {
+      expect(listReviewExecutionsByOperationId(runningState.db, operation.id)).toEqual([
+        expect.objectContaining({
+          id: journal.executionId,
+          operationId: operation.id,
+          attemptNumber: 1,
+          terminalOutcome: "running",
+          ownerProcessId: process.pid,
+          ownerLease: expect.objectContaining({
+            schemaVersion: 1,
+            port: expect.any(Number),
+            token: expect.any(String),
+          }),
+          telemetry: expect.objectContaining({
+            schemaVersion: 1,
+            activePhase: "context-build",
+            terminal: null,
+          }),
+        }),
+      ]);
+    } finally {
+      closeStateDatabase(runningState);
+    }
+
+    journal.record({ type: "phase", phase: "protocol-check" });
+    journal.record({ type: "phase", phase: "turn-start", attempt: 1 });
+    journal.record({ type: "activity", activity: "provider" });
+    const execution = journal.finish({
+      cohortId: null,
+      reviewerId: ReviewerIdSchema.parse("single"),
+      role: "single",
+      backend: "codex",
+      requestedModel: "gpt-5.6-luna",
+      effectiveModel: null,
+      preferenceSource: { backend: "local", model: "local" },
+      reasoningEffort: "high",
+      sessionId: "thread-1",
+      terminalOutcome: "timed-out",
+    });
+    journal.close();
+
+    expect(execution).toMatchObject({
+      id: journal.executionId,
+      terminalOutcome: "timed-out",
+      ownerProcessId: null,
+      ownerLease: null,
+      telemetry: {
+        terminal: { outcome: "timed-out", phase: "turn-start" },
+        activity: expect.objectContaining({ status: "active", count: 1 }),
+      },
+    });
+  });
+
+  it("captures the completed context on an already-running execution", async () => {
+    const dir = await createTempDir();
+    const operation = capturedOperation("op_context_capture");
+    const pendingOperation = createUnavailableContextReviewOperation({
+      targetRef: operation.targetRef,
+      reviewInput: operation.input,
+      depth: operation.depth,
+      id: operation.id,
+      createdAt: operation.createdAt,
+    });
+    const telemetry = createReviewExecutionTelemetry();
+    telemetry.record({ type: "phase", phase: "context-build" });
+    const journal = await startReviewExecutionJournal(dir, {
+      operation: pendingOperation,
+      assignment: assignment(),
+      telemetry,
+    });
+
+    journal.captureContext(operation);
+
+    const state = await openStateDatabase(dir);
+    try {
+      expect(getReviewOperationById(state.db, operation.id)).toEqual(operation);
+      expect(listReviewExecutionsByOperationId(state.db, operation.id)).toEqual([
+        expect.objectContaining({
+          terminalOutcome: "running",
+          contextManifestSha256: operation.contextManifestSha256,
+        }),
+      ]);
+    } finally {
+      closeStateDatabase(state);
+      journal.close();
+    }
+  });
+
+  it("stores only the sanitized telemetry contract", async () => {
+    const dir = await createTempDir();
+    const operation = capturedOperation("op_private");
+    const telemetry = createReviewExecutionTelemetry();
+    telemetry.record({ type: "phase", phase: "context-build" });
+    const journal = await startReviewExecutionJournal(dir, {
+      operation,
+      assignment: assignment(),
+      telemetry,
+    });
+
+    const event = {
+      type: "activity",
+      activity: "provider",
+      prompt: "SECRET_PROMPT_BODY",
+      source: "SECRET_SOURCE_TEXT",
+      credential: "sk-secret",
+      payload: { raw: "SECRET_PROVIDER_PAYLOAD" },
+    } satisfies ReviewExecutionTelemetryEvent & {
+      prompt: string;
+      source: string;
+      credential: string;
+      payload: { raw: string };
+    };
+    journal.record(event);
+    journal.finish({
+      cohortId: null,
+      reviewerId: ReviewerIdSchema.parse("single"),
+      role: "single",
+      backend: "codex",
+      requestedModel: "gpt-5.6-luna",
+      effectiveModel: null,
+      preferenceSource: { backend: "local", model: "local" },
+      reasoningEffort: "high",
+      sessionId: "thread-1",
+      terminalOutcome: "failed",
+    });
+    journal.close();
+
+    const state = await openStateDatabase(dir);
+    try {
+      const row = state.db
+        .prepare("SELECT telemetry_json AS telemetryJson FROM review_executions WHERE id = ?")
+        .get(journal.executionId);
+      const raw = JSON.stringify(row);
+      expect(raw).not.toContain("SECRET_PROMPT_BODY");
+      expect(raw).not.toContain("SECRET_SOURCE_TEXT");
+      expect(raw).not.toContain("sk-secret");
+      expect(raw).not.toContain("SECRET_PROVIDER_PAYLOAD");
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
+  it.each(["provider", "tool"] as const)(
+    "coalesces bursty %s activity writes and flushes the final count",
+    async (activity) => {
+    const dir = await createTempDir();
+    const operation = capturedOperation(`op_${activity}_activity_flush`);
+    const telemetry = createReviewExecutionTelemetry();
+    telemetry.record({ type: "phase", phase: "turn-start", attempt: 1 });
+    const journal = await startReviewExecutionJournal(dir, {
+      operation,
+      assignment: assignment(),
+      telemetry,
+    });
+
+    journal.record({ type: "activity", activity });
+    journal.record({ type: "activity", activity });
+
+    const runningState = await openStateDatabase(dir);
+    try {
+      expect(listReviewExecutionsByOperationId(runningState.db, operation.id)[0]?.telemetry)
+        .toMatchObject({ activity: { count: 1 } });
+      expect(journal.snapshot()).toMatchObject({ activity: { count: 2 } });
+    } finally {
+      closeStateDatabase(runningState);
+    }
+
+    const execution = journal.finish({
+      cohortId: null,
+      reviewerId: ReviewerIdSchema.parse("single"),
+      role: "single",
+      backend: "codex",
+      requestedModel: "gpt-5.6-luna",
+      effectiveModel: null,
+      preferenceSource: { backend: "local", model: "local" },
+      reasoningEffort: "high",
+      sessionId: "thread-1",
+      terminalOutcome: "completed",
+    });
+    journal.close();
+
+    expect(execution.telemetry).toMatchObject({
+      terminal: { outcome: "completed", phase: "completion" },
+      transitions: expect.arrayContaining([expect.objectContaining({ phase: "completion" })]),
+      activity: { count: 2, toolCount: activity === "tool" ? 2 : 0 },
+    });
+    },
+  );
+
+  it("flushes the first activity of a quick retry before coalescing its burst", async () => {
+    const dir = await createTempDir();
+    const operation = capturedOperation("op_retry_activity_flush");
+    const telemetry = createReviewExecutionTelemetry();
+    telemetry.record({ type: "phase", phase: "turn-start", attempt: 1 });
+    const journal = await startReviewExecutionJournal(dir, {
+      operation,
+      assignment: assignment(),
+      telemetry,
+    });
+
+    journal.record({ type: "activity", activity: "provider" });
+    journal.record({ type: "phase", phase: "validation-repair", attempt: 1 });
+    journal.record({ type: "phase", phase: "turn-start", attempt: 2 });
+    journal.record({ type: "phase", phase: "provider-work", attempt: 2 });
+    journal.record({ type: "activity", activity: "provider" });
+    journal.record({ type: "activity", activity: "provider" });
+
+    const state = await openStateDatabase(dir);
+    try {
+      expect(listReviewExecutionsByOperationId(state.db, operation.id)[0]?.telemetry)
+        .toMatchObject({
+          activity: { count: 2 },
+          provider: { window: { kind: "active", attempt: 2 } },
+        });
+      expect(journal.snapshot()).toMatchObject({ activity: { count: 3 } });
+    } finally {
+      closeStateDatabase(state);
+      journal.close();
+    }
+  });
+
+  it("reconciles a dead process's running execution as interrupted on the next write open", async () => {
+    const dir = await createTempDir();
+    const operation = capturedOperation("op_stale");
+    const telemetry = createReviewExecutionTelemetry();
+    telemetry.record({ type: "phase", phase: "turn-start", attempt: 1 });
+    const journal = await startReviewExecutionJournal(dir, {
+      operation,
+      assignment: assignment(),
+      telemetry,
+    });
+    journal.close();
+
+    const stale = await openStateDatabase(dir);
+    stale.db
+      .prepare("UPDATE review_executions SET owner_process_id = ? WHERE id = ?")
+      .run(2_147_483_647, journal.executionId);
+    closeStateDatabase(stale);
+
+    await withFindingDatabase(dir, () => undefined);
+
+    const reconciled = await openStateDatabase(dir);
+    try {
+      expect(listReviewExecutionsByOperationId(reconciled.db, operation.id)).toEqual([
+        expect.objectContaining({
+          terminalOutcome: "interrupted",
+          ownerProcessId: null,
+          ownerLease: null,
+          telemetry: expect.objectContaining({
+            terminal: { outcome: "interrupted", phase: "turn-start", at: expect.any(String) },
+          }),
+        }),
+      ]);
+    } finally {
+      closeStateDatabase(reconciled);
+    }
+  });
+
+  it("keeps another execution running while its owner lease responds", async () => {
+    const dir = await createTempDir();
+    const operation = capturedOperation("op_live_owner");
+    const telemetry = createReviewExecutionTelemetry();
+    telemetry.record({ type: "phase", phase: "turn-start", attempt: 1 });
+    const journal = await startReviewExecutionJournal(dir, {
+      operation,
+      assignment: assignment(),
+      telemetry,
+    });
+
+    const nextTelemetry = createReviewExecutionTelemetry();
+    nextTelemetry.record({ type: "phase", phase: "context-build" });
+    const nextJournal = await startReviewExecutionJournal(dir, {
+      operation: capturedOperation("op_while_owner_live"),
+      assignment: assignment(),
+      telemetry: nextTelemetry,
+    });
+
+    const state = await openStateDatabase(dir);
+    try {
+      expect(listReviewExecutionsByOperationId(state.db, operation.id)).toEqual([
+        expect.objectContaining({
+          terminalOutcome: "running",
+          ownerProcessId: process.pid,
+          ownerLease: expect.objectContaining({ schemaVersion: 1 }),
+        }),
+      ]);
+    } finally {
+      closeStateDatabase(state);
+      nextJournal.close();
+      journal.close();
+    }
+  });
+
+  it("keeps a migrated v8 execution running while its legacy PID is live", async () => {
+    const dir = await createTempDir();
+    const operation = capturedOperation("op_live_v8_owner");
+    const telemetry = createReviewExecutionTelemetry();
+    telemetry.record({ type: "phase", phase: "turn-start", attempt: 1 });
+    const journal = await startReviewExecutionJournal(dir, {
+      operation,
+      assignment: assignment(),
+      telemetry,
+    });
+
+    const migrated = await openStateDatabase(dir);
+    migrated.db
+      .prepare("UPDATE review_executions SET owner_lease_json = NULL WHERE id = ?")
+      .run(journal.executionId);
+    closeStateDatabase(migrated);
+
+    const nextTelemetry = createReviewExecutionTelemetry();
+    nextTelemetry.record({ type: "phase", phase: "context-build" });
+    const nextJournal = await startReviewExecutionJournal(dir, {
+      operation: capturedOperation("op_while_v8_owner_live"),
+      assignment: assignment(),
+      telemetry: nextTelemetry,
+    });
+
+    const state = await openStateDatabase(dir);
+    try {
+      expect(listReviewExecutionsByOperationId(state.db, operation.id)).toEqual([
+        expect.objectContaining({
+          terminalOutcome: "running",
+          ownerProcessId: process.pid,
+          ownerLease: null,
+        }),
+      ]);
+    } finally {
+      closeStateDatabase(state);
+      nextJournal.close();
+      journal.close();
+    }
+  });
+
+  it("reconciles a running execution when its owner lease ended but the PID is still live", async () => {
+    const dir = await createTempDir();
+    const operation = capturedOperation("op_reused_pid");
+    const telemetry = createReviewExecutionTelemetry();
+    telemetry.record({ type: "phase", phase: "turn-start", attempt: 1 });
+    const journal = await startReviewExecutionJournal(dir, {
+      operation,
+      assignment: assignment(),
+      telemetry,
+    });
+    journal.close();
+
+    const nextTelemetry = createReviewExecutionTelemetry();
+    nextTelemetry.record({ type: "phase", phase: "context-build" });
+    const nextJournal = await startReviewExecutionJournal(dir, {
+      operation: capturedOperation("op_after_pid_reuse"),
+      assignment: assignment(),
+      telemetry: nextTelemetry,
+    });
+    nextJournal.close();
+
+    const reconciled = await openStateDatabase(dir);
+    try {
+      expect(listReviewExecutionsByOperationId(reconciled.db, operation.id)).toEqual([
+        expect.objectContaining({
+          terminalOutcome: "interrupted",
+          ownerProcessId: null,
+          ownerLease: null,
+        }),
+      ]);
+    } finally {
+      closeStateDatabase(reconciled);
+    }
+  });
+});
+
+function assignment() {
+  return createSingleReviewAssignment(
+    {
+      backend: "codex",
+      requestedModel: "gpt-5.6-luna",
+      source: { backend: "local", model: "local" },
+    },
+    selectReasoningVariant("high"),
+  );
+}
+
+function capturedOperation(id: string) {
+  const snapshot = {
+    root: "/repo",
+    target: { kind: "staged" } as const,
+    baseCommit: null,
+    mergeBaseCommit: null,
+    targetCommit: null,
+    diff: {
+      files: [{ path: "src/app.ts", additions: 1, deletions: 0, status: "modified" as const }],
+      raw: "diff --git a/src/app.ts b/src/app.ts",
+      summary: "",
+    },
+    source: {
+      kind: "worktree" as const,
+      async read() {
+        return { status: "skipped" as const, reason: "unused" };
+      },
+      async *readModules() {},
+      async listModules() {
+        return new Map();
+      },
+    },
+  };
+  const context: ReviewContext = {
+    target: snapshot.target,
+    depth: "default",
+    diff: snapshot.diff,
+    changedFiles: [],
+    skippedFiles: [],
+    relatedFiles: [],
+    references: [],
+    diagnostics: [],
+    degradations: [],
+  };
+  return captureReviewOperation({
+    snapshot,
+    context,
+    renderedContext: { text: "captured context", degradations: [] },
+    id,
+    createdAt: "2026-09-01T20:00:00.000Z",
+  });
+}
+
+async function createTempDir(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "diffowl-execution-journal-"));
+  tempDirs.push(dir);
+  await mkdir(dir, { recursive: true });
+  return dir;
+}

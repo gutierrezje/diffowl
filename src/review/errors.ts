@@ -29,3 +29,5 @@ export const ReviewExecutionFailureSchema = z.union([
     terminalOutcome: "failed" as const,
   })),
 ]);
+
+export type ReviewExecutionFailure = z.output<typeof ReviewExecutionFailureSchema>;

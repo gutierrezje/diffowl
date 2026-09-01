@@ -169,7 +169,7 @@ describe("runCodexAppServerSpike", () => {
         expect.objectContaining({ phase: "review-run", label: "Codex review run" }),
       ]));
       expect(outcome.pipeline.timings.some((timing) => timing.label.includes("OpenCode"))).toBe(false);
-      expect(outcome.protocol.typesFileCount).toBe(642);
+      expect(outcome.protocol.typesFileCount).toBe(644);
       expect(outcome.artifactPath).toBeTruthy();
       const artifact = await readFile(outcome.artifactPath!, "utf8");
       expect(artifact).toContain('"legacyPersistence"');

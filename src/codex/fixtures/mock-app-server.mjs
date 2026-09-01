@@ -48,6 +48,7 @@ if (
     "timeout-thread",
     "cancel-before",
     "cancel-active",
+    "timeout-silent",
     "timeout-active",
     "timeout-active-mutates-restores",
     "repository-unchanged",
@@ -151,6 +152,7 @@ const markerModes = [
   "timeout-thread",
   "cancel-before",
   "cancel-active",
+  "timeout-silent",
   "timeout-active",
   "timeout-active-mutates-restores",
   "repository-unchanged",
@@ -428,6 +430,7 @@ function handleMarker(message) {
   if (
     [
       "cancel-active",
+      "timeout-silent",
       "timeout-active",
       "timeout-active-mutates-restores",
       "cancel-active-mutates",
@@ -526,6 +529,7 @@ function handleMarker(message) {
     if (
       [
         "cancel-active",
+        "timeout-silent",
         "timeout-active",
         "timeout-active-mutates-restores",
         "cancel-active-mutates",
@@ -538,10 +542,12 @@ function handleMarker(message) {
         writeFileSync(process.env.MOCK_ACTIVE_TURN_FILE, turnId);
       if (["cancel-active-mutates", "timeout-active-mutates-restores"].includes(mode))
         writeFileSync("codex-mutated.txt", "provider mutation\n");
-      send({
-        method: "item/agentMessage/delta",
-        params: { threadId: "thread-1", turnId, itemId: `item-${attempt}`, delta: "held" },
-      });
+      if (mode !== "timeout-silent") {
+        send({
+          method: "item/agentMessage/delta",
+          params: { threadId: "thread-1", turnId, itemId: `item-${attempt}`, delta: "held" },
+        });
+      }
       return;
     }
     if (mode === "repository-mutates") writeFileSync("codex-mutated.txt", "provider mutation\n");
@@ -599,6 +605,33 @@ function handleMarker(message) {
       return;
     }
     if (mode === "authoritative") {
+      send({
+        method: "item/started",
+        params: {
+          threadId: "thread-1",
+          turnId,
+          item: { type: "commandExecution", id: "command-1" },
+          startedAtMs: 1,
+        },
+      });
+      send({
+        method: "item/commandExecution/outputDelta",
+        params: {
+          threadId: "thread-1",
+          turnId,
+          itemId: "command-1",
+          delta: "first output",
+        },
+      });
+      send({
+        method: "item/commandExecution/outputDelta",
+        params: {
+          threadId: "thread-1",
+          turnId,
+          itemId: "command-1",
+          delta: "second output",
+        },
+      });
       send({
         method: "item/completed",
         params: {
@@ -821,6 +854,7 @@ input.on("close", () => {
       "cancel-active",
       "cancel-active-mutates",
       "cancel-active-close-rejects",
+      "timeout-silent",
       "timeout-active",
       "timeout-active-mutates-restores",
       "repository-unchanged",

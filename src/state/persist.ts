@@ -8,9 +8,11 @@ import type {
   ReviewOperation,
 } from "../review/operation.js";
 import type { ReviewExecutionId } from "../review/ids.js";
+import type { ReviewExecutionTelemetry } from "../review/execution-telemetry.js";
 import type { ReasoningVariant } from "../review/reasoning.js";
 import type { ReviewFinding, ReviewTiming } from "../review/types.js";
-import { closeStateDatabase, openStateDatabase, runInTransaction } from "./db.js";
+import { closeStateDatabase, runInTransaction } from "./db.js";
+import { openStateDatabaseForWrite } from "./write-database.js";
 import { computeFindingFingerprint } from "./fingerprint.js";
 import { reconcileReviewFindings } from "./reconcile.js";
 import { suggestPossibleDuplicates } from "./possible-duplicates.js";
@@ -22,6 +24,7 @@ import {
 } from "./repositories/reviews.js";
 import { countObservationsByFindingIds } from "./repositories/observations.js";
 import {
+  finalizeReviewExecution,
   getReviewExecutionById,
   insertReviewExecution,
 } from "./repositories/review-executions.js";
@@ -46,7 +49,13 @@ export interface PersistCanonicalReviewInput extends PersistReviewOutputInput {
   operation: CapturedReviewOperation;
   source:
     | { kind: "new-execution"; execution: CompletedReviewExecutionProvenance }
-    | { kind: "persisted-execution"; executionId: ReviewExecutionId };
+    | { kind: "persisted-execution"; executionId: ReviewExecutionId }
+    | {
+        kind: "running-execution";
+        executionId: ReviewExecutionId;
+        execution: CompletedReviewExecutionProvenance;
+        telemetry: ReviewExecutionTelemetry;
+      };
 }
 
 export interface PersistSkippedReviewInput extends PersistReviewOutputInput {
@@ -256,7 +265,7 @@ async function persistReviewOutput(
     | ({ kind: "canonical" } & PersistCanonicalReviewInput)
     | ({ kind: "skipped" } & PersistSkippedReviewInput),
 ): Promise<PersistReviewRunResult> {
-  const state = await openStateDatabase(diffOwlDir);
+  const state = await openStateDatabaseForWrite(diffOwlDir);
 
   try {
     return runInTransaction(state.db, () => {
@@ -379,6 +388,13 @@ function resolveCanonicalSourceExecution(
       });
     case "persisted-execution":
       return getCompletedSourceExecution(db, operation, source.executionId);
+    case "running-execution":
+      return finalizeReviewExecution(
+        db,
+        source.executionId,
+        source.execution,
+        source.telemetry,
+      );
     default: {
       const _exhaustive: never = source;
       return _exhaustive;
@@ -408,7 +424,7 @@ export async function persistReviewExecutionAttempt(
   diffOwlDir: string,
   input: PersistReviewExecutionAttemptInput,
 ): Promise<ReviewExecutionRecord> {
-  const state = await openStateDatabase(diffOwlDir);
+  const state = await openStateDatabaseForWrite(diffOwlDir);
   try {
     return runInTransaction(state.db, () => {
       insertReviewOperation(state.db, input.operation);
@@ -427,7 +443,7 @@ export async function updatePersistedReview(
   reviewId: string,
   input: UpdatePersistedReviewInput,
 ): Promise<void> {
-  const state = await openStateDatabase(diffOwlDir);
+  const state = await openStateDatabaseForWrite(diffOwlDir);
 
   try {
     runInTransaction(state.db, () => {
@@ -445,7 +461,7 @@ export async function getPersistedReview(
   diffOwlDir: string,
   reviewId: string,
 ): Promise<ReviewRecord | undefined> {
-  const state = await openStateDatabase(diffOwlDir);
+  const state = await openStateDatabaseForWrite(diffOwlDir);
   try {
     return getReviewById(state.db, reviewId);
   } finally {
@@ -457,7 +473,7 @@ export async function loadFindingOccurrenceCounts(
   diffOwlDir: string,
   findingIds: string[],
 ): Promise<Map<string, number>> {
-  const state = await openStateDatabase(diffOwlDir);
+  const state = await openStateDatabaseForWrite(diffOwlDir);
   try {
     return countObservationsByFindingIds(state.db, findingIds);
   } finally {

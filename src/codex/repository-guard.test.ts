@@ -24,6 +24,30 @@ describe("repository guard", () => {
     expect(first.entries.every((entry) => !Object.hasOwn(entry, "content"))).toBe(true);
   });
 
+  it("ignores DiffOwl's own live state database files", async () => {
+    const directory = await repository();
+    await mkdir(join(directory, ".diffowl"));
+    await writeFile(join(directory, ".diffowl", "state.db"), "before");
+    await writeFile(join(directory, ".diffowl", "state.db-wal"), "before");
+    await writeFile(join(directory, ".diffowl", "state.db-shm"), "before");
+    const before = await captureRepositoryState(directory);
+
+    await writeFile(join(directory, ".diffowl", "state.db"), "after");
+    await writeFile(join(directory, ".diffowl", "state.db-wal"), "after");
+    await writeFile(join(directory, ".diffowl", "state.db-shm"), "after");
+
+    expect(compareRepositoryStates(before, await captureRepositoryState(directory))).toEqual({
+      kind: "unchanged",
+    });
+    expect(before.paths).not.toEqual(
+      expect.arrayContaining([
+        ".diffowl/state.db",
+        ".diffowl/state.db-wal",
+        ".diffowl/state.db-shm",
+      ]),
+    );
+  });
+
   it("reports a commit-only mutation through the HEAD sentinel", async () => {
     const directory = await repository();
     const before = await captureRepositoryState(directory);

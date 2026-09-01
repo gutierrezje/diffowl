@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ReviewFinding, ReviewTiming, ReviewUsage } from "../review/types.js";
 import type { ReviewSelection } from "../review/backend-selection.js";
+import type { ReviewExecutionTelemetry } from "../review/execution-telemetry.js";
 import type {
   LegacyReviewInputIdentity,
   ReviewExecutionProvenance,
@@ -13,11 +14,12 @@ import type {
   PersistedObservation,
   ReviewConfidence,
   ReviewRecord,
+  ReviewExecutionRecord,
   ReviewSeverity,
   ReviewTargetKind,
 } from "../state/types.js";
 
-export const JSON_OUTPUT_SCHEMA_VERSION = 7 as const;
+export const JSON_OUTPUT_SCHEMA_VERSION = 8 as const;
 
 const ReviewOutputFormatSchema = z.preprocess(
   (value) => (value === undefined ? "text" : value),
@@ -33,6 +35,7 @@ export interface ReviewJsonErrorDocument {
   error: {
     message: string;
   };
+  execution?: ReviewJsonExecutionV5;
 }
 
 export type ReviewJsonClassification = ObservationClassification | "untracked";
@@ -70,7 +73,7 @@ export interface ReviewJsonExecutionV1 {
   preference_source: ReviewExecutionProvenance["preferenceSource"];
   reasoning_effort: ReviewExecutionProvenance["reasoningEffort"];
   session_id: ReviewExecutionProvenance["sessionId"];
-  terminal_outcome: ReviewExecutionProvenance["terminalOutcome"];
+  terminal_outcome: ReviewExecutionRecord["terminalOutcome"];
 }
 
 export type ReviewJsonInputIdentityV1 =
@@ -122,7 +125,54 @@ export interface ReviewJsonExecutionV4
   input: ReviewJsonInputIdentityV2;
 }
 
-export interface ReviewJsonDocumentV7 {
+export interface ReviewJsonExecutionTelemetryV1 {
+  schema_version: 1;
+  stall_interval_ms: number;
+  started_at: string;
+  updated_at: string;
+  completed_at: string | null;
+  active_phase: ReviewExecutionTelemetry["activePhase"];
+  terminal:
+    | {
+        outcome: NonNullable<ReviewExecutionTelemetry["terminal"]>["outcome"];
+        phase: NonNullable<ReviewExecutionTelemetry["terminal"]>["phase"];
+        at: string;
+      }
+    | null;
+  transitions: Array<{
+    sequence: number;
+    phase: ReviewExecutionTelemetry["transitions"][number]["phase"];
+    attempt: number | null;
+    started_at: string;
+    elapsed_ms: number;
+    duration_ms: number;
+  }>;
+  activity: {
+    status: ReviewExecutionTelemetry["activity"]["status"];
+    count: number;
+    tool_count: number;
+    first_at: string | null;
+    last_at: string | null;
+    age_ms: number;
+  };
+  provider: {
+    queue_wait_ms: number;
+    execution_ms: number;
+  };
+  validation: {
+    attempts: number;
+    repairs: number;
+  };
+}
+
+export interface ReviewJsonExecutionV5
+  extends Omit<ReviewJsonExecutionV4, "schema_version" | "context_manifest_sha256"> {
+  schema_version: 5;
+  context_manifest_sha256: string | null;
+  telemetry: ReviewJsonExecutionTelemetryV1;
+}
+
+export interface ReviewJsonDocumentV8 {
   schema_version: typeof JSON_OUTPUT_SCHEMA_VERSION;
   review: {
     id: string;
@@ -145,6 +195,7 @@ export interface ReviewJsonDocumentV7 {
       | ReviewJsonExecutionV2
       | ReviewJsonExecutionV3
       | ReviewJsonExecutionV4
+      | ReviewJsonExecutionV5
       | null;
     reasoning: ReviewRecord["reasoning"];
     depth: string;
@@ -181,7 +232,7 @@ export interface BuildReviewJsonInput {
   usage?: ReviewUsage | null;
   selection: ReviewSelection;
   effectiveModel: string | null;
-  execution?: ReviewExecutionProvenance | null;
+  execution?: ReviewExecutionProvenance | ReviewExecutionRecord | null;
 }
 
 export function parseReviewOutputFormat(
@@ -194,14 +245,14 @@ export function parseReviewOutputFormat(
   throw new Error(`Invalid output format: ${String(value)}. Expected text or json.`);
 }
 
-export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJsonDocumentV7 {
+export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJsonDocumentV8 {
   const observations = selectJsonObservations(
     input.persisted.reconcile.observations,
     input.verbose,
   );
   const untracked = untrackedActionableFindings(input.persisted.actionableFindings);
 
-  const document: ReviewJsonDocumentV7 = {
+  const document: ReviewJsonDocumentV8 = {
     schema_version: JSON_OUTPUT_SCHEMA_VERSION,
     review: {
       id: input.review.id,
@@ -246,25 +297,40 @@ export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJson
   return document;
 }
 
-export function renderReviewJsonDocument(document: ReviewJsonDocumentV7): string {
+export function renderReviewJsonDocument(document: ReviewJsonDocumentV8): string {
   return `${JSON.stringify(document)}\n`;
 }
 
-export function renderJsonErrorDocument(message: string): string {
+export function renderJsonErrorDocument(
+  message: string,
+  execution?: ReviewExecutionRecord,
+): string {
   const document: ReviewJsonErrorDocument = {
     schema_version: JSON_OUTPUT_SCHEMA_VERSION,
     error: { message },
   };
+  if (execution?.telemetry !== null && execution?.telemetry !== undefined) {
+    const mappedExecution = mapJsonExecution(execution);
+    if (mappedExecution.schema_version !== 5) {
+      throw new Error("Telemetry-bearing execution did not map to JSON execution schema 5.");
+    }
+    document.execution = mappedExecution;
+  }
   return `${JSON.stringify(document)}\n`;
 }
 
-export async function writeReviewJsonSuccess(document: ReviewJsonDocumentV7): Promise<void> {
+export async function writeReviewJsonSuccess(document: ReviewJsonDocumentV8): Promise<void> {
   await writeFully(process.stdout, renderReviewJsonDocument(document));
 }
 
 function mapJsonExecution(
-  execution: ReviewExecutionProvenance,
-): ReviewJsonExecutionV1 | ReviewJsonExecutionV2 | ReviewJsonExecutionV3 | ReviewJsonExecutionV4 {
+  execution: ReviewExecutionProvenance | ReviewExecutionRecord,
+):
+  | ReviewJsonExecutionV1
+  | ReviewJsonExecutionV2
+  | ReviewJsonExecutionV3
+  | ReviewJsonExecutionV4
+  | ReviewJsonExecutionV5 {
   const common = {
     cohort_id: execution.cohortId,
     reviewer_id: execution.reviewerId,
@@ -297,11 +363,67 @@ function mapJsonExecution(
       context_manifest_sha256: execution.contextManifestSha256,
     };
   }
+  if ("telemetry" in execution && execution.telemetry !== null) {
+    return {
+      ...common,
+      schema_version: 5,
+      input: mapJsonInputIdentity(execution.input),
+      context_manifest_sha256: execution.contextManifestSha256,
+      telemetry: mapJsonExecutionTelemetry(execution.telemetry),
+    };
+  }
+  if (execution.contextManifestSha256 === null) {
+    throw new Error("A review execution without telemetry requires captured context.");
+  }
   return {
     ...common,
     schema_version: execution.schemaVersion,
     input: mapJsonInputIdentity(execution.input),
     context_manifest_sha256: execution.contextManifestSha256,
+  };
+}
+
+function mapJsonExecutionTelemetry(
+  telemetry: ReviewExecutionTelemetry,
+): ReviewJsonExecutionTelemetryV1 {
+  return {
+    schema_version: telemetry.schemaVersion,
+    stall_interval_ms: telemetry.stallIntervalMs,
+    started_at: telemetry.startedAt,
+    updated_at: telemetry.updatedAt,
+    completed_at: telemetry.completedAt,
+    active_phase: telemetry.activePhase,
+    terminal: telemetry.terminal
+      ? {
+          outcome: telemetry.terminal.outcome,
+          phase: telemetry.terminal.phase,
+          at: telemetry.terminal.at,
+        }
+      : null,
+    transitions: telemetry.transitions.map((transition) => ({
+      sequence: transition.sequence,
+      phase: transition.phase,
+      attempt: transition.attempt,
+      started_at: transition.startedAt,
+      elapsed_ms: transition.elapsedMs,
+      duration_ms: transition.durationMs,
+    })),
+    activity: {
+      status: telemetry.activity.status,
+      count: telemetry.activity.count,
+      tool_count: telemetry.activity.toolCount,
+      first_at: telemetry.activity.firstAt,
+      last_at: telemetry.activity.lastAt,
+      age_ms: telemetry.activity.ageMs,
+    },
+    provider: {
+      queue_wait_ms: telemetry.provider.queueWaitMs,
+      execution_ms: telemetry.provider.executionMs,
+    },
+    validation: {
+      attempts: telemetry.validation.attempts,
+      repairs: telemetry.validation.repairs,
+    },
   };
 }
 
@@ -353,8 +475,8 @@ function writeFully(stream: NodeJS.WritableStream, chunk: string): Promise<void>
   });
 }
 
-export function writeJsonError(message: string): void {
-  process.stderr.write(renderJsonErrorDocument(message));
+export function writeJsonError(message: string, execution?: ReviewExecutionRecord): void {
+  process.stderr.write(renderJsonErrorDocument(message, execution));
 }
 
 function selectJsonObservations(

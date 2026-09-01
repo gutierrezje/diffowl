@@ -21,12 +21,15 @@ import {
   loadFindingOccurrenceCounts,
   mapReviewTarget,
   persistCanonicalReview,
-  persistReviewExecutionAttempt,
   persistSkippedReview,
   updatePersistedReview,
   type PersistCanonicalReviewInput,
   type PersistReviewRunResult,
 } from "../state/persist.js";
+import {
+  startReviewExecutionJournal,
+  type ReviewExecutionJournal,
+} from "../state/review-execution-journal.js";
 import { filterFindingsByChangedFiles, filterFindingsByConfidence } from "./filters.js";
 import { formatExcludedCandidateSummary, renderMarkdown, REPORT_SCHEMA_VERSION, writeMarkdownReport } from "./formatter.js";
 import {
@@ -39,11 +42,25 @@ import type { ReviewTarget } from "./target.js";
 import {
   captureReviewOperation,
   createUnavailableContextReviewOperation,
+  type UnavailableContextReviewOperation,
   type ReviewOperation,
 } from "./operation.js";
-import { ReviewExecutionFailureSchema } from "./errors.js";
+import {
+  ReviewExecutionFailureSchema,
+  ReviewTimeoutError,
+  type ReviewExecutionFailure,
+} from "./errors.js";
 import { reasoningVariant } from "./reasoning.js";
 import type { EffectiveReviewConfig } from "./runtime-config.js";
+import { createReviewExecutionTelemetry } from "./execution-telemetry.js";
+import type { ReviewExecutionRecord } from "../state/types.js";
+
+const failureExecutionStore = new WeakMap<object, ReviewExecutionRecord>();
+
+export function getReviewFailureExecution(cause: unknown): ReviewExecutionRecord | undefined {
+  const failure = ReviewExecutionFailureSchema.safeParse(cause);
+  return failure.success ? failureExecutionStore.get(failure.data.cause) : undefined;
+}
 
 export type ReviewPipelineOutcome =
   | {
@@ -61,7 +78,12 @@ export type ReviewPipelineOutcome =
 
 export type ReviewSkipCheckOutcome =
   | ReviewPipelineOutcome
-  | { kind: "continue"; snapshot: LoadedReviewSnapshot; timings: ReviewTiming[] };
+  | {
+      kind: "continue";
+      snapshot: LoadedReviewSnapshot;
+      timings: ReviewTiming[];
+      operation: UnavailableContextReviewOperation;
+    };
 
 export interface ReviewPipelineInput {
   target: ReviewTarget;
@@ -94,7 +116,7 @@ export interface ReviewPipelineDeps {
   persistCanonicalReview: typeof persistCanonicalReview;
   persistSkippedReview: typeof persistSkippedReview;
   updatePersistedReview: typeof updatePersistedReview;
-  persistReviewExecutionAttempt: typeof persistReviewExecutionAttempt;
+  startReviewExecutionJournal: typeof startReviewExecutionJournal;
   captureReviewOperation: typeof captureReviewOperation;
   createUnavailableContextReviewOperation: typeof createUnavailableContextReviewOperation;
   resolveTargetCommit: typeof resolveTargetCommit;
@@ -129,7 +151,7 @@ export const defaultReviewPipelineDeps: ReviewPipelineDeps = {
   loadFindingOccurrenceCounts,
   loadReviewSnapshot,
   mapReviewTarget,
-  persistReviewExecutionAttempt,
+  startReviewExecutionJournal,
   persistCanonicalReview,
   persistSkippedReview,
   renderMarkdown,
@@ -148,23 +170,43 @@ export async function runReviewPipeline(
     return outcome;
   }
 
-  const { snapshot, timings } = outcome;
-  const contextStart = performance.now();
-  const reviewContext = await deps.buildReviewContextFromDiff(snapshot, input.config, input.depth);
-  recordReviewTiming(timings, "context-build", "Local review context build", contextStart);
-
-  const contextRenderStart = performance.now();
-  const renderedContext = deps.renderReviewContextDocument(reviewContext, { depth: input.depth });
-  const localContext = renderedContext.text;
-  recordReviewTiming(timings, "context-render", "Local review context render", contextRenderStart);
-  if (reviewContext.diagnostics.length > 0) {
-    input.onDiagnostics?.(reviewContext.diagnostics);
-  }
-  const operation = deps.captureReviewOperation({
-    snapshot,
-    context: reviewContext,
-    renderedContext,
+  const { snapshot, timings, operation: pendingOperation } = outcome;
+  const executionTelemetry = createReviewExecutionTelemetry();
+  executionTelemetry.record({ type: "phase", phase: "context-build" });
+  const executor = input.executor ?? deps.createExecutor(input.config);
+  const executionJournal = await deps.startReviewExecutionJournal(input.diffOwlDir, {
+    operation: pendingOperation,
+    assignment: executor.assignment,
+    telemetry: executionTelemetry,
   });
+  let reviewContext: Awaited<ReturnType<typeof buildReviewContextFromDiff>>;
+  let localContext: string;
+  let operation: ReturnType<typeof captureReviewOperation>;
+  try {
+    const contextStart = performance.now();
+    reviewContext = await deps.buildReviewContextFromDiff(snapshot, input.config, input.depth);
+    recordReviewTiming(timings, "context-build", "Local review context build", contextStart);
+
+    const contextRenderStart = performance.now();
+    const renderedContext = deps.renderReviewContextDocument(reviewContext, { depth: input.depth });
+    localContext = renderedContext.text;
+    recordReviewTiming(timings, "context-render", "Local review context render", contextRenderStart);
+    if (reviewContext.diagnostics.length > 0) {
+      input.onDiagnostics?.(reviewContext.diagnostics);
+    }
+    operation = deps.captureReviewOperation({
+      snapshot,
+      context: reviewContext,
+      renderedContext,
+      id: pendingOperation.id,
+      createdAt: pendingOperation.createdAt,
+    });
+    executionJournal.captureContext(operation);
+  } catch (error) {
+    finishFailedExecutionJournal(executionJournal, executor, null, input.onWarning);
+    throw error;
+  }
+  executionJournal.record({ type: "phase", phase: "protocol-check" });
 
   const executorOptions: ReviewExecutorOptions = {
     review: {
@@ -174,6 +216,7 @@ export async function runReviewPipeline(
       localContext,
       depth: input.depth,
     },
+    onTelemetry: (event) => executionJournal.record(event),
   };
   if (input.signal) executorOptions.review.signal = input.signal;
   if (input.onProgress) executorOptions.review.onProgress = input.onProgress;
@@ -186,21 +229,17 @@ export async function runReviewPipeline(
       input.onWarning?.(message);
     };
   }
-  const executor = input.executor ?? deps.createExecutor(input.config);
   let execution: Awaited<ReturnType<AssignedReviewExecutor["execute"]>>;
   try {
     execution = await executor.execute(executorOptions);
   } catch (error) {
-    const failure = ReviewExecutionFailureSchema.safeParse(error);
-    const terminalOutcome = failure.success ? failure.data.terminalOutcome : "failed";
-    try {
-      await deps.persistReviewExecutionAttempt(input.diffOwlDir, {
-        operation,
-        execution: createFailedReviewExecutionProvenance(executor.assignment, terminalOutcome),
-      });
-    } catch {
-      input.onWarning?.("Review failed, and its terminal outcome could not be persisted.");
-    }
+    const parsedFailure = ReviewExecutionFailureSchema.safeParse(error);
+    finishFailedExecutionJournal(
+      executionJournal,
+      executor,
+      parsedFailure.success ? parsedFailure.data : null,
+      input.onWarning,
+    );
     throw error;
   }
   timings.push(...execution.timings);
@@ -233,18 +272,43 @@ export async function runReviewPipeline(
     report.diagnostics = diagnostics;
   }
 
+  executionJournal.record({ type: "phase", phase: "persistence" });
   const persistStart = performance.now();
   const persistInput = {
     operation,
-    source: { kind: "new-execution", execution: execution.runtimeProvenance },
+    source: {
+      kind: "running-execution",
+      executionId: executionJournal.executionId,
+      execution: execution.runtimeProvenance,
+      telemetry: executionJournal.snapshot(),
+    },
     summary: report.summary,
     diagnostics,
     timings: [...timings, ...(report.timings ?? [])],
     findings: report.findings,
     symbolKeys: report.findings.map((finding) => findEnclosingSymbolKey(reviewContext, finding)),
   } satisfies PersistCanonicalReviewInput;
-  const persisted = await deps.persistCanonicalReview(input.diffOwlDir, persistInput);
+  let persisted: PersistReviewRunResult;
+  try {
+    persisted = await deps.persistCanonicalReview(input.diffOwlDir, persistInput);
+  } catch (error) {
+    const parsedFailure = ReviewExecutionFailureSchema.safeParse(error);
+    finishFailedExecutionJournal(
+      executionJournal,
+      executor,
+      parsedFailure.success ? parsedFailure.data : null,
+      input.onWarning,
+    );
+    throw error;
+  }
   recordReviewTiming(timings, "persist-state", "Persist review state", persistStart);
+  let completedExecution: PersistReviewRunResult["execution"];
+  try {
+    completedExecution = executionJournal.finish(execution.runtimeProvenance);
+  } finally {
+    executionJournal.close();
+  }
+  persisted = { ...persisted, execution: completedExecution };
 
   report.findings = persisted.actionableFindings;
   const lifecycleSummary = deps.formatLifecycleSuppressedSummary(persisted.reconcile.suppressedCounts);
@@ -318,6 +382,57 @@ export async function runReviewPipeline(
   };
 }
 
+function finishFailedExecutionJournal(
+  journal: ReviewExecutionJournal,
+  executor: AssignedReviewExecutor,
+  failure: ReviewExecutionFailure | null,
+  onWarning: ReviewPipelineInput["onWarning"],
+): void {
+  const terminalOutcome = failure?.terminalOutcome ?? "failed";
+  try {
+    const execution = journal.finish(
+      createFailedReviewExecutionProvenance(executor.assignment, terminalOutcome),
+    );
+    if (failure !== null) failureExecutionStore.set(failure.cause, execution);
+    if (failure?.cause instanceof ReviewTimeoutError && execution.telemetry !== null) {
+      failure.cause.message = formatReviewTimeoutMessage(
+        failure.cause.message,
+        execution.telemetry,
+      );
+    }
+  } catch {
+    onWarning?.("Review failed, and its terminal outcome could not be persisted.");
+  } finally {
+    journal.close();
+  }
+}
+
+function formatReviewTimeoutMessage(
+  message: string,
+  telemetry: NonNullable<ReviewExecutionRecord["telemetry"]>,
+): string {
+  const phase = telemetry.terminal?.phase ?? telemetry.activePhase;
+  const phaseText = phase === null ? "unknown" : phase.replaceAll("-", " ");
+  const age = formatTelemetryDuration(telemetry.activity.ageMs);
+  switch (telemetry.activity.status) {
+    case "silent":
+      return `${message} Active phase: ${phaseText}; no provider activity was observed for ${age}.`;
+    case "active":
+      return `${message} Active phase: ${phaseText}; last provider activity was ${age} ago.`;
+    case "stalled":
+      return `${message} Active phase: ${phaseText}; last provider activity was ${age} ago (stall interval ${formatTelemetryDuration(telemetry.stallIntervalMs)}).`;
+    default: {
+      const _exhaustive: never = telemetry.activity.status;
+      return _exhaustive;
+    }
+  }
+}
+
+function formatTelemetryDuration(ms: number): string {
+  if (ms < 1_000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1_000).toFixed(1)}s`;
+}
+
 export async function runReviewSkipChecks(
   input: ReviewPipelineInput,
   deps: ReviewPipelineDeps = defaultReviewPipelineDeps,
@@ -374,7 +489,7 @@ export async function runReviewSkipChecks(
   }
 
   if (!input.config.skip_doc_only || !isDocOnlyDiff(diff)) {
-    return { kind: "continue", snapshot, timings };
+    return { kind: "continue", snapshot, timings, operation };
   }
 
   const persisted = await deps.persistSkippedReview(input.diffOwlDir, {
