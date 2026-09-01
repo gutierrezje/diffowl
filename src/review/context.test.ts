@@ -182,16 +182,17 @@ describe("buildReviewContext", () => {
     const root = await createGitRepository();
     await writeFile(join(root, "pnpm-lock.yaml"), "base\n", "utf-8");
     await commitAll(root, "base");
+    const { stdout: baseBranch } = await execa("git", ["branch", "--show-current"], { cwd: root });
     await execa("git", ["switch", "-c", "feature"], { cwd: root });
     await writeFile(join(root, "pnpm-lock.yaml"), "feature\n", "utf-8");
     await writeFile(join(root, "feature-only.ts"), "export const feature = true;\n", "utf-8");
     await commitAll(root, "feature");
-    await execa("git", ["switch", "main"], { cwd: root });
+    await execa("git", ["switch", baseBranch], { cwd: root });
     await writeFile(join(root, "pnpm-lock.yaml"), "main\n", "utf-8");
     await writeFile(join(root, "main-only.ts"), "export const fromMain = true;\n", "utf-8");
     await commitAll(root, "main");
     await execa("git", ["switch", "feature"], { cwd: root });
-    await expect(execa("git", ["merge", "main"], { cwd: root })).rejects.toThrow();
+    await expect(execa("git", ["merge", baseBranch], { cwd: root })).rejects.toThrow();
     await writeFile(join(root, "pnpm-lock.yaml"), "resolved\n", "utf-8");
     await commitAll(root, "resolve merge");
 
