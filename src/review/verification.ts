@@ -301,11 +301,9 @@ export function selectPublishedFindingIds(
   if (!Object.hasOwn(ledger, checkerLedgerBrand) || !validatedCheckerLedgers.has(ledger)) {
     throw new Error("Checker ledger was not produced by validation.");
   }
-  if (ledger.completion.kind === "retry-exhausted") {
-    return ledger.outcomes.map((outcome) => outcome.findingId);
-  }
+  const effectivePolicy = ledger.completion.kind === "retry-exhausted" ? "observe" : policy;
 
-  switch (policy) {
+  switch (effectivePolicy) {
     case "observe":
       return ledger.outcomes.map((outcome) => outcome.findingId);
     case "confirmed-only":
@@ -313,7 +311,7 @@ export function selectPublishedFindingIds(
         .filter((outcome) => outcome.verdict === "confirmed")
         .map((outcome) => outcome.findingId);
     default: {
-      const _exhaustive: never = policy;
+      const _exhaustive: never = effectivePolicy;
       return _exhaustive;
     }
   }

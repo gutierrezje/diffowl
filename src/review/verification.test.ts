@@ -61,7 +61,7 @@ describe("checker document contract", () => {
     });
   });
 
-  it("retries incomplete output, then resolves every claim as uncertain", () => {
+  it("retries incomplete output, then retains every claim under confirmed-only", () => {
     const input = createCheckerInput({
       operation: capturedOperation(),
       claims: [claim("fnd_alpha", "First claim"), claim("fnd_beta", "Second claim")],
