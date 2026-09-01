@@ -117,6 +117,21 @@ describe("diffowl CLI", () => {
       JSON.stringify({ sha: "fresh-b", queuedAt: "2026-09-01T00:02:00.000Z" }),
       "utf8",
     );
+    await writeFile(
+      join(pendingDir, "active-c"),
+      JSON.stringify({ sha: "active-c", queuedAt: "2026-09-01T00:03:00.000Z" }),
+      "utf8",
+    );
+    await writeFile(
+      join(pendingDir, "active-c.result.json"),
+      JSON.stringify({
+        commit: "active-c",
+        exitCode: 0,
+        timestamp: "2026-09-01T00:04:00.000Z",
+        message: "Review started.",
+      }),
+      "utf8",
+    );
 
     const json = await execa("node", [cliPath, "hook", "status", "--format", "json"], {
       cwd: repo,
@@ -131,9 +146,10 @@ describe("diffowl CLI", () => {
         reason: "No post-commit hook found",
       },
       queue: {
-        pending_count: 2,
+        pending_count: 3,
         first_attempt_count: 1,
         retry_count: 1,
+        in_progress_count: 1,
         items: [
           {
             commit: "fresh-b",
@@ -145,11 +161,17 @@ describe("diffowl CLI", () => {
             queued_at: "2026-09-01T00:00:00.000Z",
             status: "pending-retry",
           },
+          {
+            commit: "active-c",
+            queued_at: "2026-09-01T00:03:00.000Z",
+            status: "in-progress",
+          },
         ],
       },
     });
     expect(text.stdout).toContain("First attempt: fresh-b");
     expect(text.stdout).toContain("Retry: failed-a");
+    expect(text.stdout).toContain("In progress: active-c");
   });
 
   it("does not load model overrides for unrelated commands", async () => {

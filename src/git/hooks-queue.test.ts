@@ -7,6 +7,7 @@ import { removeTempDir } from "../test/helpers.js";
 import {
   enqueuePendingReview,
   isHookQueueStopFailure,
+  listPendingReviews,
   type HookReviewProcess,
   type HookReviewProcessRequest,
   runPendingHookReviews,
@@ -84,11 +85,17 @@ describe("runPendingHookReviews", () => {
     await new Promise((resolve) => setTimeout(resolve, 2));
     await enqueuePendingReview(dir, "fresh-b");
 
-    const review = createReviewProcess("Review timed out after 900s");
+    const observedRetryStates: string[] = [];
+    const review = createReviewProcess("Review timed out after 900s", async (commit) => {
+      if (commit !== "failed-a") return;
+      const failed = (await listPendingReviews(dir)).find((item) => item.sha === commit);
+      if (failed) observedRetryStates.push(failed.attempt);
+    });
 
     await runPendingHookReviews({ reviewProcess: review.process });
 
     expect(review.commits).toEqual(["fresh-b", "failed-a"]);
+    expect(observedRetryStates).toEqual(["retry"]);
     const log = await readFile(join(dir, "hook.log"), "utf-8");
     expect(log).toContain("reviewing queued commit fresh-b (first attempt)");
     expect(log).toContain("reviewing queued commit failed-a (retry)");
@@ -150,7 +157,10 @@ async function createHookStatusRoot(): Promise<string> {
   return root;
 }
 
-function createReviewProcess(message: string): ReviewProcessFixture {
+function createReviewProcess(
+  message: string,
+  beforeResult?: (commit: string) => Promise<void>,
+): ReviewProcessFixture {
   const commits: string[] = [];
   const process: HookReviewProcess = {
     async run({ args, options }: HookReviewProcessRequest): Promise<void> {
@@ -161,6 +171,7 @@ function createReviewProcess(message: string): ReviewProcessFixture {
         throw new Error("Hook review process request is missing its commit or result path.");
       }
       commits.push(commit);
+      await beforeResult?.(commit);
       await writeFile(
         resultPath,
         JSON.stringify({

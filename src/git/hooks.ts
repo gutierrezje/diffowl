@@ -1,4 +1,13 @@
-import { appendFile, chmod, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  chmod,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import {
   closeSync,
   existsSync,
@@ -129,13 +138,18 @@ const HookFailureSchema = z.object({
   timestamp: z.string(),
   message: z.string().optional(),
 });
-const PendingReviewSchema = z.object({ sha: z.string(), queuedAt: z.string() });
+const PendingReviewSchema = z.object({
+  sha: z.string(),
+  queuedAt: z.string(),
+  attemptedAt: z.string().optional(),
+});
 
 export interface PendingReview {
   sha: string;
   queuedAt: string;
   path: string;
   attempt: "first-attempt" | "retry";
+  state: "pending" | "in-progress";
 }
 
 export interface HookReviewProcessRequest {
@@ -431,6 +445,7 @@ export async function runPendingHookReviews(
     try {
       const attempt = next.attempt === "first-attempt" ? "first attempt" : "retry";
       writeSync(outFd, `diffowl: reviewing queued commit ${next.sha} (${attempt})\n`);
+      await markPendingReviewAttempt(next);
       try {
         await unlink(resultPath);
       } catch {}
@@ -553,7 +568,9 @@ export async function listPendingReviews(
   }
 
   const resultFiles = new Set(files.filter((file) => file.endsWith(".result.json")));
-  const markerFiles = new Set(files.filter((file) => !file.endsWith(".result.json")));
+  const markerFiles = new Set(
+    files.filter((file) => !file.endsWith(".result.json") && !file.endsWith(".tmp")),
+  );
   await Promise.all(
     [...resultFiles]
       .filter((file) => !markerFiles.has(file.slice(0, -".result.json".length)))
@@ -566,11 +583,21 @@ export async function listPendingReviews(
       try {
         const parsed = PendingReviewSchema.safeParse(JSON.parse(await readFile(path, "utf-8")));
         if (!parsed.success) return undefined;
+        const resultFile = `${file}.result.json`;
+        const result = resultFiles.has(resultFile)
+          ? await readHookResult(join(pendingDir, resultFile))
+          : undefined;
         return {
           sha: parsed.data.sha,
           queuedAt: parsed.data.queuedAt,
           path,
-          attempt: resultFiles.has(`${file}.result.json`) ? "retry" : "first-attempt",
+          attempt:
+            parsed.data.attemptedAt !== undefined || resultFiles.has(resultFile)
+              ? "retry"
+              : "first-attempt",
+          state: result?.exitCode === 0 && result.message === "Review started."
+            ? "in-progress"
+            : "pending",
         } satisfies PendingReview;
       } catch {
         return undefined;
@@ -584,6 +611,28 @@ export async function listPendingReviews(
       if (a.attempt !== b.attempt) return a.attempt === "first-attempt" ? -1 : 1;
       return a.queuedAt.localeCompare(b.queuedAt) || a.sha.localeCompare(b.sha);
     });
+}
+
+async function markPendingReviewAttempt(review: PendingReview): Promise<void> {
+  const temporaryPath = `${review.path}.${process.pid}.tmp`;
+  try {
+    await writeFile(
+      temporaryPath,
+      JSON.stringify(
+        {
+          sha: review.sha,
+          queuedAt: review.queuedAt,
+          attemptedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    await rename(temporaryPath, review.path);
+  } finally {
+    await unlink(temporaryPath).catch(() => {});
+  }
 }
 
 async function getHeadCommit(): Promise<string> {
