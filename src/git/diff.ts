@@ -17,6 +17,12 @@ export interface BranchDiffResult {
   diff: DiffResult;
 }
 
+export interface CommitComparison {
+  baseCommit: string | null;
+  headCommit: string;
+  diff: DiffResult;
+}
+
 interface DiffFileBase {
   path: string;
   additions: number;
@@ -55,8 +61,25 @@ export async function getLastCommitDiff(): Promise<DiffResult> {
 }
 
 export async function getCommitDiff(ref: string, cwd?: string): Promise<DiffResult> {
-  const commit = await resolveCommitRef(ref, cwd);
-  return getResolvedCommitDiff(commit, cwd);
+  return (await getCommitComparison(ref, cwd)).diff;
+}
+
+export async function getCommitComparison(ref: string, cwd?: string): Promise<CommitComparison> {
+  const headCommit = await resolveCommitRef(ref, cwd);
+  const baseCommit = await resolveFirstParent(headCommit, cwd);
+  const command = baseCommit
+    ? ["diff", "--stat", "--patch", baseCommit, headCommit]
+    : ["show", "--format=", "--root", "--stat", "--patch", headCommit];
+  const raw = await collectGitDiff(
+    ["-c", "diff.noprefix=false", "-c", "diff.mnemonicprefix=false", ...command],
+    cwd,
+  );
+
+  return {
+    baseCommit,
+    headCommit,
+    diff: parseDiff(raw.stdout, raw.diagnostics),
+  };
 }
 
 export async function getBranchDiff(baseRef?: string, cwd?: string): Promise<BranchDiffResult> {
@@ -114,25 +137,6 @@ export async function resolveDefaultBranchRef(cwd?: string): Promise<string> {
   );
 }
 
-export async function getResolvedCommitDiff(commit: string, cwd?: string): Promise<DiffResult> {
-  const raw = await collectGitDiff(
-    [
-      "-c",
-      "diff.noprefix=false",
-      "-c",
-      "diff.mnemonicprefix=false",
-      "show",
-      "--format=",
-      "--diff-merges=first-parent",
-      "--stat",
-      "--patch",
-      commit,
-    ],
-    cwd,
-  );
-  return parseDiff(raw.stdout, raw.diagnostics);
-}
-
 export async function resolveCommitRef(ref: string, cwd?: string): Promise<string> {
   const trimmed = ref.trim();
   if (trimmed === "") {
@@ -151,7 +155,7 @@ export async function resolveCommitRef(ref: string, cwd?: string): Promise<strin
   }
 }
 
-export async function resolveFirstParent(commit: string, cwd?: string): Promise<string | null> {
+async function resolveFirstParent(commit: string, cwd?: string): Promise<string | null> {
   const { stdout } = await execa(
     "git",
     ["rev-list", "--parents", "-n", "1", commit],

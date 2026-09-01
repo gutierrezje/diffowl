@@ -3,12 +3,10 @@ import picomatch from "picomatch";
 import { getProjectRoot, type DiffOwlConfig, type ReviewContextDepth } from "../config.js";
 import {
   getBranchDiff,
-  getResolvedCommitDiff,
+  getCommitComparison,
   getStagedDiff,
   parseCombinedDiffLine,
   parseGitDiffLine,
-  resolveCommitRef,
-  resolveFirstParent,
   unescapePath,
   type DiffFile,
   type DiffResult,
@@ -99,27 +97,27 @@ export async function loadReviewSnapshot(
         source: createGitContextSource(root, { kind: "staged" }),
       };
     case "commit": {
-      const sha = await resolveCommitRef(target.ref, root);
+      const comparison = await getCommitComparison(target.ref, root);
       return {
         root,
         target,
-        baseCommit: await resolveFirstParent(sha, root),
+        baseCommit: comparison.baseCommit,
         mergeBaseCommit: null,
-        targetCommit: sha,
-        diff: await getResolvedCommitDiff(sha, root),
-        source: createGitContextSource(root, { kind: "commit", sha }),
+        targetCommit: comparison.headCommit,
+        diff: comparison.diff,
+        source: createGitContextSource(root, { kind: "commit", sha: comparison.headCommit }),
       };
     }
     case "last-commit": {
-      const sha = await resolveCommitRef("HEAD", root);
+      const comparison = await getCommitComparison("HEAD", root);
       return {
         root,
         target,
-        baseCommit: await resolveFirstParent(sha, root),
+        baseCommit: comparison.baseCommit,
         mergeBaseCommit: null,
-        targetCommit: sha,
-        diff: await getResolvedCommitDiff(sha, root),
-        source: createGitContextSource(root, { kind: "commit", sha }),
+        targetCommit: comparison.headCommit,
+        diff: comparison.diff,
+        source: createGitContextSource(root, { kind: "commit", sha: comparison.headCommit }),
       };
     }
     case "base": {
