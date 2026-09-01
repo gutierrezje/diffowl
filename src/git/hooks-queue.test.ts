@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
@@ -66,6 +66,34 @@ describe("isHookQueueStopFailure", () => {
 });
 
 describe("runPendingHookReviews", () => {
+  it("reviews untouched commits before retrying older failures", async () => {
+    const root = await createHookStatusRoot();
+    process.chdir(root);
+    const dir = join(root, ".diffowl");
+    await enqueuePendingReview(dir, "failed-a");
+    await writeFile(
+      join(dir, "pending-reviews", "failed-a.result.json"),
+      JSON.stringify({
+        commit: "failed-a",
+        exitCode: 1,
+        timestamp: new Date().toISOString(),
+        message: "Review timed out after 900s",
+      }),
+      "utf-8",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    await enqueuePendingReview(dir, "fresh-b");
+
+    const review = createReviewProcess("Review timed out after 900s");
+
+    await runPendingHookReviews({ reviewProcess: review.process });
+
+    expect(review.commits).toEqual(["fresh-b", "failed-a"]);
+    const log = await readFile(join(dir, "hook.log"), "utf-8");
+    expect(log).toContain("reviewing queued commit fresh-b (first attempt)");
+    expect(log).toContain("reviewing queued commit failed-a (retry)");
+  });
+
   it("stops processing after a quota failure instead of retrying the whole queue", async () => {
     const root = await createHookStatusRoot();
     process.chdir(root);

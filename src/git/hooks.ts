@@ -131,6 +131,13 @@ const HookFailureSchema = z.object({
 });
 const PendingReviewSchema = z.object({ sha: z.string(), queuedAt: z.string() });
 
+export interface PendingReview {
+  sha: string;
+  queuedAt: string;
+  path: string;
+  attempt: "first-attempt" | "retry";
+}
+
 export interface HookReviewProcessRequest {
   command: string;
   args: readonly string[];
@@ -422,7 +429,8 @@ export async function runPendingHookReviews(
     const outFd = openSync(logFile, "a");
     const resultPath = join(dir, "pending-reviews", `${next.sha}.result.json`);
     try {
-      writeSync(outFd, `diffowl: reviewing queued commit ${next.sha}\n`);
+      const attempt = next.attempt === "first-attempt" ? "first attempt" : "retry";
+      writeSync(outFd, `diffowl: reviewing queued commit ${next.sha} (${attempt})\n`);
       try {
         await unlink(resultPath);
       } catch {}
@@ -535,7 +543,7 @@ export async function enqueuePendingReview(dir: string, sha: string): Promise<vo
 
 export async function listPendingReviews(
   dir: string,
-): Promise<{ sha: string; queuedAt: string; path: string }[]> {
+): Promise<PendingReview[]> {
   const pendingDir = join(dir, "pending-reviews");
   let files: string[];
   try {
@@ -544,10 +552,10 @@ export async function listPendingReviews(
     return [];
   }
 
+  const resultFiles = new Set(files.filter((file) => file.endsWith(".result.json")));
   const markerFiles = new Set(files.filter((file) => !file.endsWith(".result.json")));
   await Promise.all(
-    files
-      .filter((file) => file.endsWith(".result.json"))
+    [...resultFiles]
       .filter((file) => !markerFiles.has(file.slice(0, -".result.json".length)))
       .map((file) => unlink(join(pendingDir, file)).catch(() => {})),
   );
@@ -558,7 +566,12 @@ export async function listPendingReviews(
       try {
         const parsed = PendingReviewSchema.safeParse(JSON.parse(await readFile(path, "utf-8")));
         if (!parsed.success) return undefined;
-        return { sha: parsed.data.sha, queuedAt: parsed.data.queuedAt, path };
+        return {
+          sha: parsed.data.sha,
+          queuedAt: parsed.data.queuedAt,
+          path,
+          attempt: resultFiles.has(`${file}.result.json`) ? "retry" : "first-attempt",
+        } satisfies PendingReview;
       } catch {
         return undefined;
       }
@@ -567,7 +580,10 @@ export async function listPendingReviews(
 
   return pending
     .filter((item): item is NonNullable<typeof item> => item !== undefined)
-    .sort((a, b) => a.queuedAt.localeCompare(b.queuedAt));
+    .sort((a, b) => {
+      if (a.attempt !== b.attempt) return a.attempt === "first-attempt" ? -1 : 1;
+      return a.queuedAt.localeCompare(b.queuedAt) || a.sha.localeCompare(b.sha);
+    });
 }
 
 async function getHeadCommit(): Promise<string> {
