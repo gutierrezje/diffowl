@@ -41,6 +41,7 @@ describe("checker document contract", () => {
       kind: "valid",
       ledger: {
         schemaVersion: 1,
+        completion: { kind: "validated" },
         operation: input.operation,
         outcomes: [
           {
@@ -83,11 +84,16 @@ describe("checker document contract", () => {
       issues: [{ message: "missing outcome for fnd_beta" }],
       userMessage: expect.stringContaining("- outcomes: missing outcome for fnd_beta"),
     });
-    expect(decideCheckerAttempt({ input, value: incomplete, attempt: 3 })).toEqual({
+    const exhausted = decideCheckerAttempt({ input, value: incomplete, attempt: 3 });
+    expect(exhausted).toEqual({
       kind: "uncertain",
-      issues: [{ locator: "outcomes", message: "missing outcome for fnd_beta" }],
       ledger: {
         schemaVersion: 1,
+        completion: {
+          kind: "retry-exhausted",
+          attempts: 3,
+          issues: [{ locator: "outcomes", message: "missing outcome for fnd_beta" }],
+        },
         operation: input.operation,
         outcomes: [
           {
@@ -105,6 +111,17 @@ describe("checker document contract", () => {
         ],
       },
     });
+    if (exhausted.kind !== "uncertain") throw new Error("expected exhausted checker decision");
+    if (exhausted.ledger.completion.kind !== "retry-exhausted") {
+      throw new Error("expected retry exhaustion in checker ledger");
+    }
+    expect(Object.isFrozen(exhausted.ledger.completion)).toBe(true);
+    expect(Object.isFrozen(exhausted.ledger.completion.issues)).toBe(true);
+    expect(Object.isFrozen(exhausted.ledger.completion.issues[0])).toBe(true);
+    expect(selectPublishedFindingIds("confirmed-only", exhausted.ledger)).toEqual([
+      "fnd_alpha",
+      "fnd_beta",
+    ]);
   });
 
   it("keeps every outcome while confirmed-only publishes only confirmed findings", () => {
@@ -172,6 +189,49 @@ describe("checker document contract", () => {
     });
 
     expect(input.claims).toEqual([withoutEvidence]);
+  });
+
+  it("keeps checker input deeply readonly and immutable", () => {
+    const input = createCheckerInput({
+      operation: capturedOperation(),
+      claims: [
+        {
+          ...claim("fnd_alpha", "First claim"),
+          deterministicEvidence: [
+            {
+              kind: "contradicts",
+              source: "typecheck",
+              summary: "The cited symbol does not exist.",
+            },
+          ],
+        },
+      ],
+    });
+    const assertMutationsAreRejected = (checkerInput: CheckerInput) => {
+      // @ts-expect-error The captured review identity is immutable after construction.
+      checkerInput.operation.input.diffHash = "tampered-diff-hash";
+      // @ts-expect-error The claim set is immutable after construction.
+      checkerInput.claims[0].findingId = "fnd_tampered";
+      // @ts-expect-error Deterministic evidence is immutable after construction.
+      checkerInput.claims[0].deterministicEvidence.push({
+        kind: "supports",
+        source: "forged",
+        summary: "This evidence was added after dispatch.",
+      });
+    };
+    expectTypeOf(assertMutationsAreRejected).toBeFunction();
+
+    expect(Object.isFrozen(input)).toBe(true);
+    expect(Object.isFrozen(input.operation)).toBe(true);
+    expect(Object.isFrozen(input.operation.input)).toBe(true);
+    expect(Object.isFrozen(input.claims)).toBe(true);
+    expect(Object.isFrozen(input.claims[0])).toBe(true);
+    expect(Object.isFrozen(input.claims[0]?.deterministicEvidence)).toBe(true);
+    expect(Object.isFrozen(input.claims[0]?.deterministicEvidence[0])).toBe(true);
+    expect(Reflect.set(input.operation.input, "diffHash", "tampered-diff-hash")).toBe(false);
+    expect(Reflect.set(input.claims[0] ?? {}, "findingId", "fnd_tampered")).toBe(false);
+    expect(input.operation.input.diffHash).toBe("diff-hash");
+    expect(input.claims[0]?.findingId).toBe("fnd_alpha");
   });
 
   it("does not produce a publishable ledger for unknown or duplicate finding ids", () => {
@@ -276,10 +336,13 @@ describe("checker document contract", () => {
       ledger.outcomes[0].findingId = "fnd_tampered";
       // @ts-expect-error Accepted evidence is immutable.
       ledger.outcomes[0].evidence.push("tampered evidence");
+      // @ts-expect-error Completion state is immutable.
+      ledger.completion.kind = "retry-exhausted";
     };
     expectTypeOf(assertMutationsAreRejected).toBeFunction();
 
     expect(Object.isFrozen(inspection.ledger)).toBe(true);
+    expect(Object.isFrozen(inspection.ledger.completion)).toBe(true);
     expect(Object.isFrozen(inspection.ledger.operation)).toBe(true);
     expect(Object.isFrozen(inspection.ledger.operation.input)).toBe(true);
     expect(Object.isFrozen(inspection.ledger.outcomes)).toBe(true);

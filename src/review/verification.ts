@@ -120,19 +120,26 @@ export const CheckerDocumentSchema = z
   })
   .strict();
 
-export type CheckerInput = z.output<typeof CheckerInputSchema>;
-type CheckerDocument = z.output<typeof CheckerDocumentSchema>;
-export type CheckerPublicationPolicy = z.output<typeof CheckerPublicationPolicySchema>;
 type Primitive = string | number | boolean | bigint | symbol | null | undefined;
 type DeepReadonly<T> = T extends Primitive
   ? T
   : T extends readonly (infer Item)[]
     ? readonly DeepReadonly<Item>[]
     : { readonly [Key in keyof T]: DeepReadonly<T[Key]> };
+export type CheckerInput = DeepReadonly<z.output<typeof CheckerInputSchema>>;
+type CheckerDocument = z.output<typeof CheckerDocumentSchema>;
+export type CheckerPublicationPolicy = z.output<typeof CheckerPublicationPolicySchema>;
 const checkerLedgerBrand: unique symbol = Symbol("CheckerLedger");
 export interface CheckerLedger {
   readonly [checkerLedgerBrand]: true;
   readonly schemaVersion: typeof CHECKER_DOCUMENT_SCHEMA_VERSION;
+  readonly completion:
+    | { readonly kind: "validated" }
+    | {
+        readonly kind: "retry-exhausted";
+        readonly attempts: number;
+        readonly issues: readonly DeepReadonly<SchemaIssue>[];
+      };
   readonly operation: DeepReadonly<CheckerInput["operation"]>;
   readonly outcomes: DeepReadonly<CheckerDocument["outcomes"]>;
 }
@@ -152,7 +159,6 @@ export type CheckerAttemptDecision =
     }
   | {
       kind: "uncertain";
-      issues: readonly SchemaIssue[];
       ledger: CheckerLedger;
     };
 
@@ -160,7 +166,7 @@ export function createCheckerInput(input: {
   operation: CapturedReviewOperation;
   claims: z.input<typeof CheckerClaimSchema>[];
 }): CheckerInput {
-  return CheckerInputSchema.parse({
+  const parsed = CheckerInputSchema.parse({
     schemaVersion: CHECKER_INPUT_SCHEMA_VERSION,
     operation: {
       id: input.operation.id,
@@ -168,6 +174,26 @@ export function createCheckerInput(input: {
       contextManifestSha256: input.operation.contextManifestSha256,
     },
     claims: input.claims,
+  });
+  const operation: CheckerInput["operation"] = Object.freeze({
+    id: parsed.operation.id,
+    input: Object.freeze({ ...parsed.operation.input }),
+    contextManifestSha256: parsed.operation.contextManifestSha256,
+  });
+  const claims: CheckerInput["claims"] = Object.freeze(
+    parsed.claims.map((claim) =>
+      Object.freeze({
+        ...claim,
+        deterministicEvidence: Object.freeze(
+          claim.deterministicEvidence.map((evidence) => Object.freeze({ ...evidence })),
+        ),
+      }),
+    ),
+  );
+  return Object.freeze({
+    schemaVersion: parsed.schemaVersion,
+    operation,
+    claims,
   });
 }
 
@@ -220,6 +246,7 @@ export function inspectCheckerDocument(
           (orderByFindingId.get(left.findingId) ?? Number.MAX_SAFE_INTEGER) -
           (orderByFindingId.get(right.findingId) ?? Number.MAX_SAFE_INTEGER),
       ),
+      { kind: "validated" },
     ),
   };
 }
@@ -244,7 +271,6 @@ export function decideCheckerAttempt(input: {
       }
       return {
         kind: "uncertain",
-        issues: inspection.issues,
         ledger: createCheckerLedger(
           input.input.operation,
           input.input.claims.map((claim) => ({
@@ -253,6 +279,11 @@ export function decideCheckerAttempt(input: {
             evidence: [],
             rationale: `Checker output remained invalid after ${input.attempt} attempts.`,
           })),
+          {
+            kind: "retry-exhausted",
+            attempts: input.attempt,
+            issues: inspection.issues,
+          },
         ),
       };
     }
@@ -269,6 +300,9 @@ export function selectPublishedFindingIds(
 ): FindingId[] {
   if (!Object.hasOwn(ledger, checkerLedgerBrand) || !validatedCheckerLedgers.has(ledger)) {
     throw new Error("Checker ledger was not produced by validation.");
+  }
+  if (ledger.completion.kind === "retry-exhausted") {
+    return ledger.outcomes.map((outcome) => outcome.findingId);
   }
 
   switch (policy) {
@@ -288,6 +322,7 @@ export function selectPublishedFindingIds(
 function createCheckerLedger(
   operation: CheckerInput["operation"],
   outcomes: readonly CheckerDocument["outcomes"][number][],
+  completion: CheckerLedger["completion"],
 ): CheckerLedger {
   const frozenOperation: CheckerLedger["operation"] = Object.freeze({
     id: operation.id,
@@ -305,6 +340,7 @@ function createCheckerLedger(
   const ledger: CheckerLedger = {
     [checkerLedgerBrand]: true,
     schemaVersion: CHECKER_DOCUMENT_SCHEMA_VERSION,
+    completion: freezeCheckerCompletion(completion),
     operation: frozenOperation,
     outcomes: frozenOutcomes,
   };
@@ -312,6 +348,25 @@ function createCheckerLedger(
   const frozenLedger = Object.freeze(ledger);
   validatedCheckerLedgers.add(frozenLedger);
   return frozenLedger;
+}
+
+function freezeCheckerCompletion(
+  completion: CheckerLedger["completion"],
+): CheckerLedger["completion"] {
+  switch (completion.kind) {
+    case "validated":
+      return Object.freeze({ kind: completion.kind });
+    case "retry-exhausted":
+      return Object.freeze({
+        kind: completion.kind,
+        attempts: completion.attempts,
+        issues: Object.freeze(completion.issues.map((issue) => Object.freeze({ ...issue }))),
+      });
+    default: {
+      const _exhaustive: never = completion;
+      return _exhaustive;
+    }
+  }
 }
 
 function formatCheckerRetryPrompt(issues: readonly SchemaIssue[]): string {
