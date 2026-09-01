@@ -123,7 +123,7 @@ export async function getResolvedCommitDiff(commit: string, cwd?: string): Promi
       "diff.mnemonicprefix=false",
       "show",
       "--format=",
-      "--diff-merges=combined",
+      "--diff-merges=first-parent",
       "--stat",
       "--patch",
       commit,
@@ -149,6 +149,16 @@ export async function resolveCommitRef(ref: string, cwd?: string): Promise<strin
   } catch {
     throw new Error(`Invalid commit ref: ${ref}`);
   }
+}
+
+export async function resolveFirstParent(commit: string, cwd?: string): Promise<string | null> {
+  const { stdout } = await execa(
+    "git",
+    ["rev-list", "--parents", "-n", "1", commit],
+    cwd ? { cwd } : {},
+  );
+  const [, firstParent] = stdout.trim().split(/\s+/);
+  return firstParent ?? null;
 }
 
 export interface StagedDiffOptions {

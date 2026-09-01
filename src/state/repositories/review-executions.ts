@@ -12,6 +12,7 @@ import {
 import { ReasoningVariantSchema } from "../../review/reasoning.js";
 import {
   completeReviewExecutionProvenance,
+  LegacyReviewInputIdentitySchema,
   REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION,
   ReviewExecutionRuntimeProvenanceSchema,
   ReviewInputIdentitySchema,
@@ -42,6 +43,7 @@ const ReviewExecutionRowSchema = z.object({
   schemaVersion: z.union([
     z.literal(1),
     z.literal(2),
+    z.literal(3),
     z.literal(REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION),
   ]),
   targetKind: z.enum(["staged", "commit", "last-commit", "base"]),
@@ -229,17 +231,18 @@ function mapReviewExecutionRow(
     return { ...recordIdentity, ...runtime, schemaVersion: row.schemaVersion };
   }
 
-  const input = ReviewInputIdentitySchema.safeParse({
+  const rawInput = {
     targetKind: row.targetKind,
     baseCommit: row.baseCommit,
     mergeBaseCommit: row.mergeBaseCommit,
     headCommit: row.headCommit,
     diffHash: row.diffHash,
-  });
-  if (!input.success) {
-    throw new StateDatabaseError(`${owner} contains invalid input identity.`);
-  }
+  };
   if (row.schemaVersion === 2) {
+    const input = LegacyReviewInputIdentitySchema.safeParse(rawInput);
+    if (!input.success) {
+      throw new StateDatabaseError(`${owner} contains invalid input identity.`);
+    }
     return {
       ...recordIdentity,
       ...runtime,
@@ -254,6 +257,25 @@ function mapReviewExecutionRow(
   const currentRuntime = ReviewExecutionRuntimeProvenanceSchema.safeParse(runtime);
   if (!currentRuntime.success) {
     throw new StateDatabaseError(`${owner} contains invalid current execution provenance.`);
+  }
+
+  if (row.schemaVersion === 3) {
+    const input = LegacyReviewInputIdentitySchema.safeParse(rawInput);
+    if (!input.success) {
+      throw new StateDatabaseError(`${owner} contains invalid input identity.`);
+    }
+    return {
+      ...recordIdentity,
+      ...currentRuntime.data,
+      schemaVersion: row.schemaVersion,
+      input: input.data,
+      contextManifestSha256: row.contextManifestSha256,
+    };
+  }
+
+  const input = ReviewInputIdentitySchema.safeParse(rawInput);
+  if (!input.success) {
+    throw new StateDatabaseError(`${owner} contains invalid input identity.`);
   }
 
   return {

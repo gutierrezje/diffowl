@@ -76,6 +76,33 @@ describe("captureReviewOperation", () => {
     expect(second.contextManifestSha256).not.toBe(first.contextManifestSha256);
   });
 
+  it("captures the parent used for a commit comparison", () => {
+    const selectedSnapshot = {
+      ...snapshot(),
+      target: { kind: "commit", ref: "merge-head" } as const,
+      baseCommit: "first-parent",
+      mergeBaseCommit: null,
+      targetCommit: "merge-head",
+    };
+    const reviewContext = {
+      ...context(),
+      target: selectedSnapshot.target,
+    };
+
+    const operation = captureReviewOperation({
+      snapshot: selectedSnapshot,
+      context: reviewContext,
+      renderedContext: { text: "rendered local context", degradations: [] },
+    });
+
+    expect(operation.input).toMatchObject({
+      targetKind: "commit",
+      baseCommit: "first-parent",
+      mergeBaseCommit: null,
+      headCommit: "merge-head",
+    });
+  });
+
   it("records every render-time truncation in the captured context manifest", () => {
     const reviewContext = context();
     reviewContext.depth = "shallow";

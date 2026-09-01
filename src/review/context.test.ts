@@ -151,15 +151,22 @@ describe("buildReviewContext", () => {
     await writeFile(join(root, "example.ts"), 'export const value = "resolved";\n', "utf-8");
     await commitAll(root, "resolve merge");
     const { stdout: mergeCommit } = await execa("git", ["rev-parse", "HEAD"], { cwd: root });
+    const { stdout: firstParent } = await execa("git", ["rev-parse", "HEAD^1"], { cwd: root });
 
     process.chdir(root);
-    const context = await buildReviewContext(
-      { kind: "commit", ref: mergeCommit.trim() },
+    const snapshot = await loadReviewSnapshot(root, {
+      kind: "commit",
+      ref: mergeCommit.trim(),
+    });
+    const context = await buildReviewContextFromDiff(
+      snapshot,
       config,
       "shallow",
     );
     const rendered = renderReviewContext(context);
 
+    expect(snapshot.baseCommit).toBe(firstParent.trim());
+    expect(snapshot.targetCommit).toBe(mergeCommit.trim());
     expect(context.diff.files).toContainEqual(
       expect.objectContaining({ path: "example.ts", status: "modified" }),
     );
@@ -169,6 +176,30 @@ describe("buildReviewContext", () => {
     );
     expect(rendered).toMatch(/\+{1,2}export const value = "resolved";/);
     expect(rendered).toContain("Changed AST symbols");
+  });
+
+  it("keeps first-parent source changes when a merge conflict only touches an ignored lockfile", async () => {
+    const root = await createGitRepository();
+    await writeFile(join(root, "pnpm-lock.yaml"), "base\n", "utf-8");
+    await commitAll(root, "base");
+    await execa("git", ["switch", "-c", "feature"], { cwd: root });
+    await writeFile(join(root, "pnpm-lock.yaml"), "feature\n", "utf-8");
+    await writeFile(join(root, "feature-only.ts"), "export const feature = true;\n", "utf-8");
+    await commitAll(root, "feature");
+    await execa("git", ["switch", "main"], { cwd: root });
+    await writeFile(join(root, "pnpm-lock.yaml"), "main\n", "utf-8");
+    await writeFile(join(root, "main-only.ts"), "export const fromMain = true;\n", "utf-8");
+    await commitAll(root, "main");
+    await execa("git", ["switch", "feature"], { cwd: root });
+    await expect(execa("git", ["merge", "main"], { cwd: root })).rejects.toThrow();
+    await writeFile(join(root, "pnpm-lock.yaml"), "resolved\n", "utf-8");
+    await commitAll(root, "resolve merge");
+
+    process.chdir(root);
+    const context = await buildReviewContext({ kind: "commit", ref: "HEAD" }, config, "shallow");
+
+    expect(context.changedFiles.map((file) => file.file.path)).toEqual(["main-only.ts"]);
+    expect(context.skippedFiles.map((file) => file.path)).toEqual(["pnpm-lock.yaml"]);
   });
 
   it("renders synthetic diff --combined sections", async () => {

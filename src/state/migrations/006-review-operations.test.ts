@@ -189,7 +189,7 @@ describe("review operation schema migration", () => {
           backend: "codex",
           requestedModel: "gpt-5.6-luna",
           effectiveModel: "gpt-5.6-luna",
-          schemaVersion: 3,
+          schemaVersion: 4,
         }),
       ]);
     } finally {
@@ -456,7 +456,7 @@ async function persistCompletedReview(
 
 function expectMigrationVersions(db: Awaited<ReturnType<typeof openSqliteDatabase>>): void {
   expect(db.prepare("SELECT version FROM schema_migrations ORDER BY version ASC").all()).toEqual(
-    [1, 2, 3, 4, 5, 6].map((version) => ({ version })),
+    [1, 2, 3, 4, 5, 6, 7].map((version) => ({ version })),
   );
 }
 

@@ -8,6 +8,7 @@ import {
   parseCombinedDiffLine,
   parseGitDiffLine,
   resolveCommitRef,
+  resolveFirstParent,
   unescapePath,
   type DiffFile,
   type DiffResult,
@@ -102,7 +103,7 @@ export async function loadReviewSnapshot(
       return {
         root,
         target,
-        baseCommit: null,
+        baseCommit: await resolveFirstParent(sha, root),
         mergeBaseCommit: null,
         targetCommit: sha,
         diff: await getResolvedCommitDiff(sha, root),
@@ -114,7 +115,7 @@ export async function loadReviewSnapshot(
       return {
         root,
         target,
-        baseCommit: null,
+        baseCommit: await resolveFirstParent(sha, root),
         mergeBaseCommit: null,
         targetCommit: sha,
         diff: await getResolvedCommitDiff(sha, root),

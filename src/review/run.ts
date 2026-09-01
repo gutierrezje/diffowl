@@ -39,6 +39,7 @@ import type { ReviewTarget } from "./target.js";
 import {
   captureReviewOperation,
   createUnavailableContextReviewOperation,
+  type ReviewOperation,
 } from "./operation.js";
 import { ReviewExecutionFailureSchema } from "./errors.js";
 import { reasoningVariant } from "./reasoning.js";
@@ -281,12 +282,15 @@ export async function runReviewPipeline(
   const writeStart = performance.now();
   let reportPath: string;
   try {
-    reportPath = await deps.writeMarkdownReport(markdown, {
-      schema_version: REPORT_SCHEMA_VERSION,
-      review_id: persisted.reviewId,
-      session_id: reviewResult.sessionId,
-      project_root: input.projectRoot,
-    });
+    reportPath = await deps.writeMarkdownReport(
+      markdown,
+      buildReportMetadata({
+        operation,
+        reviewId: persisted.reviewId,
+        sessionId: reviewResult.sessionId,
+        projectRoot: input.projectRoot,
+      }),
+    );
     await deps.updatePersistedReview(input.diffOwlDir, persisted.reviewId, { reportPath, diagnostics });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -379,7 +383,15 @@ export async function runReviewSkipChecks(
     skippedReason: "documentation-only",
   });
   try {
-    const reportPath = await deps.writeMarkdownReport(buildDocOnlySkipMarkdown(diff));
+    const reportPath = await deps.writeMarkdownReport(
+      buildDocOnlySkipMarkdown(diff),
+      buildReportMetadata({
+        operation,
+        reviewId: persisted.reviewId,
+        sessionId: "",
+        projectRoot: input.projectRoot,
+      }),
+    );
     await deps.updatePersistedReview(input.diffOwlDir, persisted.reviewId, { reportPath });
     return { kind: "skipped", reason: "documentation-only", persisted, reportPath, timings };
   } catch (err) {
@@ -390,6 +402,27 @@ export async function runReviewSkipChecks(
     });
     throw err;
   }
+}
+
+function buildReportMetadata(input: {
+  operation: ReviewOperation;
+  reviewId: string;
+  sessionId: string;
+  projectRoot: string;
+}): NonNullable<Parameters<typeof writeMarkdownReport>[1]> {
+  return {
+    schema_version: REPORT_SCHEMA_VERSION,
+    review_id: input.reviewId,
+    session_id: input.sessionId,
+    project_root: input.projectRoot,
+    target: {
+      kind: input.operation.input.targetKind,
+      ref: input.operation.targetRef,
+      base_commit: input.operation.input.baseCommit,
+      merge_base_commit: input.operation.input.mergeBaseCommit,
+      commit: input.operation.input.headCommit,
+    },
+  };
 }
 
 export function buildDocOnlySkipMarkdown(diff: {

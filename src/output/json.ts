@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ReviewFinding, ReviewTiming, ReviewUsage } from "../review/types.js";
 import type { ReviewSelection } from "../review/backend-selection.js";
 import type {
+  LegacyReviewInputIdentity,
   ReviewExecutionProvenance,
   ReviewInputIdentity,
 } from "../review/provenance.js";
@@ -16,7 +17,7 @@ import type {
   ReviewTargetKind,
 } from "../state/types.js";
 
-export const JSON_OUTPUT_SCHEMA_VERSION = 6 as const;
+export const JSON_OUTPUT_SCHEMA_VERSION = 7 as const;
 
 const ReviewOutputFormatSchema = z.preprocess(
   (value) => (value === undefined ? "text" : value),
@@ -95,6 +96,16 @@ export type ReviewJsonInputIdentityV1 =
       diff_hash: string;
     };
 
+export type ReviewJsonInputIdentityV2 =
+  | Exclude<ReviewJsonInputIdentityV1, { target_kind: "commit" | "last-commit" }>
+  | {
+      target_kind: "commit" | "last-commit";
+      base_commit: string | null;
+      merge_base_commit: null;
+      head_commit: string;
+      diff_hash: string;
+    };
+
 export interface ReviewJsonExecutionV2 extends Omit<ReviewJsonExecutionV1, "schema_version"> {
   schema_version: 2;
   input: ReviewJsonInputIdentityV1;
@@ -105,7 +116,13 @@ export interface ReviewJsonExecutionV3 extends Omit<ReviewJsonExecutionV2, "sche
   context_manifest_sha256: string;
 }
 
-export interface ReviewJsonDocumentV6 {
+export interface ReviewJsonExecutionV4
+  extends Omit<ReviewJsonExecutionV3, "schema_version" | "input"> {
+  schema_version: 4;
+  input: ReviewJsonInputIdentityV2;
+}
+
+export interface ReviewJsonDocumentV7 {
   schema_version: typeof JSON_OUTPUT_SCHEMA_VERSION;
   review: {
     id: string;
@@ -123,7 +140,12 @@ export interface ReviewJsonDocumentV6 {
     requested_model: string;
     effective_model: string | null;
     preference_source: ReviewSelection["source"];
-    execution: ReviewJsonExecutionV1 | ReviewJsonExecutionV2 | ReviewJsonExecutionV3 | null;
+    execution:
+      | ReviewJsonExecutionV1
+      | ReviewJsonExecutionV2
+      | ReviewJsonExecutionV3
+      | ReviewJsonExecutionV4
+      | null;
     reasoning: ReviewRecord["reasoning"];
     depth: string;
     session_id: string;
@@ -172,14 +194,14 @@ export function parseReviewOutputFormat(
   throw new Error(`Invalid output format: ${String(value)}. Expected text or json.`);
 }
 
-export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJsonDocumentV6 {
+export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJsonDocumentV7 {
   const observations = selectJsonObservations(
     input.persisted.reconcile.observations,
     input.verbose,
   );
   const untracked = untrackedActionableFindings(input.persisted.actionableFindings);
 
-  const document: ReviewJsonDocumentV6 = {
+  const document: ReviewJsonDocumentV7 = {
     schema_version: JSON_OUTPUT_SCHEMA_VERSION,
     review: {
       id: input.review.id,
@@ -224,7 +246,7 @@ export function buildReviewJsonDocument(input: BuildReviewJsonInput): ReviewJson
   return document;
 }
 
-export function renderReviewJsonDocument(document: ReviewJsonDocumentV6): string {
+export function renderReviewJsonDocument(document: ReviewJsonDocumentV7): string {
   return `${JSON.stringify(document)}\n`;
 }
 
@@ -236,13 +258,13 @@ export function renderJsonErrorDocument(message: string): string {
   return `${JSON.stringify(document)}\n`;
 }
 
-export async function writeReviewJsonSuccess(document: ReviewJsonDocumentV6): Promise<void> {
+export async function writeReviewJsonSuccess(document: ReviewJsonDocumentV7): Promise<void> {
   await writeFully(process.stdout, renderReviewJsonDocument(document));
 }
 
 function mapJsonExecution(
   execution: ReviewExecutionProvenance,
-): ReviewJsonExecutionV1 | ReviewJsonExecutionV2 | ReviewJsonExecutionV3 {
+): ReviewJsonExecutionV1 | ReviewJsonExecutionV2 | ReviewJsonExecutionV3 | ReviewJsonExecutionV4 {
   const common = {
     cohort_id: execution.cohortId,
     reviewer_id: execution.reviewerId,
@@ -267,6 +289,14 @@ function mapJsonExecution(
       input: mapJsonInputIdentity(execution.input),
     };
   }
+  if (execution.schemaVersion === 3) {
+    return {
+      ...common,
+      schema_version: execution.schemaVersion,
+      input: mapJsonInputIdentity(execution.input),
+      context_manifest_sha256: execution.contextManifestSha256,
+    };
+  }
   return {
     ...common,
     schema_version: execution.schemaVersion,
@@ -275,7 +305,9 @@ function mapJsonExecution(
   };
 }
 
-function mapJsonInputIdentity(input: ReviewInputIdentity): ReviewJsonInputIdentityV1 {
+function mapJsonInputIdentity(input: LegacyReviewInputIdentity): ReviewJsonInputIdentityV1;
+function mapJsonInputIdentity(input: ReviewInputIdentity): ReviewJsonInputIdentityV2;
+function mapJsonInputIdentity(input: ReviewInputIdentity): ReviewJsonInputIdentityV2 {
   switch (input.targetKind) {
     case "staged":
       return {

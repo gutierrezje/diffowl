@@ -14,7 +14,7 @@ import {
 } from "./reasoning.js";
 import type { ReviewTarget } from "./target.js";
 
-export const REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION = 3 as const;
+export const REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION = 4 as const;
 
 export type ReviewRole = "single" | "proposer" | "checker";
 
@@ -80,37 +80,54 @@ interface LegacyReviewExecutionRuntimeProvenance {
   terminalOutcome: "completed" | "cancelled" | "timed-out" | "failed";
 }
 
+const StagedReviewInputIdentitySchema = z
+  .object({
+    targetKind: z.literal("staged"),
+    baseCommit: z.null(),
+    mergeBaseCommit: z.null(),
+    headCommit: z.null(),
+    diffHash: z.string(),
+  })
+  .strict();
+
+const LegacyCommitReviewInputIdentitySchema = z
+  .object({
+    targetKind: z.enum(["commit", "last-commit"]),
+    baseCommit: z.null(),
+    mergeBaseCommit: z.null(),
+    headCommit: z.string(),
+    diffHash: z.string(),
+  })
+  .strict();
+
+const CommitReviewInputIdentitySchema = LegacyCommitReviewInputIdentitySchema.extend({
+  baseCommit: z.string().nullable(),
+});
+
+const BaseReviewInputIdentitySchema = z
+  .object({
+    targetKind: z.literal("base"),
+    baseCommit: z.string(),
+    mergeBaseCommit: z.string(),
+    headCommit: z.string(),
+    diffHash: z.string(),
+  })
+  .strict();
+
+export const LegacyReviewInputIdentitySchema = z.discriminatedUnion("targetKind", [
+  StagedReviewInputIdentitySchema,
+  LegacyCommitReviewInputIdentitySchema,
+  BaseReviewInputIdentitySchema,
+]);
+
 export const ReviewInputIdentitySchema = z.discriminatedUnion("targetKind", [
-  z
-    .object({
-      targetKind: z.literal("staged"),
-      baseCommit: z.null(),
-      mergeBaseCommit: z.null(),
-      headCommit: z.null(),
-      diffHash: z.string(),
-    })
-    .strict(),
-  z
-    .object({
-      targetKind: z.enum(["commit", "last-commit"]),
-      baseCommit: z.null(),
-      mergeBaseCommit: z.null(),
-      headCommit: z.string(),
-      diffHash: z.string(),
-    })
-    .strict(),
-  z
-    .object({
-      targetKind: z.literal("base"),
-      baseCommit: z.string(),
-      mergeBaseCommit: z.string(),
-      headCommit: z.string(),
-      diffHash: z.string(),
-    })
-    .strict(),
+  StagedReviewInputIdentitySchema,
+  CommitReviewInputIdentitySchema,
+  BaseReviewInputIdentitySchema,
 ]);
 
 export type ReviewInputIdentity = z.output<typeof ReviewInputIdentitySchema>;
+export type LegacyReviewInputIdentity = z.output<typeof LegacyReviewInputIdentitySchema>;
 
 export type ReviewExecutionProvenanceV1 = LegacyReviewExecutionRuntimeProvenance & {
   schemaVersion: 1;
@@ -118,10 +135,16 @@ export type ReviewExecutionProvenanceV1 = LegacyReviewExecutionRuntimeProvenance
 
 export type ReviewExecutionProvenanceV2 = LegacyReviewExecutionRuntimeProvenance & {
   schemaVersion: 2;
-  input: ReviewInputIdentity;
+  input: LegacyReviewInputIdentity;
 };
 
 export type ReviewExecutionProvenanceV3 = ReviewExecutionRuntimeProvenance & {
+  schemaVersion: 3;
+  input: LegacyReviewInputIdentity;
+  contextManifestSha256: string;
+};
+
+export type ReviewExecutionProvenanceV4 = ReviewExecutionRuntimeProvenance & {
   schemaVersion: typeof REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION;
   input: ReviewInputIdentity;
   contextManifestSha256: string;
@@ -130,7 +153,8 @@ export type ReviewExecutionProvenanceV3 = ReviewExecutionRuntimeProvenance & {
 export type ReviewExecutionProvenance =
   | ReviewExecutionProvenanceV1
   | ReviewExecutionProvenanceV2
-  | ReviewExecutionProvenanceV3;
+  | ReviewExecutionProvenanceV3
+  | ReviewExecutionProvenanceV4;
 
 export function createSingleReviewAssignment(
   selection: ReviewSelection,
@@ -188,7 +212,7 @@ export function createReviewInputIdentity(input: {
       }
       return {
         targetKind: input.targetKind,
-        baseCommit: null,
+        baseCommit: input.baseCommit,
         mergeBaseCommit: null,
         headCommit: input.headCommit,
         diffHash: input.diffHash,
@@ -219,7 +243,7 @@ export function completeReviewExecutionProvenance(
   runtime: ReviewExecutionRuntimeProvenance,
   input: ReviewInputIdentity,
   contextManifestSha256: string,
-): ReviewExecutionProvenanceV3 {
+): ReviewExecutionProvenanceV4 {
   return {
     ...runtime,
     schemaVersion: REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION,

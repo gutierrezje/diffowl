@@ -112,7 +112,7 @@ describe("review output persistence", () => {
           id: expect.stringMatching(/^exe_/),
           createdAt: expect.any(String),
           attemptNumber: 1,
-          schemaVersion: 3,
+          schemaVersion: 4,
           operationId: expect.stringMatching(/^op_/),
           contextManifestSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
           cohortId: null,

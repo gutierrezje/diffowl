@@ -365,17 +365,30 @@ describe("writeMarkdownReport", () => {
     process.chdir(repo);
 
     const reportPath = await writeMarkdownReport("### Summary\nAuditable report", {
-      schema_version: 1,
+      schema_version: 2,
       review_id: "rev_test",
       session_id: "ses_test",
       project_root: repo,
+      target: {
+        kind: "commit",
+        ref: "merge-head",
+        base_commit: "first-parent",
+        merge_base_commit: null,
+        commit: "merge-head",
+      },
     });
 
     await expect(readFile(reportPath, "utf-8")).resolves.toContain(`diffowl:
-  schema_version: 1
+  schema_version: 2
   review_id: rev_test
   session_id: ses_test
-  project_root: ${repo}`);
+  project_root: ${repo}
+  target:
+    kind: commit
+    ref: merge-head
+    base_commit: first-parent
+    merge_base_commit: null
+    commit: merge-head`);
   });
 
   it("writes linked-worktree reports to the primary checkout reviews directory", async () => {
@@ -384,10 +397,17 @@ describe("writeMarkdownReport", () => {
     process.chdir(worktree);
 
     const reportPath = await writeMarkdownReport("### Summary\nShared report", {
-      schema_version: 1,
+      schema_version: 2,
       review_id: "rev_test",
       session_id: "ses_test",
       project_root: worktree,
+      target: {
+        kind: "staged",
+        ref: null,
+        base_commit: null,
+        merge_base_commit: null,
+        commit: null,
+      },
     });
 
     expect(reportPath).toMatch(join(repo, ".diffowl", "reviews", "review-"));
@@ -401,10 +421,17 @@ describe("writeMarkdownReport", () => {
     await Promise.all(
       reports.map((body, index) =>
         writeMarkdownReport(`### Summary\n${body}`, {
-          schema_version: 1,
+          schema_version: 2,
           review_id: `rev_${index}`,
           session_id: `ses_${index}`,
           project_root: repo,
+          target: {
+            kind: "staged",
+            ref: null,
+            base_commit: null,
+            merge_base_commit: null,
+            commit: null,
+          },
         }),
       ),
     );

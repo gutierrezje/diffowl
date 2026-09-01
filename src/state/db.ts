@@ -8,6 +8,7 @@ import { MIGRATION_003_POSSIBLE_DUPLICATES } from "./migrations/003-possible-dup
 import { MIGRATION_004_REVIEW_EXECUTIONS } from "./migrations/004-review-executions.js";
 import { MIGRATION_005_REVIEW_INPUT_IDENTITY } from "./migrations/005-review-input-identity.js";
 import { MIGRATION_006_REVIEW_OPERATIONS } from "./migrations/006-review-operations.js";
+import { MIGRATION_007_COMMIT_COMPARISON_PARENT } from "./migrations/007-commit-comparison-parent.js";
 import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.js";
 import { CURRENT_SCHEMA_VERSION } from "./types.js";
 
@@ -20,6 +21,7 @@ const MIGRATIONS = {
   4: MIGRATION_004_REVIEW_EXECUTIONS,
   5: MIGRATION_005_REVIEW_INPUT_IDENTITY,
   6: MIGRATION_006_REVIEW_OPERATIONS,
+  7: MIGRATION_007_COMMIT_COMPARISON_PARENT,
 } satisfies Record<number, string>;
 
 const CURRENT_SCHEMA_TABLE_COLUMNS = {
