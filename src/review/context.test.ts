@@ -1703,6 +1703,8 @@ async function createGitRepository(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
   tempDirs.push(root);
   await execa("git", ["init"], { cwd: root });
+  await execa("git", ["config", "user.name", "DiffOwl Test"], { cwd: root });
+  await execa("git", ["config", "user.email", "diffowl@example.test"], { cwd: root });
   return root;
 }
 
