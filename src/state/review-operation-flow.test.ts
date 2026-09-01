@@ -43,7 +43,7 @@ describe("review operation persistence", () => {
             operationId: operation.id,
             createdAt: expect.any(String),
             attemptNumber: 1,
-            schemaVersion: 3,
+            schemaVersion: 4,
             cohortId: null,
             reviewerId: "single",
             role: "single",

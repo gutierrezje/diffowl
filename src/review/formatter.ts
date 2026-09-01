@@ -6,14 +6,22 @@ import { join } from "node:path";
 import { stringify } from "yaml";
 import type { ReviewFinding, ReviewReport } from "./types.js";
 import { getSharedDiffOwlDir } from "../git/state-root.js";
+import type { ReviewInputIdentity } from "./provenance.js";
 
-export const REPORT_SCHEMA_VERSION = 1 as const;
+export const REPORT_SCHEMA_VERSION = 2 as const;
 
 type ReviewMetadata = {
   schema_version: typeof REPORT_SCHEMA_VERSION;
   review_id: string;
   session_id: string;
   project_root: string;
+  target: {
+    kind: ReviewInputIdentity["targetKind"];
+    ref: string | null;
+    base_commit: string | null;
+    merge_base_commit: string | null;
+    commit: string | null;
+  };
 };
 
 function formatFindingHeading(index: number, finding: ReviewFinding): string {

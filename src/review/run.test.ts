@@ -144,7 +144,7 @@ function makeDeps(
       operationId: input.operation.id,
       createdAt: "2026-08-24T00:00:00.000Z",
       attemptNumber: 1,
-      schemaVersion: 3,
+      schemaVersion: 4,
       input: input.operation.input,
       contextManifestSha256: input.operation.contextManifestSha256,
       ...input.execution,
@@ -284,7 +284,12 @@ describe("runReviewSkipChecks", () => {
 
   it("persists the commit captured by a doc-only snapshot", async () => {
     const target = { kind: "commit", ref: "HEAD~1" } as const;
-    const deps = makeDeps(makeSnapshot([docFile()], target));
+    const snapshot = {
+      ...makeSnapshot([docFile()], target),
+      baseCommit: "first-parent",
+    };
+    const deps = makeDeps(snapshot);
+    vi.mocked(deps.mapReviewTarget).mockReturnValue({ targetRef: "HEAD~1" });
 
     await runReviewSkipChecks({ ...skipInput(), target }, deps);
 
@@ -297,6 +302,19 @@ describe("runReviewSkipChecks", () => {
         }),
       }),
     );
+    expect(deps.writeMarkdownReport).toHaveBeenCalledWith(expect.any(String), {
+      schema_version: 2,
+      review_id: "rev_1",
+      session_id: "",
+      project_root: "/repo",
+      target: {
+        kind: "commit",
+        ref: "HEAD~1",
+        base_commit: "first-parent",
+        merge_base_commit: null,
+        commit: "abc123",
+      },
+    });
   });
 
   it("records diagnostics and rethrows documentation-only report write failures", async () => {
@@ -367,7 +385,7 @@ describe("runReviewPipeline", () => {
     };
     const persistedExecution = {
       ...provenance,
-      schemaVersion: 3 as const,
+      schemaVersion: 4 as const,
       contextManifestSha256: "context-hash",
       input: {
         targetKind: "base" as const,
@@ -518,6 +536,31 @@ describe("runReviewPipeline", () => {
       }),
     );
     expect(deps.persistReviewExecutionAttempt).not.toHaveBeenCalled();
+  });
+
+  it("writes the exact commit comparison into report metadata", async () => {
+    const snapshot = {
+      ...makeSnapshot([codeFile()], { kind: "commit", ref: "merge-head" }),
+      baseCommit: "first-parent",
+      targetCommit: "merge-head",
+    };
+    const deps = makeDeps(snapshot);
+
+    await runReviewPipeline(skipInput(), deps);
+
+    expect(deps.writeMarkdownReport).toHaveBeenCalledWith("markdown", {
+      schema_version: 2,
+      review_id: "rev_1",
+      session_id: "session",
+      project_root: "/repo",
+      target: {
+        kind: "commit",
+        ref: "merge-head",
+        base_commit: "first-parent",
+        merge_base_commit: null,
+        commit: "merge-head",
+      },
+    });
   });
 
   it("passes the pipeline cancellation signal and status sink to its executor", async () => {
@@ -856,7 +899,7 @@ function makeOperation(snapshot: LoadedReviewSnapshot): CapturedReviewOperation 
             }
           : {
               targetKind: snapshot.target.kind,
-              baseCommit: null,
+              baseCommit: snapshot.baseCommit,
               mergeBaseCommit: null,
               headCommit: snapshot.targetCommit!,
               diffHash: "hash",

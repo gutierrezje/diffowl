@@ -109,7 +109,9 @@ diffowl review --base --format json
 diffowl review --base --fail-on-findings
 ```
 
-Branch review uses the merge base through `HEAD`, matching the committed diff in a pull request. It does not include staged or unstaged changes.
+Commit review compares the selected commit with its first parent. For a merge commit, this means the changes the merge introduced to its first-parent branch. It is not the pull-request diff.
+
+Branch review uses the merge base through `HEAD`, matching the committed diff in a pull request. Use `--base` for pull-request coverage. Neither mode includes staged or unstaged changes.
 
 ## Work with findings
 

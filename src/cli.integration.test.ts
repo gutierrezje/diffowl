@@ -353,7 +353,7 @@ describe("diffowl CLI", () => {
     );
     const document = CliReviewDocumentSchema.parse(JSON.parse(stdout));
 
-    expect(document.schema_version).toBe(6);
+    expect(document.schema_version).toBe(7);
     expect(document.review).toMatchObject({
       backend: "codex",
       model: "gpt-5.4",
@@ -379,6 +379,7 @@ describe("diffowl CLI", () => {
       await writeFile(join(repo, "src/app.ts"), "export const value = 2;\n", "utf8");
       await commitAll(repo, "change");
       const { stdout: headCommit } = await execa("git", ["rev-parse", "HEAD"], { cwd: repo });
+      const { stdout: parentCommit } = await execa("git", ["rev-parse", "HEAD^"], { cwd: repo });
       const executable = await createMockCodexExecutable("diffowl-cli-codex-wrapper-");
 
       const { stdout } = await execa(
@@ -410,7 +411,7 @@ describe("diffowl CLI", () => {
         effective_model: "gpt-5-codex",
         session_id: "thread-1",
         execution: {
-          schema_version: 3,
+          schema_version: 4,
           cohort_id: null,
           reviewer_id: "single",
           role: "single",
@@ -424,7 +425,7 @@ describe("diffowl CLI", () => {
           context_manifest_sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
           input: {
             target_kind: "last-commit",
-            base_commit: null,
+            base_commit: parentCommit,
             merge_base_commit: null,
             head_commit: headCommit,
             diff_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
@@ -747,7 +748,7 @@ describe("diffowl CLI", () => {
     );
 
     expect(JSON.parse(result.stderr)).toMatchObject({
-      schema_version: 6,
+      schema_version: 7,
       error: { message: expect.stringContaining("Codex model must be a bare model id") },
     });
   });

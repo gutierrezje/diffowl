@@ -24,6 +24,6 @@ Diff collection, hand-rolled parsing, and post-commit hook management.
 
 ## Anti-Patterns
 
-- `parseGitDiffLine` handles quoted and unquoted paths with prefix stripping. Edge cases in renames and combined diffs.
+- `parseGitDiffLine` handles quoted and unquoted paths with prefix stripping. Commit review uses a first-parent diff for merges; branch review uses the merge base through `HEAD`.
 - `collectGitDiff` caps output at 2MB; truncated diffs produce a diagnostic but may miss files.
 - Hook worker spawns the CLI via `process.execPath` + `import.meta.url` resolved path. If the build is stale, the hook runs old code.

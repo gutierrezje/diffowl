@@ -46,7 +46,7 @@ afterEach(async () => {
 });
 
 describe("openStateDatabase", () => {
-  it("rejects the abandoned schema 7 instead of supporting an unreleased state", async () => {
+  it("rejects a newer schema instead of supporting unknown state", async () => {
     const dir = await createTempDir();
     const db = await openSqliteDatabase(getStateDbPath(dir));
     try {
@@ -59,7 +59,7 @@ describe("openStateDatabase", () => {
       const insert = db.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
       );
-      for (let version = 1; version <= 7; version++) {
+      for (let version = 1; version <= 8; version++) {
         insert.run(version, "2026-08-27T00:00:00.000Z");
       }
     } finally {
@@ -67,11 +67,11 @@ describe("openStateDatabase", () => {
     }
 
     await expect(openStateDatabase(dir)).rejects.toThrow(
-      "Database schema version 7 is newer than supported version 6",
+      "Database schema version 8 is newer than supported version 7",
     );
   });
 
-  it("rejects the abandoned schema 6 table shape", async () => {
+  it("rejects a malformed current schema table shape", async () => {
     const dir = await createTempDir();
     const db = await openSqliteDatabase(getStateDbPath(dir));
     try {
@@ -89,7 +89,7 @@ describe("openStateDatabase", () => {
       const insert = db.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
       );
-      for (let version = 1; version <= 6; version++) {
+      for (let version = 1; version <= 7; version++) {
         insert.run(version, "2026-08-27T00:00:00.000Z");
       }
     } finally {
@@ -97,7 +97,7 @@ describe("openStateDatabase", () => {
     }
 
     await expect(openStateDatabase(dir)).rejects.toThrow(
-      "Database schema version 6 does not match the supported review schema",
+      "Database schema version 7 does not match the supported review schema",
     );
   });
 
@@ -297,6 +297,83 @@ describe("openStateDatabase", () => {
             createdAt: new Date().toISOString(),
           }),
       ).toThrow("Review operation contains invalid input identity.");
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
+  it("persists the parent used for a commit comparison", async () => {
+    const dir = await createTempDir();
+    const state = await openStateDatabase(dir);
+
+    try {
+      const review = insertReview(state.db, {
+        targetKind: "commit",
+        targetRef: "merge-head",
+        baseCommit: "first-parent",
+        mergeBaseCommit: null,
+        targetCommit: "merge-head",
+        diffHash: "merge-diff",
+        model: "provider/model",
+        reasoning: "medium",
+        depth: "default",
+        sessionId: "session-merge",
+        summary: "Merge commit review",
+      });
+
+      expect(getReviewById(state.db, review.id)).toMatchObject({
+        targetKind: "commit",
+        targetRef: "merge-head",
+        baseCommit: "first-parent",
+        mergeBaseCommit: null,
+        targetCommit: "merge-head",
+      });
+      expect(listReviewExecutionsByReviewId(state.db, review.id)).toEqual([
+        expect.objectContaining({
+          schemaVersion: 4,
+          input: expect.objectContaining({ baseCommit: "first-parent" }),
+        }),
+      ]);
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
+  it("rejects schema 3 execution provenance for a commit comparison with a parent", async () => {
+    const dir = await createTempDir();
+    const state = await openStateDatabase(dir);
+
+    try {
+      const review = insertReview(state.db, {
+        targetKind: "commit",
+        targetRef: "merge-head",
+        baseCommit: "first-parent",
+        mergeBaseCommit: null,
+        targetCommit: "merge-head",
+        diffHash: "merge-diff",
+        model: "provider/model",
+        reasoning: "medium",
+        depth: "default",
+        sessionId: "session-merge",
+        summary: "Merge commit review",
+      });
+      state.db
+        .prepare(`
+          INSERT INTO review_executions (
+            id, operation_id, created_at, attempt_number, schema_version, cohort_id,
+            reviewer_id, role, backend, requested_model, effective_model,
+            preference_source_json, reasoning_effort, session_id, terminal_outcome
+          ) VALUES (
+            'exe_invalid_v3', ?, '2026-09-01T00:00:00.000Z', 1, 3, NULL,
+            'checker', 'checker', 'codex', 'gpt-5-codex', 'gpt-5-codex',
+            '{"backend":"command","model":"command"}', NULL, 'session-v3', 'completed'
+          )
+        `)
+        .run(review.operationId);
+
+      expect(() => listReviewExecutionsByReviewId(state.db, review.id)).toThrow(
+        "contains invalid input identity",
+      );
     } finally {
       closeStateDatabase(state);
     }

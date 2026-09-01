@@ -220,6 +220,25 @@ describe("parseDiff", () => {
     expect(result.raw).not.toContain("+three");
   });
 
+  it("reviews a merge commit against its first parent", async () => {
+    const root = await createGitRepo("diffowl-merge-commit-diff-");
+    await commitFile(root, "shared.txt", "initial\n", "initial");
+    await execa("git", ["switch", "-c", "feature"], { cwd: root });
+    await commitFile(root, "feature-only.ts", "export const feature = true;\n", "feature");
+    await execa("git", ["switch", "main"], { cwd: root });
+    await commitFile(root, "main-only.ts", "export const fromMain = true;\n", "main change");
+    await execa("git", ["switch", "feature"], { cwd: root });
+    await execa("git", ["merge", "--no-ff", "main", "-m", "merge main"], { cwd: root });
+
+    const result = await getCommitDiff("HEAD", root);
+
+    expect(result.files).toEqual([
+      { path: "main-only.ts", status: "added", additions: 1, deletions: 0 },
+    ]);
+    expect(result.raw).toContain("+export const fromMain = true;");
+    expect(result.raw).not.toContain("feature-only.ts");
+  });
+
   it("parses realistic rename, delete, and binary entries", async () => {
     const result = parseDiff(await readFixture("rename-delete-binary.diff"));
 
