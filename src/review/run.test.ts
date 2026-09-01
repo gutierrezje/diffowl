@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { EffectiveReviewConfig } from "./runtime-config.js";
 import type { AssignedReviewExecutor, ReviewFinding } from "./types.js";
 import type { PersistReviewRunResult } from "../state/persist.js";
+import type { ReviewExecutionJournal } from "../state/review-execution-journal.js";
 import type { LoadedReviewSnapshot, ReviewContext } from "./context.js";
 import type { ReviewContextSource } from "./context-source.js";
 import type { CapturedReviewOperation } from "./operation.js";
@@ -81,7 +82,10 @@ function makeSnapshot(
 
 function makeDeps(
   snapshot: LoadedReviewSnapshot,
-): ReviewPipelineDeps & { executor: AssignedReviewExecutor } {
+): ReviewPipelineDeps & {
+  executor: AssignedReviewExecutor;
+  journal: ReviewExecutionJournal;
+} {
   const assignment = createSingleReviewAssignment(
     {
       backend: "opencode",
@@ -116,7 +120,47 @@ function makeDeps(
       };
     }),
   };
-  const deps: ReviewPipelineDeps & { executor: AssignedReviewExecutor } = {
+  let journalOperation: CapturedReviewOperation | undefined;
+  let journalTelemetry: Parameters<ReviewPipelineDeps["startReviewExecutionJournal"]>[1]["telemetry"] | undefined;
+  const journal: ReviewExecutionJournal = {
+    executionId: ReviewExecutionIdSchema.parse("exe_attempt"),
+    record: vi.fn((event) => {
+      if (journalTelemetry === undefined) throw new Error("Journal telemetry was not started.");
+      journalTelemetry.record(event);
+    }),
+    snapshot: vi.fn(() => {
+      if (journalTelemetry === undefined) throw new Error("Journal telemetry was not started.");
+      return journalTelemetry.snapshot();
+    }),
+    finish: vi.fn((provenance) => {
+      if (journalTelemetry === undefined || journalOperation === undefined) {
+        throw new Error("Journal was not started.");
+      }
+      if (provenance.terminalOutcome === "completed") {
+        journalTelemetry.record({ type: "phase", phase: "completion" });
+      }
+      journalTelemetry.record({ type: "terminal", outcome: provenance.terminalOutcome });
+      const telemetry = journalTelemetry.snapshot();
+      return {
+        id: ReviewExecutionIdSchema.parse("exe_attempt"),
+        operationId: journalOperation.id,
+        createdAt: telemetry.startedAt,
+        updatedAt: telemetry.updatedAt,
+        attemptNumber: 1,
+        ownerProcessId: null,
+        telemetry,
+        schemaVersion: 4,
+        input: journalOperation.input,
+        contextManifestSha256: journalOperation.contextManifestSha256,
+        ...provenance,
+      };
+    }),
+    close: vi.fn(),
+  };
+  const deps: ReviewPipelineDeps & {
+    executor: AssignedReviewExecutor;
+    journal: ReviewExecutionJournal;
+  } = {
     ...defaultReviewPipelineDeps,
     buildReviewContextFromDiff: vi.fn(async () => makeReviewContext(snapshot)),
     captureReviewOperation: vi.fn(() => makeOperation(snapshot)),
@@ -130,6 +174,7 @@ function makeDeps(
     computeDiffHash: vi.fn(() => "hash"),
     createExecutor: vi.fn(() => deps.executor),
     executor,
+    journal,
     enrichReviewFindingsWithDurableMetadata: vi.fn((findings) => findings),
     filterFindingsByChangedFiles: vi.fn((findings) => ({ findings, suppressed: [] })),
     filterFindingsByConfidence: vi.fn((findings) => ({ findings, dropped: 0 })),
@@ -139,16 +184,11 @@ function makeDeps(
     mapReviewTarget: vi.fn(() => ({ targetKind: "staged" as const, targetRef: null })),
     persistCanonicalReview: vi.fn(async () => persisted),
     persistSkippedReview: vi.fn(async () => persisted),
-    persistReviewExecutionAttempt: vi.fn(async (_dir, input) => ({
-      id: ReviewExecutionIdSchema.parse("exe_attempt"),
-      operationId: input.operation.id,
-      createdAt: "2026-08-24T00:00:00.000Z",
-      attemptNumber: 1,
-      schemaVersion: 4,
-      input: input.operation.input,
-      contextManifestSha256: input.operation.contextManifestSha256,
-      ...input.execution,
-    })),
+    startReviewExecutionJournal: vi.fn(async (_dir, input) => {
+      journalOperation = input.operation;
+      journalTelemetry = input.telemetry;
+      return journal;
+    }),
     renderMarkdown: vi.fn(() => "markdown"),
     renderReviewContextDocument: vi.fn(() => ({ text: "context", degradations: [] })),
     resolveTargetCommit: vi.fn(async () => null),
@@ -397,7 +437,10 @@ describe("runReviewPipeline", () => {
       id: ReviewExecutionIdSchema.parse("exe_1"),
       operationId: ReviewOperationIdSchema.parse("op_test"),
       createdAt: "2026-08-21T00:00:00.000Z",
+      updatedAt: "2026-08-21T00:00:00.000Z",
       attemptNumber: 1,
+      ownerProcessId: null,
+      telemetry: null,
     };
     vi.mocked(deps.executor.execute).mockResolvedValue({
       review: {
@@ -436,7 +479,13 @@ describe("runReviewPipeline", () => {
       reportPath: "/repo/.diffowl/reviews/review.md",
       sessionId: "session",
       effectiveModel: "resolved-model",
-      execution: persistedExecution,
+      execution: expect.objectContaining({
+        id: "exe_attempt",
+        terminalOutcome: "completed",
+        telemetry: expect.objectContaining({
+          terminal: expect.objectContaining({ outcome: "completed" }),
+        }),
+      }),
       suppressed: { outsideChangedFiles: 1, belowConfidence: 0 },
     });
     expect(outcome.kind === "completed" ? outcome.report.findings[0]?.durable?.id : null).toBe("fnd_1");
@@ -458,8 +507,10 @@ describe("runReviewPipeline", () => {
           },
         }),
         source: {
-          kind: "new-execution",
+          kind: "running-execution",
+          executionId: "exe_attempt",
           execution: provenance,
+          telemetry: expect.objectContaining({ activePhase: "persistence" }),
         },
         findings: [kept],
       }),
@@ -517,7 +568,7 @@ describe("runReviewPipeline", () => {
     });
   });
 
-  it("publishes execution provenance atomically for every completed model run", async () => {
+  it("starts a running execution before provider work and publishes that execution atomically", async () => {
     const deps = makeDeps(makeSnapshot([codeFile()]));
 
     await runReviewPipeline(skipInput(), deps);
@@ -525,17 +576,31 @@ describe("runReviewPipeline", () => {
     expect(deps.persistCanonicalReview).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({
-        source: {
-          kind: "new-execution",
+        source: expect.objectContaining({
+          kind: "running-execution",
+          executionId: "exe_attempt",
           execution: expect.objectContaining({
             reviewerId: "single",
             role: "single",
             terminalOutcome: "completed",
           }),
-        },
+        }),
       }),
     );
-    expect(deps.persistReviewExecutionAttempt).not.toHaveBeenCalled();
+    expect(deps.startReviewExecutionJournal).toHaveBeenCalledWith(
+      "/repo/.diffowl",
+      expect.objectContaining({
+        operation: makeOperation(makeSnapshot([codeFile()])),
+        assignment: deps.executor.assignment,
+      }),
+    );
+    expect(vi.mocked(deps.startReviewExecutionJournal).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(deps.executor.execute).mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+    );
+    expect(deps.journal.finish).toHaveBeenCalledWith(
+      expect.objectContaining({ terminalOutcome: "completed" }),
+    );
+    expect(deps.journal.close).toHaveBeenCalledOnce();
   });
 
   it("writes the exact commit comparison into report metadata", async () => {
@@ -600,15 +665,19 @@ describe("runReviewPipeline", () => {
 
       await expect(runReviewPipeline(skipInput(), deps)).rejects.toBe(error);
 
-      expect(deps.persistReviewExecutionAttempt).toHaveBeenCalledWith("/repo/.diffowl", {
-        operation: makeOperation(makeSnapshot([codeFile()])),
-        execution: expect.objectContaining({
+      expect(deps.journal.finish).toHaveBeenCalledWith(
+        expect.objectContaining({
           backend: "codex",
           reviewerId: "single",
           terminalOutcome,
         }),
-      });
+      );
+      expect(deps.journal.close).toHaveBeenCalledOnce();
       expect(deps.persistCanonicalReview).not.toHaveBeenCalled();
+      if (terminalOutcome === "timed-out") {
+        expect(error.message).toContain("Active phase: protocol check");
+        expect(error.message).toContain("no provider activity was observed");
+      }
     },
   );
 
@@ -629,10 +698,9 @@ describe("runReviewPipeline", () => {
 
     await expect(runReviewPipeline(skipInput(), deps)).rejects.toBe(thrownValue);
 
-    expect(deps.persistReviewExecutionAttempt).toHaveBeenCalledWith("/repo/.diffowl", {
-      operation: makeOperation(makeSnapshot([codeFile()])),
-      execution: expect.objectContaining({ terminalOutcome: "failed" }),
-    });
+    expect(deps.journal.finish).toHaveBeenCalledWith(
+      expect.objectContaining({ terminalOutcome: "failed" }),
+    );
   });
 
   it("preserves the review failure when terminal-attempt persistence also fails", async () => {
@@ -650,7 +718,7 @@ describe("runReviewPipeline", () => {
       ),
       execute: vi.fn(async () => Promise.reject(reviewError)),
     };
-    deps.persistReviewExecutionAttempt = vi.fn(async () => {
+    deps.journal.finish = vi.fn(() => {
       throw new Error("database is locked");
     });
 

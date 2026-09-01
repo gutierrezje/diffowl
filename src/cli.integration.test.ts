@@ -58,6 +58,22 @@ const CliReviewWithReportDocumentSchema = CliReviewDocumentSchema.extend({
 });
 const CliErrorDocumentSchema = z.object({
   error: z.object({ message: z.string() }),
+  execution: z
+    .object({
+      schema_version: z.literal(5),
+      terminal_outcome: z.string(),
+      telemetry: z.object({
+        schema_version: z.literal(1),
+        terminal: z.object({ outcome: z.string(), phase: z.string().nullable() }),
+        activity: z.object({
+          status: z.enum(["silent", "active", "stalled"]),
+          count: z.number(),
+          last_at: z.string().nullable(),
+          age_ms: z.number(),
+        }),
+      }),
+    })
+    .optional(),
 });
 const PossibleDuplicateListDocumentSchema = z.object({
   schema_version: z.number(),
@@ -468,7 +484,7 @@ describe("diffowl CLI", () => {
     );
     const document = CliReviewDocumentSchema.parse(JSON.parse(stdout));
 
-    expect(document.schema_version).toBe(7);
+    expect(document.schema_version).toBe(8);
     expect(document.review).toMatchObject({
       backend: "codex",
       model: "gpt-5.4",
@@ -526,7 +542,7 @@ describe("diffowl CLI", () => {
         effective_model: "gpt-5-codex",
         session_id: "thread-1",
         execution: {
-          schema_version: 4,
+          schema_version: 5,
           cohort_id: null,
           reviewer_id: "single",
           role: "single",
@@ -537,6 +553,10 @@ describe("diffowl CLI", () => {
           reasoning_effort: null,
           session_id: "thread-1",
           terminal_outcome: "completed",
+          telemetry: expect.objectContaining({
+            schema_version: 1,
+            terminal: expect.objectContaining({ outcome: "completed" }),
+          }),
           context_manifest_sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
           input: {
             target_kind: "last-commit",
@@ -598,7 +618,15 @@ describe("diffowl CLI", () => {
         isCanceled: false,
         isTerminated: false,
       });
-      CliErrorDocumentSchema.parse(JSON.parse(result.stderr));
+      const document = CliErrorDocumentSchema.parse(JSON.parse(result.stderr));
+      expect(document.execution).toMatchObject({
+        schema_version: 5,
+        terminal_outcome: "cancelled",
+        telemetry: {
+          schema_version: 1,
+          terminal: { outcome: "cancelled", phase: expect.any(String) },
+        },
+      });
       const state = await openStateDatabase(join(repo, ".diffowl"));
       try {
         expect(
@@ -614,7 +642,90 @@ describe("diffowl CLI", () => {
   );
 
   it.skipIf(process.platform === "win32")(
-    "keeps cancellation errors parseable when terminal persistence fails",
+    "persists distinguishable telemetry for silent and active Codex timeouts",
+    async () => {
+      const results = [];
+      for (const mode of ["timeout-silent", "timeout-active"] as const) {
+        const repo = await createRepo(`diffowl-cli-codex-${mode}-`);
+        await stageCodeChange(repo);
+        const configPath = join(repo, ".diffowl.yml");
+        await writeFile(
+          configPath,
+          (await readFile(configPath, "utf8")).replace("timeout: 300", "timeout: 2"),
+          "utf8",
+        );
+        const executable = await createMockCodexExecutable();
+        const result = await execa(
+          process.execPath,
+          [
+            cliPath,
+            "review",
+            "--staged",
+            "--backend",
+            "codex",
+            "--model",
+            "gpt-5-codex",
+            "--format",
+            "json",
+          ],
+          {
+            cwd: repo,
+            env: {
+              DIFFOWL_CODEX_EXECUTABLE: executable,
+              MOCK_APP_SERVER_MODE: mode,
+              MOCK_APP_SERVER_MODEL: "gpt-5-codex",
+            },
+            reject: false,
+          },
+        );
+        const document = CliErrorDocumentSchema.parse(JSON.parse(result.stderr));
+        const state = await openStateDatabase(join(repo, ".diffowl"));
+        try {
+          const row = state.db
+            .prepare(
+              "SELECT terminal_outcome AS terminalOutcome, telemetry_json AS telemetryJson FROM review_executions",
+            )
+            .get();
+          results.push({ mode, result, document, row });
+        } finally {
+          closeStateDatabase(state);
+        }
+      }
+
+      const silent = results[0]!;
+      const active = results[1]!;
+      expect(silent.result.exitCode).toBe(1);
+      expect(active.result.exitCode).toBe(1);
+      expect(silent.document.error.message).toContain("no provider activity");
+      expect(active.document.error.message).toContain("last provider activity");
+      expect(silent.document.execution).toMatchObject({
+        terminal_outcome: "timed-out",
+        telemetry: {
+          terminal: { outcome: "timed-out", phase: "provider-work" },
+          activity: { status: "silent", count: 0, last_at: null },
+        },
+      });
+      expect(active.document.execution).toMatchObject({
+        terminal_outcome: "timed-out",
+        telemetry: {
+          terminal: { outcome: "timed-out", phase: "provider-work" },
+          activity: { status: "active", count: expect.any(Number), last_at: expect.any(String) },
+        },
+      });
+      expect(silent.row).toMatchObject({ terminalOutcome: "timed-out" });
+      expect(active.row).toMatchObject({ terminalOutcome: "timed-out" });
+      expect(JSON.parse(String(silent.row?.["telemetryJson"]))).toMatchObject({
+        activity: { status: "silent", count: 0, lastAt: null },
+      });
+      expect(JSON.parse(String(active.row?.["telemetryJson"]))).toMatchObject({
+        activity: { status: "active", count: expect.any(Number), lastAt: expect.any(String) },
+      });
+    },
+    30_000,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "does not start provider work when running-execution persistence fails",
     async () => {
       const repo = await createRepo("diffowl-cli-codex-cancel-json-");
       await writeFile(join(repo, ".gitignore"), ".diffowl/\n", "utf8");
@@ -644,15 +755,12 @@ describe("diffowl CLI", () => {
           },
         );
 
-        await waitForPath(activeTurnFile);
-        if (review.pid === undefined) throw new Error("Review process did not start.");
-        process.kill(review.pid, "SIGINT");
         const result = await review;
         const document = CliErrorDocumentSchema.parse(JSON.parse(result.stderr));
 
-        expect(result.exitCode).toBe(130);
-        expect(document.error.message).toContain("Review cancelled by user");
-        expect(document.error.message).toContain("terminal outcome could not be persisted");
+        expect(result.exitCode).toBe(1);
+        expect(document.error.message).toContain("database is locked");
+        await expect(access(activeTurnFile)).rejects.toMatchObject({ code: "ENOENT" });
       } finally {
         state.db.exec("ROLLBACK");
         closeStateDatabase(state);
@@ -698,6 +806,7 @@ describe("diffowl CLI", () => {
         'Codex model "gpt-5-codex" does not advertise reasoning variant "thinking"',
       );
       expect(result.stderr).toContain('Advertised variants: "high".');
+      expect(result.stdout).toMatch(/Slowest execution phase: .+ \([\d.]+(?:ms|s)\)\./);
     },
     30_000,
   );
@@ -863,7 +972,7 @@ describe("diffowl CLI", () => {
     );
 
     expect(JSON.parse(result.stderr)).toMatchObject({
-      schema_version: 7,
+      schema_version: 8,
       error: { message: expect.stringContaining("Codex model must be a bare model id") },
     });
   });

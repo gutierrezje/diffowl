@@ -8,6 +8,7 @@ import type {
   ReviewOperation,
 } from "../review/operation.js";
 import type { ReviewExecutionId } from "../review/ids.js";
+import type { ReviewExecutionTelemetry } from "../review/execution-telemetry.js";
 import type { ReasoningVariant } from "../review/reasoning.js";
 import type { ReviewFinding, ReviewTiming } from "../review/types.js";
 import { closeStateDatabase, openStateDatabase, runInTransaction } from "./db.js";
@@ -22,6 +23,7 @@ import {
 } from "./repositories/reviews.js";
 import { countObservationsByFindingIds } from "./repositories/observations.js";
 import {
+  finalizeReviewExecution,
   getReviewExecutionById,
   insertReviewExecution,
 } from "./repositories/review-executions.js";
@@ -46,7 +48,13 @@ export interface PersistCanonicalReviewInput extends PersistReviewOutputInput {
   operation: CapturedReviewOperation;
   source:
     | { kind: "new-execution"; execution: CompletedReviewExecutionProvenance }
-    | { kind: "persisted-execution"; executionId: ReviewExecutionId };
+    | { kind: "persisted-execution"; executionId: ReviewExecutionId }
+    | {
+        kind: "running-execution";
+        executionId: ReviewExecutionId;
+        execution: CompletedReviewExecutionProvenance;
+        telemetry: ReviewExecutionTelemetry;
+      };
 }
 
 export interface PersistSkippedReviewInput extends PersistReviewOutputInput {
@@ -379,6 +387,13 @@ function resolveCanonicalSourceExecution(
       });
     case "persisted-execution":
       return getCompletedSourceExecution(db, operation, source.executionId);
+    case "running-execution":
+      return finalizeReviewExecution(
+        db,
+        source.executionId,
+        source.execution,
+        source.telemetry,
+      );
     default: {
       const _exhaustive: never = source;
       return _exhaustive;

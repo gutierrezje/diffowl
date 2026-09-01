@@ -84,6 +84,7 @@ export function createCodexReviewExecutor(options: CodexReviewExecutorOptions): 
       }
       if (options.command.env !== undefined) reviewOptions.env = options.command.env;
       if (input.onWarning !== undefined) reviewOptions.onWarning = input.onWarning;
+      if (input.onTelemetry !== undefined) reviewOptions.onTelemetry = input.onTelemetry;
       let outcome: Awaited<ReturnType<typeof executeCodexReview>>;
       try {
         outcome = await executeCodexReview(reviewOptions);

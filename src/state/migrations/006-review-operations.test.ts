@@ -456,7 +456,7 @@ async function persistCompletedReview(
 
 function expectMigrationVersions(db: Awaited<ReturnType<typeof openSqliteDatabase>>): void {
   expect(db.prepare("SELECT version FROM schema_migrations ORDER BY version ASC").all()).toEqual(
-    [1, 2, 3, 4, 5, 6, 7].map((version) => ({ version })),
+    [1, 2, 3, 4, 5, 6, 7, 8].map((version) => ({ version })),
   );
 }
 
@@ -484,6 +484,9 @@ function expectCanonicalReviewExecutionColumns(
     "reasoning_effort",
     "session_id",
     "terminal_outcome",
+    "updated_at",
+    "owner_process_id",
+    "telemetry_json",
   ]);
 }
 

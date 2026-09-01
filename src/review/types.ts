@@ -8,6 +8,7 @@ import type {
   ReviewAssignment,
   ReviewExecutionRuntimeProvenance,
 } from "./provenance.js";
+import type { ReviewExecutionTelemetryEvent } from "./execution-telemetry.js";
 
 export const ReviewSeveritySchema = z.enum(["error", "warning", "info"]);
 
@@ -74,6 +75,7 @@ export interface ReviewExecutorOptions {
   review: ReviewOptions;
   onStatus?: (message: string) => void;
   onWarning?: (message: string) => void;
+  onTelemetry?: (event: ReviewExecutionTelemetryEvent) => void;
 }
 
 export interface ReviewExecutionResult {

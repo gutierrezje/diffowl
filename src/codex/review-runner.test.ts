@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
 import type { ReviewProgressEvent } from "../review/types.js";
+import type { ReviewExecutionTelemetryEvent } from "../review/execution-telemetry.js";
 import { ReviewCancelledError } from "../review/errors.js";
 import type { EffectiveReviewConfig } from "../review/runtime-config.js";
 import { SchemaValidationError } from "../review/document.js";
@@ -38,9 +39,11 @@ const config: EffectiveReviewConfig = {
 describe("executeCodexReview", () => {
   it("runs one native-schema review over the real App Server child", async () => {
     const events: ReviewProgressEvent[] = [];
+    const telemetry: ReviewExecutionTelemetryEvent[] = [];
     const outcome = await executeCodexReview({
       ...makeInput("output-schema"),
       onProgress: (event) => events.push(event),
+      onTelemetry: (event) => telemetry.push(event),
     });
 
     expect(outcome.reviewResult).toEqual({
@@ -72,11 +75,30 @@ describe("executeCodexReview", () => {
     expect(events.map((event) => event.type)).toEqual(
       expect.arrayContaining(["server", "session", "output", "idle"]),
     );
+    expect(telemetry).toEqual(
+      expect.arrayContaining([
+        { type: "phase", phase: "turn-start", attempt: 1 },
+        { type: "phase", phase: "provider-work", attempt: 1 },
+        { type: "activity", activity: "provider" },
+        { type: "phase", phase: "validation-repair", attempt: 1 },
+        { type: "validation", outcome: "accepted" },
+      ]),
+    );
   });
 
   it("ignores ordinary items and uses the active turn's final agent message", async () => {
-    const outcome = await executeCodexReview(makeInput("authoritative"));
+    const telemetry: ReviewExecutionTelemetryEvent[] = [];
+    const outcome = await executeCodexReview({
+      ...makeInput("authoritative"),
+      onTelemetry: (event) => telemetry.push(event),
+    });
     expect(outcome.reviewResult.report.summary).toBe("authoritative summary");
+    expect(telemetry).toEqual(
+      expect.arrayContaining([
+        { type: "phase", phase: "tool-activity", attempt: 1 },
+        { type: "activity", activity: "tool" },
+      ]),
+    );
   });
 
   it("correlates agent deltas and completions by item id", async () => {
@@ -140,9 +162,21 @@ describe("executeCodexReview", () => {
   });
 
   it("uses a marker-free replacement prompt for an output-schema retry", async () => {
-    const outcome = await executeCodexReview(makeInput("output-schema-retry"));
+    const telemetry: ReviewExecutionTelemetryEvent[] = [];
+    const outcome = await executeCodexReview({
+      ...makeInput("output-schema-retry"),
+      onTelemetry: (event) => telemetry.push(event),
+    });
     expect(outcome.reviewResult.report.summary).toBe("schema summary");
     expect(outcome.evidence.attempts).toBe(2);
+    expect(telemetry).toEqual(
+      expect.arrayContaining([
+        { type: "phase", phase: "validation-repair", attempt: 1 },
+        { type: "validation", outcome: "retry" },
+        { type: "phase", phase: "turn-start", attempt: 2 },
+        { type: "validation", outcome: "accepted" },
+      ]),
+    );
   });
 
   it("does not query model capabilities or send effort when no variant is selected", async () => {
@@ -369,9 +403,11 @@ describe("executeCodexReview", () => {
   it("interrupts an active turn before reporting a timeout", { timeout: 10_000 }, async () => {
     const directory = await temporaryRepository();
     try {
+      const telemetry: ReviewExecutionTelemetryEvent[] = [];
       const error = await executeCodexReview({
         ...makeInput("timeout-active", true, directory),
         timeoutMs: 5_000,
+        onTelemetry: (event) => telemetry.push(event),
       }).catch((cause: unknown) => cause);
       expect(error).toMatchObject({
         kind: "timeout",
@@ -386,6 +422,34 @@ describe("executeCodexReview", () => {
         interruptAcknowledged: true,
         terminalStatus: "interrupted",
       });
+      expect(telemetry).toEqual(
+        expect.arrayContaining([
+          { type: "phase", phase: "turn-start", attempt: 1 },
+          { type: "activity", activity: "provider" },
+        ]),
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("distinguishes a silent provider turn from an active timeout", { timeout: 10_000 }, async () => {
+    const directory = await temporaryRepository();
+    try {
+      const telemetry: ReviewExecutionTelemetryEvent[] = [];
+      const error = await executeCodexReview({
+        ...makeInput("timeout-silent", true, directory),
+        timeoutMs: 2_000,
+        onTelemetry: (event) => telemetry.push(event),
+      }).catch((cause: unknown) => cause);
+      expect(error).toMatchObject({ kind: "timeout", phase: "turn" });
+      expect(telemetry).toEqual(
+        expect.arrayContaining([
+          { type: "phase", phase: "turn-start", attempt: 1 },
+          { type: "phase", phase: "provider-work", attempt: 1 },
+        ]),
+      );
+      expect(telemetry.some((event) => event.type === "activity")).toBe(false);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

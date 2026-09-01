@@ -59,7 +59,7 @@ describe("openStateDatabase", () => {
       const insert = db.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
       );
-      for (let version = 1; version <= 8; version++) {
+      for (let version = 1; version <= CURRENT_SCHEMA_VERSION + 1; version++) {
         insert.run(version, "2026-08-27T00:00:00.000Z");
       }
     } finally {
@@ -67,7 +67,7 @@ describe("openStateDatabase", () => {
     }
 
     await expect(openStateDatabase(dir)).rejects.toThrow(
-      "Database schema version 8 is newer than supported version 7",
+      `Database schema version ${CURRENT_SCHEMA_VERSION + 1} is newer than supported version ${CURRENT_SCHEMA_VERSION}`,
     );
   });
 
@@ -89,7 +89,7 @@ describe("openStateDatabase", () => {
       const insert = db.prepare(
         "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
       );
-      for (let version = 1; version <= 7; version++) {
+      for (let version = 1; version <= CURRENT_SCHEMA_VERSION; version++) {
         insert.run(version, "2026-08-27T00:00:00.000Z");
       }
     } finally {
@@ -97,7 +97,7 @@ describe("openStateDatabase", () => {
     }
 
     await expect(openStateDatabase(dir)).rejects.toThrow(
-      "Database schema version 7 does not match the supported review schema",
+      `Database schema version ${CURRENT_SCHEMA_VERSION} does not match the supported review schema`,
     );
   });
 
@@ -362,11 +362,13 @@ describe("openStateDatabase", () => {
           INSERT INTO review_executions (
             id, operation_id, created_at, attempt_number, schema_version, cohort_id,
             reviewer_id, role, backend, requested_model, effective_model,
-            preference_source_json, reasoning_effort, session_id, terminal_outcome
+            preference_source_json, reasoning_effort, session_id, terminal_outcome,
+            updated_at, owner_process_id, telemetry_json
           ) VALUES (
             'exe_invalid_v3', ?, '2026-09-01T00:00:00.000Z', 1, 3, NULL,
             'checker', 'checker', 'codex', 'gpt-5-codex', 'gpt-5-codex',
-            '{"backend":"command","model":"command"}', NULL, 'session-v3', 'completed'
+            '{"backend":"command","model":"command"}', NULL, 'session-v3', 'completed',
+            '2026-09-01T00:00:00.000Z', NULL, NULL
           )
         `)
         .run(review.operationId);

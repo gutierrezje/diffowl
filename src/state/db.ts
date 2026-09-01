@@ -9,6 +9,7 @@ import { MIGRATION_004_REVIEW_EXECUTIONS } from "./migrations/004-review-executi
 import { MIGRATION_005_REVIEW_INPUT_IDENTITY } from "./migrations/005-review-input-identity.js";
 import { MIGRATION_006_REVIEW_OPERATIONS } from "./migrations/006-review-operations.js";
 import { MIGRATION_007_COMMIT_COMPARISON_PARENT } from "./migrations/007-commit-comparison-parent.js";
+import { MIGRATION_008_REVIEW_EXECUTION_TELEMETRY } from "./migrations/008-review-execution-telemetry.js";
 import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.js";
 import { CURRENT_SCHEMA_VERSION } from "./types.js";
 
@@ -22,6 +23,7 @@ const MIGRATIONS = {
   5: MIGRATION_005_REVIEW_INPUT_IDENTITY,
   6: MIGRATION_006_REVIEW_OPERATIONS,
   7: MIGRATION_007_COMMIT_COMPARISON_PARENT,
+  8: MIGRATION_008_REVIEW_EXECUTION_TELEMETRY,
 } satisfies Record<number, string>;
 
 const CURRENT_SCHEMA_TABLE_COLUMNS = {
@@ -59,6 +61,9 @@ const CURRENT_SCHEMA_TABLE_COLUMNS = {
       "reasoning_effort",
       "session_id",
       "terminal_outcome",
+      "updated_at",
+      "owner_process_id",
+      "telemetry_json",
     ],
   },
   reviews: {
