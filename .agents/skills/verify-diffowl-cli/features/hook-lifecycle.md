@@ -6,6 +6,8 @@ it is current, and remove only DiffOwl's managed section.
 ## Sub-features
 
 - `hook-install-status` installs or updates the hook and reports it current.
+- `hook-husky-portable` separates a portable tracked Husky bridge from its
+  machine-local launcher.
 - `hook-uninstall` removes the managed DiffOwl entry without harming unrelated
   hook content.
 
@@ -30,8 +32,16 @@ Preconditions:
   and up to date.
 - **Idempotence.** Run install once more when the change touches convergence.
   The hook contains one managed entry.
+- **Husky ownership.** Configure the scratch with `core.hooksPath=.husky/_`,
+  add harmless shared content to `.husky/post-commit`, and ignore Husky's `_`
+  directory. Capture install and inspect both layers: the tracked user hook has
+  one portable managed bridge and no absolute runtime paths; the Git-local
+  `hooks/diffowl-post-commit` launcher has the absolute built entrypoint. Commit
+  the bridge with hooks disabled, reinstall, and prove the tracked worktree
+  remains clean while status reports current.
 - **Uninstall.** Capture `node "$DIFFOWL_BIN" hook uninstall`, then inspect the
-  hook file. The managed entry is gone and unrelated content remains.
+  hook file and Git-local launcher. The managed entry and launcher are gone,
+  while unrelated Husky content remains.
 
 ## Gotchas
 

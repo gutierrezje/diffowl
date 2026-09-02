@@ -746,10 +746,26 @@ async function promptYesNo(
 
 async function installPostCommitHookFromCli(): Promise<void> {
   const alreadyInstalled = await isHookInstalled();
-  const hookPath = await installHook();
+  const result = await installHook();
   const command = await getHookCommand();
   const action = alreadyInstalled ? "updated" : "installed";
-  console.log(chalk.green(`✓ Post-commit hook ${action}: ${hookPath}`));
+  console.log(chalk.green(`✓ Post-commit hook ${action}: ${result.hookPath}`));
+  switch (result.kind) {
+    case "git":
+      break;
+    case "husky":
+      if (result.bridgeChanged) {
+        console.log(chalk.yellow(`Commit this portable hook change: ${result.hookPath}`));
+      } else {
+        console.log(chalk.dim("Portable Husky bridge unchanged; local launcher refreshed."));
+      }
+      console.log(chalk.dim(`Machine-local launcher: ${result.launcherPath}`));
+      break;
+    default: {
+      const _exhaustive: never = result;
+      return _exhaustive;
+    }
+  }
   console.log(chalk.dim(`Hook Node: ${await describeNodeRuntime(command.node)}`));
   console.log(chalk.dim(`Hook Entrypoint: ${command.cli}`));
   console.log(chalk.dim("Reviews will run automatically after each commit (non-blocking)"));

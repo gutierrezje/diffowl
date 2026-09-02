@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { closeSync, existsSync, openSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -72,7 +72,7 @@ describe("installHook", () => {
     await execa("git", ["config", "core.hooksPath", ".githooks"], { cwd: root });
     process.chdir(root);
 
-    const hookPath = await installHook();
+    const { hookPath } = await installHook();
 
     expect(hookPath).toBe(join(root, ".githooks", "post-commit"));
     await expect(isHookInstalled()).resolves.toBe(true);
@@ -80,26 +80,171 @@ describe("installHook", () => {
     expect(existsSync(hookPath)).toBe(false);
   });
 
-  it("installs Husky hooks in the user hook file instead of the internal shim", async () => {
-    const root = await createGitRepo();
-    const huskyInternalDir = join(root, ".husky", "_");
-    const huskyShim = join(huskyInternalDir, "post-commit");
-    const huskyUserHook = join(root, ".husky", "post-commit");
-    await mkdir(huskyInternalDir, { recursive: true });
-    await writeFile(huskyShim, '#!/usr/bin/env sh\n. "$(dirname "$0")/h"\n', "utf-8");
-    await execa("git", ["config", "core.hooksPath", ".husky/_"], { cwd: root });
+  it("installs a portable Husky bridge and a Git-local launcher", async () => {
+    const { root, huskyShim, huskyUserHook, localLauncher } = await createHuskyRepo();
     process.chdir(root);
 
-    const hookPath = await installHook();
+    const { hookPath } = await installHook();
 
     expect(hookPath).toBe(huskyUserHook);
     await expect(readFile(huskyShim, "utf-8")).resolves.not.toContain("# diffowl-managed");
-    await expect(readFile(huskyUserHook, "utf-8")).resolves.toContain("# diffowl-managed");
+    const portableBridge = await readFile(huskyUserHook, "utf-8");
+    expect(portableBridge).toContain("# diffowl-managed");
+    expect(portableBridge).toContain("git rev-parse --path-format=absolute --git-common-dir");
+    expect(portableBridge).not.toContain(process.execPath);
+    await expect(readFile(localLauncher, "utf-8")).resolves.toContain(process.execPath);
     await expect(isHookInstalled()).resolves.toBe(true);
     await expect(checkHookStale()).resolves.toMatchObject({ installed: true, stale: false });
     await expect(uninstallHook()).resolves.toBe(true);
     expect(existsSync(huskyUserHook)).toBe(false);
+    expect(existsSync(localLauncher)).toBe(false);
     expect(existsSync(huskyShim)).toBe(true);
+  });
+
+  it("keeps a committed Husky bridge unchanged when the local runtime changes", async () => {
+    const { root, huskyUserHook, localLauncher } = await createHuskyRepo({
+      userHook: "#!/bin/sh\n# shared project hook\n",
+    });
+    const runtimeA = await createHookRuntime("a");
+    const runtimeB = await createHookRuntime("b");
+    const originalPath = process.env["PATH"];
+
+    await writeFile(join(root, ".gitignore"), ".husky/_/\n", "utf-8");
+    await execa("git", ["add", ".gitignore", ".husky/post-commit"], { cwd: root });
+    await commitWithoutHooks(root, "add shared Husky hook");
+    process.chdir(root);
+
+    try {
+      process.env["PATH"] = `${runtimeA}:${originalPath}`;
+      await installHook();
+
+      const portableBridge = await readFile(huskyUserHook, "utf-8");
+      const firstLauncher = await readFile(localLauncher, "utf-8");
+      expect(portableBridge).toContain("git rev-parse --path-format=absolute --git-common-dir");
+      expect(portableBridge).not.toContain(runtimeA);
+      expect(portableBridge).not.toContain(process.execPath);
+      expect(firstLauncher).toContain(runtimeA);
+      expect(firstLauncher).toContain(process.execPath);
+
+      await execa("git", ["add", ".husky/post-commit"], { cwd: root });
+      await commitWithoutHooks(root, "add portable DiffOwl bridge");
+
+      process.env["PATH"] = `${runtimeB}:${originalPath}`;
+      await installHook();
+
+      await expect(readFile(huskyUserHook, "utf-8")).resolves.toBe(portableBridge);
+      const updatedLauncher = await readFile(localLauncher, "utf-8");
+      expect(updatedLauncher).toContain(runtimeB);
+      expect(updatedLauncher).not.toContain(runtimeA);
+      await expect(
+        execa("git", ["status", "--porcelain=v1"], { cwd: root }),
+      ).resolves.toMatchObject({ stdout: "" });
+    } finally {
+      process.env["PATH"] = originalPath;
+    }
+  });
+
+  it("removes an orphaned Git-local launcher when the Husky bridge is gone", async () => {
+    const { root, huskyUserHook, localLauncher } = await createHuskyRepo();
+    process.chdir(root);
+    await installHook();
+    await rm(huskyUserHook);
+
+    await expect(uninstallHook()).resolves.toBe(true);
+    expect(existsSync(localLauncher)).toBe(false);
+  });
+
+  it("reports a missing Husky launcher separately from the portable bridge", async () => {
+    const { root, localLauncher } = await createHuskyRepo();
+    process.chdir(root);
+    await installHook();
+    await rm(localLauncher);
+
+    await expect(checkHookStale()).resolves.toEqual({
+      installed: true,
+      stale: true,
+      reason: "Local DiffOwl launcher is missing",
+    });
+  });
+
+  it("reports when the Husky launcher targets an older local runtime", async () => {
+    const { root, localLauncher } = await createHuskyRepo();
+    process.chdir(root);
+    await installHook();
+    await writeFile(localLauncher, "#!/bin/sh\n# stale runtime\n", "utf-8");
+
+    await expect(checkHookStale()).resolves.toEqual({
+      installed: true,
+      stale: true,
+      reason: "Local DiffOwl launcher differs from the current runtime",
+    });
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "reports when the Husky launcher is not executable",
+    async () => {
+      const { root, localLauncher } = await createHuskyRepo();
+      process.chdir(root);
+      await installHook();
+      await chmod(localLauncher, 0o644);
+
+      await expect(checkHookStale()).resolves.toEqual({
+        installed: true,
+        stale: true,
+        reason: "Local DiffOwl launcher is not executable",
+      });
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "runs the Git-local launcher when the Husky repository path contains spaces",
+    async () => {
+      const { root, huskyUserHook, localLauncher } = await createHuskyRepo({
+        prefix: "diffowl hooks ",
+      });
+      const calledFile = join(root, ".diffowl", "husky-launcher-called");
+      process.chdir(root);
+      await installHook();
+      await writeFile(
+        localLauncher,
+        '#!/bin/sh\nmkdir -p "$PWD/.diffowl"\nprintf "called\\n" > "$PWD/.diffowl/husky-launcher-called"\n',
+        "utf-8",
+      );
+      await chmod(localLauncher, 0o755);
+
+      await execa("sh", [huskyUserHook], { cwd: root });
+
+      await expect(readFile(calledFile, "utf-8")).resolves.toBe("called\n");
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "logs an actionable failure when the Husky launcher is missing",
+    async () => {
+      const { root, huskyUserHook, localLauncher } = await createHuskyRepo();
+      process.chdir(root);
+      await installHook();
+      await rm(localLauncher);
+
+      const { stdout } = await execa("sh", [huskyUserHook], { cwd: root });
+      const log = await readFile(join(root, ".diffowl", "hook.log"), "utf-8");
+      expect(stdout).toContain("local hook launcher not found");
+      expect(stdout).toContain("diffowl hook install");
+      expect(log).toContain("local hook launcher not found");
+    },
+  );
+
+  it("uninstalls only DiffOwl state from a shared Husky hook", async () => {
+    const sharedHook = "#!/bin/sh\n# shared project hook\nprintf 'shared hook\\n'\n";
+    const { root, huskyUserHook, localLauncher } = await createHuskyRepo({
+      userHook: sharedHook,
+    });
+    process.chdir(root);
+    await installHook();
+
+    await expect(uninstallHook()).resolves.toBe(true);
+    await expect(readFile(huskyUserHook, "utf-8")).resolves.toBe(sharedHook);
+    expect(existsSync(localLauncher)).toBe(false);
   });
 
   it("creates an absolute core.hooksPath when installing", async () => {
@@ -108,7 +253,10 @@ describe("installHook", () => {
     await execa("git", ["config", "core.hooksPath", hooksDir], { cwd: root });
     process.chdir(root);
 
-    await expect(installHook()).resolves.toBe(join(hooksDir, "post-commit"));
+    await expect(installHook()).resolves.toMatchObject({
+      kind: "git",
+      hookPath: join(hooksDir, "post-commit"),
+    });
     expect(existsSync(join(hooksDir, "post-commit"))).toBe(true);
   });
 
@@ -124,7 +272,10 @@ describe("installHook", () => {
       { cwd: worktree },
     );
 
-    await expect(installHook()).resolves.toBe(join(stdout.trim(), "post-commit"));
+    await expect(installHook()).resolves.toMatchObject({
+      kind: "git",
+      hookPath: join(stdout.trim(), "post-commit"),
+    });
     expect(existsSync(join(root, ".git", "hooks", "post-commit"))).toBe(true);
   });
 }, 20_000);
@@ -658,8 +809,8 @@ describe("generateManagedSection", () => {
   );
 });
 
-async function createGitRepo(): Promise<string> {
-  const root = await realpath(await mkdtemp(join(tmpdir(), "diffowl-hooks-")));
+async function createGitRepo(prefix = "diffowl-hooks-"): Promise<string> {
+  const root = await realpath(await mkdtemp(join(tmpdir(), prefix)));
   tempDirs.push(root);
   await execa("git", ["init"], { cwd: root });
   await writeFile(join(root, "README.md"), "test\n", "utf-8");
@@ -678,6 +829,54 @@ async function createGitRepo(): Promise<string> {
     { cwd: root },
   );
   return root;
+}
+
+async function createHuskyRepo(options: { prefix?: string; userHook?: string } = {}) {
+  const root = await createGitRepo(options.prefix);
+  const huskyInternalDir = join(root, ".husky", "_");
+  const huskyShim = join(huskyInternalDir, "post-commit");
+  const huskyUserHook = join(root, ".husky", "post-commit");
+  const localLauncher = join(root, ".git", "hooks", "diffowl-post-commit");
+  await mkdir(huskyInternalDir, { recursive: true });
+  await writeFile(huskyShim, '#!/usr/bin/env sh\n. "$(dirname "$0")/h"\n', "utf-8");
+  if (options.userHook !== undefined) {
+    await writeFile(huskyUserHook, options.userHook, "utf-8");
+  }
+  await execa("git", ["config", "core.hooksPath", ".husky/_"], { cwd: root });
+  return { root, huskyShim, huskyUserHook, localLauncher };
+}
+
+async function createHookRuntime(name: string): Promise<string> {
+  const runtime = await mkdtemp(join(tmpdir(), `diffowl-runtime-${name}-`));
+  tempDirs.push(runtime);
+  await Promise.all(
+    ["diffowl", "opencode"].map(async (command) => {
+      const executable = join(runtime, process.platform === "win32" ? `${command}.cmd` : command);
+      const content =
+        process.platform === "win32" ? "@echo off\r\nexit /b 0\r\n" : "#!/bin/sh\nexit 0\n";
+      await writeFile(executable, content, "utf-8");
+      await chmod(executable, 0o755);
+    }),
+  );
+  return runtime;
+}
+
+async function commitWithoutHooks(root: string, message: string): Promise<void> {
+  await execa(
+    "git",
+    [
+      "-c",
+      "core.hooksPath=/dev/null",
+      "-c",
+      "user.name=DiffOwl Test",
+      "-c",
+      "user.email=diffowl@example.test",
+      "commit",
+      "-m",
+      message,
+    ],
+    { cwd: root },
+  );
 }
 
 async function createHookStatusRoot(): Promise<string> {

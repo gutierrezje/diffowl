@@ -26,7 +26,7 @@ the user action and observable state.
 - [Backend and model preferences](preferences.md): `preference-select`,
   `preference-preserve-policy`, `preference-reset`.
 - [Post-commit hook lifecycle](hook-lifecycle.md): `hook-install-status`,
-  `hook-uninstall`.
+  `hook-husky-portable`, `hook-uninstall`.
 - [Findings inspection and disposition](findings.md): `findings-inspect`,
   `finding-disposition`.
 - [Interactive setup](init.md): `init-codex-setup`.

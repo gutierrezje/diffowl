@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { existsSync } from "node:fs";
-import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -109,6 +109,34 @@ afterEach(async () => {
 });
 
 describe("diffowl CLI", () => {
+  it("explains tracked and local Husky hook ownership during installation", async () => {
+    const repo = await realpath(await createRepo("diffowl-cli-husky-install-"));
+    const huskyInternalDir = join(repo, ".husky", "_");
+    const huskyHook = join(repo, ".husky", "post-commit");
+    const localLauncher = join(repo, ".git", "hooks", "diffowl-post-commit");
+    await mkdir(huskyInternalDir, { recursive: true });
+    await writeFile(
+      join(huskyInternalDir, "post-commit"),
+      '#!/usr/bin/env sh\n. "$(dirname "$0")/h"\n',
+      "utf8",
+    );
+    await execa("git", ["config", "core.hooksPath", ".husky/_"], { cwd: repo });
+
+    const first = await execa("node", [cliPath, "hook", "install"], { cwd: repo });
+    expect(first.stdout).toContain(`Commit this portable hook change: ${huskyHook}`);
+    expect(first.stdout).toContain(`Machine-local launcher: ${localLauncher}`);
+
+    const second = await execa("node", [cliPath, "hook", "install"], { cwd: repo });
+    expect(second.stdout).toContain("Portable Husky bridge unchanged; local launcher refreshed.");
+    expect(second.stdout).not.toContain("Commit this portable hook change");
+
+    if (process.platform !== "win32") {
+      await chmod(huskyHook, 0o644);
+      const repairedMode = await execa("node", [cliPath, "hook", "install"], { cwd: repo });
+      expect(repairedMode.stdout).toContain(`Commit this portable hook change: ${huskyHook}`);
+    }
+  });
+
   it("distinguishes first attempts from retries in hook status text and JSON", async () => {
     const repo = await createRepo("diffowl-cli-hook-status-");
     const pendingDir = join(repo, ".diffowl", "pending-reviews");
