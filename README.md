@@ -161,6 +161,12 @@ diffowl hook install
 
 The hook queues each commit, returns control to the terminal, and writes output to `.diffowl/hook.log`. Failed reviews remain pending and retry after a later commit.
 
+In a Husky repository, the first install adds a portable bridge to the tracked
+`.husky/post-commit` file. Commit that bridge if the repository should run
+DiffOwl for every contributor. Machine-specific Node and DiffOwl paths stay in
+worktree-local Git hook state, so later installs and runtime upgrades do not
+dirty the tracked Husky hook or interfere with another linked worktree.
+
 ```bash
 diffowl hook status
 diffowl hook uninstall

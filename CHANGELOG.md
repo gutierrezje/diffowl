@@ -7,6 +7,13 @@ increments that may include backward-compatible features and fixes.
 
 ## [Unreleased]
 
+### Fixed
+
+- Husky hook installation now keeps machine-specific Node and DiffOwl paths in
+  worktree-local Git state. The tracked `.husky/post-commit` contains only a
+  portable bridge and remains unchanged across local reinstalls and runtime
+  upgrades.
+
 ## [0.5.2] - 2026-09-02
 
 ### Added
