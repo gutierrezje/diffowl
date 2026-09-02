@@ -5,11 +5,19 @@ it is current, and remove only DiffOwl's managed section.
 
 ## Sub-features
 
-- `hook-install-status` installs or updates the hook and reports it current.
-- `hook-husky-portable` separates a portable tracked Husky bridge from its
-  machine-local launcher.
+- `hook-install-status` installs or updates the hook and reports it current,
+  including the portable tracked bridge and machine-local launcher split in a
+  Husky repository.
 - `hook-uninstall` removes the managed DiffOwl entry without harming unrelated
   hook content.
+- `agent-hook-install-summary` installs the supported session-start summary hook
+  in the disposable client configuration.
+
+## Controller
+
+Preview with `control-diffowl run cli <feature-id> --dry-run --json`. The
+controller's automated path covers the Git hook; use `cli new-run` plus this
+recipe for `agent-hook-install-summary`.
 
 ## How to get to it (user POV)
 

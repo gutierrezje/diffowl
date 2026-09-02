@@ -5,13 +5,20 @@ branch diff through OpenCode and persists one structured result for that target.
 
 ## Sub-features
 
+- `opencode-review-last-commit` reviews the default last-commit target.
 - `opencode-review-staged` reviews only the index.
 - `opencode-review-commit` reviews one explicit commit.
 - `opencode-review-base` reviews committed branch changes from a merge base.
 
+## Controller
+
+Run `control-diffowl run opencode <feature-id> --model <provider/model> --json`.
+The adapter prepares the target and owns server start, status, and teardown.
+
 ## How to get to it (user POV)
 
 - Run `diffowl review --staged`.
+- Run `diffowl review` for the default last commit.
 - Run `diffowl review --commit <sha>`.
 - Run `diffowl review --base <ref>`.
 

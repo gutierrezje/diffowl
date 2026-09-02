@@ -11,6 +11,11 @@ per backend without rewriting committed project policy.
 - `preference-preserve-policy` leaves `.diffowl.yml` byte-for-byte unchanged.
 - `preference-reset` removes only the selected preference requested by the user.
 
+## Controller
+
+Preview with `control-diffowl run cli <feature-id> --dry-run --json`, then run
+without `--dry-run`. Inspect the preference and policy observations in the receipt.
+
 ## How to get to it (user POV)
 
 - Run `diffowl backend`, `diffowl backend opencode`, or `diffowl backend codex`.

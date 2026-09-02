@@ -252,6 +252,7 @@ describe("parseStructuredReview", () => {
       ".\\src\\config.ts",
       "/absolute/src/config.ts",
       "C:\\repo\\src\\config.ts",
+      "C:repo/src/config.ts",
       "../src/config.ts",
     ];
     const raw = markedDocument({
@@ -269,7 +270,12 @@ describe("parseStructuredReview", () => {
     const locators = schemaValidationError(raw).issues.map((issue) => issue.locator);
 
     expect(locators).toEqual(
-      expect.arrayContaining(["findings[3].file", "findings[4].file", "findings[5].file"]),
+      expect.arrayContaining([
+        "findings[3].file",
+        "findings[4].file",
+        "findings[5].file",
+        "findings[6].file",
+      ]),
     );
     expect(locators.some((locator) => locator.startsWith("findings[0]"))).toBe(false);
   });

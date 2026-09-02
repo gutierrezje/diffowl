@@ -8,6 +8,12 @@ clean terminal without leaving a misleading report or mutated repository.
 - `opencode-review-cancel` interrupts an in-flight review and settles its server
   session and local state.
 
+## Controller
+
+Create the run first. Start `control-diffowl run opencode opencode-review-cancel
+--run <run-id> --model <provider/model>` in one terminal, then issue
+`control-diffowl opencode cancel --run <run-id>` after console shows progress.
+
 ## How to get to it (user POV)
 
 - Start a review in a terminal and press Ctrl+C while progress is visible.
