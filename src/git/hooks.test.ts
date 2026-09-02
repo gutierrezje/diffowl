@@ -178,7 +178,14 @@ describe("installHook", () => {
 
   it("refuses to overwrite an unowned Husky launcher", async () => {
     const { root, huskyUserHook, localLauncher } = await createHuskyRepo();
-    const unownedLauncher = "#!/bin/sh\n# another tool owns this file\n";
+    const unownedLauncher = [
+      "#!/bin/sh",
+      "# another tool owns this file",
+      "# diffowl-managed",
+      "# marker names mentioned as data",
+      "# end-diffowl",
+      "",
+    ].join("\n");
     await writeFile(localLauncher, unownedLauncher, "utf-8");
     process.chdir(root);
 

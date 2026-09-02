@@ -395,7 +395,14 @@ function isOnlyShebangs(content: string): boolean {
 }
 
 function isManagedLauncher(content: string): boolean {
-  return content.includes(HOOK_MARKER) && content.includes(HOOK_END_MARKER);
+  const lines = content.trim().split("\n");
+  return (
+    lines[0] === HOOK_SHEBANG &&
+    lines[1] === HOOK_MARKER &&
+    lines.at(-1) === HOOK_END_MARKER &&
+    lines.filter((line) => line === HOOK_MARKER).length === 1 &&
+    lines.filter((line) => line === HOOK_END_MARKER).length === 1
+  );
 }
 
 function hasExecutableMode(mode: number): boolean {
