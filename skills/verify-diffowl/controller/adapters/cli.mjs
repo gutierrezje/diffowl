@@ -443,7 +443,7 @@ function preferenceResult({
   const stateAgrees =
     document.backend === expectedBackend &&
     codexSelection?.model === "gpt-5.6-sol" &&
-    codexSelection.reasoning?.variant === "high";
+    codexSelection?.reasoning?.variant === "high";
   const ok =
     backend.exitCode === 0 &&
     model.exitCode === 0 &&
