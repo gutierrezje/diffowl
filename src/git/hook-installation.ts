@@ -40,6 +40,14 @@ export async function installHook(): Promise<HookInstallResult> {
 
   if (target.kind === "husky") {
     await mkdir(dirname(target.launcherPath), { recursive: true });
+    if (existsSync(target.launcherPath)) {
+      const existingLauncher = await readFile(target.launcherPath, "utf-8");
+      if (!isManagedLauncher(existingLauncher)) {
+        throw new Error(
+          `Cannot install DiffOwl hook: ${target.launcherPath} exists and is not DiffOwl-managed.`,
+        );
+      }
+    }
     await writeFile(target.launcherPath, generateHookScript(command), "utf-8");
     await chmod(target.launcherPath, 0o755);
   }
@@ -83,8 +91,11 @@ export async function uninstallHook(): Promise<boolean> {
   const { hookPath } = target;
   let removedLauncher = false;
   if (target.kind === "husky" && existsSync(target.launcherPath)) {
-    await unlink(target.launcherPath);
-    removedLauncher = true;
+    const launcher = await readFile(target.launcherPath, "utf-8");
+    if (isManagedLauncher(launcher)) {
+      await unlink(target.launcherPath);
+      removedLauncher = true;
+    }
   }
 
   if (!existsSync(hookPath)) return removedLauncher;
@@ -165,6 +176,14 @@ export async function checkHookStale(): Promise<HookStatus> {
       return { installed: true, stale: true, reason: "Local DiffOwl launcher is missing" };
     }
     try {
+      const launcher = await readFile(target.launcherPath, "utf-8");
+      if (!isManagedLauncher(launcher)) {
+        return {
+          installed: true,
+          stale: true,
+          reason: "Local DiffOwl launcher path is occupied by an unmanaged file",
+        };
+      }
       const launcherInfo = await stat(target.launcherPath);
       if (!hasExecutableMode(launcherInfo.mode)) {
         return {
@@ -173,7 +192,6 @@ export async function checkHookStale(): Promise<HookStatus> {
           reason: "Local DiffOwl launcher is not executable",
         };
       }
-      const launcher = await readFile(target.launcherPath, "utf-8");
       if (launcher.trim() !== generateHookScript(command).trim()) {
         return {
           installed: true,
@@ -241,19 +259,15 @@ async function getHookTarget(): Promise<HookTarget> {
   if (basename(hooksDir) !== "_" || basename(dirname(hooksDir)) !== ".husky") {
     return { kind: "git", hookPath: join(hooksDir, "post-commit") };
   }
-  const { stdout } = await execa("git", [
-    "rev-parse",
-    "--path-format=absolute",
-    "--git-common-dir",
-  ]);
-  const commonDir = stdout.trim();
-  if (!commonDir) {
-    throw new Error("Git returned an empty common directory.");
+  const { stdout } = await execa("git", ["rev-parse", "--absolute-git-dir"]);
+  const gitDir = stdout.trim();
+  if (!gitDir) {
+    throw new Error("Git returned an empty Git directory.");
   }
   return {
     kind: "husky",
     hookPath: join(dirname(hooksDir), "post-commit"),
-    launcherPath: join(commonDir, "hooks", HUSKY_LAUNCHER_NAME),
+    launcherPath: join(gitDir, "hooks", HUSKY_LAUNCHER_NAME),
   };
 }
 
@@ -318,9 +332,9 @@ function generateHuskyManagedSection(): string {
   return `${HOOK_MARKER}
 # Resolve the machine-local launcher without storing machine-specific paths here.
 ${generateHookLogSetup()}
-DIFFOWL_GIT_COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
-DIFFOWL_LAUNCHER="$DIFFOWL_GIT_COMMON_DIR/hooks/${HUSKY_LAUNCHER_NAME}"
-if [ -n "$DIFFOWL_GIT_COMMON_DIR" ] && [ -x "$DIFFOWL_LAUNCHER" ]; then
+DIFFOWL_GIT_DIR=$(git rev-parse --absolute-git-dir 2>/dev/null)
+DIFFOWL_LAUNCHER="$DIFFOWL_GIT_DIR/hooks/${HUSKY_LAUNCHER_NAME}"
+if [ -n "$DIFFOWL_GIT_DIR" ] && [ -x "$DIFFOWL_LAUNCHER" ]; then
   "$DIFFOWL_LAUNCHER"
 else
   echo "diffowl: review not started; local hook launcher not found; run 'diffowl hook install'; log: $DIFFOWL_LOG_FILE"
@@ -378,6 +392,10 @@ function isOnlyShebangs(content: string): boolean {
     .map((line) => line.trim())
     .filter(Boolean);
   return lines.length > 0 && lines.every((line) => line === HOOK_SHEBANG);
+}
+
+function isManagedLauncher(content: string): boolean {
+  return content.includes(HOOK_MARKER) && content.includes(HOOK_END_MARKER);
 }
 
 function hasExecutableMode(mode: number): boolean {

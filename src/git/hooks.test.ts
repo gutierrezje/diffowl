@@ -90,7 +90,7 @@ describe("installHook", () => {
     await expect(readFile(huskyShim, "utf-8")).resolves.not.toContain("# diffowl-managed");
     const portableBridge = await readFile(huskyUserHook, "utf-8");
     expect(portableBridge).toContain("# diffowl-managed");
-    expect(portableBridge).toContain("git rev-parse --path-format=absolute --git-common-dir");
+    expect(portableBridge).toContain("git rev-parse --absolute-git-dir");
     expect(portableBridge).not.toContain(process.execPath);
     await expect(readFile(localLauncher, "utf-8")).resolves.toContain(process.execPath);
     await expect(isHookInstalled()).resolves.toBe(true);
@@ -120,7 +120,7 @@ describe("installHook", () => {
 
       const portableBridge = await readFile(huskyUserHook, "utf-8");
       const firstLauncher = await readFile(localLauncher, "utf-8");
-      expect(portableBridge).toContain("git rev-parse --path-format=absolute --git-common-dir");
+      expect(portableBridge).toContain("git rev-parse --absolute-git-dir");
       expect(portableBridge).not.toContain(runtimeA);
       expect(portableBridge).not.toContain(process.execPath);
       expect(firstLauncher).toContain(runtimeA);
@@ -154,6 +154,55 @@ describe("installHook", () => {
     expect(existsSync(localLauncher)).toBe(false);
   });
 
+  it("keeps Husky launchers isolated between linked worktrees", async () => {
+    const root = await createGitRepo();
+    const worktree = join(dirname(root), `${basename(root)}-husky-worktree`);
+    tempDirs.push(worktree);
+    await execa("git", ["worktree", "add", worktree], { cwd: root });
+    await configureHuskyRepo(root);
+    await configureHuskyRepo(worktree);
+
+    process.chdir(root);
+    const rootInstall = await installHook();
+    process.chdir(worktree);
+    const worktreeInstall = await installHook();
+    if (rootInstall.kind !== "husky" || worktreeInstall.kind !== "husky") {
+      throw new Error("Expected Husky hook targets");
+    }
+
+    expect(worktreeInstall.launcherPath).not.toBe(rootInstall.launcherPath);
+    await expect(uninstallHook()).resolves.toBe(true);
+    expect(existsSync(worktreeInstall.launcherPath)).toBe(false);
+    expect(existsSync(rootInstall.launcherPath)).toBe(true);
+  });
+
+  it("refuses to overwrite an unowned Husky launcher", async () => {
+    const { root, huskyUserHook, localLauncher } = await createHuskyRepo();
+    const unownedLauncher = "#!/bin/sh\n# another tool owns this file\n";
+    await writeFile(localLauncher, unownedLauncher, "utf-8");
+    process.chdir(root);
+
+    await expect(installHook()).rejects.toThrow("is not DiffOwl-managed");
+    await expect(readFile(localLauncher, "utf-8")).resolves.toBe(unownedLauncher);
+    expect(existsSync(huskyUserHook)).toBe(false);
+  });
+
+  it("reports and preserves an unowned launcher during uninstall", async () => {
+    const { root, localLauncher } = await createHuskyRepo();
+    const unownedLauncher = "#!/bin/sh\n# another tool owns this file\n";
+    process.chdir(root);
+    await installHook();
+    await writeFile(localLauncher, unownedLauncher, "utf-8");
+
+    await expect(checkHookStale()).resolves.toEqual({
+      installed: true,
+      stale: true,
+      reason: "Local DiffOwl launcher path is occupied by an unmanaged file",
+    });
+    await expect(uninstallHook()).resolves.toBe(true);
+    await expect(readFile(localLauncher, "utf-8")).resolves.toBe(unownedLauncher);
+  });
+
   it("reports a missing Husky launcher separately from the portable bridge", async () => {
     const { root, localLauncher } = await createHuskyRepo();
     process.chdir(root);
@@ -171,7 +220,12 @@ describe("installHook", () => {
     const { root, localLauncher } = await createHuskyRepo();
     process.chdir(root);
     await installHook();
-    await writeFile(localLauncher, "#!/bin/sh\n# stale runtime\n", "utf-8");
+    const currentLauncher = await readFile(localLauncher, "utf-8");
+    await writeFile(
+      localLauncher,
+      currentLauncher.replaceAll(process.execPath, "/stale/node"),
+      "utf-8",
+    );
 
     await expect(checkHookStale()).resolves.toEqual({
       installed: true,
@@ -833,17 +887,22 @@ async function createGitRepo(prefix = "diffowl-hooks-"): Promise<string> {
 
 async function createHuskyRepo(options: { prefix?: string; userHook?: string } = {}) {
   const root = await createGitRepo(options.prefix);
+  const paths = await configureHuskyRepo(root, options.userHook);
+  return { root, ...paths };
+}
+
+async function configureHuskyRepo(root: string, userHook?: string) {
   const huskyInternalDir = join(root, ".husky", "_");
   const huskyShim = join(huskyInternalDir, "post-commit");
   const huskyUserHook = join(root, ".husky", "post-commit");
   const localLauncher = join(root, ".git", "hooks", "diffowl-post-commit");
   await mkdir(huskyInternalDir, { recursive: true });
   await writeFile(huskyShim, '#!/usr/bin/env sh\n. "$(dirname "$0")/h"\n', "utf-8");
-  if (options.userHook !== undefined) {
-    await writeFile(huskyUserHook, options.userHook, "utf-8");
+  if (userHook !== undefined) {
+    await writeFile(huskyUserHook, userHook, "utf-8");
   }
   await execa("git", ["config", "core.hooksPath", ".husky/_"], { cwd: root });
-  return { root, huskyShim, huskyUserHook, localLauncher };
+  return { huskyShim, huskyUserHook, localLauncher };
 }
 
 async function createHookRuntime(name: string): Promise<string> {

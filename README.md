@@ -164,8 +164,8 @@ The hook queues each commit, returns control to the terminal, and writes output 
 In a Husky repository, the first install adds a portable bridge to the tracked
 `.husky/post-commit` file. Commit that bridge if the repository should run
 DiffOwl for every contributor. Machine-specific Node and DiffOwl paths stay in
-Git-local hook state, so later installs and runtime upgrades do not dirty the
-tracked Husky hook.
+worktree-local Git hook state, so later installs and runtime upgrades do not
+dirty the tracked Husky hook or interfere with another linked worktree.
 
 ```bash
 diffowl hook status
