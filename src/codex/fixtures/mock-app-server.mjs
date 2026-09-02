@@ -17,9 +17,12 @@ const reasoningModes = [
 if (
   [
     "marker",
+    "review-capabilities",
+    "extended-exploration",
     "authoritative",
     "item-correlation",
     "completed-no-delta",
+    "empty-started-agent-message",
     "completion-after-cancel-usage",
     "file-change",
     "marker-retry",
@@ -121,9 +124,12 @@ const spikeReport = {
 };
 const markerModes = [
   "marker",
+  "review-capabilities",
+  "extended-exploration",
   "authoritative",
   "item-correlation",
   "completed-no-delta",
+  "empty-started-agent-message",
   "completion-after-cancel-usage",
   "file-change",
   "marker-retry",
@@ -364,7 +370,7 @@ function handleMarker(message) {
           ? params.developerInstructions.includes(expectedSystem)
           : params.developerInstructions.includes("DiffOwl") &&
             params.developerInstructions.includes("Semantics and constraints:") &&
-            params.developerInstructions.includes("Review rules:") &&
+            params.developerInstructions.includes("Review method:") &&
             params.developerInstructions.includes("JSON-only"));
     const developerInstructionsOk = outputSchemaModes
       ? isRecord(params) &&
@@ -374,6 +380,32 @@ function handleMarker(message) {
       : ["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode)
         ? systemPromptOk
         : isRecord(params) && params.developerInstructions === expectedSystem;
+    const reviewConfig = isRecord(params) && isRecord(params.config) ? params.config : null;
+    const reviewFeatures = isRecord(reviewConfig?.features) ? reviewConfig.features : null;
+    const reviewCapabilitiesOk =
+      mode !== "review-capabilities" ||
+      (reviewConfig?.web_search === "disabled" &&
+        reviewConfig?.tools !== null &&
+        isRecord(reviewConfig?.tools) &&
+        reviewConfig.tools.web_search === false &&
+        reviewConfig.tools.view_image === false &&
+        reviewFeatures?.apps === false &&
+        reviewFeatures?.browser_use === false &&
+        reviewFeatures?.computer_use === false &&
+        reviewFeatures?.hooks === false &&
+        reviewFeatures?.image_generation === false &&
+        reviewFeatures?.in_app_browser === false &&
+        reviewFeatures?.multi_agent === false &&
+        reviewFeatures?.multi_agent_v2 === false &&
+        reviewFeatures?.plugins === false &&
+        reviewFeatures?.remote_plugin === false &&
+        reviewFeatures?.skill_mcp_dependency_install === false &&
+        reviewFeatures?.tool_call_mcp_elicitation === false &&
+        reviewFeatures?.tool_suggest === false &&
+        reviewFeatures?.workspace_dependencies === false &&
+        reviewFeatures?.rollout_budget === undefined &&
+        isRecord(reviewConfig?.agents) &&
+        reviewConfig.agents.enabled === false);
     if (
       !isRecord(params) ||
       (!["spike-marker", "spike-three-invalid", "spike-cancel-active", "canonical-cwd"].includes(
@@ -388,7 +420,8 @@ function handleMarker(message) {
       params.approvalPolicy !== "never" ||
       params.sandbox !== "read-only" ||
       params.ephemeral !== true ||
-      !developerInstructionsOk
+      !developerInstructionsOk ||
+      !reviewCapabilitiesOk
     ) {
       if (["spike-marker", "spike-three-invalid", "spike-cancel-active"].includes(mode)) {
         send({
@@ -551,6 +584,20 @@ function handleMarker(message) {
       return;
     }
     if (mode === "repository-mutates") writeFileSync("codex-mutated.txt", "provider mutation\n");
+    if (mode === "extended-exploration") {
+      const toolTypes = ["commandExecution", "mcpToolCall", "dynamicToolCall", "sleep"];
+      for (let index = 1; index <= 9; index++) {
+        send({
+          method: "item/started",
+          params: {
+            threadId: "thread-1",
+            turnId,
+            item: { type: toolTypes[(index - 1) % toolTypes.length], id: `tool-${index}` },
+            startedAtMs: index,
+          },
+        });
+      }
+    }
     if (["turn-failed", "turn-failed-empty-info", "turn-failed-mutates"].includes(mode)) {
       if (mode === "turn-failed-mutates") writeFileSync("codex-mutated.txt", "provider mutation\n");
       send({
@@ -592,6 +639,17 @@ function handleMarker(message) {
       phase: null,
       memoryCitation: null,
     };
+    if (mode === "empty-started-agent-message") {
+      send({
+        method: "item/started",
+        params: {
+          threadId: "thread-1",
+          turnId,
+          item: { ...agentMessage, text: "" },
+          startedAtMs: 1,
+        },
+      });
+    }
     if (mode === "file-change") {
       send({
         method: "item/completed",

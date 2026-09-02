@@ -86,6 +86,25 @@ describe("executeCodexReview", () => {
     );
   });
 
+  it("isolates the reviewer from unrelated Codex capabilities", async () => {
+    const outcome = await executeCodexReview(makeInput("review-capabilities"));
+
+    expect(outcome.reviewResult.report.summary).toBe("schema summary");
+  });
+
+  it("allows the reviewer to continue while tool use is making progress", async () => {
+    const telemetry: ReviewExecutionTelemetryEvent[] = [];
+    const outcome = await executeCodexReview({
+      ...makeInput("extended-exploration"),
+      onTelemetry: (event) => telemetry.push(event),
+    });
+
+    expect(outcome.reviewResult.report.summary).toBe("schema summary");
+    expect(
+      telemetry.filter((event) => event.type === "activity" && event.activity === "tool"),
+    ).toHaveLength(9);
+  });
+
   it("ignores ordinary items and uses the active turn's final agent message", async () => {
     const telemetry: ReviewExecutionTelemetryEvent[] = [];
     const outcome = await executeCodexReview({
@@ -111,6 +130,11 @@ describe("executeCodexReview", () => {
 
   it("accepts a completed agent message without a preceding delta", async () => {
     const outcome = await executeCodexReview(makeInput("completed-no-delta"));
+    expect(outcome.reviewResult.report.summary).toBe("schema summary");
+  });
+
+  it("accepts an empty agent message while the item is starting", async () => {
+    const outcome = await executeCodexReview(makeInput("empty-started-agent-message"));
     expect(outcome.reviewResult.report.summary).toBe("schema summary");
   });
 

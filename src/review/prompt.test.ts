@@ -57,7 +57,7 @@ describe("resolveReviewPrompts", () => {
     expect(prompts.system).toBe(REVIEW_AGENT_NATIVE_JSON_PROMPT);
     expect(prompts.system).toContain("supplied output schema");
     expect(prompts.system).toContain('"evidence": null');
-    expect(prompts.system).toContain("Required review passes");
+    expect(prompts.system).toContain("Trace each changed condition, return value, and external callback");
     expect(prompts.system).not.toContain("FINAL_REVIEW_JSON");
   });
 });
@@ -80,15 +80,25 @@ describe("buildReviewPrompt", () => {
     expect(prompt).toContain("ignored");
   });
 
-  it("requires broad review passes in the system prompt", () => {
-    expect(REVIEW_AGENT_PROMPT).toContain("Required review passes");
-    expect(REVIEW_AGENT_PROMPT).toContain("Behavior and compatibility");
-    expect(REVIEW_AGENT_PROMPT).toContain("Do not force these passes onto unrelated changes");
-    expect(REVIEW_AGENT_PROMPT).toContain("Correctness and data flow");
-    expect(REVIEW_AGENT_PROMPT).toContain("CLI behavior");
-    expect(REVIEW_AGENT_PROMPT).toContain("UI/API/CLI states");
-    expect(REVIEW_AGENT_PROMPT).toContain("Data filtering/loss");
+  it("directs review by changed behavior rather than mandatory passes", () => {
+    expect(REVIEW_AGENT_PROMPT).toContain(
+      "Trace each changed condition, return value, and external callback",
+    );
+    expect(REVIEW_AGENT_PROMPT).toContain(
+      "Apply only the risk lenses implicated by the changed behavior",
+    );
+    expect(REVIEW_AGENT_PROMPT).not.toContain("Required review passes");
     expect(REVIEW_AGENT_PROMPT).not.toContain("cwd vs project root");
+  });
+
+  it("focuses repository exploration on evidence and completion", () => {
+    expect(REVIEW_AGENT_PROMPT).toContain("resolve a specific candidate through a directly affected");
+    expect(REVIEW_AGENT_PROMPT).toContain("Do not repeat a search or broaden the repository scope");
+    expect(REVIEW_AGENT_PROMPT).toContain("Stop exploring when every candidate finding");
+    expect(REVIEW_AGENT_PROMPT).toContain("Do not browse the web");
+    expect(REVIEW_AGENT_PROMPT).toContain("Do not run tests, builds, or linters");
+    expect(REVIEW_AGENT_PROMPT).not.toContain("at most 8 tool batches");
+    expect(REVIEW_AGENT_PROMPT).not.toContain("budget is exhausted");
   });
 
   it("admits a schema-repair follow-up that must re-emit FINAL_REVIEW_JSON", () => {
