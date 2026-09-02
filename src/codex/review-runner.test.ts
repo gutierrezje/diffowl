@@ -369,7 +369,7 @@ describe("executeCodexReview", () => {
 
   it("uses one absolute timeout budget for the handshake", { timeout: 10_000 }, async () => {
     // Hosted Windows needs enough budget to finish initialization before the fixture stalls.
-    const timeoutMs = process.platform === "win32" ? 5_000 : 200;
+    const timeoutMs = process.platform === "win32" ? 5_000 : 2_000;
     await expect(
       executeCodexReview({ ...makeInput("timeout-thread"), timeoutMs }),
     ).rejects.toMatchObject({

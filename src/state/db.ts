@@ -366,6 +366,7 @@ function backfillMigrationIdentity(
   migrations: MigrationRegistry,
   throughVersion: number,
 ): void {
+  // Tests can inject a registry here; production opens always use and validate MIGRATIONS.
   const update = db.prepare(
     "UPDATE schema_migrations SET name = ?, sha256 = ? WHERE version = ? AND sha256 IS NULL",
   );

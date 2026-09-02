@@ -7,6 +7,13 @@ increments that may include backward-compatible features and fixes.
 
 ## [Unreleased]
 
+### Changed
+
+- State schema 7 now records migration identity. Databases written by unreleased
+  schema 7 through 10 development builds must move `.diffowl/state.db` aside
+  before upgrading. Backend names are now validated by the application instead
+  of a SQLite `CHECK`, so adding a backend no longer requires a table rebuild.
+
 ## [0.5.1] - 2026-08-27
 
 ### Added
