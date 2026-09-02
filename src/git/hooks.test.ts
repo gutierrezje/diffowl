@@ -121,9 +121,9 @@ describe("installHook", () => {
       const portableBridge = await readFile(huskyUserHook, "utf-8");
       const firstLauncher = await readFile(localLauncher, "utf-8");
       expect(portableBridge).toContain("git rev-parse --absolute-git-dir");
-      expect(portableBridge).not.toContain(runtimeA);
+      expect(portableBridge).not.toContain(basename(runtimeA));
       expect(portableBridge).not.toContain(process.execPath);
-      expect(firstLauncher).toContain(runtimeA);
+      expect(firstLauncher).toContain(basename(runtimeA));
       expect(firstLauncher).toContain(process.execPath);
 
       await execa("git", ["add", ".husky/post-commit"], { cwd: root });
@@ -134,8 +134,8 @@ describe("installHook", () => {
 
       await expect(readFile(huskyUserHook, "utf-8")).resolves.toBe(portableBridge);
       const updatedLauncher = await readFile(localLauncher, "utf-8");
-      expect(updatedLauncher).toContain(runtimeB);
-      expect(updatedLauncher).not.toContain(runtimeA);
+      expect(updatedLauncher).toContain(basename(runtimeB));
+      expect(updatedLauncher).not.toContain(basename(runtimeA));
       await expect(
         execa("git", ["status", "--porcelain=v1"], { cwd: root }),
       ).resolves.toMatchObject({ stdout: "" });
