@@ -15,6 +15,8 @@ import {
 } from "./review/reasoning.js";
 import type { EffectiveReviewConfig } from "./review/runtime-config.js";
 
+const MAX_REASONING_TIMEOUT_WARNING_SECONDS = 300;
+
 export class MissingModelError extends Error {
   readonly backend: ReviewBackend;
 
@@ -116,6 +118,15 @@ export async function loadEffectiveReviewConfig(
         commandReasoning,
         savedVariant,
       ),
+    );
+  }
+  if (
+    reasoning.kind === "variant" &&
+    reasoning.value === "max" &&
+    loaded.config.timeout <= MAX_REASONING_TIMEOUT_WARNING_SECONDS
+  ) {
+    warnings.push(
+      `Maximum reasoning can exceed the configured ${loaded.config.timeout}-second review timeout. The review will still stop at that deadline. Increase \`timeout\` in \`.diffowl.yml\` if you want to allow a longer quality-first review.`,
     );
   }
   return {

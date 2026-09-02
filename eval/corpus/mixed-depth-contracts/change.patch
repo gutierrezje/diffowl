@@ -1,0 +1,25 @@
+diff --git a/src/inventory.ts b/src/inventory.ts
+--- a/src/inventory.ts
++++ b/src/inventory.ts
+@@ -8,9 +8,6 @@ export async function reserveStock(
+   inventory: InventoryGateway,
+   sku: string,
+   quantity: number,
+-): Promise<void> {
+-  const reserved = await inventory.reserve(sku, quantity);
+-  if (!reserved) {
+-    throw new OutOfStockError(`Could not reserve ${quantity} units of ${sku}.`);
+-  }
++): Promise<boolean> {
++  return inventory.reserve(sku, quantity);
+ }
+diff --git a/src/shipping.ts b/src/shipping.ts
+--- a/src/shipping.ts
++++ b/src/shipping.ts
+@@ -1,5 +1,5 @@
+ export function shippingFeeCents(subtotalCents: number): number {
+-  if (subtotalCents >= 5_000) {
++  if (subtotalCents > 5_000) {
+     return 0;
+   }
+   return 799;

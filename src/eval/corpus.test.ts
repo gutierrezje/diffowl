@@ -28,6 +28,7 @@ const committedCaseIds = [
   "inverted-guard",
   "keep-distinct-in-same-symbol",
   "missing-validation",
+  "mixed-depth-contracts",
   "off-by-one-slice",
   "path-join-traversal",
   "recognize-same-across-commits",
