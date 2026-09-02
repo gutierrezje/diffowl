@@ -198,6 +198,33 @@ describe("effective config", () => {
     ]);
   });
 
+  it("warns when maximum reasoning uses the five-minute review timeout", async () => {
+    const root = await createRoot("diffowl-effective-max-timeout-");
+    process.chdir(root);
+    await saveReviewBackendModel("opencode", "provider/local");
+    await saveReviewBackendReasoning("opencode", "max");
+
+    await expect(loadEffectiveReviewConfig()).resolves.toMatchObject({
+      config: { timeout: 300, reasoning: { kind: "variant", value: "max" } },
+      warnings: [
+        "Maximum reasoning can exceed the configured 300-second review timeout. The review will still stop at that deadline. Increase `timeout` in `.diffowl.yml` if you want to allow a longer quality-first review.",
+      ],
+    });
+  });
+
+  it("does not warn when maximum reasoning has a longer review timeout", async () => {
+    const root = await createRoot("diffowl-effective-max-long-timeout-");
+    await writeFile(join(root, ".diffowl.yml"), "timeout: 900\n", "utf8");
+    process.chdir(root);
+    await saveReviewBackendModel("opencode", "provider/local");
+    await saveReviewBackendReasoning("opencode", "max");
+
+    await expect(loadEffectiveReviewConfig()).resolves.toMatchObject({
+      config: { timeout: 900, reasoning: { kind: "variant", value: "max" } },
+      warnings: [],
+    });
+  });
+
   it("warns how to clean up an explicit auto legacy value", async () => {
     const root = await createRoot("diffowl-effective-reasoning-auto-");
     await writeFile(

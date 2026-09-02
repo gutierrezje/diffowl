@@ -294,6 +294,15 @@ type ActiveCancellation = {
 const ABORT_SIGNAL = Symbol("codex-review-abort");
 const ABORT_RECONCILIATION_IDLE_MS = 50;
 const ABORT_RECONCILIATION_MAX_MS = 150;
+const REVIEW_PASSIVE_ITEM_TYPES = new Set([
+  "agentMessage",
+  "contextCompaction",
+  "enteredReviewMode",
+  "exitedReviewMode",
+  "plan",
+  "reasoning",
+  "userMessage",
+]);
 
 export async function executeCodexReview(input: CodexReviewInput): Promise<CodexReviewOutcome> {
   validateInput(input);
@@ -520,6 +529,27 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
             sandbox: "read-only",
             ephemeral: true,
             developerInstructions,
+            config: {
+              web_search: "disabled",
+              tools: { web_search: false, view_image: false },
+              agents: { enabled: false },
+              features: {
+                apps: false,
+                browser_use: false,
+                computer_use: false,
+                hooks: false,
+                image_generation: false,
+                in_app_browser: false,
+                multi_agent: false,
+                multi_agent_v2: false,
+                plugins: false,
+                remote_plugin: false,
+                skill_mcp_dependency_install: false,
+                tool_call_mcp_elicitation: false,
+                tool_suggest: false,
+                workspace_dependencies: false,
+              },
+            },
           },
           deadline,
           "thread/start",
@@ -957,7 +987,7 @@ async function collectTurn(
           break;
         }
         case "started-item":
-          if (event.item.type === "commandExecution") {
+          if (!REVIEW_PASSIVE_ITEM_TYPES.has(event.item.type)) {
             recordToolActivity(input.onTelemetry, attempt);
           } else {
             recordProviderActivity(input.onTelemetry, attempt);
@@ -967,7 +997,7 @@ async function collectTurn(
           recordToolActivity(input.onTelemetry, attempt);
           break;
         case "completed-item":
-          if (event.item.type === "commandExecution") {
+          if (!REVIEW_PASSIVE_ITEM_TYPES.has(event.item.type)) {
             recordToolActivity(input.onTelemetry, attempt);
           } else {
             recordProviderActivity(input.onTelemetry, attempt);
@@ -1358,7 +1388,7 @@ function parseItem(value: CodexJsonObject, context: string): MarkerItem {
   const id = requiredString(value, "id", `${context}.id`);
   if (type === "fileChange") throw policyError("fileChange item");
   if (type === "agentMessage")
-    return { type, id, text: requiredString(value, "text", `${context}.text`) };
+    return { type, id, text: requiredStringAllowEmpty(value, "text", `${context}.text`) };
   if (type === "reasoning" || type === "commandExecution") return { type, id };
   return { type, id };
 }

@@ -1,0 +1,18 @@
+{
+  "id": "mixed-depth-contracts",
+  "category": "bug",
+  "language": "typescript",
+  "description": "Combines a visible boundary regression with a changed reservation contract whose unchanged caller still assumes failures throw.",
+  "target": "commit",
+  "tags": ["boundary", "cross-file-contract"],
+  "expected": [
+    {
+      "file": "src/inventory.ts",
+      "line": 12
+    },
+    {
+      "file": "src/shipping.ts",
+      "line": 2
+    }
+  ]
+}
