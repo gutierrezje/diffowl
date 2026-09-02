@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONTROLLER_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec node "$CONTROLLER_DIR/controller/main.mjs" "$@"

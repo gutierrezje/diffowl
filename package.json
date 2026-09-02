@@ -34,6 +34,7 @@
     "dev": "tsup --watch",
     "pretest": "pnpm run check:runtime",
     "test": "vitest run",
+    "test:verification": "vitest run --config skills/verify-diffowl/vitest.config.mjs",
     "pretypecheck": "pnpm run check:runtime",
     "typecheck": "node scripts/typecheck.mjs --noEmit",
     "build:anti-slop": "tsup --entry.plugin tools/oxlint/anti-slop/index.ts --format esm --target node22 --external @oxlint/plugins --out-dir tools/oxlint/anti-slop --no-config --silent",
