@@ -13,6 +13,12 @@ review does not exercise these branches.
 - `codex-validation-failure` proves bounded whole-document retries and one honest
   terminal failure outcome.
 
+## Controller
+
+Create a run with `control-diffowl codex new-run <feature-id> --model <id>`, use
+the focused mock-child recipe below, then capture `snapshot` and `receipt`. A
+normal live success is only the final bracket where the recipe calls for it.
+
 ## Driving it
 
 Start with one disposable target and the existing public Codex runner seam. Use

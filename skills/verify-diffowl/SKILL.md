@@ -20,3 +20,7 @@ Shared review-pipeline or capability-routing changes normally require both
 provider skills. A changed CLI flag does not require a paid review merely because
 the command is named `review`; use the lightest surface that reaches the changed
 behavior.
+
+All three skills use `skills/verify-diffowl/control-diffowl`. Discover its small
+interface with `--help` and the selected surface's `capabilities --json`; the
+existing shell helpers remain internal implementation details.

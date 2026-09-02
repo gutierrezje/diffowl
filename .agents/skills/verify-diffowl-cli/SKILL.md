@@ -5,58 +5,25 @@ description: "Verify DiffOwl's local CLI and durable-state behavior through the 
 
 # Verify DiffOwl CLI
 
-Prove the changed user journey through `dist/cli.js`, not a test helper or a
-globally linked binary. Read [features/README.md](features/README.md), then only
-the recipes that match the change.
+Prove the changed journey through the built `dist/cli.js` in a disposable Git
+repository. Read [features/README.md](features/README.md), then only the selected
+recipe.
 
 ## Workflow
 
-1. Name the affected feature IDs. For a general smoke check, use
-   `cli-version-help`.
-2. From the DiffOwl root, create a run:
+1. Confirm the entry point maps to a feature ID. Use `cli-version-help` for a
+   general offline smoke check.
+2. Discover the current interface with
+   `skills/verify-diffowl/control-diffowl cli capabilities --json`.
+3. Run `control-diffowl cli doctor --json`; stop on source/artifact mismatch.
+4. Execute `control-diffowl run cli <feature-id> --json`. Add `--dry-run` first
+   for setup, preference, hook, or finding mutations.
+5. Inspect the named receipt. VERIFIED requires both command behavior and the
+   resulting file or database state. For interactive or prerequisite-driven
+   recipes, use `cli new-run`, follow the recipe inside that scratch, then use
+   `snapshot` and `receipt`.
+6. Run `control-diffowl cli cleanup --run <run-id> --dry-run --json`, then apply
+   cleanup. Evidence remains.
 
-   ```bash
-   RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
-   SCRATCH="$(./skills/verify-diffowl/helpers/scratch-repo.sh cli <feature-id> "$RUN_ID")"
-   EVIDENCE="$(<"$SCRATCH/.diffowl-verify/evidence.path")"
-   DIFFOWL_BIN="$PWD/dist/cli.js"
-   ```
-
-   The helper builds first and records the source head, dirty-state count,
-   binary hash, version, scratch path, and build output.
-3. Run `./skills/verify-diffowl/helpers/doctor.sh "$PWD"`. Stop on a binary or
-   version mismatch.
-4. Drive every command through the capture helper:
-
-   ```bash
-   ./skills/verify-diffowl/helpers/capture.sh "$EVIDENCE" <label> "$SCRATCH" -- node "$DIFFOWL_BIN" <args>
-   ```
-
-   Inspect both its output and the resulting file or database state. Use the
-   CLI-control harness only for the interactive `init` recipe.
-5. Keep config, preference, hook, and finding mutations inside the scratch.
-   Never run reset, install, or lifecycle commands in the DiffOwl source tree.
-6. Run `helpers/cleanup.sh "$EVIDENCE"`. It removes only the recorded scratch
-   and retains the proof.
-
-## Result contract
-
-Classify the selected feature as:
-
-- `VERIFIED`: the action and resulting state agree through the captured binary;
-- `NOT VERIFIED`: the aligned CLI contradicts the recipe; or
-- `INCONCLUSIVE`: the build, binary identity, TTY, prerequisite finding, or
-  disposable state could not be established.
-
-A successful build or matching stdout alone is insufficient when the command
-promises a file, hook, preference, or database change. Leave this receipt:
-
-```text
-target: <source head, dirty-state count, binary hash>
-feature: <feature-id>
-actions: <captured command directories>
-observed: <stdout plus resulting state>
-artifacts: <evidence directory>
-cleanup: <removed scratch or retained state>
-result: VERIFIED | NOT VERIFIED | INCONCLUSIVE
-```
+All mutation stays inside the recorded scratch. A successful command line alone
+is supporting evidence, never the verdict.

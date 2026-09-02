@@ -9,6 +9,10 @@ state.
 - `cli-version-help` reports the package version and reachable command tree.
 - `cli-invalid-command` rejects an unknown command with a nonzero exit.
 
+## Controller
+
+Run `skills/verify-diffowl/control-diffowl run cli <feature-id> --json`.
+
 ## How to get to it (user POV)
 
 - Run `diffowl -V`.

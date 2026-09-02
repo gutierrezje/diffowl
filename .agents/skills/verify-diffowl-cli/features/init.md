@@ -9,6 +9,11 @@ and Git hook integration through a real terminal.
 - `init-agent-path` records the user's yes/no choices for agent instructions and
   hooks.
 
+## Controller
+
+Use `control-diffowl cli new-run <feature-id>` to create the target. Drive the
+TTY journey below, then capture `snapshot --run <run-id>` and read the receipt.
+
 ## How to get to it (user POV)
 
 - Run `diffowl init` in a repository from an interactive terminal.

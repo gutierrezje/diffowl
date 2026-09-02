@@ -9,6 +9,11 @@ actual model used.
 - `codex-runtime-ready` binds a live review to the installed CLI, auth mode,
   generated protocol, requested model, and effective model.
 
+## Controller
+
+Run `control-diffowl codex doctor --model <id> --json`, then
+`control-diffowl run codex codex-runtime-ready --model <id> --json`.
+
 ## How to get to it (user POV)
 
 - Run `diffowl backend` to inspect runtime availability.

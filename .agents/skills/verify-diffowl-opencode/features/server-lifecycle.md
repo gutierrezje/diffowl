@@ -8,6 +8,11 @@ by a DiffOwl review without touching another checkout's server.
 - `opencode-server-owned-lifecycle` proves start, health, version identity, and
   stop for one dedicated scratch port.
 
+## Controller
+
+Run `control-diffowl run opencode opencode-server-owned-lifecycle --json`, then
+confirm `network-summary --run <run-id> --json` reports the port closed.
+
 ## How to get to it (user POV)
 
 - Run `diffowl server start`, `status`, and `stop` from a configured repository.

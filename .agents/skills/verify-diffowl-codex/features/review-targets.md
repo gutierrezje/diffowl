@@ -6,13 +6,20 @@ mutation.
 
 ## Sub-features
 
+- `codex-review-last-commit` reviews the default last-commit target.
 - `codex-review-staged` reviews only the index.
 - `codex-review-commit` reviews one explicit commit.
 - `codex-review-base` reviews committed branch changes from a merge base.
 
+## Controller
+
+Run `control-diffowl run codex <feature-id> --model <bare-id> --json`. The
+adapter prepares the mapped target before its `before` snapshot.
+
 ## How to get to it (user POV)
 
 - Run `diffowl review --staged --backend codex --model <id>`.
+- Run `diffowl review --backend codex --model <id>` for the default last commit.
 - Run `diffowl review --commit <sha> --backend codex --model <id>`.
 - Run `diffowl review --base <ref> --backend codex --model <id>`.
 

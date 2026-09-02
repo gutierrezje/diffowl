@@ -8,6 +8,12 @@ OpenCode review for that exact commit in the background.
 - `opencode-hook-review` proves queueing, non-blocking return, exact-commit
   processing, and durable outcome.
 
+## Controller
+
+Use `control-diffowl opencode new-run opencode-hook-review --model
+<provider/model>`, preview persistent actions with `run ... --dry-run`, then use
+`console`, `wait-settle`, `snapshot`, and `receipt` around the recipe below.
+
 ## How to get to it (user POV)
 
 - Install the hook, then create a commit in the configured repository.

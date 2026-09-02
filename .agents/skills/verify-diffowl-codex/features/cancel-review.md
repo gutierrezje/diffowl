@@ -9,6 +9,12 @@ unchanged repository.
 - `codex-review-cancel` proves the complete active-turn interruption and teardown
   path.
 
+## Controller
+
+Create the run first. Start `control-diffowl run codex codex-review-cancel
+--run <run-id> --model <id>` in one terminal, then issue `control-diffowl codex
+cancel --run <run-id>` from another after console shows an active turn.
+
 ## How to get to it (user POV)
 
 - Start a Codex review in a terminal and press Ctrl+C while the turn is active.

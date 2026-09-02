@@ -8,12 +8,22 @@ outcome for a finding produced by a review.
 - `findings-inspect` lists, summarizes, and shows durable findings.
 - `finding-disposition` records fix, dismissal, deferral, or reopen state through
   the CLI.
+- `finding-duplicate-disposition` lists, shows, confirms, or rejects a possible
+  duplicate link through the CLI.
+
+## Controller
+
+Run `control-diffowl run cli findings-inspect --json` for the empty backlog.
+For a persistent disposition, create a run with the matching feature ID, preview
+the action with `run ... --run <run-id> --dry-run`, then follow this recipe and
+capture `snapshot` plus `receipt`.
 
 ## How to get to it (user POV)
 
 - Run `diffowl findings list|summary|show --format json`.
 - Run `diffowl findings fix|dismiss|defer|reopen <locator>` with the required
   reason, note, or verification evidence.
+- Run `diffowl findings duplicates list|show|confirm|reject` for possible links.
 
 ## Driving it with the capture harness
 
