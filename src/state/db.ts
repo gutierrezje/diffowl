@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -8,27 +9,34 @@ import { MIGRATION_003_POSSIBLE_DUPLICATES } from "./migrations/003-possible-dup
 import { MIGRATION_004_REVIEW_EXECUTIONS } from "./migrations/004-review-executions.js";
 import { MIGRATION_005_REVIEW_INPUT_IDENTITY } from "./migrations/005-review-input-identity.js";
 import { MIGRATION_006_REVIEW_OPERATIONS } from "./migrations/006-review-operations.js";
-import { MIGRATION_007_COMMIT_COMPARISON_PARENT } from "./migrations/007-commit-comparison-parent.js";
-import { MIGRATION_008_REVIEW_EXECUTION_TELEMETRY } from "./migrations/008-review-execution-telemetry.js";
-import { MIGRATION_009_REVIEW_EXECUTION_OWNER_LEASE } from "./migrations/009-review-execution-owner-lease.js";
-import { MIGRATION_010_REVIEW_OPERATION_CONTEXT_CAPTURE } from "./migrations/010-review-operation-context-capture.js";
+import { MIGRATION_007_REVIEW_RUNTIME_AND_MIGRATION_IDENTITY } from "./migrations/007-review-runtime-and-migration-identity.js";
 import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.js";
 import { CURRENT_SCHEMA_VERSION } from "./types.js";
 
 const BUSY_TIMEOUT_MS = 5000;
+const MIGRATION_IDENTITY_SCHEMA_VERSION = 7;
 
-const MIGRATIONS = {
-  1: MIGRATION_001_INITIAL_SCHEMA,
-  2: MIGRATION_002_BASE_REVIEW_TARGET,
-  3: MIGRATION_003_POSSIBLE_DUPLICATES,
-  4: MIGRATION_004_REVIEW_EXECUTIONS,
-  5: MIGRATION_005_REVIEW_INPUT_IDENTITY,
-  6: MIGRATION_006_REVIEW_OPERATIONS,
-  7: MIGRATION_007_COMMIT_COMPARISON_PARENT,
-  8: MIGRATION_008_REVIEW_EXECUTION_TELEMETRY,
-  9: MIGRATION_009_REVIEW_EXECUTION_OWNER_LEASE,
-  10: MIGRATION_010_REVIEW_OPERATION_CONTEXT_CAPTURE,
-} satisfies Record<number, string>;
+interface MigrationDefinition {
+  readonly name: string;
+  readonly sql: string;
+}
+
+interface MigrationRegistry {
+  readonly [version: number]: MigrationDefinition;
+}
+
+const MIGRATIONS: MigrationRegistry = {
+  1: { name: "001-initial-schema", sql: MIGRATION_001_INITIAL_SCHEMA },
+  2: { name: "002-base-review-target", sql: MIGRATION_002_BASE_REVIEW_TARGET },
+  3: { name: "003-possible-duplicates", sql: MIGRATION_003_POSSIBLE_DUPLICATES },
+  4: { name: "004-review-executions", sql: MIGRATION_004_REVIEW_EXECUTIONS },
+  5: { name: "005-review-input-identity", sql: MIGRATION_005_REVIEW_INPUT_IDENTITY },
+  6: { name: "006-review-operations", sql: MIGRATION_006_REVIEW_OPERATIONS },
+  7: {
+    name: "007-review-runtime-and-migration-identity",
+    sql: MIGRATION_007_REVIEW_RUNTIME_AND_MIGRATION_IDENTITY,
+  },
+};
 
 const CURRENT_SCHEMA_TABLE_COLUMNS = {
   reviewOperations: {
@@ -135,7 +143,9 @@ export async function openStateDatabase(
   try {
     configureDatabase(db, options.busyTimeoutMs ?? BUSY_TIMEOUT_MS);
     assertCompatibleSchema(db);
+    assertMigrationIdentity(db);
     applyMigrations(db, CURRENT_SCHEMA_VERSION);
+    assertMigrationIdentity(db);
     assertCurrentReviewSchema(db);
     return { db, path };
   } catch (error) {
@@ -225,7 +235,7 @@ function assertCompatibleSchema(db: SqliteDatabase): void {
   const maxVersion = appliedVersions[appliedVersions.length - 1] ?? 0;
   if (maxVersion > CURRENT_SCHEMA_VERSION) {
     throw new StateDatabaseError(
-      `Database schema version ${maxVersion} is newer than supported version ${CURRENT_SCHEMA_VERSION}`,
+      `Database schema version ${maxVersion} is newer than supported version ${CURRENT_SCHEMA_VERSION}. Move .diffowl/state.db aside so DiffOwl can recreate it, or run the DiffOwl build that migrated it.`,
     );
   }
 
@@ -241,6 +251,7 @@ function assertCompatibleSchema(db: SqliteDatabase): void {
 
 function assertReadableSchema(db: SqliteDatabase): void {
   assertCompatibleSchema(db);
+  assertMigrationIdentity(db);
 
   const appliedVersions = listAppliedMigrationVersions(db);
   const maxVersion = appliedVersions.length > 0 ? Math.max(...appliedVersions) : 0;
@@ -260,7 +271,7 @@ function assertCurrentReviewSchema(db: SqliteDatabase): void {
       .map((row) => z.object({ name: z.string() }).parse(row).name);
     if (JSON.stringify(actualColumns) !== JSON.stringify(expected.columns)) {
       throw new StateDatabaseError(
-        `Database schema version ${CURRENT_SCHEMA_VERSION} does not match the supported review schema; restore a schema 5 backup or move the unsupported database aside`,
+        `Database schema version ${CURRENT_SCHEMA_VERSION} does not match the review schema this DiffOwl build expects; the database was probably migrated by a different DiffOwl build. Move .diffowl/state.db aside so DiffOwl can recreate it, or run the build that migrated it.`,
       );
     }
   }
@@ -269,7 +280,7 @@ function assertCurrentReviewSchema(db: SqliteDatabase): void {
 export function applyMigrations(
   db: SqliteDatabase,
   targetVersion: number,
-  migrations: Record<number, string> = MIGRATIONS,
+  migrations: MigrationRegistry = MIGRATIONS,
 ): void {
   assertCompatibleSchema(db);
 
@@ -279,21 +290,25 @@ export function applyMigrations(
       continue;
     }
 
-    const sql = migrations[version];
-    if (!sql) {
-      throw new StateDatabaseError(`Missing migration for schema version ${version}`);
-    }
+    const migration = requireMigration(migrations, version);
 
     const migrate = db.transaction(() => {
-      db.exec(sql);
+      db.exec(migration.sql);
       const violations = db.pragma("foreign_key_check");
       if (Array.isArray(violations) && violations.length > 0) {
         throw new StateDatabaseError(`Migration ${version} introduced foreign key violations`);
       }
-      db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(
-        version,
-        new Date().toISOString(),
-      );
+      if (hasMigrationIdentityColumns(db)) {
+        db.prepare(
+          "INSERT INTO schema_migrations (version, applied_at, name, sha256) VALUES (?, ?, ?, ?)",
+        ).run(version, new Date().toISOString(), migration.name, migrationSha256(migration.sql));
+        backfillMigrationIdentity(db, migrations, version);
+      } else {
+        db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(
+          version,
+          new Date().toISOString(),
+        );
+      }
     });
 
     const foreignKeysEnabled = db.pragma("foreign_keys", { simple: true }) === 1;
@@ -304,6 +319,72 @@ export function applyMigrations(
       if (foreignKeysEnabled) db.pragma("foreign_keys = ON");
     }
   }
+}
+
+function assertMigrationIdentity(db: SqliteDatabase): void {
+  const appliedVersions = listAppliedMigrationVersions(db);
+  const maxVersion = appliedVersions[appliedVersions.length - 1] ?? 0;
+  if (!hasMigrationIdentityColumns(db)) {
+    if (maxVersion >= MIGRATION_IDENTITY_SCHEMA_VERSION) {
+      throw new StateDatabaseError(
+        `Database schema version ${maxVersion} was applied by a different DiffOwl build and has no migration identity. Move .diffowl/state.db aside so DiffOwl can recreate it, or run the DiffOwl build that migrated it.`,
+      );
+    }
+    return;
+  }
+
+  const rows = db
+    .prepare("SELECT version, name, sha256 FROM schema_migrations ORDER BY version ASC")
+    .all()
+    .map((row) =>
+      z
+        .object({ version: z.number(), name: z.string().nullable(), sha256: z.string().nullable() })
+        .parse(row),
+    );
+  for (const row of rows) {
+    const expected = requireMigration(MIGRATIONS, row.version);
+
+    const expectedSha256 = migrationSha256(expected.sql);
+    if (row.name !== expected.name || row.sha256 !== expectedSha256) {
+      throw new StateDatabaseError(
+        `Database schema version ${row.version} was applied by a different DiffOwl build: the database recorded "${row.name ?? "unknown"}" (${(row.sha256 ?? "missing").slice(0, 12)}) but this build defines "${expected.name}" (${expectedSha256.slice(0, 12)}). Move .diffowl/state.db aside so DiffOwl can recreate it, or run the DiffOwl build that migrated it.`,
+      );
+    }
+  }
+}
+
+function hasMigrationIdentityColumns(db: SqliteDatabase): boolean {
+  const columns = db
+    .prepare("SELECT name FROM pragma_table_info('schema_migrations')")
+    .all()
+    .map((row) => z.object({ name: z.string() }).parse(row).name);
+  return columns.includes("name") && columns.includes("sha256");
+}
+
+function backfillMigrationIdentity(
+  db: SqliteDatabase,
+  migrations: MigrationRegistry,
+  throughVersion: number,
+): void {
+  const update = db.prepare(
+    "UPDATE schema_migrations SET name = ?, sha256 = ? WHERE version = ? AND sha256 IS NULL",
+  );
+  for (let version = 1; version <= throughVersion; version++) {
+    const migration = requireMigration(migrations, version);
+    update.run(migration.name, migrationSha256(migration.sql), version);
+  }
+}
+
+function requireMigration(migrations: MigrationRegistry, version: number): MigrationDefinition {
+  const migration = migrations[version];
+  if (!migration) {
+    throw new StateDatabaseError(`Missing migration for schema version ${version}`);
+  }
+  return migration;
+}
+
+function migrationSha256(sql: string): string {
+  return createHash("sha256").update(sql).digest("hex");
 }
 
 function listAppliedMigrationVersions(db: SqliteDatabase): number[] {
