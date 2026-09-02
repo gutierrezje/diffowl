@@ -69,35 +69,33 @@ describe("openStateDatabase", () => {
     await expect(openStateDatabase(dir)).rejects.toThrow(
       `Database schema version ${CURRENT_SCHEMA_VERSION + 1} is newer than supported version ${CURRENT_SCHEMA_VERSION}`,
     );
+    await expect(openStateDatabase(dir)).rejects.toThrow(
+      "Move .diffowl/state.db aside so DiffOwl can recreate it",
+    );
   });
 
   it("rejects a malformed current schema table shape", async () => {
     const dir = await createTempDir();
+    const current = await openStateDatabase(dir);
+    closeStateDatabase(current);
+
     const db = await openSqliteDatabase(getStateDbPath(dir));
     try {
+      db.pragma("foreign_keys = OFF");
       db.exec(`
-        CREATE TABLE schema_migrations (
-          version INTEGER PRIMARY KEY,
-          applied_at TEXT NOT NULL
-        );
+        DROP TABLE reviews;
         CREATE TABLE reviews (
           id TEXT PRIMARY KEY,
           target_kind TEXT NOT NULL,
           diff_hash TEXT NOT NULL
         );
       `);
-      const insert = db.prepare(
-        "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
-      );
-      for (let version = 1; version <= CURRENT_SCHEMA_VERSION; version++) {
-        insert.run(version, "2026-08-27T00:00:00.000Z");
-      }
     } finally {
       closeDatabaseConnection(db);
     }
 
     await expect(openStateDatabase(dir)).rejects.toThrow(
-      `Database schema version ${CURRENT_SCHEMA_VERSION} does not match the supported review schema`,
+      `Database schema version ${CURRENT_SCHEMA_VERSION} does not match the review schema this DiffOwl build expects`,
     );
   });
 
@@ -417,7 +415,9 @@ describe("openStateDatabase", () => {
   it("migrates v1 review data and accepts base review targets", async () => {
     const dir = await createTempDir();
     const db = await openSqliteDatabase(getStateDbPath(dir));
-    applyMigrations(db, 1, { 1: MIGRATION_001_INITIAL_SCHEMA });
+    applyMigrations(db, 1, {
+      1: { name: "001-initial-schema", sql: MIGRATION_001_INITIAL_SCHEMA },
+    });
     db.prepare(
       `INSERT INTO reviews (
         id, created_at, target_kind, target_ref, target_commit, diff_hash, model, reasoning,
@@ -576,8 +576,11 @@ describe("openStateDatabase", () => {
     try {
       expect(() =>
         applyMigrations(db, CURRENT_SCHEMA_VERSION + 1, {
-          1: MIGRATION_001_INITIAL_SCHEMA,
-          3: "CREATE TABLE migration_probe (id INTEGER PRIMARY KEY); INVALID SQL;",
+          1: { name: "001-initial-schema", sql: MIGRATION_001_INITIAL_SCHEMA },
+          [CURRENT_SCHEMA_VERSION + 1]: {
+            name: "failing-probe",
+            sql: "CREATE TABLE migration_probe (id INTEGER PRIMARY KEY); INVALID SQL;",
+          },
         }),
       ).toThrow();
 
@@ -729,7 +732,9 @@ describe("openStateDatabaseForRead", () => {
   it("refuses an older-schema database instead of migrating it in place", async () => {
     const dir = await createTempDir();
     const db = await openSqliteDatabase(getStateDbPath(dir));
-    applyMigrations(db, 1, { 1: MIGRATION_001_INITIAL_SCHEMA });
+    applyMigrations(db, 1, {
+      1: { name: "001-initial-schema", sql: MIGRATION_001_INITIAL_SCHEMA },
+    });
     closeDatabaseConnection(db);
 
     await expect(openStateDatabaseForRead(dir)).rejects.toBeInstanceOf(StateDatabaseError);

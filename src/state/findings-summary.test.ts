@@ -805,7 +805,9 @@ describe("getFindingSummary fail-silent boundary", () => {
     const { root, diffOwlDir, commit } = await createRepo();
     await commit("A");
     const db = await openSqliteDatabase(getStateDbPath(diffOwlDir));
-    applyMigrations(db, 1, { 1: MIGRATION_001_INITIAL_SCHEMA });
+    applyMigrations(db, 1, {
+      1: { name: "001-initial-schema", sql: MIGRATION_001_INITIAL_SCHEMA },
+    });
     closeDatabaseConnection(db, { checkpoint: false });
 
     await expect(getFindingSummary(diffOwlDir, { cwd: root })).resolves.toEqual({

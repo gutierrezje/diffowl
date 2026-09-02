@@ -6,6 +6,7 @@ import { MIGRATION_003_POSSIBLE_DUPLICATES } from "./003-possible-duplicates.js"
 import { MIGRATION_004_REVIEW_EXECUTIONS } from "./004-review-executions.js";
 import { MIGRATION_005_REVIEW_INPUT_IDENTITY } from "./005-review-input-identity.js";
 import { MIGRATION_006_REVIEW_OPERATIONS } from "./006-review-operations.js";
+import { MIGRATION_007_REVIEW_RUNTIME_AND_MIGRATION_IDENTITY } from "./007-review-runtime-and-migration-identity.js";
 
 interface ReleasedMigration {
   version: number;
@@ -14,7 +15,7 @@ interface ReleasedMigration {
   sha256: string;
 }
 
-const LATEST_RELEASED_SCHEMA_VERSION = 6;
+const LATEST_RELEASED_SCHEMA_VERSION = 7;
 
 // Once a migration ships, changing its SQL cannot update databases that already recorded the
 // version. Fix released schemas with a new migration, then extend this list during the release.
@@ -54,6 +55,12 @@ const RELEASED_MIGRATIONS = [
     releasedIn: "0.5.1",
     sql: MIGRATION_006_REVIEW_OPERATIONS,
     sha256: "5ae3eab94ec254846782dfcdf9c11300c7050c528e47d3fc0022bb701c58fdcd",
+  },
+  {
+    version: 7,
+    releasedIn: "0.5.2",
+    sql: MIGRATION_007_REVIEW_RUNTIME_AND_MIGRATION_IDENTITY,
+    sha256: "0c6d4fbc726e62b42ce4557b18885e0642e77b860245b1843af56632c98a6cdb",
   },
 ] satisfies readonly ReleasedMigration[];
 

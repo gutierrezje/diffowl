@@ -1549,8 +1549,8 @@ describe("diffowl findings duplicates", () => {
     const olderRepo = await createRepo("diffowl-cli-findings-duplicates-older-");
     const olderDb = await openSqliteDatabase(getStateDbPath(join(olderRepo, ".diffowl")));
     applyMigrations(olderDb, 2, {
-      1: MIGRATION_001_INITIAL_SCHEMA,
-      2: MIGRATION_002_BASE_REVIEW_TARGET,
+      1: { name: "001-initial-schema", sql: MIGRATION_001_INITIAL_SCHEMA },
+      2: { name: "002-base-review-target", sql: MIGRATION_002_BASE_REVIEW_TARGET },
     });
     closeDatabaseConnection(olderDb);
 

@@ -234,10 +234,10 @@ async function createHistoricalSchemaV5Database(): Promise<string> {
   const db = await openSqliteDatabase(getStateDbPath(dir));
   try {
     applyMigrations(db, 4, {
-      1: MIGRATION_001_INITIAL_SCHEMA,
-      2: MIGRATION_002_BASE_REVIEW_TARGET,
-      3: MIGRATION_003_POSSIBLE_DUPLICATES,
-      4: MIGRATION_004_REVIEW_EXECUTIONS,
+      1: { name: "001-initial-schema", sql: MIGRATION_001_INITIAL_SCHEMA },
+      2: { name: "002-base-review-target", sql: MIGRATION_002_BASE_REVIEW_TARGET },
+      3: { name: "003-possible-duplicates", sql: MIGRATION_003_POSSIBLE_DUPLICATES },
+      4: { name: "004-review-executions", sql: MIGRATION_004_REVIEW_EXECUTIONS },
     });
     seedHistoricalState(db);
     db.exec(HISTORICAL_MIGRATION_005_REVIEW_INPUT_IDENTITY);
@@ -257,11 +257,11 @@ async function createFinalSchemaV5Database(): Promise<string> {
   const db = await openSqliteDatabase(getStateDbPath(dir));
   try {
     applyMigrations(db, 5, {
-      1: MIGRATION_001_INITIAL_SCHEMA,
-      2: MIGRATION_002_BASE_REVIEW_TARGET,
-      3: MIGRATION_003_POSSIBLE_DUPLICATES,
-      4: MIGRATION_004_REVIEW_EXECUTIONS,
-      5: MIGRATION_005_REVIEW_INPUT_IDENTITY,
+      1: { name: "001-initial-schema", sql: MIGRATION_001_INITIAL_SCHEMA },
+      2: { name: "002-base-review-target", sql: MIGRATION_002_BASE_REVIEW_TARGET },
+      3: { name: "003-possible-duplicates", sql: MIGRATION_003_POSSIBLE_DUPLICATES },
+      4: { name: "004-review-executions", sql: MIGRATION_004_REVIEW_EXECUTIONS },
+      5: { name: "005-review-input-identity", sql: MIGRATION_005_REVIEW_INPUT_IDENTITY },
     });
   } finally {
     closeDatabaseConnection(db);
@@ -275,8 +275,8 @@ async function createPublishedV040Database(): Promise<string> {
   try {
     // DiffOwl 0.4.0 (gitHead caadf0c) shipped with migrations 1 and 2.
     applyMigrations(db, 2, {
-      1: MIGRATION_001_INITIAL_SCHEMA,
-      2: MIGRATION_002_BASE_REVIEW_TARGET,
+      1: { name: "001-initial-schema", sql: MIGRATION_001_INITIAL_SCHEMA },
+      2: { name: "002-base-review-target", sql: MIGRATION_002_BASE_REVIEW_TARGET },
     });
     db.prepare(
       `INSERT INTO reviews (
