@@ -49,15 +49,27 @@ export async function readTextIfPresent(path) {
 
 export async function inspectProcess(pid) {
   if (!Number.isSafeInteger(pid) || pid <= 0) {
-    return { pid, alive: false, command: null };
+    return { pid, alive: false, command: null, processStartedAt: null, processGroupId: null };
   }
   try {
     process.kill(pid, 0);
   } catch {
-    return { pid, alive: false, command: null };
+    return { pid, alive: false, command: null, processStartedAt: null, processGroupId: null };
   }
-  const result = await runCommand("ps", ["-p", String(pid), "-o", "command="]);
-  return { pid, alive: result.exitCode === 0, command: result.stdout || null };
+  const [command, startedAt, processGroup] = await Promise.all([
+    runCommand("ps", ["-p", String(pid), "-o", "command="]),
+    runCommand("ps", ["-p", String(pid), "-o", "lstart="]),
+    runCommand("ps", ["-p", String(pid), "-o", "pgid="]),
+  ]);
+  return {
+    pid,
+    alive: command.exitCode === 0,
+    command: command.stdout || null,
+    processStartedAt: startedAt.stdout || null,
+    processGroupId: /^\d+$/.test(processGroup.stdout.trim())
+      ? Number(processGroup.stdout.trim())
+      : null,
+  };
 }
 
 export async function inspectPort(port) {

@@ -1,6 +1,11 @@
 import { join } from "node:path";
 import { ControllerError } from "./errors.mjs";
-import { loadSurfaceRun, readReceipt, writeJsonAtomic, writeReceipt } from "./run-store.mjs";
+import {
+  loadSurfaceRun,
+  readReceipt,
+  updateReceipt,
+  writeJsonExclusive,
+} from "./run-store.mjs";
 import { captureState } from "./state.mjs";
 import { pathExists } from "./system.mjs";
 
@@ -42,10 +47,22 @@ export async function snapshot(adapter, runIdInput, labelInput) {
     scalar: artifact,
     human: `Captured ${label}: ${artifact}`,
   };
-  await writeJsonAtomic(artifact, result);
-  const receipt = await readReceipt(run);
-  receipt.actions.push({ command: "snapshot", label, at: result.capturedAt });
-  if (!receipt.artifacts.includes(artifact)) receipt.artifacts.push(artifact);
-  await writeReceipt(run, receipt);
+  try {
+    await writeJsonExclusive(artifact, result);
+  } catch (error) {
+    if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") throw error;
+    throw new ControllerError({
+      command: "snapshot",
+      expected: `an unused snapshot label for run ${run.manifest.runId}`,
+      observed: label,
+      likelyCause: "Snapshot labels are immutable evidence identities and cannot be overwritten.",
+      nextAction: "Choose a new --label or inspect the retained snapshot.",
+      exitCode: 2,
+    });
+  }
+  await updateReceipt(run, (receipt) => {
+    receipt.actions.push({ command: "snapshot", label, at: result.capturedAt });
+    if (!receipt.artifacts.includes(artifact)) receipt.artifacts.push(artifact);
+  });
   return result;
 }

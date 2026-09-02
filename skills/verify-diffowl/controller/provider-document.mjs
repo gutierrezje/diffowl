@@ -3,6 +3,7 @@ import { z } from "zod";
 const ReviewDocumentSchema = z.object({
   schema_version: z.number().int().min(6),
   review: z.object({
+    id: z.string().min(1),
     backend: z.enum(["codex", "opencode"]),
     requested_model: z.string(),
     effective_model: z.string().nullable(),

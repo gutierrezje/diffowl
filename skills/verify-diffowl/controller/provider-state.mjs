@@ -1,13 +1,47 @@
-import { realpath } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { relative, resolve } from "node:path";
-import { pathExists } from "./system.mjs";
+import { parse } from "yaml";
+import { digest, pathExists } from "./system.mjs";
 
 export async function resolveOwnedArtifact(scratch, reportedPath) {
   if (reportedPath === null || reportedPath === undefined || reportedPath === "") return null;
   const candidate = resolve(scratch, reportedPath);
   if (!(await pathExists(candidate))) return null;
   const [scratchRoot, artifact] = await Promise.all([realpath(scratch), realpath(candidate)]);
-  return isWithin(artifact, scratchRoot) ? artifact : null;
+  if (!isWithin(artifact, scratchRoot)) return null;
+  const details = await stat(artifact);
+  return details.isFile() && details.size > 0 ? artifact : null;
+}
+
+export async function validateReviewReport(scratch, reportedPath, expected) {
+  const path = await resolveOwnedArtifact(scratch, reportedPath);
+  if (path === null) return null;
+  const contents = await readFile(path);
+  const text = contents.toString("utf8");
+  const match = text.match(/^---\n([\s\S]*?)\n---\n/);
+  if (!match || !text.includes("# DiffOwl Review") || !text.includes("### Status")) return null;
+
+  let metadata;
+  try {
+    metadata = parse(match[1])?.diffowl;
+  } catch {
+    return null;
+  }
+  if (
+    !Number.isSafeInteger(metadata?.schema_version) ||
+    metadata.schema_version < 1 ||
+    metadata.review_id !== expected.reviewId ||
+    metadata.session_id !== expected.sessionId ||
+    metadata.target?.kind !== expected.targetKind
+  ) {
+    return null;
+  }
+  try {
+    if ((await realpath(metadata.project_root)) !== (await realpath(scratch))) return null;
+  } catch {
+    return null;
+  }
+  return { path, bytes: contents.byteLength, hash: digest(contents), metadata };
 }
 
 export async function inspectPersistedProviderState(databasePath, scratch, expected) {

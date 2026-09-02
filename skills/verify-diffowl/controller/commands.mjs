@@ -1,11 +1,19 @@
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ControllerError } from "./errors.mjs";
 import { binaryPath, helpersRoot, projectRoot } from "./paths.mjs";
 import { createRun } from "./run-command.mjs";
-import { loadSurfaceRun, parseLegacyReceipt, readReceipt, writeReceipt } from "./run-store.mjs";
+import {
+  loadSurfaceRun,
+  parseLegacyReceipt,
+  readReceipt,
+  updateReceipt,
+} from "./run-store.mjs";
 import { snapshot } from "./snapshot-command.mjs";
 import { captureState } from "./state.mjs";
+import { captureSourceIdentity } from "./source-identity.mjs";
 import {
+  digest,
   inspectPort,
   inspectProcess,
   pathExists,
@@ -107,9 +115,6 @@ async function getRunInfo(adapter, runIdInput) {
 async function doctor(adapter, runIdInput, requestedModel) {
   const run = runIdInput ? await loadSurfaceRun(adapter, runIdInput, "doctor") : null;
   const legacy = run ? await parseLegacyReceipt(join(run.evidence, "receipt.txt")) : null;
-  const recordedStatus = run
-    ? (await readTextIfPresent(join(run.evidence, "target-status.txt")))?.trimEnd()
-    : null;
   const readiness = await runCommand(join(helpersRoot, "doctor.sh"), [projectRoot], {
     cwd: projectRoot,
   });
@@ -148,10 +153,12 @@ async function doctor(adapter, runIdInput, requestedModel) {
   if (localIdentity.binary.hash === null) problems.push("binary hash unavailable");
   if (legacy && legacy.source_head !== localIdentity.source.head)
     problems.push("run source HEAD no longer matches checkout");
-  const recordedDirtyEntries = recordedStatus?.split("\n").filter(Boolean).length ?? null;
-  if (recordedDirtyEntries !== null && recordedDirtyEntries !== localIdentity.source.dirtyEntries) {
-    problems.push("run dirty-state identity no longer matches checkout");
-  }
+  const sourceIdentity = await captureSourceIdentity(projectRoot);
+  if (run?.manifest.sourceIdentity?.hash !== undefined && run.manifest.sourceIdentity.hash !== sourceIdentity.hash)
+    problems.push("run source content identity no longer matches checkout");
+  const controllerHash = digest(await readFile(run?.manifest.controllerPath ?? join(projectRoot, "skills", "verify-diffowl", "control-diffowl")));
+  if (run?.manifest.controllerHash !== undefined && run.manifest.controllerHash !== controllerHash)
+    problems.push("run controller artifact no longer matches checkout");
   if (legacy && legacy.binary_hash !== localIdentity.binary.hash)
     problems.push("run artifact no longer matches current binary");
   if (adapter.surface === "codex" && runtime.authentication !== "ChatGPT") {
@@ -173,8 +180,9 @@ async function doctor(adapter, runIdInput, requestedModel) {
         head: localIdentity.source.head,
         dirty: localIdentity.source.dirtyEntries > 0,
         dirtyEntries: localIdentity.source.dirtyEntries,
+        hash: sourceIdentity.hash,
       },
-      binary: { path: binaryPath, ...localIdentity.binary },
+      binary: { path: binaryPath, ...localIdentity.binary, controllerHash },
       scratch: { path: scratch, present: scratch ? await pathExists(scratch) : false },
       runtime,
     },
@@ -269,6 +277,19 @@ async function consoleOutput(adapter, runIdInput, follow) {
       });
     }
   }
+  for (const action of receipt.actions.filter(({ state }) => state === "running")) {
+    sequence += 1;
+    events.push({
+      schemaVersion: 1,
+      command: "console",
+      success: true,
+      surface: adapter.surface,
+      runId: run.manifest.runId,
+      sequence,
+      source: "controller",
+      line: `${action.command} is running; evidence: ${action.actionDirectory}`,
+    });
+  }
   if (events.length === 0) {
     events.push({
       schemaVersion: 1,
@@ -338,8 +359,9 @@ async function waitSettle(adapter, runIdInput, timeoutInput, intervalInput) {
       captureState(run),
       networkSummary(adapter, run.manifest.runId),
     ]);
+    const receipt = await readReceipt(run);
     const childrenRunning = secondState.processes
-      .filter(({ alive }) => alive)
+      .filter(({ alive, state }) => alive && state === "running")
       .map(({ pid, role }) => ({ pid, role }));
     const durableStateStable =
       JSON.stringify({ database: firstState.database, reviews: firstState.reviews }) ===
@@ -348,8 +370,14 @@ async function waitSettle(adapter, runIdInput, timeoutInput, intervalInput) {
       childrenRunning,
       serverListening: network.network.listening,
       durableStateStable,
+      controllerState: receipt.controller.state,
     };
-    if (childrenRunning.length === 0 && !network.network.listening && durableStateStable) {
+    if (
+      isTerminalControllerState(receipt.controller.state) &&
+      childrenRunning.length === 0 &&
+      !network.network.listening &&
+      durableStateStable
+    ) {
       return {
         schemaVersion: 1,
         command: "wait-settle",
@@ -396,7 +424,7 @@ async function cancel(adapter, runIdInput, dryRun) {
   const run = await loadSurfaceRun(adapter, runIdInput, "cancel");
   const ownedProcesses = (
     await Promise.all(
-      (run.manifest.ownedProcesses ?? []).map(async (owned) => ({
+      (run.manifest.ownedProcesses ?? []).filter(({ state }) => state === "running").map(async (owned) => ({
         ...owned,
         ...(await inspectProcess(owned.pid)),
       })),
@@ -430,14 +458,14 @@ async function cancel(adapter, runIdInput, dryRun) {
     assertOwnedProcess(owned, "cancel");
     signalOwnedProcess(owned, "SIGINT");
   }
-  const receipt = await readReceipt(run);
-  receipt.actions.push({
-    command: "cancel",
-    signal: "SIGINT",
-    pids: ownedProcesses.map(({ pid }) => pid),
-    at: new Date().toISOString(),
+  const receipt = await updateReceipt(run, (current) => {
+    current.actions.push({
+      command: "cancel",
+      signal: "SIGINT",
+      pids: ownedProcesses.map(({ pid }) => pid),
+      at: new Date().toISOString(),
+    });
   });
-  await writeReceipt(run, receipt);
   return {
     schemaVersion: 1,
     command: "cancel",
@@ -471,9 +499,13 @@ async function cleanup(adapter, runIdInput, dryRun) {
   const run = await loadSurfaceRun(adapter, runIdInput, "cleanup");
   const receipt = await readReceipt(run);
   const scratchPresent = await pathExists(run.manifest.scratch);
+  const recoveredRemoval =
+    !scratchPresent &&
+    receipt.cleanup.state === "removing" &&
+    receipt.cleanup.target === run.manifest.scratch;
   const running = (
     await Promise.all(
-      (run.manifest.ownedProcesses ?? []).map(async (owned) => ({
+      (run.manifest.ownedProcesses ?? []).filter(({ state }) => state === "running").map(async (owned) => ({
         ...owned,
         ...(await inspectProcess(owned.pid)),
       })),
@@ -504,6 +536,9 @@ async function cleanup(adapter, runIdInput, dryRun) {
     assertOwnedProcess(owned, "cleanup");
     signalOwnedProcess(owned, "SIGINT");
   }
+  for (const owned of running.filter(({ role }) => role === "opencode-server")) {
+    assertOwnedProcess(owned, "cleanup");
+  }
   const childDeadline = Date.now() + 5_000;
   while (Date.now() < childDeadline) {
     const liveChildren = (
@@ -533,9 +568,21 @@ async function cleanup(adapter, runIdInput, dryRun) {
     });
   }
 
+  const safeReceipt = await waitForCleanupSafeState(run, 10_000);
+  await updateReceipt(run, (current) => {
+    const requestedAt = current.cleanup.requestedAt ?? new Date().toISOString();
+    current.cleanup.target = run.manifest.scratch;
+    current.cleanup.state = "removing";
+    current.cleanup.requestedAt = requestedAt;
+  });
+
   const helper = join(helpersRoot, "cleanup.sh");
   const cleaned = await runCommand(helper, [run.evidence], { cwd: projectRoot, timeout: 15_000 });
   if (cleaned.exitCode !== 0) {
+    await updateReceipt(run, (current) => {
+      current.cleanup.state = "failed";
+      current.cleanup.running = safeReceipt.cleanup.running;
+    });
     throw new ControllerError({
       command: "cleanup",
       expected: "owned processes stopped and only the recorded scratch removed",
@@ -545,15 +592,23 @@ async function cleanup(adapter, runIdInput, dryRun) {
         "Run snapshot and cleanup --dry-run, then inspect the recorded PID before retrying.",
     });
   }
-  receipt.controller.state = receipt.controller.state === "completed" ? "completed" : "cleaned";
-  receipt.controller.finishedAt ??= new Date().toISOString();
-  receipt.cleanup = {
-    removed: scratchPresent ? [run.manifest.scratch] : [],
-    restored: [],
-    retained: [run.evidence],
-    running: [],
-  };
-  await writeReceipt(run, receipt);
+  const completedReceipt = await updateReceipt(run, (current) => {
+    if (current.controller.state === "created") current.controller.state = "cleaned";
+    current.controller.finishedAt ??= new Date().toISOString();
+    const removed = new Set(current.cleanup.removed);
+    if (scratchPresent || recoveredRemoval) removed.add(run.manifest.scratch);
+    current.cleanup = {
+      ...current.cleanup,
+      state: "completed",
+      target: run.manifest.scratch,
+      removed: [...removed],
+      restored: [],
+      retained: [run.evidence],
+      running: [],
+      completedAt: new Date().toISOString(),
+      recovered: recoveredRemoval,
+    };
+  });
   return {
     schemaVersion: 1,
     command: "cleanup",
@@ -562,23 +617,91 @@ async function cleanup(adapter, runIdInput, dryRun) {
     runId: run.manifest.runId,
     dryRun: false,
     observedTarget: { scratch: run.manifest.scratch, scratchPresent: false },
-    artifacts: receipt.artifacts,
-    cleanup: receipt.cleanup,
+    artifacts: completedReceipt.artifacts,
+    cleanup: completedReceipt.cleanup,
     human: cleaned.stdout || `Removed ${run.manifest.scratch}`,
   };
 }
 
+function isTerminalControllerState(state) {
+  return state === "completed" || state === "failed" || state === "cleaned";
+}
+
+async function waitForCleanupSafeState(run, timeout) {
+  const deadline = Date.now() + timeout;
+  while (true) {
+    const receipt = await readReceipt(run);
+    if (receipt.controller.state === "created" || isTerminalControllerState(receipt.controller.state)) {
+      return receipt;
+    }
+    const owner = receipt.controller.owner;
+    if (owner) {
+      const observed = await inspectProcess(owner.pid);
+      const ownerAlive =
+        observed.alive &&
+        owner.launchStartedAt === observed.processStartedAt &&
+        owner.launchProcessGroupId === observed.processGroupId &&
+        observed.command?.includes(owner.expectedCommand);
+      if (!ownerAlive) {
+        return updateReceipt(run, (current) => {
+          if (current.controller.state !== "running") return;
+          const error = {
+            expected: "the run controller to reach a terminal state before cleanup",
+            observed: "the recorded controller owner exited while the run remained active",
+            likelyCause: "The controller was interrupted outside its owned cancellation path.",
+            nextAction: "Inspect retained actions and snapshots; the abandoned run is inconclusive.",
+          };
+          current.result = "INCONCLUSIVE";
+          current.observed.push({ check: "controller lifecycle completed", ok: false, error });
+          current.confounds.push(error);
+          current.controller.state = "failed";
+          current.controller.finishedAt = new Date().toISOString();
+        });
+      }
+    }
+    if (Date.now() >= deadline) {
+      throw new ControllerError({
+        command: "cleanup",
+        expected: "the active run controller to finish after owned-process cancellation",
+        observed: `controller remained ${receipt.controller.state}`,
+        likelyCause: "The provider or evidence finalization did not acknowledge cancellation.",
+        nextAction: "Retain the scratch, inspect console and receipt, then retry cleanup.",
+      });
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+  }
+}
+
 function assertOwnedProcess(owned, command) {
-  if (!owned.expectedCommand || owned.command?.includes(owned.expectedCommand)) return;
+  const commandMatches =
+    owned.expectedCommand?.length > 0 &&
+    owned.command?.includes(owned.expectedCommand);
+  const startMatches =
+    owned.launchStartedAt?.length > 0 &&
+    owned.launchStartedAt === owned.processStartedAt;
+  const groupMatches =
+    Number.isSafeInteger(owned.launchProcessGroupId) &&
+    owned.launchProcessGroupId === owned.processGroupId;
+  if (commandMatches && startMatches && groupMatches) return;
   throw new ControllerError({
     command,
-    expected: `PID ${owned.pid} command containing ${owned.expectedCommand}`,
-    observed: owned.command ?? "unreadable command",
+    expected: `PID ${owned.pid} launch command, start time, and process group recorded by this run`,
+    observed: JSON.stringify({
+      command: owned.command ?? null,
+      expectedCommand: owned.expectedCommand ?? null,
+      processStartedAt: owned.processStartedAt ?? null,
+      launchStartedAt: owned.launchStartedAt ?? null,
+      processGroupId: owned.processGroupId ?? null,
+      launchProcessGroupId: owned.launchProcessGroupId ?? null,
+    }),
     likelyCause: "The recorded PID was reused or no longer belongs to the run.",
     nextAction: "Retain the run and inspect process identity; do not signal this PID.",
   });
 }
 
 function signalOwnedProcess(owned, signal) {
-  process.kill(owned.processGroup ? -owned.pid : owned.pid, signal);
+  process.kill(
+    owned.processGroup ? -owned.launchProcessGroupId : owned.pid,
+    signal,
+  );
 }

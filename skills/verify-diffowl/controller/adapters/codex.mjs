@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { ControllerError } from "../errors.mjs";
 import { parseReviewDocument } from "../provider-document.mjs";
-import { inspectPersistedProviderState, resolveOwnedArtifact } from "../provider-state.mjs";
+import { inspectPersistedProviderState, validateReviewReport } from "../provider-state.mjs";
 import { prepareReviewTarget, reviewTargetArguments, reviewTargetKind } from "../review-target.mjs";
 import { pathExists, runCommand } from "../system.mjs";
 
@@ -40,9 +40,10 @@ export const codexAdapter = {
     "codex-review-cancel": "Ctrl+C during a Codex-backed review",
   },
   async observeRuntime({ manifest, server }) {
+    const executable = process.env.DIFFOWL_CODEX_EXECUTABLE ?? "codex";
     const [version, login] = await Promise.all([
-      runCommand("codex", ["--version"]),
-      runCommand("codex", ["login", "status"]),
+      runCommand(executable, ["--version"]),
+      runCommand(executable, ["login", "status"]),
     ]);
     const authentication =
       login.exitCode === 0 && /chatgpt/i.test(`${login.stdout}\n${login.stderr}`)
@@ -159,10 +160,18 @@ export const codexAdapter = {
       document.review?.requested_model === options.model &&
       document.review?.target?.kind === expectedTarget &&
       document.review?.effective_model !== null;
-    const reportPath = await resolveOwnedArtifact(
-      run.manifest.scratch,
-      document?.review?.report_path,
-    );
+    const report = document
+      ? await validateReviewReport(
+          run.manifest.scratch,
+          document.review.report_path,
+          {
+            reviewId: document.review.id,
+            sessionId: document.review.session_id,
+            targetKind: document.review.target.kind,
+          },
+        )
+      : null;
+    const reportPath = report?.path ?? null;
     const reportPersisted = reportPath !== null;
     const databaseState = document
       ? await inspectPersistedProviderState(databasePath, run.manifest.scratch, {
@@ -195,7 +204,13 @@ export const codexAdapter = {
           effectiveModel: document?.review?.effective_model ?? null,
           sessionId: document?.review?.session_id ?? null,
         },
-        { check: "immutable report persisted", ok: reportPersisted, path: reportPath },
+        {
+          check: "immutable report identity agrees",
+          ok: reportPersisted,
+          path: reportPath,
+          bytes: report?.bytes ?? null,
+          hash: report?.hash ?? null,
+        },
         {
           check: "database review agrees",
           ok: databaseState.agrees,

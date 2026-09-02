@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import { ControllerError } from "../errors.mjs";
 import { parseReviewDocument } from "../provider-document.mjs";
-import { inspectPersistedProviderState, resolveOwnedArtifact } from "../provider-state.mjs";
+import { inspectPersistedProviderState, validateReviewReport } from "../provider-state.mjs";
 import { prepareReviewTarget, reviewTargetArguments, reviewTargetKind } from "../review-target.mjs";
 import { inspectPort, inspectProcess, pathExists, runCommand } from "../system.mjs";
 
@@ -104,6 +104,7 @@ export const opencodeAdapter = {
     const serverBefore = serverPid ? await inspectProcess(serverPid) : null;
 
     let reviewed = null;
+    let stop = null;
     try {
       if (liveReviewFeatures.has(featureId)) {
         const reviewArgs = [
@@ -126,7 +127,7 @@ export const opencodeAdapter = {
         });
       }
     } finally {
-      await capture({
+      stop = await capture({
         label: "opencode-server-stop",
         displayCommand: "diffowl server stop",
         file: "node",
@@ -136,13 +137,23 @@ export const opencodeAdapter = {
 
     const portAfter = await inspectPort(run.manifest.reservedPort);
     const serverAfter = serverPid ? await inspectProcess(serverPid) : null;
+    const serverStopped =
+      stop?.exitCode === 0 && !serverAfter?.alive && !portAfter.listening;
+    if (serverPid) {
+      const processRecord = {
+        pid: serverPid,
+        state: serverStopped ? "exited" : "running",
+        stopExitCode: stop?.exitCode ?? null,
+      };
+      if (serverStopped) processRecord.finishedAt = new Date().toISOString();
+      await recordOwnedProcess(processRecord);
+    }
     const serverLifecycle =
       start.exitCode === 0 &&
       status.exitCode === 0 &&
       serverBefore?.alive === true &&
       portBefore.listening &&
-      !serverAfter?.alive &&
-      !portAfter.listening;
+      serverStopped;
     if (featureId === "opencode-server-owned-lifecycle") {
       return {
         result: serverLifecycle ? "VERIFIED" : "NOT VERIFIED",
@@ -223,10 +234,18 @@ export const opencodeAdapter = {
       document.review?.backend === "opencode" &&
       document.review?.requested_model === options.model &&
       document.review?.target?.kind === reviewTargetKind(featureId);
-    const reportPath = await resolveOwnedArtifact(
-      run.manifest.scratch,
-      document?.review?.report_path,
-    );
+    const report = document
+      ? await validateReviewReport(
+          run.manifest.scratch,
+          document.review.report_path,
+          {
+            reviewId: document.review.id,
+            sessionId: document.review.session_id,
+            targetKind: document.review.target.kind,
+          },
+        )
+      : null;
+    const reportPath = report?.path ?? null;
     const reportPersisted = reportPath !== null;
     const databaseState = document
       ? await inspectPersistedProviderState(databasePath, run.manifest.scratch, {
@@ -259,7 +278,13 @@ export const opencodeAdapter = {
           effectiveModel: document?.review?.effective_model ?? null,
           sessionId: document?.review?.session_id ?? null,
         },
-        { check: "immutable report persisted", ok: reportPersisted, path: reportPath },
+        {
+          check: "immutable report identity agrees",
+          ok: reportPersisted,
+          path: reportPath,
+          bytes: report?.bytes ?? null,
+          hash: report?.hash ?? null,
+        },
         {
           check: "database review agrees",
           ok: databaseState.agrees,

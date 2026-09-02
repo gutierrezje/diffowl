@@ -1,5 +1,6 @@
-import { readFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { parse } from "yaml";
 import { pathExists } from "../system.mjs";
 
 export const cliAdapter = {
@@ -158,11 +159,32 @@ export const cliAdapter = {
         });
       }
       case "preference-reset": {
+        const configPath = join(run.manifest.scratch, ".diffowl.yml");
+        const configBefore = await readFile(configPath, "utf8");
+        const preferencePath = join(run.manifest.scratch, ".diffowl", "preferences.yml");
+        const selectOpenCodeModel = await capture({
+          label: "preference-reset-opencode-model",
+          displayCommand: "diffowl model provider/model",
+          file: "node",
+          args: [binaryPath, "model", "provider/model"],
+        });
         const selected = await capture({
           label: "preference-reset-select",
           displayCommand: "diffowl backend codex",
           file: "node",
           args: [binaryPath, "backend", "codex"],
+        });
+        const selectedModel = await capture({
+          label: "preference-reset-model-select",
+          displayCommand: "diffowl model gpt-5.6-sol",
+          file: "node",
+          args: [binaryPath, "model", "gpt-5.6-sol"],
+        });
+        const selectedReasoning = await capture({
+          label: "preference-reset-reasoning-select",
+          displayCommand: "diffowl reasoning high",
+          file: "node",
+          args: [binaryPath, "reasoning", "high"],
         });
         const resetReasoning = await capture({
           label: "preference-reset-reasoning",
@@ -170,26 +192,64 @@ export const cliAdapter = {
           file: "node",
           args: [binaryPath, "reasoning", "--reset"],
         });
+        const afterReasoning = parse(await readFile(preferencePath, "utf8"));
         const resetModel = await capture({
           label: "preference-reset-model",
           displayCommand: "diffowl model --reset",
           file: "node",
           args: [binaryPath, "model", "--reset"],
         });
+        const afterModel = parse(await readFile(preferencePath, "utf8"));
         const resetBackend = await capture({
           label: "preference-reset-backend",
           displayCommand: "diffowl backend --reset",
           file: "node",
           args: [binaryPath, "backend", "--reset"],
         });
-        const ok = [selected, resetReasoning, resetModel, resetBackend].every(
-          ({ exitCode }) => exitCode === 0,
+        const afterBackend = parse(await readFile(preferencePath, "utf8"));
+        const opencodeSurvives = (document) =>
+          document.models?.some(
+            (selection) =>
+              selection.backend === "opencode" && selection.model === "provider/model",
+          );
+        const codexAfterReasoning = afterReasoning.models?.find(
+          (selection) => selection.backend === "codex",
         );
+        const reasoningReset =
+          codexAfterReasoning?.model === "gpt-5.6-sol" &&
+          codexAfterReasoning.reasoning === undefined &&
+          opencodeSurvives(afterReasoning);
+        const modelReset =
+          !afterModel.models?.some((selection) => selection.backend === "codex") &&
+          afterModel.backend === "codex" &&
+          opencodeSurvives(afterModel);
+        const backendReset = afterBackend.backend === undefined && opencodeSurvives(afterBackend);
+        const configUnchanged = (await readFile(configPath, "utf8")) === configBefore;
+        const commandsComplete = [
+          selectOpenCodeModel,
+          selected,
+          selectedModel,
+          selectedReasoning,
+          resetReasoning,
+          resetModel,
+          resetBackend,
+        ].every(({ exitCode }) => exitCode === 0);
+        const ok =
+          commandsComplete && reasoningReset && modelReset && backendReset && configUnchanged;
         return offlineResult({
           behavior: ok,
-          observed: [{ check: "preference reset commands complete", ok }],
+          observed: [
+            { check: "preference reset commands complete", ok: commandsComplete },
+            { check: "reasoning reset state preserves models", ok: reasoningReset },
+            { check: "model reset state preserves unrelated backend", ok: modelReset },
+            { check: "backend reset state preserves saved models", ok: backendReset },
+            { check: "project policy unchanged", ok: configUnchanged },
+          ],
           artifacts: [
+            selectOpenCodeModel.actionDirectory,
             selected.actionDirectory,
+            selectedModel.actionDirectory,
+            selectedReasoning.actionDirectory,
             resetReasoning.actionDirectory,
             resetModel.actionDirectory,
             resetBackend.actionDirectory,
@@ -201,12 +261,25 @@ export const cliAdapter = {
       }
       case "hook-install-status":
       case "hook-uninstall": {
+        const hookPath = join(run.manifest.scratch, ".git", "hooks", "post-commit");
+        const foreignHook = "#!/bin/sh\nprintf 'foreign hook\\n'\n";
+        await mkdir(join(run.manifest.scratch, ".git", "hooks"), { recursive: true });
+        await writeFile(hookPath, foreignHook, "utf8");
+        await chmod(hookPath, 0o755);
         const install = await capture({
           label: "hook-install",
           displayCommand: "diffowl hook install",
           file: "node",
           args: [binaryPath, "hook", "install"],
         });
+        const installedHook = await readFile(hookPath, "utf8");
+        const installAgain = await capture({
+          label: "hook-install-again",
+          displayCommand: "diffowl hook install (idempotence)",
+          file: "node",
+          args: [binaryPath, "hook", "install"],
+        });
+        const reinstalledHook = await readFile(hookPath, "utf8");
         const status = await capture({
           label: "hook-status",
           displayCommand: "diffowl hook status",
@@ -222,24 +295,40 @@ export const cliAdapter = {
                 args: [binaryPath, "hook", "uninstall"],
               })
             : null;
-        const ok =
+        const finalHook = await readFile(hookPath, "utf8");
+        const managedCount = installedHook.split("# diffowl-managed").length - 1;
+        const installState =
+          managedCount === 1 &&
+          installedHook === reinstalledHook &&
+          installedHook.includes("foreign hook") &&
+          installedHook.includes(binaryPath) &&
+          /installed|up to date/i.test(status.stdout);
+        const uninstallState = uninstall
+          ? !finalHook.includes("# diffowl-managed") && finalHook.includes("foreign hook")
+          : true;
+        const commandsComplete =
           install.exitCode === 0 &&
+          installAgain.exitCode === 0 &&
           status.exitCode === 0 &&
           (!uninstall || uninstall.exitCode === 0);
+        const ok = commandsComplete && installState && uninstallState;
         return offlineResult({
           behavior: ok,
           observed: [
             {
               check: "hook lifecycle agrees",
               ok,
-              installed: /installed|up to date/i.test(status.stdout),
-              uninstalled: uninstall ? /removed|uninstall/i.test(uninstall.stdout) : null,
+              commandsComplete,
+              installState,
+              uninstallState,
             },
           ],
           artifacts: [
             install.actionDirectory,
+            installAgain.actionDirectory,
             status.actionDirectory,
             ...(uninstall ? [uninstall.actionDirectory] : []),
+            hookPath,
           ],
           mutationRecords: [
             {
@@ -348,20 +437,26 @@ function preferenceResult({
   preference,
   configUnchanged,
 }) {
+  const document = parse(preference);
+  const expectedBackend = selectOpenCode ? "opencode" : "codex";
+  const codexSelection = document.models?.find((selection) => selection.backend === "codex");
+  const stateAgrees =
+    document.backend === expectedBackend &&
+    codexSelection?.model === "gpt-5.6-sol" &&
+    codexSelection.reasoning?.variant === "high";
   const ok =
     backend.exitCode === 0 &&
     model.exitCode === 0 &&
     reasoning.exitCode === 0 &&
     (!selectOpenCode || selectOpenCode.exitCode === 0) &&
     configUnchanged &&
-    preference.includes("backend: codex") &&
-    preference.includes("model: gpt-5.6-sol") &&
-    preference.includes("variant: high");
+    stateAgrees;
   return offlineResult({
     behavior: ok,
     observed: [
       { check: `${featureId} commands complete`, ok },
       { check: "project policy unchanged", ok: configUnchanged },
+      { check: "preference state agrees", ok: stateAgrees, expectedBackend, document },
     ],
     artifacts: [
       backend.actionDirectory,

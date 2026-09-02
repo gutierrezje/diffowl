@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { link, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { ControllerError } from "./errors.mjs";
 import { pathExists } from "./system.mjs";
@@ -83,11 +83,60 @@ export async function writeReceipt(run, receipt) {
   await writeJsonAtomic(join(run.evidence, "receipt.json"), receipt);
 }
 
+export async function updateReceipt(run, update) {
+  const { DatabaseSync } = await import("node:sqlite");
+  const database = new DatabaseSync(join(run.evidence, "controller-lock.sqlite"));
+  try {
+    database.exec("PRAGMA busy_timeout = 5000");
+    database.exec(
+      "CREATE TABLE IF NOT EXISTS receipt_lease (id INTEGER PRIMARY KEY CHECK (id = 1), token TEXT NOT NULL)",
+    );
+    database.exec("BEGIN IMMEDIATE");
+    database.prepare("INSERT OR REPLACE INTO receipt_lease (id, token) VALUES (1, ?)").run(
+      randomUUID(),
+    );
+    const receipt = await readReceipt(run);
+    const updated = (await update(receipt)) ?? receipt;
+    await writeReceipt(run, updated);
+    database.exec("COMMIT");
+    return updated;
+  } catch (error) {
+    try {
+      database.exec("ROLLBACK");
+    } catch {
+      // The failure happened before a transaction began.
+    }
+    if (error instanceof Error && /database is locked/i.test(error.message)) {
+      throw new ControllerError({
+        command: "receipt",
+        expected: "exclusive access to the run receipt",
+        observed: `receipt lease remained busy for run ${run.manifest.runId}`,
+        likelyCause: "Another controller process is still updating this run's evidence.",
+        nextAction: "Wait for the active command to settle, then retry the inspection.",
+      });
+    }
+    throw error;
+  } finally {
+    database.close();
+  }
+}
+
 export async function writeJsonAtomic(path, value) {
   await mkdir(dirname(path), { recursive: true });
   const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
   await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, "utf8");
   await rename(temporary, path);
+}
+
+export async function writeJsonExclusive(path, value) {
+  await mkdir(dirname(path), { recursive: true });
+  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  try {
+    await link(temporary, path);
+  } finally {
+    await rm(temporary, { force: true });
+  }
 }
 
 export async function parseLegacyReceipt(path) {

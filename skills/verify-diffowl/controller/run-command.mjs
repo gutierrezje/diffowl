@@ -10,14 +10,15 @@ import {
   parseLegacyReceipt,
   readReceipt,
   saveRunIndex,
+  updateReceipt,
   validateRunId,
   verificationRoot,
   writeJsonAtomic,
   writeManifest,
-  writeReceipt,
 } from "./run-store.mjs";
 import { snapshot } from "./snapshot-command.mjs";
-import { inspectProcess, pathExists, runCommand } from "./system.mjs";
+import { captureSourceIdentity } from "./source-identity.mjs";
+import { digest, inspectProcess, pathExists, runCommand } from "./system.mjs";
 
 export async function executeRun({ adapter, featureId, options }) {
   if (!adapter.features.includes(featureId)) {
@@ -70,6 +71,11 @@ export async function executeRun({ adapter, featureId, options }) {
     run = await loadRun(created.runId, "run");
   }
 
+  const initialReceipt = await readReceipt(run);
+  if (initialReceipt.controller.state !== "created") {
+    throw runAlreadyStarted(run, initialReceipt.controller.state);
+  }
+
   const requestedModel = options.model ?? run.manifest.requestedModel;
   if (
     adapter.surface !== "cli" &&
@@ -86,6 +92,21 @@ export async function executeRun({ adapter, featureId, options }) {
       exitCode: 2,
     });
   }
+  const controllerProcess = await inspectProcess(process.pid);
+  await updateReceipt(run, (receipt) => {
+    if (receipt.controller.state !== "created") {
+      throw runAlreadyStarted(run, receipt.controller.state);
+    }
+    receipt.controller.state = "running";
+    receipt.controller.claimedAt = new Date().toISOString();
+    receipt.controller.owner = {
+      pid: process.pid,
+      expectedCommand: "controller/main.mjs",
+      launchStartedAt: controllerProcess.processStartedAt,
+      launchProcessGroupId: controllerProcess.processGroupId,
+    };
+  });
+  try {
   run.manifest.requestedModel = requestedModel ?? null;
   run.manifest.requestedReasoning = options.reasoning ?? run.manifest.requestedReasoning;
   await writeManifest(run, run.manifest);
@@ -121,13 +142,18 @@ export async function executeRun({ adapter, featureId, options }) {
   const after = await snapshot(adapter, run.manifest.runId, "after");
   const repositoryImmutable = JSON.stringify(before.state.git) === JSON.stringify(after.state.git);
   const processes = await Promise.all(
-    (run.manifest.ownedProcesses ?? []).map((owned) => inspectProcess(owned.pid)),
+    (run.manifest.ownedProcesses ?? []).map(async (owned) => ({
+      ...owned,
+      ...(await inspectProcess(owned.pid)),
+    })),
   );
   const teardown = processes.every(({ alive }) => !alive);
+  const preservation = await preserveRunArtifacts(run, feature.artifacts);
   const requirementsAgree =
     feature.behavior &&
     repositoryImmutable &&
     teardown &&
+    preservation.complete &&
     (feature.report === true || feature.report === "not-required") &&
     (feature.database === true || feature.database === "not-required");
   const result =
@@ -137,24 +163,6 @@ export async function executeRun({ adapter, featureId, options }) {
         ? "VERIFIED"
         : "NOT VERIFIED";
 
-  const preservedArtifacts = await preserveRunArtifacts(run, feature.artifacts);
-  const current = await readReceipt(run);
-  current.result = result;
-  current.observed.push(...feature.observed, {
-    check: "repository immutable",
-    ok: repositoryImmutable,
-    before: before.state.git,
-    after: after.state.git,
-  });
-  current.observed.push({ check: "owned process teardown", ok: teardown, processes });
-  current.artifacts.push(
-    ...preservedArtifacts.filter((artifact) => !current.artifacts.includes(artifact)),
-  );
-  current.mutation.records.push(...preparation.mutationRecords, ...feature.mutationRecords);
-  current.cleanup.running = processes.filter(({ alive }) => alive).map(({ pid }) => ({ pid }));
-  current.confounds.push(...feature.confounds);
-  current.controller.state = "completed";
-  current.controller.finishedAt = new Date().toISOString();
   run.manifest.effectiveBackend = feature.effectiveBackend ?? null;
   run.manifest.effectiveModel = feature.effectiveModel;
   run.manifest.sessionId = feature.sessionId ?? null;
@@ -164,12 +172,35 @@ export async function executeRun({ adapter, featureId, options }) {
     manifest: run.manifest,
     server: { pid: null, port: run.manifest.reservedPort, alive: false, command: null },
   });
-  current.target.runtime = JSON.stringify({
+  const runtime = JSON.stringify({
     surface: adapter.surface,
     ...runtimeIdentity,
     children: processes,
   });
-  await writeReceipt(run, current);
+  const current = await updateReceipt(run, (receipt) => {
+    receipt.result = result;
+    receipt.observed.push(...feature.observed, {
+      check: "repository immutable",
+      ok: repositoryImmutable,
+      before: before.state.git,
+      after: after.state.git,
+    });
+    receipt.observed.push({ check: "owned process teardown", ok: teardown, processes });
+    receipt.observed.push({
+      check: "durable artifacts retained byte-for-byte",
+      ok: preservation.complete,
+      failed: preservation.failed,
+    });
+    receipt.artifacts.push(
+      ...preservation.paths.filter((artifact) => !receipt.artifacts.includes(artifact)),
+    );
+    receipt.mutation.records.push(...preparation.mutationRecords, ...feature.mutationRecords);
+    receipt.cleanup.running = processes.filter(({ alive }) => alive).map(({ pid }) => ({ pid }));
+    receipt.confounds.push(...feature.confounds);
+    receipt.controller.state = "completed";
+    receipt.controller.finishedAt = new Date().toISOString();
+    receipt.target.runtime = runtime;
+  });
 
   const receiptPath = join(run.evidence, "receipt.json");
   const runResult = {
@@ -188,6 +219,7 @@ export async function executeRun({ adapter, featureId, options }) {
       database: feature.database,
       repositoryImmutable,
       teardown,
+      artifactsPreserved: preservation.complete,
     },
     artifacts: current.artifacts,
     cleanup: current.cleanup,
@@ -206,6 +238,32 @@ export async function executeRun({ adapter, featureId, options }) {
     };
   }
   return runResult;
+  } catch (error) {
+    await terminalizeRunFailure(run, error).catch(() => undefined);
+    throw error;
+  }
+}
+
+function runAlreadyStarted(run, state) {
+  return new ControllerError({
+    command: "run",
+    expected: `a created run that has not started (${run.manifest.runId})`,
+    observed: state,
+    likelyCause: "The run already owns a completed or active evidence attempt.",
+    nextAction: "Create a new run ID; retained receipts and snapshots are immutable.",
+    exitCode: 2,
+  });
+}
+
+async function terminalizeRunFailure(run, error) {
+  const feature = inconclusiveFeature(error);
+  await updateReceipt(run, (receipt) => {
+    receipt.result = "INCONCLUSIVE";
+    receipt.observed.push(...feature.observed);
+    receipt.confounds.push(...feature.confounds);
+    receipt.controller.state = "failed";
+    receipt.controller.finishedAt = new Date().toISOString();
+  });
 }
 
 function inconclusiveFeature(error) {
@@ -278,6 +336,9 @@ export async function createRun(adapter, featureId, options) {
   const requestedBackend = adapter.surface === "cli" ? null : adapter.surface;
   const requestedModel = options.model ?? null;
   const createdAt = legacy.started_at ?? new Date().toISOString();
+  const sourceIdentity = await captureSourceIdentity(projectRoot);
+  const controllerPath = join(projectRoot, "skills", "verify-diffowl", "control-diffowl");
+  const controllerHash = digest(await readFile(controllerPath));
   const manifest = {
     schemaVersion: 1,
     runId,
@@ -286,6 +347,9 @@ export async function createRun(adapter, featureId, options) {
     entryPoint: adapter.entryPoints[featureId],
     projectRoot,
     binaryPath,
+    controllerPath,
+    controllerHash,
+    sourceIdentity,
     scratch,
     evidence,
     createdAt,
@@ -306,8 +370,8 @@ export async function createRun(adapter, featureId, options) {
     result: "INCONCLUSIVE",
     feature: { id: featureId, entryPoint: adapter.entryPoints[featureId] },
     target: {
-      source: `${legacy.source_head} (${legacy.source_status_entries} working-tree entries)`,
-      artifact: `${legacy.binary} ${legacy.binary_hash} version ${legacy.binary_version}`,
+      source: `${sourceIdentity.head} (${sourceIdentity.dirtyEntries} working-tree entries; identity ${sourceIdentity.hash})`,
+      artifact: `${legacy.binary} ${legacy.binary_hash} version ${legacy.binary_version}; controller ${controllerHash}`,
       runtime: `${adapter.surface}; requested model ${requestedModel ?? "none"}; effective runtime pending`,
     },
     actions: [],
@@ -360,15 +424,22 @@ async function preserveRunArtifacts(run, artifacts) {
     realpath(run.evidence),
   ]);
   const preserved = [];
+  const failed = [];
   let copyIndex = 0;
   for (const artifact of artifacts) {
-    if (!(await pathExists(artifact))) continue;
+    if (!(await pathExists(artifact))) {
+      failed.push({ artifact, reason: "missing" });
+      continue;
+    }
     const canonical = await realpath(artifact);
     if (isWithin(canonical, evidenceRoot)) {
       preserved.push(canonical);
       continue;
     }
-    if (!isWithin(canonical, scratchRoot) || !(await stat(canonical)).isFile()) continue;
+    if (!isWithin(canonical, scratchRoot) || !(await stat(canonical)).isFile()) {
+      failed.push({ artifact: canonical, reason: "not an owned regular file" });
+      continue;
+    }
     copyIndex += 1;
     const destination = join(
       run.evidence,
@@ -377,16 +448,32 @@ async function preserveRunArtifacts(run, artifacts) {
     );
     await mkdir(join(run.evidence, "durable"), { recursive: true });
     await copyFile(canonical, destination);
+    const [sourceBytes, destinationBytes] = await Promise.all([
+      readFile(canonical),
+      readFile(destination),
+    ]);
+    if (digest(sourceBytes) !== digest(destinationBytes)) {
+      failed.push({ artifact: canonical, reason: "retained copy hash mismatch" });
+      continue;
+    }
     preserved.push(destination);
     for (const suffix of ["-wal", "-shm"]) {
       const sidecar = `${canonical}${suffix}`;
       if (!(await pathExists(sidecar))) continue;
       const sidecarDestination = `${destination}${suffix}`;
       await copyFile(sidecar, sidecarDestination);
+      const [sidecarSource, sidecarCopy] = await Promise.all([
+        readFile(sidecar),
+        readFile(sidecarDestination),
+      ]);
+      if (digest(sidecarSource) !== digest(sidecarCopy)) {
+        failed.push({ artifact: sidecar, reason: "retained sidecar hash mismatch" });
+        continue;
+      }
       preserved.push(sidecarDestination);
     }
   }
-  return [...new Set(preserved)];
+  return { paths: [...new Set(preserved)], complete: failed.length === 0, failed };
 }
 
 function isWithin(path, root) {
@@ -400,12 +487,20 @@ async function recordOwnedProcess(run, record) {
     (processRecord) => processRecord.pid === record.pid,
   );
   if (existing) Object.assign(existing, record);
-  else currentRun.manifest.ownedProcesses.push(record);
+  else {
+    const identity = await inspectProcess(record.pid);
+    currentRun.manifest.ownedProcesses.push({
+      ...record,
+      launchStartedAt: identity.processStartedAt,
+      launchProcessGroupId: identity.processGroupId,
+    });
+  }
   await writeManifest(currentRun, currentRun.manifest);
 }
 
 async function captureOwnedAction(run, { label, displayCommand, file, args }) {
   const helper = join(helpersRoot, "capture.sh");
+  const actionDirectory = join(run.evidence, "actions", label);
   const child = spawn(helper, [run.evidence, label, run.manifest.scratch, "--", file, ...args], {
     cwd: projectRoot,
     detached: true,
@@ -422,6 +517,7 @@ async function captureOwnedAction(run, { label, displayCommand, file, args }) {
     });
   }
   const pid = child.pid;
+  const processIdentity = await inspectProcess(pid);
   const currentRun = await loadRun(run.manifest.runId, "run");
   currentRun.manifest.ownedProcesses.push({
     pid,
@@ -431,8 +527,19 @@ async function captureOwnedAction(run, { label, displayCommand, file, args }) {
     processGroup: true,
     state: "running",
     startedAt: new Date().toISOString(),
+    launchStartedAt: processIdentity.processStartedAt,
+    launchProcessGroupId: processIdentity.processGroupId,
   });
   await writeManifest(currentRun, currentRun.manifest);
+  await updateReceipt(run, (receipt) => {
+    receipt.actions.push({
+      command: displayCommand,
+      actionDirectory,
+      state: "running",
+      startedAt: new Date().toISOString(),
+    });
+    if (!receipt.artifacts.includes(actionDirectory)) receipt.artifacts.push(actionDirectory);
+  });
 
   let stdout = "";
   let stderr = "";
@@ -460,11 +567,16 @@ async function captureOwnedAction(run, { label, displayCommand, file, args }) {
   return readCapturedAction(run, {
     captured: { exitCode, stdout: stdout.trimEnd(), stderr: stderr.trimEnd() },
     displayCommand,
+    actionDirectory,
+    fallbackExitCode: exitCode,
   });
 }
 
-async function readCapturedAction(run, { captured, displayCommand }) {
-  const actionDirectory = captured.stdout.split("\n").at(-1);
+async function readCapturedAction(
+  run,
+  { captured, displayCommand, actionDirectory: knownActionDirectory, fallbackExitCode },
+) {
+  const actionDirectory = captured.stdout.split("\n").at(-1) || knownActionDirectory;
   if (!actionDirectory || !(await pathExists(actionDirectory))) {
     throw new ControllerError({
       command: "run",
@@ -475,18 +587,25 @@ async function readCapturedAction(run, { captured, displayCommand }) {
     });
   }
   const [stdout, stderr, exitText] = await Promise.all([
-    readFile(join(actionDirectory, "stdout.txt"), "utf8"),
-    readFile(join(actionDirectory, "stderr.txt"), "utf8"),
-    readFile(join(actionDirectory, "exit.txt"), "utf8"),
+    readFile(join(actionDirectory, "stdout.txt"), "utf8").catch(() => ""),
+    readFile(join(actionDirectory, "stderr.txt"), "utf8").catch(() => ""),
+    readFile(join(actionDirectory, "exit.txt"), "utf8").catch(() => String(fallbackExitCode ?? 1)),
   ]);
-  const receipt = await readReceipt(run);
-  receipt.actions.push({
+  const completed = {
     command: displayCommand,
     actionDirectory,
     exitCode: Number(exitText.trim()),
+    state: "exited",
+    finishedAt: new Date().toISOString(),
+  };
+  await updateReceipt(run, (receipt) => {
+    const existing = receipt.actions.find(
+      (action) => action.command === displayCommand && action.actionDirectory === actionDirectory,
+    );
+    if (existing) Object.assign(existing, completed);
+    else receipt.actions.push(completed);
+    if (!receipt.artifacts.includes(actionDirectory)) receipt.artifacts.push(actionDirectory);
   });
-  if (!receipt.artifacts.includes(actionDirectory)) receipt.artifacts.push(actionDirectory);
-  await writeReceipt(run, receipt);
   return {
     actionDirectory,
     exitCode: Number(exitText.trim()),
