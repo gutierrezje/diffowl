@@ -7,12 +7,35 @@ increments that may include backward-compatible features and fixes.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-09-02
+
+### Added
+
+- Codex review executions now retain versioned phase, provider-activity, queue,
+  retry, and timing telemetry for completed and unsuccessful attempts. Timeout
+  diagnostics identify the active phase and whether provider work was active.
+
 ### Changed
 
+- Native Codex reviews focus exploration on changed behavior and disable
+  unrelated web, browser, plugin, and agent capabilities. An explicit `max`
+  reasoning selection now warns when the review timeout is five minutes or less
+  without changing the selected model, effort, or deadline.
 - State schema 7 now records migration identity. Databases written by unreleased
   schema 7 through 10 development builds must move `.diffowl/state.db` aside
   before upgrading. Backend names are now validated by the application instead
   of a SQLite `CHECK`, so adding a backend no longer requires a table rebuild.
+
+### Fixed
+
+- Explicit commit reviews now compare a commit with its first parent, including
+  merge commits, instead of using a combined merge diff that could omit source
+  changes.
+- Post-commit workers review new commits before retrying older failures. Hook
+  status now distinguishes first attempts, retries, and live work, and stale
+  worker state no longer appears active forever.
+- The Codex handshake timeout fixture now stalls only at `thread/start`, so host
+  load cannot make the test time out during initialization instead.
 
 ## [0.5.1] - 2026-08-27
 
@@ -254,6 +277,7 @@ reviewer prompt; the measurement machinery itself is internal tooling.
 
 See the Git history and release notes for versions at and before `v0.3.1`.
 
+[0.5.2]: https://github.com/gutierrezje/diffowl/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/gutierrezje/diffowl/compare/156e20d...v0.5.1
 [0.5.0]: https://github.com/gutierrezje/diffowl/compare/v0.4.0...156e20d
 [0.4.0]: https://github.com/gutierrezje/diffowl/compare/v0.3.3...v0.4.0

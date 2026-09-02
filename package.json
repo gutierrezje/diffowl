@@ -1,6 +1,6 @@
 {
   "name": "diffowl",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Local AI code review agent for OpenCode and Codex",
   "keywords": [
     "ai",
