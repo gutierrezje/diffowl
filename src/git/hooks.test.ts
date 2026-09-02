@@ -1,7 +1,7 @@
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { closeSync, existsSync, openSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, delimiter, dirname, join } from "node:path";
 import { execa } from "execa";
 import type { Options as ExecaOptions } from "execa";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -115,7 +115,7 @@ describe("installHook", () => {
     process.chdir(root);
 
     try {
-      process.env["PATH"] = `${runtimeA}:${originalPath}`;
+      process.env["PATH"] = `${runtimeA}${delimiter}${originalPath}`;
       await installHook();
 
       const portableBridge = await readFile(huskyUserHook, "utf-8");
@@ -129,7 +129,7 @@ describe("installHook", () => {
       await execa("git", ["add", ".husky/post-commit"], { cwd: root });
       await commitWithoutHooks(root, "add portable DiffOwl bridge");
 
-      process.env["PATH"] = `${runtimeB}:${originalPath}`;
+      process.env["PATH"] = `${runtimeB}${delimiter}${originalPath}`;
       await installHook();
 
       await expect(readFile(huskyUserHook, "utf-8")).resolves.toBe(portableBridge);
