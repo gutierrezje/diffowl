@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createReviewExecutionTelemetry,
   type ReviewExecutionTelemetryEvent,
@@ -11,7 +11,7 @@ import {
   captureReviewOperation,
   createUnavailableContextReviewOperation,
 } from "../review/operation.js";
-import { createSingleReviewAssignment } from "../review/provenance.js";
+import { createRunningReviewExecutionProvenance, createSingleReviewAssignment } from "../review/provenance.js";
 import { selectReasoningVariant } from "../review/reasoning.js";
 import type { ReviewContext } from "../review/context.js";
 import { closeStateDatabase, openStateDatabase } from "./db.js";
@@ -24,11 +24,107 @@ import { removeTempStateDir } from "./test-helpers.js";
 const tempDirs: string[] = [];
 
 afterEach(async () => {
+  vi.useRealTimers();
   await Promise.all(tempDirs.map((dir) => removeTempStateDir(dir)));
   tempDirs.length = 0;
 });
 
 describe("review execution journal", () => {
+  it("ages executions from terminal time and leaves live executions untouched", async () => {
+    const dir = await createTempDir();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-01T00:00:00.000Z"));
+    const running = await startReviewExecutionJournal(dir, {
+      operation: capturedOperation("op_long_running"), assignment: assignment(),
+      telemetry: createReviewExecutionTelemetry(),
+    });
+    const finishing = await startReviewExecutionJournal(dir, {
+      operation: capturedOperation("op_recent_finish"), assignment: assignment(),
+      telemetry: createReviewExecutionTelemetry({ clock: {
+        read: () => ({ wallTime: new Date().toISOString(), elapsedMs: Date.now() - Date.parse("2026-08-01T00:00:00.000Z") }),
+      } }),
+    });
+    try {
+      vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"));
+      finishing.finish({
+        ...createRunningReviewExecutionProvenance(assignment()), terminalOutcome: "failed",
+      });
+      const state = await openStateDatabase(dir);
+      try {
+        expect(listReviewExecutionsByOperationId(state.db, "op_long_running"))
+          .toEqual([expect.objectContaining({ terminalOutcome: "running" })]);
+        expect(listReviewExecutionsByOperationId(state.db, "op_recent_finish"))
+          .toEqual([expect.objectContaining({ terminalOutcome: "failed" })]);
+      } finally {
+        closeStateDatabase(state);
+      }
+    } finally {
+      running.close();
+      finishing.close();
+    }
+  });
+
+  it("keeps finalization committed when cleanup rolls back", async () => {
+    const dir = await createTempDir();
+    for (let index = 0; index < 2; index++) {
+      const journal = await startReviewExecutionJournal(dir, {
+        operation: capturedOperation(`op_cleanup_failure_${index}`), assignment: assignment(),
+        telemetry: createReviewExecutionTelemetry(),
+        retention: { failed_execution_days: 0, failed_execution_limit: 1 },
+      });
+      try {
+        if (index === 1) {
+          const setup = await openStateDatabase(dir);
+          setup.db.exec(`CREATE TRIGGER fail_cleanup BEFORE DELETE ON review_operations
+            BEGIN SELECT RAISE(ABORT, 'injected cleanup failure'); END`);
+          closeStateDatabase(setup);
+        }
+        expect(journal.finish({
+          ...createRunningReviewExecutionProvenance(assignment()), terminalOutcome: "failed",
+        })).toMatchObject({ terminalOutcome: "failed", ownerLease: null });
+      } finally {
+        journal.close();
+      }
+    }
+    const state = await openStateDatabase(dir);
+    try {
+      for (let index = 0; index < 2; index++) {
+        expect(listReviewExecutionsByOperationId(state.db, `op_cleanup_failure_${index}`))
+          .toEqual([expect.objectContaining({ terminalOutcome: "failed", ownerLease: null })]);
+      }
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
+  it("applies retention after journal finalization", async () => {
+    const dir = await createTempDir();
+    for (let index = 0; index < 4; index++) {
+      const journal = await startReviewExecutionJournal(dir, {
+        operation: capturedOperation(`op_retention_${index}`),
+        assignment: assignment(),
+        telemetry: createReviewExecutionTelemetry(),
+        retention: { failed_execution_days: 0, failed_execution_limit: 2 },
+      });
+      try {
+        journal.finish({
+          ...createRunningReviewExecutionProvenance(assignment()), effectiveModel: null, sessionId: null, terminalOutcome: "failed",
+        });
+      } finally {
+        journal.close();
+      }
+    }
+    const state = await openStateDatabase(dir);
+    try {
+      expect(listReviewExecutionsByOperationId(state.db, "op_retention_0")).toEqual([]);
+      expect(listReviewExecutionsByOperationId(state.db, "op_retention_2")).toHaveLength(1);
+      expect(state.db.prepare("SELECT COUNT(*) AS count FROM review_executions").get())
+        .toEqual({ count: 2 });
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
   it("persists running state before provider work and finalizes the same execution", async () => {
     const dir = await createTempDir();
     const operation = capturedOperation("op_running");
