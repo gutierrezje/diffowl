@@ -16,7 +16,7 @@ const config: EffectiveReviewConfig = {
   server: { port: 4096, auto_start: false },
   context: { depth: "default" },
   reasoning: { kind: "backend-default" },
-  retention: { hook_log_kb: 1024 },
+  retention: { hook_log_kb: 1024, failed_execution_days: 14, failed_execution_limit: 200 },
   gate: { fail_on_findings: false },
   timeout: 30,
   min_confidence: "medium",

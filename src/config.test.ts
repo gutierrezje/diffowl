@@ -19,6 +19,33 @@ afterEach(async () => {
 });
 
 describe("config", () => {
+  it.each([
+    ["failed_execution_days", 0, { hook_log_kb: 1024, failed_execution_days: 0, failed_execution_limit: 200 }],
+    ["failed_execution_limit", 7, { hook_log_kb: 1024, failed_execution_days: 14, failed_execution_limit: 7 }],
+    ["failed_execution_limit", 0, { hook_log_kb: 1024, failed_execution_days: 14, failed_execution_limit: 0 }],
+  ])("deep-merges retention.%s = %s", async (key, value, expected) => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-retention-config-"));
+    tempDirs.push(root);
+    process.chdir(root);
+    await writeFile(join(root, ".diffowl.yml"), `retention:\n  ${key}: ${value}\n`);
+    const config = await loadConfig();
+    expect(config.retention).toEqual(expected);
+    await saveConfig(config);
+    expect((await loadConfig()).retention).toEqual(expected);
+  });
+
+  it.each(["failed_execution_days", "failed_execution_limit"])(
+    "rejects negative and fractional retention.%s", async (key) => {
+      const root = await mkdtemp(join(tmpdir(), "diffowl-retention-config-"));
+      tempDirs.push(root);
+      process.chdir(root);
+      for (const value of [-1, 1.5]) {
+        await writeFile(join(root, ".diffowl.yml"), `retention:\n  ${key}: ${value}\n`);
+        await expect(loadConfig()).rejects.toThrow(`retention.${key}`);
+      }
+    },
+  );
+
   it("returns the directory containing the discovered config as the project root", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
     tempDirs.push(root);
@@ -102,7 +129,7 @@ describe("config", () => {
     expect(config.min_confidence).toBe("medium");
     expect(config.context.depth).toBe("default");
     expect(config).not.toHaveProperty("reasoning");
-    expect(config.retention).toEqual({ hook_log_kb: 1024 });
+    expect(config.retention).toEqual({ hook_log_kb: 1024, failed_execution_days: 14, failed_execution_limit: 200 });
     expect(config.gate).toEqual({ fail_on_findings: false });
     expect(config.skip_doc_only).toBe(false);
     expect(config.verbose).toBe(false);
@@ -254,7 +281,7 @@ describe("config", () => {
       ["model: provider/model", "retention:", "  hook_log_kb: 256"].join("\n"),
       "utf-8",
     );
-    expect((await loadConfig()).retention).toEqual({ hook_log_kb: 256 });
+    expect((await loadConfig()).retention).toEqual({ hook_log_kb: 256, failed_execution_days: 14, failed_execution_limit: 200 });
 
     await writeFile(
       configPath,

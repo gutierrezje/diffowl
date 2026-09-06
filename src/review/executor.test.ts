@@ -136,7 +136,7 @@ function reviewExecutorOptions(model: string, effort: "high" | "max") {
         server: { port: 4096, auto_start: false },
         context: { depth: "default" as const },
         reasoning: { kind: "variant" as const, value: effort },
-        retention: { hook_log_kb: 1024 },
+        retention: { hook_log_kb: 1024, failed_execution_days: 14, failed_execution_limit: 200 },
         gate: { fail_on_findings: false },
         timeout: 300,
         min_confidence: "medium" as const,

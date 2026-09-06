@@ -47,7 +47,7 @@ export const liveConfig: EffectiveReviewConfig = {
   server: { port: 4096, auto_start: true },
   context: { depth: "default" },
   reasoning: { kind: "backend-default" },
-  retention: { hook_log_kb: 1024 },
+  retention: { hook_log_kb: 1024, failed_execution_days: 14, failed_execution_limit: 200 },
   gate: { fail_on_findings: false },
   timeout: 600,
   min_confidence: "medium",
