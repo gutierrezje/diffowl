@@ -186,6 +186,10 @@ Project review policy lives in `.diffowl.yml`. Backend, model, and model-specifi
 context:
   depth: default
 
+retention:
+  failed_execution_days: 14
+  failed_execution_limit: 200
+
 gate:
   fail_on_findings: false
 
@@ -234,6 +238,26 @@ variants, the warning says so explicitly.
 Each backend keeps its own model choice. Switching backends does not erase the other model. A legacy preference containing only `model: provider/model` still selects OpenCode. Legacy `.diffowl.yml` `reasoning.effort` values remain readable for migration and produce an exact cleanup warning; DiffOwl no longer writes them to project config.
 
 Configuration is deep-merged with defaults, so the file only needs the settings your repository changes.
+
+Failed execution retention applies per repository database after an attempt is
+persisted. By default, it removes unreferenced `failed`, `cancelled`, and
+`timed-out` executions whose terminal update is older than 14 days, then keeps
+at most the 200 most recently updated eligible executions. Equal timestamps
+are ordered by insertion order. Set either limit to `0` to disable that limit;
+setting both to `0` disables cleanup.
+
+Completed, running, and interrupted executions are excluded. Executions referenced
+by canonical reviews or other database foreign keys (including future verification
+records) are protected and do not count toward the limit. Cleanup removes operations
+only when they have no executions and no review. Reviews, findings, observations,
+and lifecycle events are never trimmed, and cleanup does not compact the database.
+
+Cleanup runs in its own transaction after the attempt commits. A cleanup failure
+rolls back cleanup without losing the attempt; the next persisted attempt retries
+cleanup. The optional Node diagnostics channel `diffowl.state.retention` publishes
+`{ kind: "cleanup", databasePath, deletedExecutions, deletedOperations }` when rows
+are removed, or `{ kind: "cleanup-failed", databasePath, message }` on failure.
+These diagnostics do not change CLI stdout or the JSON review contract.
 
 ## Files DiffOwl creates
 

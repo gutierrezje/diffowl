@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { retainFailedExecutions, type ExecutionRetention } from "./execution-retention.js";
 import type {
   CompletedReviewExecutionProvenance,
   ReviewExecutionRuntimeProvenance,
@@ -69,6 +70,7 @@ export interface PersistSkippedReviewInput extends PersistReviewOutputInput {
 export interface PersistReviewExecutionAttemptInput {
   operation: CapturedReviewOperation;
   execution: ReviewExecutionRuntimeProvenance;
+  retention?: ExecutionRetention;
 }
 
 export interface PersistReviewRunResult {
@@ -426,13 +428,15 @@ export async function persistReviewExecutionAttempt(
 ): Promise<ReviewExecutionRecord> {
   const state = await openStateDatabaseForWrite(diffOwlDir);
   try {
-    return runInTransaction(state.db, () => {
+    const execution = runInTransaction(state.db, () => {
       insertReviewOperation(state.db, input.operation);
       return insertReviewExecution(state.db, {
         operation: input.operation,
         provenance: input.execution,
       });
     });
+    retainFailedExecutions(state, input.retention);
+    return execution;
   } finally {
     closeStateDatabase(state);
   }

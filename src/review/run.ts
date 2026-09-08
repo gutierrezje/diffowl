@@ -178,6 +178,7 @@ export async function runReviewPipeline(
     operation: pendingOperation,
     assignment: executor.assignment,
     telemetry: executionTelemetry,
+    retention: input.config.retention,
   });
   let reviewContext: Awaited<ReturnType<typeof buildReviewContextFromDiff>>;
   let localContext: string;

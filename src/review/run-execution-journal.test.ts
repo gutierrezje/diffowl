@@ -6,7 +6,9 @@ describe("runReviewPipeline execution journal", () => {
   it("starts a running execution before provider work and publishes that execution atomically", async () => {
     const deps = makeDeps(makeSnapshot([codeFile()]));
 
-    await runReviewPipeline(skipInput(), deps);
+    const input = skipInput();
+    input.config.retention.failed_execution_limit = 3;
+    await runReviewPipeline(input, deps);
 
     expect(deps.persistCanonicalReview).toHaveBeenCalledWith(
       "/repo/.diffowl",
@@ -30,6 +32,7 @@ describe("runReviewPipeline execution journal", () => {
           contextKind: "unavailable",
         }),
         assignment: deps.executor.assignment,
+        retention: expect.objectContaining({ failed_execution_limit: 3 }),
       }),
     );
     expect(deps.journal.captureContext).toHaveBeenCalledWith(

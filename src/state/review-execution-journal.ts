@@ -1,4 +1,5 @@
 import type { ReviewExecutionId } from "../review/ids.js";
+import { retainFailedExecutions, type ExecutionRetention } from "./execution-retention.js";
 import type {
   ReviewAssignment,
   ReviewExecutionRuntimeProvenance,
@@ -47,6 +48,7 @@ export async function startReviewExecutionJournal(
     operation: ReviewOperation;
     assignment: ReviewAssignment;
     telemetry: ReviewExecutionTelemetryTracker;
+    retention?: ExecutionRetention;
   },
 ): Promise<ReviewExecutionJournal> {
   const state = await openStateDatabaseForWrite(diffOwlDir);
@@ -70,6 +72,7 @@ export async function startReviewExecutionJournal(
       execution.operationId,
       input.telemetry,
       ownedProcessLease,
+      input.retention,
     );
   } catch (error) {
     processLease?.close();
@@ -84,6 +87,7 @@ function createJournal(
   operationId: ReviewOperation["id"],
   telemetry: ReviewExecutionTelemetryTracker,
   processLease: OwnedProcessLease,
+  retention: ExecutionRetention | undefined,
 ): ReviewExecutionJournal {
   let closed = false;
   let terminal = false;
@@ -138,14 +142,15 @@ function createJournal(
         telemetry.record({ type: "phase", phase: "completion" });
       }
       telemetry.record({ type: "terminal", outcome: provenance.terminalOutcome });
-      const execution = finalizeReviewExecution(
+      const execution = runInTransaction(state.db, () => finalizeReviewExecution(
         state.db,
         executionId,
         provenance,
         telemetry.snapshot(),
-      );
+      ));
       terminal = true;
       processLease.close();
+      retainFailedExecutions(state, retention);
       return execution;
     },
     close() {
