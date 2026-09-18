@@ -55,7 +55,7 @@ cd your-repository
 diffowl init
 ```
 
-`diffowl init` reports the selected runtime and the gitignored preference path. With OpenCode selected, it lists the models from your connected providers. Use `diffowl backend codex` before initialization if you want Codex, then choose a bare Codex model ID. The committed `.diffowl.yml` contains review policy, never your backend or model choice.
+`diffowl init` reports the selected runtime and the gitignored preference path. With OpenCode selected, it lists the models from your connected providers. Use `diffowl backend codex` before initialization if you want Codex, then choose a bare Codex model ID. The committed `.diffowl.yml` contains review policy, not your local backend or model preference.
 
 Codex reviews use an existing ChatGPT login from the local Codex CLI:
 
