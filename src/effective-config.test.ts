@@ -29,6 +29,7 @@ describe("effective config", () => {
     const legacy = await loadEffectiveReviewConfig(selection, {});
     expect(legacy.config.reasoning).toEqual({ kind: "variant", value: "high" });
     expect(legacy.warnings.join(" ")).toContain("Cursor does not support reasoning overrides");
+    expect(legacy.warnings.join(" ")).toContain("diffowl backend cursor");
     expect(legacy.warnings.join(" ")).not.toContain("diffowl reasoning high");
     await writeFile(join(root, ".diffowl.yml"), "{}\n");
     expect((await loadEffectiveReviewConfig(selection, {})).config.reasoning).toEqual({ kind: "backend-default" });

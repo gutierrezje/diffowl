@@ -214,7 +214,7 @@ function formatLegacyReasoningWarning(
   savedReasoningVariant?: string,
 ): string {
   if (backend === "cursor") {
-    return "Cursor does not support reasoning overrides. Remove the deprecated reasoning block from .diffowl.yml; clear any local override with `diffowl reasoning --reset` and omit --reasoning.";
+    return "Cursor does not support reasoning overrides. Remove the deprecated reasoning block from .diffowl.yml; select Cursor with `diffowl backend cursor`, then clear its local override with `diffowl reasoning --reset` and omit --reasoning.";
   }
   if (commandReasoning?.kind === "variant") {
     return `Deprecated .diffowl.yml reasoning.effort "${effort}" is ignored because this review uses --reasoning "${commandReasoning.value}". Remove the deprecated reasoning block from .diffowl.yml.`;

@@ -125,3 +125,9 @@ variant. The regression first failed, then 31 focused tests, lint, and build
 passed. A disposable built-CLI run verified the legacy error text; removing the
 legacy block enabled a live review that found the seeded bug and preserved the
 fixture (8.951 seconds). This changes guidance only; reasoning remains unsupported.
+
+Recovery instructions explicitly select Cursor before resetting, because a
+one-off `--backend cursor` review does not change the saved backend. A built-CLI
+fixture started with OpenCode selected and reasoning saved for both backends;
+following the instructions cleared Cursor reasoning while preserving OpenCode's
+setting. All 31 focused tests, lint, and build passed after this clarification.
