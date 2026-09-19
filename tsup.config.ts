@@ -1,7 +1,7 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["src/cli.ts"],
+  entry: { cli: "src/cli.ts", "cursor-worker": "src/cursor/worker.ts" },
   format: ["esm"],
   target: "node22",
   outDir: "dist",
@@ -9,5 +9,5 @@ export default defineConfig({
   sourcemap: true,
   dts: false,
   shims: true,
-  external: ["node:sqlite"],
+  external: ["node:sqlite", "@cursor/sdk"],
 });

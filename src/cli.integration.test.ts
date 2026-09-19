@@ -37,7 +37,7 @@ const ReviewTargetDocumentSchema = z.object({
 });
 const CliReviewSchema = z.object({
   model: z.string(),
-  backend: z.enum(["opencode", "codex"]),
+  backend: z.enum(["opencode", "codex", "cursor"]),
   requested_model: z.string(),
   effective_model: z.string().nullable(),
   preference_source: z.json(),
@@ -109,6 +109,33 @@ afterEach(async () => {
 });
 
 describe("diffowl CLI", () => {
+  it("reports an environment-provided Cursor SDK key without displaying it", async () => {
+    const repo = await createRepo("diffowl-cli-cursor-status-");
+    const result = await execa("node", [cliPath, "cursor", "status"], {
+      cwd: repo,
+      env: { CURSOR_API_KEY: "fixture-key-do-not-display" },
+    });
+    expect(result.stdout).toContain("API key provided by CURSOR_API_KEY");
+    expect(result.stdout + result.stderr).not.toContain("fixture-key-do-not-display");
+  });
+  it("keeps Cursor SDK preferences independent of the other backends", async () => {
+    const repo = await createRepo("diffowl-cli-cursor-preferences-");
+    const run = (...args: string[]) => execa("node", [cliPath, ...args], { cwd: repo });
+    await run("backend", "codex");
+    await run("model", "gpt-5.4");
+    expect((await run("backend", "cursor")).stdout).toContain("Backend set to Cursor");
+    expect((await run("model", "composer-2.5")).stdout).toContain("Cursor model set to");
+    const preferences = await readFile(join(repo, ".diffowl/preferences.yml"), "utf8");
+    expect(preferences).toContain("backend: cursor");
+    expect(preferences).toContain("model: gpt-5.4");
+    expect(preferences).toContain("model: composer-2.5");
+    await expect(run("model", "cursor/composer-2.5")).rejects.toMatchObject({ exitCode: 1 });
+    await run("model", "--reset");
+    expect(await readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).not.toContain(
+      "composer-2.5",
+    );
+  });
+
   it("explains tracked and local Husky hook ownership during installation", async () => {
     const repo = await realpath(await createRepo("diffowl-cli-husky-install-"));
     const huskyInternalDir = join(repo, ".husky", "_");

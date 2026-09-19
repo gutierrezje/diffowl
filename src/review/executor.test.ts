@@ -5,20 +5,53 @@ import { createSelectedReviewExecutor } from "./executor.js";
 import { createSingleReviewAssignment } from "./provenance.js";
 
 const openCodeExecutor: ReviewExecutor = { execute: vi.fn() };
+const createCursor = vi.fn(() => openCodeExecutor);
 const codexExecutor: ReviewExecutor = { execute: vi.fn() };
 
 describe("createSelectedReviewExecutor", () => {
+  it("routes Cursor through its adapter and records Cursor provenance", async () => {
+    const adapter = completedExecutor({ effectiveModel: "composer-2.5" });
+    const cursorFactory = vi.fn(() => adapter);
+    const executor = createSelectedReviewExecutor(
+      createSingleReviewAssignment(
+        {
+          backend: "cursor",
+          requestedModel: "composer-2.5",
+          source: { backend: "command", model: "command" },
+        },
+        { kind: "backend-default" },
+      ),
+      {
+        createOpenCode: () => openCodeExecutor,
+        createCodex: () => codexExecutor,
+        createCursor: cursorFactory,
+      },
+    );
+    const result = await executor.execute(reviewExecutorOptions("composer-2.5"));
+    expect(cursorFactory).toHaveBeenCalledWith({ model: "composer-2.5" });
+    expect(result.runtimeProvenance).toMatchObject({
+      backend: "cursor",
+      requestedModel: "composer-2.5",
+      effectiveModel: "composer-2.5",
+      sessionId: "review-session",
+      terminalOutcome: "completed",
+      reasoningEffort: null,
+    });
+  });
   it("constructs only the selected OpenCode adapter", () => {
     const createOpenCode = vi.fn(() => openCodeExecutor);
     const createCodex = vi.fn(() => codexExecutor);
 
     const executor = createSelectedReviewExecutor(
-      createSingleReviewAssignment({
-        backend: "opencode",
-        requestedModel: "provider/model",
-        source: { backend: "default", model: "local" },
-      }, { kind: "backend-default" }),
-      { createOpenCode, createCodex },
+      createSingleReviewAssignment(
+        {
+          backend: "opencode",
+          requestedModel: "provider/model",
+          source: { backend: "default", model: "local" },
+        },
+        { kind: "backend-default" },
+      ),
+      { createOpenCode, createCodex, createCursor },
     );
 
     expect(executor).not.toBe(openCodeExecutor);
@@ -34,12 +67,15 @@ describe("createSelectedReviewExecutor", () => {
     });
 
     const executor = createSelectedReviewExecutor(
-      createSingleReviewAssignment({
-        backend: "codex",
-        requestedModel: "gpt-5.4",
-        source: { backend: "command", model: "command" },
-      }, { kind: "variant", value: "thinking" }),
-      { createOpenCode: () => openCodeExecutor, createCodex },
+      createSingleReviewAssignment(
+        {
+          backend: "codex",
+          requestedModel: "gpt-5.4",
+          source: { backend: "command", model: "command" },
+        },
+        { kind: "variant", value: "thinking" },
+      ),
+      { createOpenCode: () => openCodeExecutor, createCodex, createCursor },
       { DIFFOWL_CODEX_EXECUTABLE: "/opt/codex" },
     );
 
@@ -63,7 +99,7 @@ describe("createSelectedReviewExecutor", () => {
     );
     const executor = createSelectedReviewExecutor(
       assignment,
-      { createOpenCode: () => openCodeExecutor, createCodex: () => adapter },
+      { createOpenCode: () => openCodeExecutor, createCodex: () => adapter, createCursor },
       {},
     );
 
@@ -94,7 +130,7 @@ describe("createSelectedReviewExecutor", () => {
         },
         { kind: "variant", value: "high" },
       ),
-      { createOpenCode: () => adapter, createCodex: () => codexExecutor },
+      { createOpenCode: () => adapter, createCodex: () => codexExecutor, createCursor },
     );
 
     const result = await executor.execute(reviewExecutorOptions("provider/model", "high"));
@@ -126,7 +162,7 @@ function completedExecutor(input: { effectiveModel?: string }): ReviewExecutor {
   };
 }
 
-function reviewExecutorOptions(model: string, effort: "high" | "max") {
+function reviewExecutorOptions(model: string, effort?: "high" | "max") {
   return {
     review: {
       target: { kind: "last-commit" } as const,
@@ -135,7 +171,7 @@ function reviewExecutorOptions(model: string, effort: "high" | "max") {
         model,
         server: { port: 4096, auto_start: false },
         context: { depth: "default" as const },
-        reasoning: { kind: "variant" as const, value: effort },
+        reasoning: effort === undefined ? { kind: "backend-default" as const } : { kind: "variant" as const, value: effort },
         retention: { hook_log_kb: 1024, failed_execution_days: 14, failed_execution_limit: 200 },
         gate: { fail_on_findings: false },
         timeout: 300,

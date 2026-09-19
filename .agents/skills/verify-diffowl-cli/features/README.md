@@ -21,6 +21,7 @@ disposable Git repository. The source checkout remains read-only.
 | `diffowl findings dismiss|defer|fix|reopen` | `finding-disposition` |
 | `diffowl findings duplicates show|list|confirm|reject` | `finding-duplicate-disposition` |
 | Hidden `hook-run` and `hook-worker` | Internal entries covered by `opencode-hook-review` |
+| `diffowl cursor login/status/models` | Account-dependent SDK setup; see `src/cursor/README.md`. Login writes the SDK credential store outside the scratch and requires explicit sign-in. |
 | Hidden `eval` | Excluded: the eval harness has its own corpus and gate verification surface |
 
 A newly discovered CLI command without a row is a coverage gap.

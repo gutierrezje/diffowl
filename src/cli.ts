@@ -195,7 +195,7 @@ program
   .option("--depth <depth>", "Review context depth: shallow or default")
   .option("--reasoning <variant>", "Backend-native reasoning variant")
   .option("--model <id>", "Review model override")
-  .option("--backend <backend>", "Review backend override: opencode or codex")
+  .option("--backend <backend>", "Review backend override: opencode, codex, or cursor")
   .option("--verbose", "Include suppressed findings and extra review details")
   .option("--format <format>", "Output format: text or json", "text")
   .action(async (options: ReviewCommandOptions) => {
@@ -808,7 +808,7 @@ function printAgentPathResult(result: AgentPathResult): void {
 program
   .command("backend")
   .description("View or change the local review backend")
-  .argument("[backend]", "Review backend: opencode or codex")
+  .argument("[backend]", "Review backend: opencode, codex, or cursor")
   .option("--reset", "Use the backward-compatible OpenCode default")
   .action(async (backendValue: string | undefined, options: { reset?: boolean }) => {
     if (backendValue && options.reset) {
@@ -831,7 +831,7 @@ program
         backend = parseReviewBackend(backendValue);
       } catch {
         console.error(chalk.red(`Invalid backend: ${backendValue}`));
-        console.error(chalk.dim("Expected one of: opencode, codex"));
+        console.error(chalk.dim("Expected one of: opencode, codex, cursor"));
         process.exit(1);
       }
       let path: string;
@@ -852,7 +852,7 @@ program
     console.log(`${chalk.bold("Current backend:")} ${formatReviewBackend(backend)}`);
     console.log(`Preference source: ${source}`);
     console.log(`Model: ${model ?? "not selected"}`);
-    for (const runtimeBackend of ["opencode", "codex"] as const) {
+    for (const runtimeBackend of ["opencode", "codex", "cursor"] as const) {
       const runtime = runtimes[runtimeBackend];
       console.log(
         `${formatReviewBackend(runtimeBackend)} runtime: ${
@@ -861,6 +861,55 @@ program
       );
     }
     console.log(chalk.dim(`Local preference: ${await getReviewPreferencesPath()}`));
+  });
+
+const cursorCmd = program
+  .command("cursor")
+  .description("Manage Cursor SDK authentication and models");
+
+cursorCmd
+  .command("login")
+  .description("Sign in through Cursor and save a named SDK API key")
+  .action(async () => {
+    try {
+      const { loginCursor } = await import("./cursor/auth.js");
+      console.log(
+        "Sign in to Cursor to create a DiffOwl API key (90 days). SDK usage is billed to your Cursor account.",
+      );
+      await loginCursor((url) => console.log(`Complete sign-in: ${url}`));
+      console.log(chalk.green("✓ Signed in to the Cursor SDK"));
+    } catch (error) {
+      console.error(chalk.red(error instanceof Error ? error.message : String(error)));
+      process.exitCode = 1;
+    }
+  });
+
+cursorCmd
+  .command("status")
+  .description("Show Cursor SDK authentication status without credentials")
+  .action(async () => {
+    try {
+      const { cursorAuthStatus } = await import("./cursor/auth.js");
+      console.log(await cursorAuthStatus());
+    } catch (error) {
+      console.error(chalk.red(error instanceof Error ? error.message : String(error)));
+      process.exitCode = 1;
+    }
+  });
+
+cursorCmd
+  .command("models")
+  .description("List model ids available to the Cursor SDK account")
+  .action(async () => {
+    try {
+      const { listCursorModels } = await import("./cursor/models.js");
+      for (const model of await listCursorModels()) console.log(`${model.id}\t${model.name}`);
+    } catch (error) {
+      console.error(chalk.red(error instanceof Error ? error.message : String(error)));
+      for (const line of getReviewBackendFailureGuidance("cursor", error))
+        console.error(chalk.dim(line));
+      process.exitCode = 1;
+    }
   });
 
 // Model command
@@ -882,7 +931,7 @@ program
         chalk.green(
           backend === "opencode"
             ? "✓ Local model preference reset (OpenCode)"
-            : "✓ Codex model preference reset",
+            : `✓ ${formatReviewBackend(backend)} model preference reset`,
         ),
       );
       console.log(chalk.dim("Run `diffowl model <model-id>` to choose another."));
@@ -897,7 +946,7 @@ program
         const detail =
           backend === "opencode"
             ? "OpenCode model must use provider/model format"
-            : "Codex model must be a bare model id";
+            : `${formatReviewBackend(backend)} model must be a bare model id`;
         console.error(chalk.red(`Invalid model for ${formatReviewBackend(backend)}: ${detail}`));
         process.exit(1);
       }
@@ -907,7 +956,7 @@ program
         chalk.green(
           backend === "opencode"
             ? `✓ Model set to ${chalk.cyan(parsedModel)} (OpenCode)`
-            : `✓ Codex model set to ${chalk.cyan(parsedModel)}`,
+            : `✓ ${formatReviewBackend(backend)} model set to ${chalk.cyan(parsedModel)}`,
         ),
       );
       console.log(chalk.dim(`Local preference: ${configPath}`));
@@ -995,8 +1044,8 @@ async function selectModelInteractively(
   config: DiffOwlConfig,
   options: { allowKeepCurrent: boolean; backend: ReviewBackend; currentModel?: string },
 ): Promise<void> {
-  if (options.backend === "codex") {
-    await selectCodexModelInteractively(options);
+  if (options.backend !== "opencode") {
+    await selectNativeModelInteractively({ ...options, backend: options.backend });
     return;
   }
 
@@ -1081,13 +1130,17 @@ async function selectModelInteractively(
   }
 }
 
-async function selectCodexModelInteractively(
-  options: { allowKeepCurrent: boolean; currentModel?: string },
-): Promise<void> {
+async function selectNativeModelInteractively(options: {
+  allowKeepCurrent: boolean;
+  currentModel?: string;
+  backend: "codex" | "cursor";
+}): Promise<void> {
+  const label = formatReviewBackend(options.backend);
+  const example = options.backend === "cursor" ? "composer-2.5" : "gpt-5.4";
   if (!canSelectModelInteractively(process.stdin.isTTY, process.stdout.isTTY)) {
     console.error(
       chalk.red(
-        "Interactive Codex model selection requires a terminal. Pass a model explicitly, for example `diffowl model gpt-5.4`.",
+        `Interactive ${label} model selection requires a terminal. Pass a model explicitly, for example \`diffowl model ${example}\`.`,
       ),
     );
     process.exit(1);
@@ -1100,16 +1153,18 @@ async function selectCodexModelInteractively(
         options.allowKeepCurrent && options.currentModel
           ? ` or press Enter to keep ${options.currentModel}`
           : "";
-      const raw = await rl.question(chalk.yellow(`Codex model id${suffix}: `));
+      const raw = await rl.question(chalk.yellow(`${label} model id${suffix}: `));
       if (raw.trim() === "" && options.allowKeepCurrent && options.currentModel) return;
       try {
-        const model = parseBackendModel("codex", raw);
-        await saveReviewBackendModel("codex", model);
-        console.log(chalk.green(`✓ Codex model set to ${chalk.cyan(model)}`));
+        const model = parseBackendModel(options.backend, raw);
+        await saveReviewBackendModel(options.backend, model);
+        console.log(chalk.green(`✓ ${label} model set to ${chalk.cyan(model)}`));
         console.log();
         return;
       } catch {
-        console.log(chalk.red("Invalid Codex model. Expected a bare model id, for example gpt-5.4."));
+        console.log(
+          chalk.red(`Invalid ${label} model. Expected a bare model id, for example ${example}.`),
+        );
       }
     }
   } finally {
