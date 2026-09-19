@@ -12,7 +12,8 @@ and Git hook integration through a real terminal.
 ## Controller
 
 Use `control-diffowl cli new-run <feature-id>` to create the target. Drive the
-TTY journey below, then capture `snapshot --run <run-id>` and read the receipt.
+TTY journey below, then capture `snapshot --run <run-id>` and a manual assessment
+under the shared evidence contract. The controller receipt remains inconclusive.
 
 ## How to get to it (user POV)
 

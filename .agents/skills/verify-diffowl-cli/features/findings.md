@@ -16,7 +16,8 @@ outcome for a finding produced by a review.
 Run `control-diffowl run cli findings-inspect --json` for the empty backlog.
 For a persistent disposition, create a run with the matching feature ID, preview
 the action with `run ... --run <run-id> --dry-run`, then follow this recipe and
-capture `snapshot` plus `receipt`.
+capture snapshots and a separate manual assessment. `receipt` does not evaluate
+manual transitions or populate their verdict.
 
 ## How to get to it (user POV)
 

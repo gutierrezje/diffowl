@@ -20,11 +20,17 @@ disposable Git target, explicit model, current Codex CLI, and ChatGPT auth label
 
 A newly discovered Codex protocol or CLI entry without a row is a coverage gap.
 
+Runtime-ready and review-target paths have automated drivers. Capability routing,
+policy enforcement, and validation-failure IDs are recipe-driven. Cancellation
+launches a real review but needs an interruption while the turn is active; its
+receipt alone does not prove protocol acknowledgment or descendant teardown.
+
 ## Proof and cleanup
 
 - Provider-backed runs capture Git state immediately before and after the turn.
-- VERIFIED requires structured JSON, immutable report, database state, unchanged
-  Git state, requested/effective model evidence, and complete child teardown.
+- Successful-review claims require structured JSON, immutable report, database
+  state, repository safety, model evidence, and child teardown. Failure and
+  cancellation recipes use their specified terminal outcomes.
 - `console` emits JSON Lines; `wait-settle` and `cancel` use only recorded PIDs.
 - Cleanup removes the scratch; Codex has no long-lived server to retain.
 

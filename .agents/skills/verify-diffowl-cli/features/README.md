@@ -2,7 +2,8 @@
 
 Use `skills/verify-diffowl/control-diffowl cli capabilities --json` for the
 executable inventory. Every feature uses a freshly built binary and one
-disposable Git repository. The source checkout remains read-only.
+disposable Git repository. Setup writes the source checkout's build output and
+verification artifacts; product-state mutations stay in the scratch.
 
 ## Entry-point coverage
 
@@ -20,17 +21,27 @@ disposable Git repository. The source checkout remains read-only.
 | `diffowl findings list|summary|show` | `findings-inspect` |
 | `diffowl findings dismiss|defer|fix|reopen` | `finding-disposition` |
 | `diffowl findings duplicates show|list|confirm|reject` | `finding-duplicate-disposition` |
-| Hidden `hook-run` and `hook-worker` | Internal entries covered by `opencode-hook-review` |
+| State migrations, retention, and linked-worktree storage | Manual [durable-state recipe](durable-state.md); no dedicated controller ID |
+| Hidden `hook-run` and `hook-worker` | Manual background review journey using the configured provider; see [hook lifecycle](hook-lifecycle.md) |
 | `diffowl cursor login/status/models` | [Cursor manual recipe](cursor-sdk.md); login writes the SDK credential store outside the scratch and requires explicit sign-in. |
 | Hidden `eval` | Excluded: the eval harness has its own corpus and gate verification surface |
 
-A newly discovered CLI command without a row is a coverage gap.
+A newly discovered CLI command without a row is a coverage gap. Name the gap and
+use the manual evidence path rather than treating a nearby smoke test as coverage.
+
+## Automation boundary
+
+The controller drives version/help, invalid commands, preferences, the ordinary
+Git-hook lifecycle, and empty findings inspection. Setup, agent hooks, finding
+dispositions, and the Husky branch need manual driving. Inspect assertions for
+the changed branch even when its feature ID has an automated driver.
 
 ## Proof and cleanup
 
 - `control-diffowl run cli <feature-id>` captures actions and before/after state.
 - Use `--dry-run` for hook, finding, setup, or preference mutations.
-- `control-diffowl cli receipt --run <run-id> --json` is the verdict source.
+- `control-diffowl cli receipt --run <run-id> --json` reports automated evidence;
+  manual journeys retain a separate assessment under the shared contract.
 - Cleanup removes only the recorded scratch and retains evidence.
 
 ## Features
@@ -44,3 +55,4 @@ A newly discovered CLI command without a row is a coverage gap.
 - [Findings](findings.md): `findings-inspect`, `finding-disposition`,
   `finding-duplicate-disposition`.
 - [Interactive setup](init.md): `init-codex-setup`, `init-agent-path`.
+- [Durable state](durable-state.md): migrations, retention, and worktree storage.

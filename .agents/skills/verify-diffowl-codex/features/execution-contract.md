@@ -16,8 +16,10 @@ review does not exercise these branches.
 ## Controller
 
 Create a run with `control-diffowl codex new-run <feature-id> --model <id>`, use
-the focused mock-child recipe below, then capture `snapshot` and `receipt`. A
-normal live success is only the final bracket where the recipe calls for it.
+the focused mock-child recipe below, then capture snapshots and a separate manual
+assessment. These IDs are recipe-driven; `receipt` does not evaluate the injected
+branch. A normal live success is only the final bracket where the recipe calls
+for it.
 
 ## Driving it
 
