@@ -95,3 +95,18 @@ stderr produced the passing result, without a product change.
 
 Rejecting a response when post-run validation or the total deadline fails remains
 intentional: a model response alone does not establish a successful review.
+
+Both repair reviewers identified that draining alone could wait indefinitely.
+The follow-up gives repository capture an optional abort signal, forwards it to
+Git subprocesses and file-reading streams, and waits for all started operations
+to settle. Cursor cancels setup capture with the review and applies a separate
+deadline to final capture. Inspection disables Git fsmonitor and textconv
+helpers. Other callers may continue to omit the signal.
+
+The final follow-up passed 30 focused guard/lifecycle tests, lint, build, and the
+full suite (1,077 passed, 7 skipped). Fresh built-CLI live runs again preserved
+all fixture state: review found the seeded bug in 10.998 seconds; cancellation
+exited 130 in 2.001 seconds with a durable cancelled execution and no surviving
+worker. Fixtures were removed. This cancels Git and streamed reads; it does not
+turn uninterruptible operating-system metadata calls into a hard real-time
+guarantee.

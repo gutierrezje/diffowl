@@ -8,6 +8,25 @@ import { captureRepositoryState, compareRepositoryStates } from "./repository-gu
 const repositories: string[] = [];
 
 describe("repository guard", () => {
+  it("rejects an aborted snapshot without leaving Git work running", async () => {
+    const directory = await repository();
+    const controller = new AbortController();
+    controller.abort(new Error("snapshot cancelled"));
+    await expect(captureRepositoryState(directory, { signal: controller.signal })).rejects.toThrow(
+      "snapshot cancelled",
+    );
+  });
+
+  it("settles active Git reads before returning cancellation", async () => {
+    const directory = await repository();
+    const controller = new AbortController();
+    const pending = captureRepositoryState(directory, { signal: controller.signal });
+    controller.abort();
+    await expect(pending).rejects.toBeInstanceOf(Error);
+    // Windows refuses this removal while a Git child still owns the cwd.
+    await rm(directory, { recursive: true, force: true });
+  });
+
   afterEach(async () => {
     await Promise.all(
       repositories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),

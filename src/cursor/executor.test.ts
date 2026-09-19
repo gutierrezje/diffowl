@@ -34,8 +34,8 @@ describe("createCursorReviewExecutor", () => {
     const controller = new AbortController();
     let settled = false;
     const spy = vi.spyOn(repositoryGuard, "captureRepositoryState").mockImplementationOnce(async (...args) => {
-      controller.abort();
       const snapshot = await capture(...args);
+      controller.abort();
       await new Promise((resolve) => setTimeout(resolve, 100));
       settled = true;
       return snapshot;
@@ -58,12 +58,11 @@ describe("createCursorReviewExecutor", () => {
     let calls = 0;
     let settled = false;
     const spy = vi.spyOn(repositoryGuard, "captureRepositoryState").mockImplementation(async (...args) => {
-      const snapshot = await capture(...args);
       if (++calls === 2) {
         await new Promise((resolve) => setTimeout(resolve, 100));
         settled = true;
       }
-      return snapshot;
+      return capture(...args);
     });
     try {
       await expect(createFixtureExecutor("timeout", undefined, { closeTimeoutMs: 50 }).execute({

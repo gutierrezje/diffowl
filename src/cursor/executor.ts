@@ -50,12 +50,14 @@ async function execute(
     phase: "cursor-review",
   });
   const cancellationError = new ReviewCancelledError("Review cancelled by user.");
+  const snapshotController = new AbortController();
   let stopReason: Error | undefined;
   let stop: (error: Error) => void = () => undefined;
   const stopped = new Promise<never>((_resolve, reject) => {
     stop = (error) => {
       stopReason ??= error;
-      reject(error);
+      snapshotController.abort(stopReason);
+      reject(stopReason);
     };
   });
   // Attach a handler before setup; abort may arrive between awaited setup steps.
@@ -74,8 +76,11 @@ async function execute(
   let storeDirectory: string | undefined;
   try {
     const directory = await Promise.race([realpath(input.review.directory), stopped]);
-    const beforeSnapshot = captureRepositoryState(directory);
-    const before = await awaitWithDrain(beforeSnapshot, Promise.race([beforeSnapshot, stopped]));
+    const before = await captureRepositoryState(directory, {
+      signal: snapshotController.signal,
+    }).catch((error: Error) => {
+      throw stopReason ?? error;
+    });
     throwIfStopped();
     storeDirectory = await mkdtemp(join(tmpdir(), "diffowl-cursor-sdk-"));
     const storePath = await realpath(storeDirectory);
@@ -256,9 +261,18 @@ async function execute(
       // Observe the reader after any forced close; its failure is already captured above.
       void messages.catch(() => undefined);
     }
-    const afterSnapshot = captureRepositoryState(directory);
-    const after = await awaitWithDrain(afterSnapshot, within(afterSnapshot, closeTimeoutMs)).catch(
-      (error: Error) => { throw withCleanupFailure(failure, error); },
+    const cleanupSignal = AbortSignal.timeout(Math.ceil(closeTimeoutMs));
+    const after = await captureRepositoryState(directory, { signal: cleanupSignal }).catch(
+      (error: Error) => {
+        throw withCleanupFailure(
+          failure ?? stopReason,
+          cleanupSignal.aborted
+            ? new CursorReviewError("teardown", "Cursor repository check deadline exceeded.", {
+                cause: error,
+              })
+            : error,
+        );
+      },
     );
     const comparison = compareRepositoryStates(before, after);
     if (comparison.kind === "changed")
@@ -359,16 +373,6 @@ async function within<T>(promise: PromiseLike<T>, ms: number): Promise<T> {
     ]);
   } finally {
     clearTimeout(timer);
-  }
-}
-
-async function awaitWithDrain<T>(promise: Promise<T>, result: Promise<T>): Promise<T> {
-  // A losing race does not stop Git/hash work; retain ownership until it settles.
-  try {
-    return await result;
-  } catch (error) {
-    await promise.catch(() => undefined);
-    throw error;
   }
 }
 
