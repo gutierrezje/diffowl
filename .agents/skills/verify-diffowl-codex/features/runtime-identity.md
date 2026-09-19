@@ -11,8 +11,10 @@ actual model used.
 
 ## Controller
 
-Run `control-diffowl codex doctor --model <id> --json`, then
-`control-diffowl run codex codex-runtime-ready --model <id> --json`.
+Create the run with `codex new-run codex-runtime-ready --model <id>`, run
+`codex doctor --run <run-id> --json`, then execute
+`run codex codex-runtime-ready --run <run-id> --model <id> --json`.
+Recheck run-bound identity before accepting the evidence.
 
 ## How to get to it (user POV)
 

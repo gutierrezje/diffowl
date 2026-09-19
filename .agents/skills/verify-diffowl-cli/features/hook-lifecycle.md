@@ -16,8 +16,9 @@ it is current, and remove only DiffOwl's managed section.
 ## Controller
 
 Preview with `control-diffowl run cli <feature-id> --dry-run --json`. The
-controller's automated path covers the Git hook; use `cli new-run` plus this
-recipe for `agent-hook-install-summary`.
+controller's automated path covers the ordinary Git hook. Use the shared manual
+evidence path for Husky and `agent-hook-install-summary`; keep their assessment
+separate from the ordinary hook's receipt.
 
 ## How to get to it (user POV)
 
@@ -57,4 +58,6 @@ Preconditions:
   on later commits; the scratch boundary is mandatory.
 - Hook installation proof is the resulting file, not the green terminal line.
 - This offline recipe does not prove that a provider-backed worker completes a
-  review. Use `opencode-hook-review` for that journey.
+  review. Use [the background review recipe](../../verify-diffowl-opencode/features/hook-review.md)
+  with the intended provider. OpenCode has a mapped hook feature; a Codex hook
+  needs a manual claim with Codex runtime evidence, not an OpenCode substitute.

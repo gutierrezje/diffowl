@@ -44,3 +44,6 @@ Preconditions:
 - A killed wrapper process does not prove the App Server acknowledged interrupt.
 - Capture post-close state; a snapshot taken before child teardown misses
   close-time mutations.
+- The automated receipt checks CLI cancellation and a persisted cancelled row.
+  Protocol acknowledgment and descendant exit require their own observations;
+  mark those claims inconclusive if only the capture wrapper's exit is visible.

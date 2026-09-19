@@ -20,6 +20,10 @@ dedicated server PID and port owned by its disposable run.
 A newly discovered OpenCode command, server path, or hook entry without a row is
 a coverage gap.
 
+Review targets and server lifecycle have automated drivers. Hook review is
+recipe-driven. Cancellation needs an interruption while a review is active.
+Mapped feature IDs do not imply all recipe assertions run automatically.
+
 ## Proof and cleanup
 
 - Provider runs capture requested route, JSON, report, database, PID, port, Git

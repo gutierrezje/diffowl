@@ -22,5 +22,8 @@ the command is named `review`; use the lightest surface that reaches the changed
 behavior.
 
 All three skills use `skills/verify-diffowl/control-diffowl`. Discover its small
-interface with `--help` and the selected surface's `capabilities --json`; the
-existing shell helpers remain internal implementation details.
+interface with `--help` and the selected surface's `capabilities --json`. Use the
+documented capture fallback only when a recipe needs manual driving.
+
+The selected skill loads the shared [evidence contract](references/evidence.md).
+It covers evidence reuse, run identity, manual recipes, verdicts, and cleanup.
