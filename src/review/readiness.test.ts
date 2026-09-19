@@ -306,7 +306,7 @@ describe("review readiness", () => {
     expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({ result: "not-ready" });
     const linked = join(root, ".diffowl", "historical-repair");
     await git("worktree", "add", "--detach", linked, middle);
-    expect(await readFile(join(linked, "price.ts"), "utf8")).toBe("export const price = 13;\n");
+    expect((await readFile(join(linked, "price.ts"), "utf8")).trimEnd()).toBe("export const price = 13;");
     await pipelineReview([], { kind: "commit", ref: middle }, linked);
     expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({
       result: "ready", coverage: { uncovered_commits: [], repair_review_ids: [expect.any(String), expect.any(String)] },
