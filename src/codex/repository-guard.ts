@@ -75,6 +75,7 @@ export async function captureRepositoryState(
     }),
   );
   const sha256 = hashSnapshot(entries, stagedDiff, unstagedDiff, headSha);
+  options.signal?.throwIfAborted();
   return { sha256, headSha, paths, entries };
 }
 

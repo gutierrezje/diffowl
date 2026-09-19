@@ -110,3 +110,10 @@ exited 130 in 2.001 seconds with a durable cancelled execution and no surviving
 worker. Fixtures were removed. This cancels Git and streamed reads; it does not
 turn uninterruptible operating-system metadata calls into a hard real-time
 guarantee.
+
+The final independent comment added one abort check after snapshot hashing, so
+metadata work finishing after cancellation cannot return an accepted snapshot.
+That one-line follow-up passed lint, build, and the same 30 focused tests; fresh
+live review (8.960 seconds) and SIGINT cancellation (1.735 seconds) also passed
+with unchanged fixtures and no remaining worker. The full-suite result above
+preceded this final abort check; hosted CI verifies the published head.
