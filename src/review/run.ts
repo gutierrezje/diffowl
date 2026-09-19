@@ -369,7 +369,7 @@ export async function runReviewPipeline(
       publication.coverage = {
         policySha256: reviewPolicySha256(input.config, input.depth),
         inputVerified: checkoutBefore.status === "" && checkoutAfter.status === "" &&
-          checkoutBefore.head === checkoutAfter.head &&
+          checkoutBefore.head === snapshot.targetCommit && checkoutAfter.head === snapshot.targetCommit &&
           snapshot.source.kind === "git-commit" && snapshot.source.sha === snapshot.targetCommit &&
           operation.contextManifest.degradationCounts.length === 0,
         untrackedActionableCount: persisted.actionableFindings.filter(finding => finding.severity !== "info" &&

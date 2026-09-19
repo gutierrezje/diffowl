@@ -250,12 +250,15 @@ describe("review readiness", () => {
     expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({ result: "ready" });
   });
 
-  async function pipelineReview(findings: ReviewFinding[] = [], target: ReviewTarget = { kind: "base", ref: "main" }) {
+  async function pipelineReview(
+    findings: ReviewFinding[] = [], target: ReviewTarget = { kind: "base", ref: "main" },
+    directory = root,
+  ) {
     const config = await loadConfigFromRoot(root);
     const assignment = createSingleReviewAssignment({ backend: "codex", requestedModel: "test", source: { backend: "command", model: "command" } }, { kind: "backend-default" });
     return runReviewPipeline({
       target, config: { ...config, model: "test", reasoning: { kind: "backend-default" } },
-      depth: "default", verbose: false, projectRoot: root, diffOwlDir: join(root, ".diffowl"), timings: [], persistEmptyDiff: false,
+      depth: "default", verbose: false, projectRoot: directory, diffOwlDir: join(root, ".diffowl"), timings: [], persistEmptyDiff: false,
       executor: { assignment, async execute() {
         return { review: { report: { summary: "Reviewed", findings }, sessionId: "test" }, timings: [],
           runtimeProvenance: { cohortId: null, reviewerId: assignment.reviewerId, role: "single", backend: "codex",
@@ -287,7 +290,7 @@ describe("review readiness", () => {
     expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({ result: "ready" });
   });
 
-  it("fills a missing repair through the pipeline while a later commit remains checked out", async () => {
+  it("requires an exact checkout for historical repair coverage and accepts a linked worktree", async () => {
     await pipelineReview();
     await writeFile(join(root, "price.ts"), "export const price = 13;\n");
     await git("commit", "-am", "middle repair");
@@ -300,10 +303,16 @@ describe("review readiness", () => {
       reason: "stale-coverage", coverage: { uncovered_commits: [middle] },
     });
     await pipelineReview([], { kind: "commit", ref: middle });
+    expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({ result: "not-ready" });
+    const linked = join(root, ".diffowl", "historical-repair");
+    await git("worktree", "add", "--detach", linked, middle);
+    expect(await readFile(join(linked, "price.ts"), "utf8")).toBe("export const price = 13;\n");
+    await pipelineReview([], { kind: "commit", ref: middle }, linked);
     expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({
       result: "ready", coverage: { uncovered_commits: [], repair_review_ids: [expect.any(String), expect.any(String)] },
     });
     expect(await git("rev-parse", "HEAD")).toBe(tip);
+    await git("worktree", "remove", linked);
   });
 
   it("does not turn a successful review with truncated input into complete coverage", async () => {

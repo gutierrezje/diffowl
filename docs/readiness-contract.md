@@ -159,12 +159,14 @@ readiness contract.
 
 Schema 8 adds `review_coverage` beside existing operation identities. It records
 a policy hash, whether context was pinned to the reviewed commit while the
-checkout stayed clean at the same HEAD before and after execution without
+checkout stayed clean at that same commit before and after execution without
 recorded context degradation, and the untracked actionable-output count. Publication inserts this evidence transactionally with
 the report locator. Older successful reviews have no retroactively invented
 coverage evidence. Staged and skipped reviews establish no committed coverage.
-An exact commit review may fill a historical repair gap from a later checkout;
-its context comes from the requested Git commit rather than the checkout tip.
+To fill a historical repair gap, review from a clean checkout of that exact
+commit, for example a detached linked worktree. Pre-collected context is pinned
+to the requested commit, but supplemental provider file tools read the checkout;
+a review launched from a different revision cannot establish verified coverage.
 Recorded collection failures, truncation, or context degradation prevent the
 review from establishing complete coverage. Intentional include/exclude policy
 still defines the review scope; omitted findings never count as dispositions.
