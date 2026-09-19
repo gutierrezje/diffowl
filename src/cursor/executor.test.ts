@@ -110,7 +110,7 @@ describe("createCursorReviewExecutor", () => {
       }),
     ).rejects.toMatchObject({
       category: "protocol",
-      message: expect.stringContaining("reasoning"),
+      message: expect.stringContaining("reasoning.effort from .diffowl.yml"),
     });
   });
 

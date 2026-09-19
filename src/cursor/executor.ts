@@ -32,7 +32,7 @@ async function execute(
   if (input.review.config.reasoning.kind === "variant") {
     throw new CursorReviewError(
       "protocol",
-      "Cursor reasoning overrides are not supported. Remove --reasoning or run `diffowl reasoning --reset`.",
+      "Cursor reasoning overrides are not supported. Omit --reasoning, clear any local override with `diffowl reasoning --reset`, and remove deprecated reasoning.effort from .diffowl.yml.",
     );
   }
   const started = performance.now();

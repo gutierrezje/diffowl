@@ -114,6 +114,7 @@ export async function loadEffectiveReviewConfig(
   if (legacyReasoningEffort !== undefined) {
     warnings.push(
       formatLegacyReasoningWarning(
+        backend,
         legacyReasoningEffort,
         commandReasoning,
         savedVariant,
@@ -207,10 +208,14 @@ export function resolveReviewBackendPreference(
 }
 
 function formatLegacyReasoningWarning(
+  backend: ReviewBackend,
   effort: ReasoningVariant,
   commandReasoning: ReasoningSelection | undefined,
   savedReasoningVariant?: string,
 ): string {
+  if (backend === "cursor") {
+    return "Cursor does not support reasoning overrides. Remove the deprecated reasoning block from .diffowl.yml; clear any local override with `diffowl reasoning --reset` and omit --reasoning.";
+  }
   if (commandReasoning?.kind === "variant") {
     return `Deprecated .diffowl.yml reasoning.effort "${effort}" is ignored because this review uses --reasoning "${commandReasoning.value}". Remove the deprecated reasoning block from .diffowl.yml.`;
   }

@@ -84,7 +84,9 @@ MCP, subagents, and ambient project settings, and rejects a review if its
 repository guard observes changes. This is a tool policy, not an operating-system
 sandbox or a restriction on which files can be read. Cursor reasoning overrides
 are not supported yet; use the model's default and clear any saved override with
-`diffowl reasoning --reset`.
+`diffowl reasoning --reset`. If `.diffowl.yml` still contains deprecated
+`reasoning.effort`, remove that reasoning block too; resetting local preferences
+does not edit project policy.
 
 Review the last commit:
 

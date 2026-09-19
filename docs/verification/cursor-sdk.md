@@ -117,3 +117,11 @@ That one-line follow-up passed lint, build, and the same 30 focused tests; fresh
 live review (8.960 seconds) and SIGINT cancellation (1.735 seconds) also passed
 with unchanged fixtures and no remaining worker. The full-suite result above
 preceded this final abort check; hosted CI verifies the published head.
+
+Hosted feedback also exposed contradictory legacy reasoning guidance. Cursor's
+error and config warning now direct users to remove deprecated project reasoning
+and reset local overrides, without recommending that they save an unsupported
+variant. The regression first failed, then 31 focused tests, lint, and build
+passed. A disposable built-CLI run verified the legacy error text; removing the
+legacy block enabled a live review that found the seeded bug and preserved the
+fixture (8.951 seconds). This changes guidance only; reasoning remains unsupported.
