@@ -11,7 +11,9 @@ import {
   openStateDatabaseForRead,
 } from "../db.js";
 import { openSqliteDatabase } from "../sqlite.js";
-import { removeTempStateDir } from "../test-helpers.js";
+import { insertTestReview, removeTempStateDir } from "../test-helpers.js";
+import { reconcileReviewFindings } from "../reconcile.js";
+import { dismissFinding } from "../lifecycle.js";
 import { CURRENT_SCHEMA_VERSION } from "../types.js";
 import { getReviewExecutionById } from "../repositories/review-executions.js";
 import { MIGRATION_001_INITIAL_SCHEMA } from "./001-initial-schema.js";
@@ -29,7 +31,38 @@ afterEach(async () => {
 });
 
 describe("release schema migration", () => {
-  it("upgrades the published schema 6 through one identified migration", async () => {
+  it("adds coverage without changing schema 7 finding identities or dispositions", async () => {
+    const dir = await createTempDir();
+    const old = await openSqliteDatabase(getStateDbPath(dir));
+    applyMigrations(old, 7);
+    const review = insertTestReview(old, {
+      targetKind: "base", baseCommit: "a".repeat(40), mergeBaseCommit: "a".repeat(40),
+      targetCommit: "b".repeat(40), diffHash: "legacy-diff", model: "test", reasoning: null,
+      depth: "default", sessionId: "legacy", summary: "Legacy review", reportPath: "legacy.md",
+    });
+    const finding = reconcileReviewFindings(old, review.id, [{ file: "price.ts", line: 1,
+      severity: "warning", confidence: "high", title: "Price", body: "Unexpected price",
+      evidence: "const price = 12;" }]).observations[0]!.finding;
+    dismissFinding(old, finding.id, { actor: "user", reason: "Intended pricing" });
+    const before = {
+      findings: old.prepare("SELECT * FROM findings").all(),
+      observations: old.prepare("SELECT * FROM finding_observations").all(),
+      events: old.prepare("SELECT * FROM finding_events").all(),
+      reviews: old.prepare("SELECT * FROM reviews").all(),
+    };
+    closeDatabaseConnection(old);
+    const state = await openStateDatabase(dir);
+    try {
+      expect(state.db.prepare("SELECT * FROM findings").all()).toEqual(before.findings);
+      expect(state.db.prepare("SELECT * FROM finding_observations").all()).toEqual(before.observations);
+      expect(state.db.prepare("SELECT * FROM finding_events").all()).toEqual(before.events);
+      expect(state.db.prepare("SELECT * FROM reviews").all()).toEqual(before.reviews);
+      expect(state.db.prepare("SELECT * FROM review_coverage").all()).toEqual([]);
+      expect(state.db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    } finally { closeStateDatabase(state); }
+  });
+
+  it("upgrades the published schema 6 through identified additive migrations", async () => {
     const dir = await createPublishedSchema6Database();
     const db = await openSqliteDatabase(getStateDbPath(dir));
     try {
@@ -40,7 +73,7 @@ describe("release schema migration", () => {
 
     const state = await openStateDatabase(dir);
     try {
-      expect(CURRENT_SCHEMA_VERSION).toBe(7);
+      expect(CURRENT_SCHEMA_VERSION).toBe(8);
       const migrations = state.db
         .prepare("SELECT version, name, sha256 FROM schema_migrations ORDER BY version ASC")
         .all();
@@ -55,6 +88,7 @@ describe("release schema migration", () => {
           version: 7,
           name: "007-review-runtime-and-migration-identity",
         }),
+        expect.objectContaining({ version: 8, name: "008-review-coverage" }),
       ]);
       for (const migration of migrations) {
         expect(migration).toEqual(

@@ -10,6 +10,7 @@ import { MIGRATION_004_REVIEW_EXECUTIONS } from "./migrations/004-review-executi
 import { MIGRATION_005_REVIEW_INPUT_IDENTITY } from "./migrations/005-review-input-identity.js";
 import { MIGRATION_006_REVIEW_OPERATIONS } from "./migrations/006-review-operations.js";
 import { MIGRATION_007_REVIEW_RUNTIME_AND_MIGRATION_IDENTITY } from "./migrations/007-review-runtime-and-migration-identity.js";
+import { MIGRATION_008_REVIEW_COVERAGE } from "./migrations/008-review-coverage.js";
 import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.js";
 import { CURRENT_SCHEMA_VERSION } from "./types.js";
 
@@ -36,9 +37,14 @@ const MIGRATIONS: MigrationRegistry = {
     name: "007-review-runtime-and-migration-identity",
     sql: MIGRATION_007_REVIEW_RUNTIME_AND_MIGRATION_IDENTITY,
   },
+  8: { name: "008-review-coverage", sql: MIGRATION_008_REVIEW_COVERAGE },
 };
 
 const CURRENT_SCHEMA_TABLE_COLUMNS = {
+  reviewCoverage: {
+    table: "review_coverage",
+    columns: ["review_id", "policy_sha256", "input_verified", "untracked_actionable_count"],
+  },
   reviewOperations: {
     table: "review_operations",
     columns: [
@@ -184,7 +190,7 @@ export async function openStateDatabaseForRead(
     throw new StateDatabaseError(`No state database at ${path}`);
   }
 
-  const db = await openSqliteDatabase(path);
+  const db = await openSqliteDatabase(path, { readOnly: true });
   try {
     db.pragma(`busy_timeout = ${options.busyTimeoutMs ?? BUSY_TIMEOUT_MS}`);
     assertReadableSchema(db);

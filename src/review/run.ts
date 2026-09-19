@@ -23,8 +23,10 @@ import {
   persistCanonicalReview,
   persistSkippedReview,
   updatePersistedReview,
+  toFindingCandidate,
   type PersistCanonicalReviewInput,
   type PersistReviewRunResult,
+  type UpdatePersistedReviewInput,
 } from "../state/persist.js";
 import {
   startReviewExecutionJournal,
@@ -54,6 +56,8 @@ import { reasoningVariant } from "./reasoning.js";
 import type { EffectiveReviewConfig } from "./runtime-config.js";
 import { createReviewExecutionTelemetry } from "./execution-telemetry.js";
 import type { ReviewExecutionRecord } from "../state/types.js";
+import { readReviewCheckout, reviewPolicySha256 } from "./coverage.js";
+import { computeFindingFingerprint } from "../state/fingerprint.js";
 
 const failureExecutionStore = new WeakMap<object, ReviewExecutionRecord>();
 
@@ -104,6 +108,7 @@ export interface ReviewPipelineInput {
 }
 
 export interface ReviewPipelineDeps {
+  readReviewCheckout: typeof readReviewCheckout;
   loadReviewSnapshot: typeof loadReviewSnapshot;
   buildReviewContextFromDiff: typeof buildReviewContextFromDiff;
   renderReviewContextDocument: typeof renderReviewContextDocument;
@@ -128,6 +133,7 @@ export interface ReviewPipelineDeps {
 }
 
 export const defaultReviewPipelineDeps: ReviewPipelineDeps = {
+  readReviewCheckout,
   buildReviewContextFromDiff,
   captureReviewOperation,
   createUnavailableContextReviewOperation,
@@ -171,6 +177,7 @@ export async function runReviewPipeline(
   }
 
   const { snapshot, timings, operation: pendingOperation } = outcome;
+  const checkoutBefore = snapshot.targetCommit === null ? null : await deps.readReviewCheckout(input.projectRoot);
   const executionTelemetry = createReviewExecutionTelemetry();
   executionTelemetry.record({ type: "phase", phase: "context-build" });
   const executor = input.executor ?? deps.createExecutor(input.config);
@@ -356,7 +363,19 @@ export async function runReviewPipeline(
         projectRoot: input.projectRoot,
       }),
     );
-    await deps.updatePersistedReview(input.diffOwlDir, persisted.reviewId, { reportPath, diagnostics });
+    const publication: UpdatePersistedReviewInput = { reportPath, diagnostics };
+    if (checkoutBefore !== null) {
+      const checkoutAfter = await deps.readReviewCheckout(input.projectRoot);
+      publication.coverage = {
+        policySha256: reviewPolicySha256(input.config, input.depth),
+        inputVerified: checkoutBefore.status === "" && checkoutAfter.status === "" &&
+          checkoutBefore.head === snapshot.targetCommit && checkoutAfter.head === snapshot.targetCommit &&
+          operation.contextManifest.degradationCounts.length === 0,
+        untrackedActionableCount: persisted.actionableFindings.filter(finding => finding.severity !== "info" &&
+          computeFindingFingerprint(toFindingCandidate(finding)) === null).length,
+      };
+    }
+    await deps.updatePersistedReview(input.diffOwlDir, persisted.reviewId, publication);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     diagnostics.push(`Report write failed: ${message}`);

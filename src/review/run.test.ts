@@ -351,6 +351,7 @@ describe("runReviewPipeline", () => {
     expect(deps.updatePersistedReview).toHaveBeenCalledWith("/repo/.diffowl", "rev_1", {
       reportPath: "/repo/.diffowl/reviews/review.md",
       diagnostics: ["excluded summary"],
+      coverage: { inputVerified: true, policySha256: expect.stringMatching(/^[0-9a-f]{64}$/), untrackedActionableCount: 1 },
     });
   });
 

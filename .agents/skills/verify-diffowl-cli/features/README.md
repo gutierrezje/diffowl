@@ -19,6 +19,7 @@ verification artifacts; product-state mutations stay in the scratch.
 | `diffowl agent-hook install --client claude` | `agent-hook-install-summary` |
 | `diffowl server start|status|stop` | Routed to `opencode-server-owned-lifecycle` in the OpenCode map |
 | `diffowl findings list|summary|show` | `findings-inspect` |
+| `diffowl readiness [--base <ref>] [--format json]` | Manual [readiness recipe](readiness.md); `findings-inspect` supplies scratch setup only |
 | `diffowl findings dismiss|defer|fix|reopen` | `finding-disposition` |
 | `diffowl findings duplicates show|list|confirm|reject` | `finding-duplicate-disposition` |
 | State migrations, retention, and linked-worktree storage | Manual [durable-state recipe](durable-state.md); no dedicated controller ID |
@@ -56,3 +57,4 @@ the changed branch even when its feature ID has an automated driver.
   `finding-duplicate-disposition`.
 - [Interactive setup](init.md): `init-codex-setup`, `init-agent-path`.
 - [Durable state](durable-state.md): migrations, retention, and worktree storage.
+- [Readiness](readiness.md): committed coverage, lifecycle blockers, and read-only proof.

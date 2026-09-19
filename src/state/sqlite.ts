@@ -31,9 +31,9 @@ export interface SqliteDatabase {
 
 let sqliteModule: Promise<SqliteModule> | undefined;
 
-export async function openSqliteDatabase(path: string): Promise<SqliteDatabase> {
+export async function openSqliteDatabase(path: string, options: { readOnly?: boolean } = {}): Promise<SqliteDatabase> {
   const { DatabaseSync } = await loadSqliteModule();
-  return new NodeSqliteDatabase(new DatabaseSync(path));
+  return new NodeSqliteDatabase(new DatabaseSync(path, options));
 }
 
 async function loadSqliteModule(): Promise<SqliteModule> {

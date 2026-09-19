@@ -18,4 +18,18 @@ _Avoid_: Attempt, execution, operation
 
 **Finding**:
 A durable code concern that can be observed across reviews and move through the finding lifecycle.
+
+**Review readiness**:
+A derived proof that an exact committed branch snapshot has compatible complete
+review coverage and no unhandled blocking findings.
+_Avoid_: Approval, permission to merge
+
+**Coverage checkpoint**:
+A complete branch review from which compatible review coverage can be traced.
+_Avoid_: Latest review
+
+**Review lineage**:
+A connected sequence of compatible review evidence for a branch's committed
+changes under one resolved base and review policy.
+_Avoid_: Session history
 _Avoid_: Claim, comment, issue

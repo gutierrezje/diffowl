@@ -148,6 +148,8 @@ import {
 import type { ReviewTarget } from "./review/target.js";
 import { inspectReviewRuntimes } from "./review/runtime.js";
 import { getReviewBackendFailureGuidance } from "./review/guidance.js";
+import { getReadiness, type ReadinessOptions } from "./review/readiness.js";
+import { renderReadiness } from "./output/readiness.js";
 
 import { execa } from "execa";
 import { z } from "zod";
@@ -182,6 +184,22 @@ program
   .name("diffowl")
   .description("Local AI code review agent")
   .version(packageJson.version);
+
+program
+  .command("readiness")
+  .description("Check review coverage and findings for the committed branch without changing state")
+  .option("--base <ref>", "Base ref; defaults to the locally detected default branch")
+  .option("--depth <depth>", "Expected review context depth: shallow or default")
+  .option("--format <format>", "Output format: text or json", "text")
+  .action(async (options: { base?: string; depth?: string; format: string }) => {
+    const format = resolveReviewOutputFormat(options.format);
+    const request: ReadinessOptions = { projectRoot: getProjectRoot() };
+    if (options.base !== undefined) request.base = options.base;
+    if (options.depth !== undefined) request.depth = parseReviewContextDepth(options.depth);
+    const result = await getReadiness(request);
+    console.log(format === "json" ? JSON.stringify(result) : renderReadiness(result));
+    process.exitCode = result.exit_code;
+  });
 
 // Default command: review last commit
 program

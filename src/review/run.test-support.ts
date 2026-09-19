@@ -156,6 +156,7 @@ export function makeDeps(
     journal: ReviewExecutionJournal;
   } = {
     ...defaultReviewPipelineDeps,
+    readReviewCheckout: vi.fn(async () => ({ head: snapshot.targetCommit ?? "abc123", status: "" })),
     buildReviewContextFromDiff: vi.fn(async () => makeReviewContext(snapshot)),
     captureReviewOperation: vi.fn(() => makeOperation(snapshot)),
     createUnavailableContextReviewOperation: vi.fn((input) =>
