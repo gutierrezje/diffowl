@@ -21,6 +21,7 @@ import { getReviewOperationById } from "../state/repositories/review-operations.
 import { createReviewExecutionTelemetry } from "./execution-telemetry.js";
 import { createSingleReviewAssignment, createFailedReviewExecutionProvenance } from "./provenance.js";
 import { defaultReviewPipelineDeps, runReviewPipeline } from "./run.js";
+import type { ReviewTarget } from "./target.js";
 
 describe("review readiness", () => {
   let root: string;
@@ -124,6 +125,21 @@ describe("review readiness", () => {
     });
   });
 
+  it("reports only the gap after the closest available full checkpoint", async () => {
+    await reviewBranch();
+    await writeFile(join(root, "price.ts"), "export const price = 13;\n");
+    await git("commit", "-am", "second checkpoint");
+    head = await git("rev-parse", "HEAD");
+    const latestCheckpoint = await reviewBranch();
+    await writeFile(join(root, "price.ts"), "export const price = 14;\n");
+    await git("commit", "-am", "unreviewed tip");
+    const tip = await git("rev-parse", "HEAD");
+    expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({
+      reason: "stale-coverage",
+      coverage: { checkpoint_review_id: latestCheckpoint, uncovered_commits: [tip] },
+    });
+  });
+
   it("blocks staged, unstaged, and untracked changes while preserving the committed proof", async () => {
     const checkpoint = await reviewBranch();
     await writeFile(join(root, "price.ts"), "export const price = 99;\n");
@@ -154,6 +170,53 @@ describe("review readiness", () => {
     deferFinding(deferred.db, listObservationsForReview(deferred.db, deferredId)[0]!.findingId, { actor: "user", reason: "Later" });
     closeStateDatabase(deferred);
     expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({ reason: "finding-blocked", blockers: { deferred: 1 } });
+  });
+
+  it("retains unresolved findings from a merged side branch after a clean checkpoint", async () => {
+    await git("checkout", "-b", "side");
+    await writeFile(join(root, "side.ts"), "export const broken = true;\n");
+    await git("add", "side.ts");
+    await git("commit", "-m", "side change");
+    await pipelineReview([{ file: "side.ts", line: 1, severity: "warning", confidence: "high",
+      title: "Side concern", body: "Still unresolved", evidence: "export const broken = true;" }]);
+    await git("checkout", "feature");
+    await git("merge", "--no-ff", "side", "-m", "merge side");
+    await pipelineReview();
+    expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({
+      reason: "finding-blocked", blockers: { open: 1 },
+    });
+  });
+
+  it("accepts a successful exact-commit retry outside the selected checkpoint", async () => {
+    const checkpoint = await reviewBranch();
+    const commitReview = await reviewCommit(head);
+    const state = await openStateDatabase(join(root, ".diffowl"));
+    const operation = getReviewOperationById(state.db, getReviewById(state.db, commitReview)!.operationId)!;
+    closeStateDatabase(state);
+    const assignment = createSingleReviewAssignment({ backend: "codex", requestedModel: "test", source: { backend: "command", model: "command" } }, { kind: "backend-default" });
+    const journal = await startReviewExecutionJournal(join(root, ".diffowl"), { operation, assignment, telemetry: createReviewExecutionTelemetry() });
+    journal.finish(createFailedReviewExecutionProvenance(assignment, "failed"));
+    journal.close();
+    expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({ reason: "review-failed" });
+    await pipelineReview([], { kind: "commit", ref: head });
+    expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({
+      result: "ready", coverage: { checkpoint_review_id: checkpoint, repair_review_ids: [] },
+    });
+  });
+
+  it("supersedes an old hook failure after a manual retry while preserving queued work", async () => {
+    await reviewBranch();
+    const queue = join(root, ".diffowl", "pending-reviews");
+    await mkdir(queue);
+    const marker = JSON.stringify({ sha: head, queuedAt: new Date().toISOString() });
+    const failure = JSON.stringify({ exitCode: 1, timestamp: new Date().toISOString(), commit: head });
+    await writeFile(join(queue, head), marker);
+    await writeFile(join(queue, `${head}.result.json`), failure);
+    expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({ reason: "review-failed" });
+    await pipelineReview([], { kind: "commit", ref: head });
+    expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({ reason: "review-pending" });
+    expect(await readFile(join(queue, head), "utf8")).toBe(marker);
+    expect(await readFile(join(queue, `${head}.result.json`), "utf8")).toBe(failure);
   });
 
   it("reports local queued work without pruning orphan results and fails closed on malformed markers", async () => {
@@ -187,11 +250,11 @@ describe("review readiness", () => {
     expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({ result: "ready" });
   });
 
-  async function pipelineReview(findings: ReviewFinding[] = []) {
+  async function pipelineReview(findings: ReviewFinding[] = [], target: ReviewTarget = { kind: "base", ref: "main" }) {
     const config = await loadConfigFromRoot(root);
     const assignment = createSingleReviewAssignment({ backend: "codex", requestedModel: "test", source: { backend: "command", model: "command" } }, { kind: "backend-default" });
     return runReviewPipeline({
-      target: { kind: "base", ref: "main" }, config: { ...config, model: "test", reasoning: { kind: "backend-default" } },
+      target, config: { ...config, model: "test", reasoning: { kind: "backend-default" } },
       depth: "default", verbose: false, projectRoot: root, diffOwlDir: join(root, ".diffowl"), timings: [], persistEmptyDiff: false,
       executor: { assignment, async execute() {
         return { review: { report: { summary: "Reviewed", findings }, sessionId: "test" }, timings: [],
@@ -222,6 +285,25 @@ describe("review readiness", () => {
   it("records usable coverage through the actual review pipeline", async () => {
     expect((await pipelineReview()).kind).toBe("completed");
     expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({ result: "ready" });
+  });
+
+  it("fills a missing repair through the pipeline while a later commit remains checked out", async () => {
+    await pipelineReview();
+    await writeFile(join(root, "price.ts"), "export const price = 13;\n");
+    await git("commit", "-am", "middle repair");
+    const middle = await git("rev-parse", "HEAD");
+    await writeFile(join(root, "price.ts"), "export const price = 14;\n");
+    await git("commit", "-am", "tip repair");
+    const tip = await git("rev-parse", "HEAD");
+    await pipelineReview([], { kind: "commit", ref: tip });
+    expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({
+      reason: "stale-coverage", coverage: { uncovered_commits: [middle] },
+    });
+    await pipelineReview([], { kind: "commit", ref: middle });
+    expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({
+      result: "ready", coverage: { uncovered_commits: [], repair_review_ids: [expect.any(String), expect.any(String)] },
+    });
+    expect(await git("rev-parse", "HEAD")).toBe(tip);
   });
 
   it("does not turn a successful review with truncated input into complete coverage", async () => {

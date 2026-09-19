@@ -75,7 +75,9 @@ export function makeSnapshot(
     mergeBaseCommit: target.kind === "base" ? "merge-base" : null,
     targetCommit: target.kind === "staged" ? null : "abc123",
     diff: { files, raw: "diff --git a/README.md b/README.md", summary: "" },
-    source: unusedContextSource,
+    source: target.kind === "staged"
+      ? { ...unusedContextSource, kind: "git-index" }
+      : { ...unusedContextSource, kind: "git-commit", sha: "abc123" },
   };
 }
 

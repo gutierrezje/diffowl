@@ -216,6 +216,8 @@ async function generate(output, extension = ".ts") {
     process.exit(7);
   }
   if (process.env.MOCK_CLI_MODE === "hang-generate") {
+    if (process.env.MOCK_CLI_COMMAND_LOG)
+      await appendFile(process.env.MOCK_CLI_COMMAND_LOG, `ready ${process.pid}\n`);
     setInterval(() => {}, 1_000);
     await new Promise(() => {});
   }

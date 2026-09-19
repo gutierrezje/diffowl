@@ -10,9 +10,11 @@ evidence contract. This journey has no dedicated controller feature ID.
 2. Run a full branch review through the selected supported backend. Explicitly
    disposition any actionable findings, then query readiness for the same base
    and HEAD. Expect exit 0 with the published review as checkpoint.
-3. Commit a repair. Expect stale coverage, then review that exact commit and
-   query again. The coverage chain must name the checkpoint and repair IDs in
-   order. A missing intermediate repair remains not ready.
+3. Commit two repairs and review only the tip. Expect stale coverage naming the
+   missing middle commit. Review that middle SHA while leaving the tip checked
+   out; expect ready with checkpoint and repair IDs in order. Then publish a new
+   full checkpoint, advance HEAD again, and confirm stale coverage names only
+   the new gap rather than commits already covered by the newer checkpoint.
 4. Exercise a local dirty file and a finding disposition. Confirm the reason and
    exit change without starting a provider call from the readiness command.
 5. Read from a linked worktree at the same HEAD. Completed evidence is shared;

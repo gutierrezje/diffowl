@@ -239,6 +239,7 @@ describe("runReviewPipeline", () => {
       makeSnapshot([codeFile()], { kind: "base", ref: "origin/main" }),
       { targetCommit: "captured-head" },
     );
+    snapshot.source = { ...snapshot.source, kind: "git-commit", sha: snapshot.targetCommit };
     const deps = makeDeps(snapshot);
     const inputTimings = [{ phase: "preflight", label: "Preflight", ms: 1 }];
     const kept = makeFinding("src/app.ts");

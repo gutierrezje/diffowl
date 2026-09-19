@@ -25,6 +25,8 @@ A complete successful branch review is a checkpoint. Exact commit reviews can
 extend it through a contiguous first-parent chain, provided each repair is
 compatible with the checkpoint's review policy. Every intervening commit must
 be covered. A merge commit uses the existing first-parent review semantics.
+When no chain is complete, report the compatible chain with the fewest uncovered
+commits so the next action does not request already covered work.
 Rebases and rewritten history cannot reuse a disconnected checkpoint. Staged
 reviews and isolated commit reviews cannot establish a branch checkpoint.
 
@@ -45,6 +47,9 @@ A successful newer compatible attempt can replace a failed attempt at the same
 input. An unresolved newer failure must not be hidden behind an older successful
 proof. A newly running attempt likewise prevents handoff until its outcome is
 known. Old failure history remains evidence; it is never deleted by a query.
+Replacement evidence includes compatible publications outside the selected
+coverage chain. A manual retry can supersede a hook failure, but a remaining
+hook marker still represents queued work and prevents handoff.
 
 ## Finding and worktree policy
 
@@ -54,8 +59,9 @@ dismissed findings do not block; informational findings do not block. Actionable
 output without durable identity blocks because its disposition cannot be proved.
 Version 1 preserves its count and cannot record a lifecycle disposition for an
 untracked concern; a later omission does not clear that blocker.
-Absence from a later review never resolves a finding. Possible-duplicate
-suggestions have no lifecycle effect until explicitly confirmed.
+Finding relevance includes merged side-branch commits, while coverage repairs
+follow the first-parent chain. Absence from a later review never resolves a
+finding. Possible-duplicate suggestions have no lifecycle effect until explicitly confirmed.
 
 Inspect observations within the branch's coverage/history, not the global
 `last_review_id` pointer: another worktree can move that pointer. Reuse the
@@ -152,11 +158,13 @@ readiness contract.
 ## Implemented persistence
 
 Schema 8 adds `review_coverage` beside existing operation identities. It records
-a policy hash, whether the reviewed committed HEAD was checked out cleanly
-before and after execution without recorded context degradation, and the untracked
-actionable-output count. Publication inserts this evidence transactionally with
+a policy hash, whether context was pinned to the reviewed commit while the
+checkout stayed clean at the same HEAD before and after execution without
+recorded context degradation, and the untracked actionable-output count. Publication inserts this evidence transactionally with
 the report locator. Older successful reviews have no retroactively invented
 coverage evidence. Staged and skipped reviews establish no committed coverage.
+An exact commit review may fill a historical repair gap from a later checkout;
+its context comes from the requested Git commit rather than the checkout tip.
 Recorded collection failures, truncation, or context degradation prevent the
 review from establishing complete coverage. Intentional include/exclude policy
 still defines the review scope; omitted findings never count as dispositions.

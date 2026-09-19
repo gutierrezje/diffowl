@@ -7,7 +7,7 @@ const ResultSchema = z.object({ exitCode: z.number().int(), timestamp: z.string(
 const ActiveSchema = z.object({ sha: z.string(), pid: z.number().int().positive() });
 interface ReadinessQueue {
   pending: string[];
-  failed: string[];
+  failed: { commit: string; timestamp: string }[];
   identity: (string | null)[];
 }
 
@@ -46,7 +46,9 @@ export async function readReadinessQueue(projectRoot: string) {
     const outcome = outcomeText === null ? null : ResultSchema.parse(JSON.parse(outcomeText));
     if (outcome?.commit !== undefined && outcome.commit !== marker.sha) throw new Error("Hook result belongs to a different commit.");
     result.identity.push(text, outcomeText);
-    (outcome !== null && outcome.exitCode !== 0 && marker.sha !== activeSha ? result.failed : result.pending).push(marker.sha);
+    if (outcome !== null && outcome.exitCode !== 0 && marker.sha !== activeSha) {
+      result.failed.push({ commit: marker.sha, timestamp: outcome.timestamp });
+    } else result.pending.push(marker.sha);
   }
   return result;
 }

@@ -55,11 +55,18 @@ export async function getReadiness(options: ReadinessOptions): Promise<Readiness
     const config = await loadConfigFromRoot(options.projectRoot);
     const policy = reviewPolicySha256(config, options.depth ?? config.context.depth);
     result.policy_sha256 = policy;
-    const { stdout: history } = await execa("git", ["rev-list", "--first-parent", "--parents", `${mergeBase}..${head}`], { cwd: options.projectRoot });
-    const parents = new Map(history.split("\n").filter(Boolean).map(line => {
-      const [commit, parent] = line.split(" ");
-      return [commit!, parent ?? null] as const;
+    const { stdout: history } = await execa("git", ["rev-list", "--parents", `${mergeBase}..${head}`], { cwd: options.projectRoot });
+    const ancestry = new Map(history.split("\n").filter(Boolean).map(line => {
+      const [commit, ...commitParents] = line.split(" ");
+      return [commit!, commitParents] as const;
     }));
+    const parents = new Map<string, string | null>();
+    let cursor: string | null = head;
+    while (cursor !== null && ancestry.has(cursor)) {
+      const parent: string | null = ancestry.get(cursor)?.[0] ?? null;
+      parents.set(cursor, parent);
+      cursor = parent;
+    }
     const stateDir = await resolveSharedDiffOwlDir(options.projectRoot);
     const evidence = await readStateSnapshot(stateDir, readReadinessEvidence);
     const reviews = evidence?.reviews ?? [];
@@ -70,27 +77,32 @@ export async function getReadiness(options: ReadinessOptions): Promise<Readiness
     const seen = new Set<string>();
     for (const finding of evidence?.findings ?? []) {
       if (finding.targetKind === "staged" || finding.headCommit === null ||
-        (!parents.has(finding.headCommit) && finding.headCommit !== head) || seen.has(finding.id)) continue;
+        (!ancestry.has(finding.headCommit) && finding.headCommit !== head) || seen.has(finding.id)) continue;
       seen.add(finding.id);
       if (finding.severity !== "info" && (finding.status === "open" || finding.status === "regressed" || finding.status === "deferred")) {
         result.blockers[finding.status]++;
       }
     }
     result.blockers.untracked = reviews.filter(review => review.headCommit !== null &&
-      (parents.has(review.headCommit) || review.headCommit === head)).reduce((sum, review) => sum + (review.untrackedActionableCount ?? 0), 0);
+      (ancestry.has(review.headCommit) || review.headCommit === head)).reduce((sum, review) => sum + (review.untrackedActionableCount ?? 0), 0);
     let pending = false;
     let failed = false;
-    const coveredReviews = valid.filter(review => review.id === result.coverage.checkpoint_review_id || result.coverage.repair_review_ids.includes(review.id));
+    const compatible = valid.filter(review => review.targetKind === "base"
+      ? review.baseCommit === base && review.mergeBaseCommit === mergeBase
+      : review.headCommit !== null && review.baseCommit === ancestry.get(review.headCommit)?.[0]);
+    const superseded = (commit: string, createdAt: string, branchReview = false) => compatible.some(review =>
+      review.createdAt >= createdAt && (review.targetKind === "base"
+        ? containsCommit(ancestry, commit, review.headCommit)
+        : !branchReview && review.headCommit === commit));
     for (const execution of evidence?.executions ?? []) {
       const commit = execution.input.headCommit;
-      if (execution.input.targetKind === "staged" || commit === null || (!parents.has(commit) && commit !== head)) continue;
+      if (execution.input.targetKind === "staged" || commit === null || (!ancestry.has(commit) && commit !== head)) continue;
       if (execution.input.targetKind === "base" && execution.input.baseCommit !== base) continue;
       if (execution.outcome === "running") {
         if (execution.ownerLease !== null && await isProcessLeaseAlive(execution.ownerLease)) pending = true;
         else failed = true;
       } else {
-        const replaced = coveredReviews.some(review => review.createdAt >= execution.createdAt &&
-          (review.targetKind === "base" ? containsCommit(parents, commit, review.headCommit) : review.headCommit === commit));
+        const replaced = superseded(commit, execution.createdAt, execution.input.targetKind === "base");
         if (replaced) continue;
         if (execution.outcome !== "completed") { failed = true; continue; }
         const publication = reviews.find(review => review.sourceExecutionId === execution.id);
@@ -105,8 +117,12 @@ export async function getReadiness(options: ReadinessOptions): Promise<Readiness
     if (JSON.stringify(queue) !== JSON.stringify(await readReadinessQueue(options.projectRoot))) {
       throw new Error("Review queue changed during the readiness query. Query again.");
     }
-    if (queue.failed.some(commit => parents.has(commit) || commit === head)) reason = "review-failed";
-    if (pending || queue.pending.some(commit => parents.has(commit) || commit === head)) reason = "review-pending";
+    for (const failure of queue.failed) {
+      if (!ancestry.has(failure.commit) && failure.commit !== head) continue;
+      if (superseded(failure.commit, failure.timestamp)) pending = true;
+      else reason = "review-failed";
+    }
+    if (pending || queue.pending.some(commit => ancestry.has(commit) || commit === head)) reason = "review-pending";
     const after = await readReviewCheckout(options.projectRoot);
     const baseAfter = await resolveCommitRef(options.base ?? await resolveDefaultBranchRef(options.projectRoot), options.projectRoot);
     const configAfter = await loadConfigFromRoot(options.projectRoot);
@@ -153,18 +169,24 @@ function selectCoverage(
       else repairs.unshift(repair.id);
       cursor = parent ?? null;
     }
-    coverage = { checkpoint_review_id: checkpoint.id, repair_review_ids: repairs, uncovered_commits: uncovered };
-    reason = cursor === checkpoint.headCommit && uncovered.length === 0 ? "ready" : "stale-coverage";
+    if (coverage.checkpoint_review_id === null || uncovered.length < coverage.uncovered_commits.length) {
+      coverage = { checkpoint_review_id: checkpoint.id, repair_review_ids: repairs, uncovered_commits: uncovered };
+      reason = cursor === checkpoint.headCommit && uncovered.length === 0 ? "ready" : "stale-coverage";
+    }
     if (reason === "ready") break;
   }
   return { coverage, reason, valid };
 }
 
-function containsCommit(parents: Map<string, string | null>, ancestor: string, descendant: string | null): boolean {
-  let cursor = descendant;
-  while (cursor !== null) {
-    if (cursor === ancestor) return true;
-    cursor = parents.get(cursor) ?? null;
+function containsCommit(ancestry: Map<string, string[]>, ancestor: string, descendant: string | null): boolean {
+  const pending = descendant === null ? [] : [descendant];
+  const visited = new Set<string>();
+  while (pending.length > 0) {
+    const commit = pending.pop()!;
+    if (commit === ancestor) return true;
+    if (visited.has(commit)) continue;
+    visited.add(commit);
+    pending.push(...ancestry.get(commit) ?? []);
   }
   return false;
 }
