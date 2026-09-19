@@ -136,6 +136,33 @@ Commit review compares the selected commit with its first parent. For a merge co
 
 Branch review uses the merge base through `HEAD`, matching the committed diff in a pull request. Use `--base` for pull-request coverage. Neither mode includes staged or unstaged changes.
 
+## Check readiness before handoff
+
+```bash
+diffowl readiness --base main
+diffowl readiness --base main --format json
+```
+
+Readiness checks the exact committed branch against a full review and any
+compatible, contiguous repair reviews. Dirty files and unhandled actionable
+findings block handoff. Fixed and dismissed findings are allowed; deferred and
+regressed findings still block. A later review does not silently resolve earlier
+findings.
+
+Exit codes are `0` for ready, `1` for not ready, and `2` when Git, configuration,
+database, or runtime state cannot be read reliably. JSON includes the resolved
+base and HEAD, coverage review IDs, uncovered commits, blocker counts, and a
+deterministic next action. `--depth` selects the expected context depth when it
+differs from project configuration.
+
+The query does not start a review, change repository state, or migrate a database.
+Older reviews without coverage evidence cannot prove readiness; obtain a new
+full review with this version. Older databases require an explicit state-writing
+command to upgrade. Known actionable output without durable finding identity
+remains blocking because it cannot receive a lifecycle disposition.
+
+See the [readiness contract](docs/readiness-contract.md) for policy and limitations.
+
 ## Work with findings
 
 DiffOwl stores durable findings in `.diffowl/state.db`. A finding stays open until someone records what happened to it. A later model review that fails to mention it does not silently mark it fixed.

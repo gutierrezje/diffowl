@@ -3,6 +3,7 @@ import { access, chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
 import { inspectCodexProtocol } from "./protocol-evidence.js";
 import { isErrorDetails, isText } from "./types.js";
@@ -197,18 +198,24 @@ describe("inspectCodexProtocol", () => {
   it("cancels an active protocol generator", async () => {
     const directory = await mkdtemp(join(tmpdir(), "codex-protocol-cancelled-"));
     const pidFile = join(directory, "pid");
+    const commandLog = join(directory, "commands.log");
     const controller = new AbortController();
     try {
       const inspection = inspectCodexProtocol({
         executable: process.execPath,
         prefixArgs: [fixture],
-        env: { MOCK_CLI_MODE: "hang-generate", MOCK_CLI_PID_FILE: pidFile },
+        env: {
+          MOCK_CLI_MODE: "hang-generate",
+          MOCK_CLI_PID_FILE: pidFile,
+          MOCK_CLI_COMMAND_LOG: commandLog,
+        },
         timeoutMs: 5_000,
         signal: controller.signal,
       });
-      setTimeout(() => controller.abort(), 100);
+      await waitForText(commandLog, "ready ");
+      controller.abort();
 
-      await expect(inspection).rejects.toMatchObject({ kind: "cancelled" });
+      await expect(inspection).rejects.toMatchObject({ kind: "cancelled", phase: "generate-ts" });
       const pid = Number(await readFile(pidFile, "utf8"));
       expect(() => process.kill(pid, 0)).toThrow();
     } finally {
@@ -236,3 +243,16 @@ describe("inspectCodexProtocol", () => {
     },
   );
 });
+
+async function waitForText(path: string, text: string): Promise<void> {
+  const deadline = performance.now() + 5_000;
+  while (performance.now() < deadline) {
+    try {
+      if ((await readFile(path, "utf8")).includes(text)) return;
+    } catch {
+      // The fixture creates the log asynchronously.
+    }
+    await delay(10);
+  }
+  throw new Error(`Timed out waiting for ${text} in ${path}.`);
+}

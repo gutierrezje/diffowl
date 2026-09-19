@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { existsSync } from "node:fs";
-import { access, chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -98,6 +98,32 @@ const ClaudeSettingsSchema = z.object({
 });
 
 let tempDirs: string[] = [];
+
+describe("readiness CLI", () => {
+  it("emits one deterministic JSON document and distinguishes missing evidence from operational failure", async () => {
+    const repo = await createRepo("diffowl-readiness-cli-", { localModel: false });
+    await writeFile(join(repo, ".gitignore"), ".diffowl/\n");
+    await execa("git", ["add", "."], { cwd: repo });
+    await execa("git", ["-c", "commit.gpgsign=false", "-c", "core.hooksPath=", "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "base"], { cwd: repo });
+    const args = [cliPath, "readiness", "--base", "main", "--format", "json"];
+    const first = await execa(process.execPath, args, { cwd: repo, reject: false });
+    expect(first.exitCode).toBe(1);
+    expect(JSON.parse(first.stdout)).toMatchObject({ schema_version: 1, reason: "missing-review", exit_code: 1 });
+    const repeat = await execa(process.execPath, args, { cwd: repo, reject: false });
+    expect(repeat.stdout).toBe(first.stdout);
+    const human = await execa(process.execPath, [cliPath, "readiness", "--base", "main"], { cwd: repo, reject: false });
+    expect(human.exitCode).toBe(first.exitCode);
+    expect(human.stdout).toContain("Not ready: missing review.");
+    expect(human.stdout).toContain("Run a full branch review");
+    expect(human.stdout).toContain(JSON.parse(first.stdout).target.head_commit.slice(0, 12));
+    expect(await readdir(join(repo, ".diffowl"))).toEqual([]);
+    await writeFile(join(repo, ".diffowl", "state.db"), "invalid database");
+    const error = await execa(process.execPath, args, { cwd: repo, reject: false });
+    expect(error.exitCode).toBe(2);
+    expect(JSON.parse(error.stdout)).toMatchObject({ result: "error", reason: "operational-error", exit_code: 2 });
+    expect(await readFile(join(repo, ".diffowl", "state.db"), "utf8")).toBe("invalid database");
+  });
+});
 
 beforeAll(async () => {
   await execa("pnpm", ["run", "build"], { cwd: projectRoot });

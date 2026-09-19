@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { ReviewCoverageEvidence } from "../review/coverage.js";
 import { retainFailedExecutions, type ExecutionRetention } from "./execution-retention.js";
 import type {
   CompletedReviewExecutionProvenance,
@@ -30,6 +31,7 @@ import {
   insertReviewExecution,
 } from "./repositories/review-executions.js";
 import { insertReviewOperation } from "./repositories/review-operations.js";
+import { insertReviewCoverage } from "./repositories/coverage.js";
 import type {
   FindingCandidate,
   ReconcileReviewFindingsResult,
@@ -86,6 +88,7 @@ export interface PersistReviewRunResult {
 export interface UpdatePersistedReviewInput {
   reportPath?: string | null;
   diagnostics?: string[];
+  coverage?: ReviewCoverageEvidence;
 }
 
 export interface LifecycleSuppressionSplit {
@@ -455,6 +458,7 @@ export async function updatePersistedReview(
       if (input.reportPath !== undefined) updates.reportPath = input.reportPath;
       if (input.diagnostics !== undefined) updates.diagnostics = input.diagnostics;
       updateReview(state.db, reviewId, updates);
+      if (input.coverage !== undefined) insertReviewCoverage(state.db, reviewId, input.coverage);
     });
   } finally {
     closeStateDatabase(state);

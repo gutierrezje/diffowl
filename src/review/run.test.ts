@@ -239,6 +239,7 @@ describe("runReviewPipeline", () => {
       makeSnapshot([codeFile()], { kind: "base", ref: "origin/main" }),
       { targetCommit: "captured-head" },
     );
+    snapshot.source = { ...snapshot.source, kind: "git-commit", sha: snapshot.targetCommit };
     const deps = makeDeps(snapshot);
     const inputTimings = [{ phase: "preflight", label: "Preflight", ms: 1 }];
     const kept = makeFinding("src/app.ts");
@@ -351,6 +352,7 @@ describe("runReviewPipeline", () => {
     expect(deps.updatePersistedReview).toHaveBeenCalledWith("/repo/.diffowl", "rev_1", {
       reportPath: "/repo/.diffowl/reviews/review.md",
       diagnostics: ["excluded summary"],
+      coverage: { inputVerified: true, policySha256: expect.stringMatching(/^[0-9a-f]{64}$/), untrackedActionableCount: 1 },
     });
   });
 
