@@ -11,7 +11,7 @@ verification artifacts; product-state mutations stay in the scratch.
 | --- | --- |
 | `diffowl -V`, top-level and leaf `--help` | `cli-version-help` |
 | Unknown commands and invalid option combinations | `cli-invalid-command` |
-| Default `diffowl review` and `review --staged|--commit|--base` | Routed to the Codex or OpenCode map selected by `--backend` or preference |
+| Default `diffowl review` and `review --staged|--commit|--base` | Routed to the Codex or OpenCode map, or the [Cursor manual recipe](cursor-sdk.md), selected by `--backend` or preference |
 | `diffowl init` model and project setup | `init-codex-setup`, `init-agent-path` |
 | `diffowl backend|model|reasoning` view and set | `preference-select`, `preference-model-options`, `preference-preserve-policy` |
 | `diffowl backend|model|reasoning --reset` | `preference-reset` |
@@ -23,6 +23,7 @@ verification artifacts; product-state mutations stay in the scratch.
 | `diffowl findings duplicates show|list|confirm|reject` | `finding-duplicate-disposition` |
 | State migrations, retention, and linked-worktree storage | Manual [durable-state recipe](durable-state.md); no dedicated controller ID |
 | Hidden `hook-run` and `hook-worker` | Manual background review journey using the configured provider; see [hook lifecycle](hook-lifecycle.md) |
+| `diffowl cursor login/status/models` | [Cursor manual recipe](cursor-sdk.md); login writes the SDK credential store outside the scratch and requires explicit sign-in. |
 | Hidden `eval` | Excluded: the eval harness has its own corpus and gate verification surface |
 
 A newly discovered CLI command without a row is a coverage gap. Name the gap and

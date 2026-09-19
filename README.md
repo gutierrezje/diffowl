@@ -9,7 +9,7 @@
 
 Review agent-written code with a second model before it ships.
 
-DiffOwl is a local code review CLI. It builds focused context from a Git diff, runs a model through OpenCode or Codex, and records actionable findings in your repository.
+DiffOwl is a local code review CLI. It builds focused context from a Git diff, runs a model through OpenCode, Codex, or the Cursor SDK, and records actionable findings in your repository.
 
 It works with changes from any coding agent or human. You choose the backend and model on your machine. DiffOwl does not require a hosted DiffOwl account.
 
@@ -20,7 +20,7 @@ The agent that wrote a change should not be its only reviewer. Asking it to revi
 DiffOwl adds an independent pass between writing code and shipping it:
 
 - Review the last commit, staged changes, a specific commit, or a whole branch.
-- Review through OpenCode or a local Codex CLI authenticated with ChatGPT.
+- Review through OpenCode, a local Codex CLI authenticated with ChatGPT, or the Cursor SDK.
 - Give the reviewer bounded local context instead of dumping the entire repository into a prompt.
 - Keep findings after the review ends, with stable IDs and lifecycle states.
 - Inspect and disposition durable findings after the review ends.
@@ -64,6 +64,29 @@ codex
 diffowl backend codex
 diffowl model gpt-5-codex
 ```
+
+Cursor reviews use the official Cursor SDK with a separate SDK sign-in:
+
+```bash
+diffowl cursor login
+diffowl cursor models
+diffowl backend cursor
+diffowl model composer-2.5 # choose an id from your account's model list
+```
+
+SDK sign-in creates a named, expiring API key in Cursor's credential store; it
+does not reuse a Cursor CLI login. You can also provide `CURSOR_API_KEY`. Usage
+is billed to your Cursor account. `diffowl cursor status` checks the local
+authentication state without displaying credentials.
+
+The adapter allows read, search, glob, and directory-list tools, disables shell,
+MCP, subagents, and ambient project settings, and rejects a review if its
+repository guard observes changes. This is a tool policy, not an operating-system
+sandbox or a restriction on which files can be read. Cursor reasoning overrides
+are not supported yet; use the model's default and clear any saved override with
+`diffowl backend cursor` followed by `diffowl reasoning --reset`. If `.diffowl.yml` still contains deprecated
+`reasoning.effort`, remove that reasoning block too; resetting local preferences
+does not edit project policy.
 
 Review the last commit:
 
@@ -216,6 +239,7 @@ Inspect or change the local backend and its model without editing project policy
 diffowl backend
 diffowl backend opencode
 diffowl backend codex
+diffowl backend cursor
 diffowl backend --reset
 
 diffowl model

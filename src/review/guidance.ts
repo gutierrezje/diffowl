@@ -14,6 +14,22 @@ export function getReviewBackendFailureGuidance<Failure>(
   if (backend === "opencode") return getOpenCodeFailureGuidance(message);
 
   const normalized = message.toLowerCase();
+  if (backend === "cursor") {
+    if (/auth|api.?key|\b401\b|\b403\b/.test(normalized)) {
+      return [
+        "Cursor SDK authentication is missing or expired.",
+        "Run `diffowl cursor login`, or set CURSOR_API_KEY. Cursor CLI login is separate.",
+      ];
+    }
+    if (normalized.includes("model")) {
+      return [
+        "Check the Cursor model with `diffowl cursor models`, then save it with `diffowl model <model-id>`.",
+      ];
+    }
+    return [
+      "Cursor SDK review failed. Check `diffowl cursor status` and the error above, then retry.",
+    ];
+  }
   if (
     normalized.includes("executable was not found") ||
     normalized.includes("command not found") ||

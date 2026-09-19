@@ -160,17 +160,17 @@ describe("release schema migration", () => {
     const dir = await createTempDir();
     const state = await openStateDatabase(dir);
     try {
-      insertStagedOperation(state.db, "op_cursor", "cursor-diff");
+      insertStagedOperation(state.db, "op_unknown_backend", "unknown-backend-diff");
       insertFailedExecution(state.db, {
-        id: "exe_cursor",
-        operationId: "op_cursor",
-        backend: "cursor",
+        id: "exe_unknown_backend",
+        operationId: "op_unknown_backend",
+        backend: "unknown-backend",
       });
 
       expect(state.db.prepare("SELECT backend FROM review_executions").get()).toEqual({
-        backend: "cursor",
+        backend: "unknown-backend",
       });
-      expect(() => getReviewExecutionById(state.db, "exe_cursor")).toThrow(
+      expect(() => getReviewExecutionById(state.db, "exe_unknown_backend")).toThrow(
         "contains invalid execution provenance",
       );
     } finally {

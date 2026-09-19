@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { getReviewBackendFailureGuidance } from "./guidance.js";
 
 describe("getReviewBackendFailureGuidance", () => {
+  it("directs Cursor SDK authentication failures to its own login", () => {
+    const guidance = getReviewBackendFailureGuidance("cursor", "Missing API key").join("\n");
+    expect(guidance).toContain("diffowl cursor login");
+    expect(guidance).toContain("Cursor CLI login is separate");
+    expect(guidance).not.toContain("Codex");
+  });
+
   it.each([
     {
       message: "Codex CLI executable was not found.",

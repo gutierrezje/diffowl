@@ -21,6 +21,20 @@ afterEach(async () => {
 });
 
 describe("effective config", () => {
+  it("explains how to remove legacy Cursor reasoning without saving an unsupported override", async () => {
+    const root = await createRoot("diffowl-effective-cursor-legacy-");
+    await writeFile(join(root, ".diffowl.yml"), "reasoning:\n  effort: high\n");
+    process.chdir(root);
+    const selection = { backend: "cursor", model: "composer-2.5" };
+    const legacy = await loadEffectiveReviewConfig(selection, {});
+    expect(legacy.config.reasoning).toEqual({ kind: "variant", value: "high" });
+    expect(legacy.warnings.join(" ")).toContain("Cursor does not support reasoning overrides");
+    expect(legacy.warnings.join(" ")).toContain("diffowl backend cursor");
+    expect(legacy.warnings.join(" ")).not.toContain("diffowl reasoning high");
+    await writeFile(join(root, ".diffowl.yml"), "{}\n");
+    expect((await loadEffectiveReviewConfig(selection, {})).config.reasoning).toEqual({ kind: "backend-default" });
+  });
+
   it("applies command, environment, and local model precedence", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-effective-config-"));
     tempDirs.push(root);

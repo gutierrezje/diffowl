@@ -1,4 +1,8 @@
 import { createCodexReviewExecutor, type CodexReviewExecutorOptions } from "../codex/executor.js";
+import {
+  createCursorReviewExecutor,
+  type CursorReviewExecutorOptions,
+} from "../cursor/executor.js";
 import { createOpenCodeReviewExecutor } from "../opencode/executor.js";
 import type { ReviewAssignment } from "./provenance.js";
 import { reasoningVariant } from "./reasoning.js";
@@ -11,11 +15,13 @@ const CODEX_CLOSE_TIMEOUT_MS = 5_000;
 export interface SelectedReviewExecutorDependencies {
   createOpenCode(): ReviewExecutor;
   createCodex(options: CodexReviewExecutorOptions): ReviewExecutor;
+  createCursor(options: CursorReviewExecutorOptions): ReviewExecutor;
 }
 
 const defaultDependencies: SelectedReviewExecutorDependencies = {
   createOpenCode: createOpenCodeReviewExecutor,
   createCodex: createCodexReviewExecutor,
+  createCursor: createCursorReviewExecutor,
 };
 
 export function createSelectedReviewExecutor(
@@ -62,6 +68,8 @@ function createReviewExecutor(
   switch (assignment.selection.backend) {
     case "opencode":
       return dependencies.createOpenCode();
+    case "cursor":
+      return dependencies.createCursor({ model: assignment.selection.requestedModel });
     case "codex": {
       const options: CodexReviewExecutorOptions = {
         command: {

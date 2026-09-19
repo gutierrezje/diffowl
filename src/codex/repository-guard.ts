@@ -29,36 +29,53 @@ export type RepositoryStateComparison =
 
 export type RepositoryStateOptions = {
   includeIgnoredPaths?: boolean;
+  signal?: AbortSignal;
 };
 
 export async function captureRepositoryState(
   directory: string,
   options: RepositoryStateOptions = {},
 ): Promise<RepositoryState> {
+  options.signal?.throwIfAborted();
+  const headOptions = { cwd: directory, reject: false };
+  if (options.signal) Object.assign(headOptions, { cancelSignal: options.signal, forceKillAfterDelay: 100 });
   const statusArgs = ["status", "--porcelain=v1", "-z", "--untracked-files=all"];
-  const [statusOutput, ignoredOutput, stagedDiff, unstagedDiff, headResult] = await Promise.all([
-    runGit(directory, statusArgs),
+  const [statusOutput, ignoredOutput, stagedDiff, unstagedDiff, headSha] = await settleOperations([
+    runGit(directory, statusArgs, options.signal),
     options.includeIgnoredPaths === true
-      ? runGit(directory, ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"])
+      ? runGit(
+          directory,
+          ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"],
+          options.signal,
+        )
       : Promise.resolve(""),
-    runGit(directory, ["diff", "--binary", "--no-ext-diff", "--no-color", "--"]),
-    runGit(directory, ["diff", "--cached", "--binary", "--no-ext-diff", "--no-color", "--"]),
-    execa("git", ["rev-parse", "HEAD"], { cwd: directory, reject: false }),
+    runGit(
+      directory,
+      ["diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-color", "--"],
+      options.signal,
+    ),
+    runGit(
+      directory,
+      ["diff", "--cached", "--binary", "--no-ext-diff", "--no-textconv", "--no-color", "--"],
+      options.signal,
+    ),
+    execa("git", ["rev-parse", "HEAD"], headOptions).then((result) => (result.exitCode === 0 ? result.stdout.trim() : "<NO_HEAD>")),
   ]);
-  const headSha = headResult.exitCode === 0 ? headResult.stdout.trim() : "<NO_HEAD>";
+  options.signal?.throwIfAborted();
   const statuses = parseStatus(statusOutput);
   for (const path of ignoredOutput.split("\0")) {
     if (path !== "" && !DIFFOWL_RUNTIME_PATHS.has(path)) statuses.set(path, "!!");
   }
   for (const path of DIFFOWL_RUNTIME_PATHS) statuses.delete(path);
   const paths = [...statuses.keys()].sort();
-  const entries = await Promise.all(
+  const entries = await settleOperations(
     paths.map(async (path): Promise<RepositoryStateEntry> => {
       const status = statuses.get(path) ?? "clean";
-      return { path, status, sha256: await hashPath(directory, path, status) };
+      return { path, status, sha256: await hashPath(directory, path, status, options.signal) };
     }),
   );
   const sha256 = hashSnapshot(entries, stagedDiff, unstagedDiff, headSha);
+  options.signal?.throwIfAborted();
   return { sha256, headSha, paths, entries };
 }
 
@@ -84,8 +101,14 @@ export function compareRepositoryStates(
   return { kind: "changed", changedPaths: dirtyPaths.length > 0 ? dirtyPaths : paths };
 }
 
-async function runGit(directory: string, args: readonly string[]): Promise<string> {
-  const result = await execa("git", [...args], { cwd: directory });
+async function runGit(
+  directory: string,
+  args: readonly string[],
+  signal?: AbortSignal,
+): Promise<string> {
+  const gitOptions = { cwd: directory };
+  if (signal) Object.assign(gitOptions, { cancelSignal: signal, forceKillAfterDelay: 100 });
+  const result = await execa("git", ["-c", "core.fsmonitor=false", ...args], gitOptions);
   return result.stdout;
 }
 
@@ -110,7 +133,13 @@ function parseStatus(output: string): Map<string, string> {
   return statuses;
 }
 
-async function hashPath(directory: string, path: string, status: string): Promise<string> {
+async function hashPath(
+  directory: string,
+  path: string,
+  status: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  signal?.throwIfAborted();
   const absolutePath = join(directory, path);
   try {
     const stats = await lstat(absolutePath);
@@ -118,7 +147,7 @@ async function hashPath(directory: string, path: string, status: string): Promis
       return digest(`symlink\0${status}\0${await readlink(absolutePath)}`);
     }
     if (stats.isFile()) {
-      return hashFile(absolutePath, status);
+      return hashFile(absolutePath, status, signal);
     }
     return digest(`other\0${status}\0${stats.mode}\0${stats.size}\0${stats.mtimeMs}`);
   } catch (error) {
@@ -127,10 +156,10 @@ async function hashPath(directory: string, path: string, status: string): Promis
   }
 }
 
-async function hashFile(path: string, status: string): Promise<string> {
+async function hashFile(path: string, status: string, signal?: AbortSignal): Promise<string> {
   const hash = createHash("sha256");
   hash.update(`file\0${status}\0`);
-  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  for await (const chunk of createReadStream(path, { signal })) hash.update(chunk);
   return hash.digest("hex");
 }
 
@@ -164,4 +193,15 @@ function digest(value: string | Buffer): string {
 
 function isMissingFile(cause: unknown): cause is NodeJS.ErrnoException {
   return cause instanceof Error && "code" in cause && cause.code === "ENOENT";
+}
+
+// Wait for every owned Git process or file stream, including after one fails.
+async function settleOperations<const T extends readonly unknown[]>(operations: {
+  [K in keyof T]: Promise<T[K]>;
+}): Promise<T> {
+  try {
+    return await Promise.all(operations);
+  } finally {
+    await Promise.allSettled(operations);
+  }
 }
