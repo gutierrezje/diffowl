@@ -10,7 +10,7 @@ disposable Git repository. The source checkout remains read-only.
 | --- | --- |
 | `diffowl -V`, top-level and leaf `--help` | `cli-version-help` |
 | Unknown commands and invalid option combinations | `cli-invalid-command` |
-| Default `diffowl review` and `review --staged|--commit|--base` | Routed to the Codex or OpenCode map selected by `--backend` or preference |
+| Default `diffowl review` and `review --staged|--commit|--base` | Routed to the Codex or OpenCode map, or the [Cursor manual recipe](cursor-sdk.md), selected by `--backend` or preference |
 | `diffowl init` model and project setup | `init-codex-setup`, `init-agent-path` |
 | `diffowl backend|model|reasoning` view and set | `preference-select`, `preference-model-options`, `preference-preserve-policy` |
 | `diffowl backend|model|reasoning --reset` | `preference-reset` |
@@ -21,7 +21,7 @@ disposable Git repository. The source checkout remains read-only.
 | `diffowl findings dismiss|defer|fix|reopen` | `finding-disposition` |
 | `diffowl findings duplicates show|list|confirm|reject` | `finding-duplicate-disposition` |
 | Hidden `hook-run` and `hook-worker` | Internal entries covered by `opencode-hook-review` |
-| `diffowl cursor login/status/models` | Account-dependent SDK setup; see `src/cursor/README.md`. Login writes the SDK credential store outside the scratch and requires explicit sign-in. |
+| `diffowl cursor login/status/models` | [Cursor manual recipe](cursor-sdk.md); login writes the SDK credential store outside the scratch and requires explicit sign-in. |
 | Hidden `eval` | Excluded: the eval harness has its own corpus and gate verification surface |
 
 A newly discovered CLI command without a row is a coverage gap.

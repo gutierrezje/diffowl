@@ -24,7 +24,10 @@ process.on("message", (message) => {
 });
 
 async function handleStart(message) {
-  if (scenario === "hang-before-session") return;
+  if (scenario === "hang-before-session") {
+    if (evidencePath) await writeFile(evidencePath, "started\n");
+    return;
+  }
   await send({ kind: "session", id: "fixture-session" });
   if (finished) return;
 

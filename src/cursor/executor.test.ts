@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as repositoryGuard from "../codex/repository-guard.js";
 import type { EffectiveReviewConfig } from "../review/runtime-config.js";
 import { ReviewCancelledError, ReviewTimeoutError } from "../review/errors.js";
 import { createCursorReviewExecutor } from "./executor.js";
@@ -27,6 +28,57 @@ const config: EffectiveReviewConfig = {
 };
 
 describe("createCursorReviewExecutor", () => {
+  it("drains a repository snapshot before returning a setup cancellation", async () => {
+    const directory = await createRepository("snapshot-timeout");
+    const capture = repositoryGuard.captureRepositoryState;
+    const controller = new AbortController();
+    let settled = false;
+    const spy = vi.spyOn(repositoryGuard, "captureRepositoryState").mockImplementationOnce(async (...args) => {
+      controller.abort();
+      const snapshot = await capture(...args);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      settled = true;
+      return snapshot;
+    });
+    try {
+      await expect(createFixtureExecutor("success").execute({
+        review: { target: { kind: "staged" }, directory, config, depth: "default", signal: controller.signal },
+      })).rejects.toBeInstanceOf(ReviewCancelledError);
+      expect(settled).toBe(true);
+    } finally {
+      spy.mockRestore();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves cancellation when the final repository check exceeds its cleanup deadline", async () => {
+    const directory = await createRepository("cancel-cleanup");
+    const capture = repositoryGuard.captureRepositoryState;
+    const controller = new AbortController();
+    let calls = 0;
+    let settled = false;
+    const spy = vi.spyOn(repositoryGuard, "captureRepositoryState").mockImplementation(async (...args) => {
+      const snapshot = await capture(...args);
+      if (++calls === 2) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        settled = true;
+      }
+      return snapshot;
+    });
+    try {
+      await expect(createFixtureExecutor("timeout", undefined, { closeTimeoutMs: 50 }).execute({
+        review: {
+          target: { kind: "staged" }, directory, config, depth: "default", signal: controller.signal,
+          onProgress: (event) => { if (event.type === "session") controller.abort(); },
+        },
+      })).rejects.toBeInstanceOf(ReviewCancelledError);
+      expect(settled).toBe(true);
+    } finally {
+      spy.mockRestore();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("honors an already-aborted review before starting a worker", async () => {
     const controller = new AbortController();
     controller.abort();
@@ -159,19 +211,31 @@ describe("createCursorReviewExecutor", () => {
 
   it("honors cancellation before the worker becomes ready", async () => {
     const directory = await createRepository("cancel");
+    const evidenceRoot = await mkdtemp(join(tmpdir(), "diffowl-cursor-cancel-"));
+    const evidencePath = join(evidenceRoot, "start.txt");
     const controller = new AbortController();
     try {
-      const executor = createFixtureExecutor("hang-before-session", undefined, { closeTimeoutMs: 250 });
+      const executor = createFixtureExecutor("hang-before-session", evidencePath, {
+        closeTimeoutMs: 250,
+      });
       await expect(
         executor.execute({
-          review: { target: { kind: "staged" }, directory, config, depth: "default", signal: controller.signal },
+          review: {
+            target: { kind: "staged" },
+            directory,
+            config,
+            depth: "default",
+            signal: controller.signal,
+          },
           onStatus: (message) => {
             if (message === "Reviewing changes with Cursor SDK...") controller.abort();
           },
         }),
       ).rejects.toBeInstanceOf(ReviewCancelledError);
+      await expect(access(evidencePath)).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await rm(directory, { recursive: true, force: true });
+      await rm(evidenceRoot, { recursive: true, force: true });
     }
   });
 
@@ -180,7 +244,12 @@ describe("createCursorReviewExecutor", () => {
     try {
       await expect(
         createFixtureExecutor("timeout", undefined, { closeTimeoutMs: 250 }).execute({
-          review: { target: { kind: "staged" }, directory, config: { ...config, timeout: 0.1 }, depth: "default" },
+          review: {
+            target: { kind: "staged" },
+            directory,
+            config: { ...config, timeout: 0.1 },
+            depth: "default",
+          },
         }),
       ).rejects.toBeInstanceOf(ReviewTimeoutError);
     } finally {

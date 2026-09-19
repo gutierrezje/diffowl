@@ -50,12 +50,23 @@ async function execute(
     phase: "cursor-review",
   });
   const cancellationError = new ReviewCancelledError("Review cancelled by user.");
+  let stopReason: Error | undefined;
   let stop: (error: Error) => void = () => undefined;
   const stopped = new Promise<never>((_resolve, reject) => {
-    stop = reject;
+    stop = (error) => {
+      stopReason ??= error;
+      reject(error);
+    };
   });
   // Attach a handler before setup; abort may arrive between awaited setup steps.
   void stopped.catch(() => undefined);
+  const throwIfStopped = (): void => {
+    if (stopReason) throw stopReason;
+    if (performance.now() - started >= timeoutMs) {
+      stop(timeoutError);
+      throw timeoutError;
+    }
+  };
   const onAbort = (): void => stop(cancellationError);
   input.review.signal?.addEventListener("abort", onAbort, { once: true });
   if (input.review.signal?.aborted) onAbort();
@@ -63,9 +74,12 @@ async function execute(
   let storeDirectory: string | undefined;
   try {
     const directory = await Promise.race([realpath(input.review.directory), stopped]);
-    const before = await Promise.race([captureRepositoryState(directory), stopped]);
+    const beforeSnapshot = captureRepositoryState(directory);
+    const before = await awaitWithDrain(beforeSnapshot, Promise.race([beforeSnapshot, stopped]));
+    throwIfStopped();
     storeDirectory = await mkdtemp(join(tmpdir(), "diffowl-cursor-sdk-"));
     const storePath = await realpath(storeDirectory);
+    throwIfStopped();
     const storeRelative = relative(directory, storePath);
     if (storeRelative === "" || (!storeRelative.startsWith("..") && !isAbsolute(storeRelative))) {
       throw new CursorReviewError(
@@ -74,8 +88,11 @@ async function execute(
       );
     }
     const prompts = resolveReviewPrompts({ ...input.review, documentMode: "marker" });
+    throwIfStopped();
     input.onStatus?.("Reviewing changes with Cursor SDK...");
+    throwIfStopped();
     input.onTelemetry?.({ type: "phase", phase: "turn-start", attempt: 1 });
+    throwIfStopped();
     const child = execa(
       options.command?.executable ?? process.execPath,
       [
@@ -173,6 +190,7 @@ async function execute(
     try {
       await Promise.race([
         (async () => {
+          throwIfStopped();
           await child.sendMessage({
             kind: "start",
             model: options.model,
@@ -198,30 +216,50 @@ async function execute(
       const groupAlive =
         child.pid !== undefined && process.platform !== "win32" && isAlive(-child.pid);
       if (!exited || groupAlive) {
-        if (child.pid !== undefined) await killTree(child.pid);
+        if (child.pid !== undefined) {
+          try {
+            await killTree(child.pid);
+          } catch (error) {
+            failure = withCleanupFailure(
+              failure,
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
+        }
         try {
           await within(exit, closeTimeoutMs);
         } catch {
-          failure = new CursorReviewError("teardown", "Cursor worker could not be stopped.");
+          failure = withCleanupFailure(
+            failure,
+            new CursorReviewError("teardown", "Cursor worker could not be stopped."),
+          );
         }
-        if (!failure)
-          failure = new CursorReviewError(
+        failure = withCleanupFailure(
+          failure,
+          new CursorReviewError(
             "teardown",
             "Cursor worker left running descendants after disposal.",
-          );
+          ),
+        );
       }
       if (child.pid !== undefined && process.platform !== "win32") {
         for (let attempt = 0; attempt < 10 && isAlive(-child.pid); attempt++) await delay(25);
         if (isAlive(-child.pid))
-          failure = new CursorReviewError(
-            "teardown",
-            "Cursor worker process group is still present after cleanup.",
+          failure = withCleanupFailure(
+            failure,
+            new CursorReviewError(
+              "teardown",
+              "Cursor worker process group is still present after cleanup.",
+            ),
           );
       }
       // Observe the reader after any forced close; its failure is already captured above.
       void messages.catch(() => undefined);
     }
-    const after = await within(captureRepositoryState(directory), closeTimeoutMs);
+    const afterSnapshot = captureRepositoryState(directory);
+    const after = await awaitWithDrain(afterSnapshot, within(afterSnapshot, closeTimeoutMs)).catch(
+      (error: Error) => { throw withCleanupFailure(failure, error); },
+    );
     const comparison = compareRepositoryStates(before, after);
     if (comparison.kind === "changed")
       throw new CursorReviewError(
@@ -229,8 +267,7 @@ async function execute(
         `Repository changed during Cursor review: ${comparison.changedPaths.join(", ")}.`,
       );
     if (failure) throw failure;
-    if (input.review.signal?.aborted) throw cancellationError;
-    if (performance.now() - started >= timeoutMs) throw timeoutError;
+    throwIfStopped();
     if (!terminal) throw new CursorReviewError("protocol", "Cursor worker returned no result.");
     const inspection = inspectReviewText(terminal.text);
     const closed = inspection.kind === "open" ? inspection.ifFinished : inspection;
@@ -323,4 +360,20 @@ async function within<T>(promise: PromiseLike<T>, ms: number): Promise<T> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function awaitWithDrain<T>(promise: Promise<T>, result: Promise<T>): Promise<T> {
+  // A losing race does not stop Git/hash work; retain ownership until it settles.
+  try {
+    return await result;
+  } catch (error) {
+    await promise.catch(() => undefined);
+    throw error;
+  }
+}
+
+function withCleanupFailure(primary: Error | undefined, cleanup: Error): Error {
+  if (primary === undefined) return cleanup;
+  if (primary.cause === undefined) primary.cause = cleanup;
+  return primary;
 }

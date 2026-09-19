@@ -70,3 +70,28 @@ content-free activity notification as other provider events. Focused lifecycle
 and telemetry tests passed (20 tests), followed by lint/typecheck and rebuild.
 The full-suite and live-package results above cover the implementation before
 this one-line telemetry repair; no SDK policy or lifecycle behavior changed.
+
+## Hosted-review lifecycle repair
+
+Windows CI exposed a setup timeout returning while repository snapshot work
+still held the fixture directory. Setup and final-check races now drain their
+snapshot operation before returning. Abort/deadline checks prevent worker
+startup after setup cancellation. Cleanup errors retain an existing failure
+and attach cleanup detail as its cause instead of changing cancellation or
+timeout into a generic failure.
+
+Regression coverage includes no worker start after cancellation, snapshot work
+settled before cancellation returns, and cancellation preserved when the final
+snapshot exceeds its cleanup deadline. All 17 Cursor tests pass. The integrated
+full suite passed 1,075 tests with 7 skipped; lint and build also passed.
+
+The rebuilt CLI completed another live `composer-2.5` review in 9.850 seconds,
+found the seeded bug, persisted it, and preserved fixture state. A separate live
+SIGINT run observed the SDK worker before cancellation, exited 130 in 1.794
+seconds, persisted a cancelled execution, preserved fixture state, and left no
+worker. Both fixtures were removed. The first cancellation harness attempt read
+stdout instead of the CLI's JSON error stream; correcting the harness to inspect
+stderr produced the passing result, without a product change.
+
+Rejecting a response when post-run validation or the total deadline fails remains
+intentional: a model response alone does not establish a successful review.
