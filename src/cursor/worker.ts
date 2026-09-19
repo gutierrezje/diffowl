@@ -75,7 +75,6 @@ async function main(): Promise<void> {
               `Cursor attempted unsupported ${event.type} interaction.`,
             );
           case "thinking":
-            break;
           case "assistant":
           case "usage":
           case "system":

@@ -60,3 +60,13 @@ write. Parent-side Git/hash work and final temporary-store removal are not
 fully cancellable. Live Windows/Linux SDK runs and reasoning overrides are
 outside this verification. Authentication uses the SDK's separate key flow;
 Cursor CLI authentication is not reused.
+
+## Review follow-up
+
+The independent Codex review of implementation commit `9b27088` found that
+discarding thinking events could make active reasoning appear stalled in
+execution telemetry. The repair routes these events through the same
+content-free activity notification as other provider events. Focused lifecycle
+and telemetry tests passed (20 tests), followed by lint/typecheck and rebuild.
+The full-suite and live-package results above cover the implementation before
+this one-line telemetry repair; no SDK policy or lifecycle behavior changed.
