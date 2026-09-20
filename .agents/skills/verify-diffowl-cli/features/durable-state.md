@@ -12,6 +12,21 @@ path. Name the actual acceptance claim in the assessment; the empty-backlog
 driver's verdict does not cover it. Discover the affected command from current
 `--help` and use the freshly built binary.
 
+## Schema release gate
+
+Before accepting a schema change, apply the
+[database schema release gate](../../../../../CONTRIBUTING.md#database-schema-release-gate).
+Confirm the latest published package/tag and its recorded schema boundary. Reuse
+the one unreleased migration; do not allocate another number for a feature PR.
+Run `pnpm exec vitest run src/state/migrations/released-migrations.test.ts` and
+record the released version, proposed version, and result in the assessment.
+A release without schema changes requires no new migration.
+
+Verify fresh creation and upgrades from the latest released schema through the
+whole unreleased migration. Same-number development databases with different SQL
+must still be rejected by the checksum guard. Existing user state requires an
+explicit backup/recovery decision; this recipe does not authorize resetting it.
+
 ## Select the changed branch
 
 - **Retention or reconciliation.** Seed the relevant mix of disposable records,

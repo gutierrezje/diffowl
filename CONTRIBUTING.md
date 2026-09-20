@@ -23,6 +23,30 @@ historical and should not receive new issues.
 A tiny, obvious fix may skip the issue and use the pull request as its complete
 record.
 
+## Database schema release gate
+
+Keep at most one unreleased database schema version. If the latest published
+release uses schema N, ordinary development may use N or N+1. The first schema
+change creates N+1; subsequent changes extend that same migration until a release
+ships it. A feature PR, merge, or package-version edit does not start another
+schema cycle. A release without a schema change consumes no schema number.
+
+Released migrations are immutable. Verify the latest published package/tag
+against `src/state/migrations/released-migrations.test.ts`; only the release
+workflow advances its released boundary and records the shipped migration's
+package version and SQL checksum. Run that guard test with migration verification.
+It rejects extra schema numbers and migration files before the next release.
+
+Test upgrades from the latest released schema into the accumulated unreleased
+migration, as well as fresh database creation. An earlier development build may
+have used the same number with different SQL: preserve checksum rejection.
+Back up or explicitly recreate disposable development state; never rewrite its
+migration history or reset an existing user database to make verification pass.
+
+This rule governs SQLite migrations, not JSON/API contract versions or review
+policy hashes, whose compatibility identities must change when their semantics
+change. See the [durable-state verification recipe](.agents/skills/verify-diffowl-cli/features/durable-state.md).
+
 ## Parallel work
 
 Each active issue owns one branch, worktree, and pull request. Do not run two
