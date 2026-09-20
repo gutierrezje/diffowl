@@ -32,7 +32,7 @@ then clean only the controller-owned scratch.
 
 ## Agent handoff acceptance
 
-Follow [the shared loop](../../../../../docs/agent-handoff.md) in the implementation
+Follow [the shared loop](../../../../docs/agent-handoff.md) in the implementation
 checkout after verification. For this workflow's regression evidence, run the
 CLI/application readiness tests with disposable local state. Cover a queued
 review (wait/re-query), missing and commit-only coverage (branch review), HEAD
