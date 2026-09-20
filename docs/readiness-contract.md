@@ -43,6 +43,15 @@ evidence. Skipped, failed, timed-out, cancelled, malformed, or incompletely
 persisted attempts do not establish coverage. Intentional policy exclusions
 must be distinguished from collection failures and truncated review inputs.
 
+Input policy version 2 permits intentional limits on supplemental excerpts:
+related files, rendered file copies, and AST symbols (including shallow-depth
+symbol selection). Their truncation/omission counts remain in the captured
+context manifest. A shortened full-file copy that is not rendered is not missing
+review input. The complete changed diff is required; truncated changed hunks,
+unavailable changed files, parser/index collection failures, and other unaccepted
+degradations still prevent complete coverage. This interpretation changes the
+policy hash; older reviews are not upgraded.
+
 A successful newer compatible attempt can replace a failed attempt at the same
 input. An unresolved newer failure must not be hidden behind an older successful
 proof. A newly running attempt likewise prevents handoff until its outcome is
@@ -160,15 +169,17 @@ readiness contract.
 Schema 8 adds `review_coverage` beside existing operation identities. It records
 a policy hash, whether context was pinned to the reviewed commit while the
 checkout stayed clean at that same commit before and after execution without
-recorded context degradation, and the untracked actionable-output count. Publication inserts this evidence transactionally with
+blocking context degradation, and the untracked actionable-output count. Publication inserts this evidence transactionally with
 the report locator. Older successful reviews have no retroactively invented
 coverage evidence. Staged and skipped reviews establish no committed coverage.
 To fill a historical repair gap, review from a clean checkout of that exact
 commit, for example a detached linked worktree. Pre-collected context is pinned
 to the requested commit, but supplemental provider file tools read the checkout;
 a review launched from a different revision cannot establish verified coverage.
-Recorded collection failures, truncation, or context degradation prevent the
-review from establishing complete coverage. Intentional include/exclude policy
+Recorded blocking degradations prevent the review from establishing complete
+coverage. Readiness reports the review identity and captured blocking degradation
+codes/counts in its diagnostic; an older incompatible review must not mask this
+current-policy input failure. Repair the input problem before retrying the review. Intentional include/exclude policy
 still defines the review scope; omitted findings never count as dispositions.
 
 The command reads local state only. Active execution ownership is checked using

@@ -4,7 +4,7 @@ import { resolveCommitRef, resolveDefaultBranchRef } from "../git/diff.js";
 import { resolveSharedDiffOwlDir } from "../git/state-root.js";
 import { readStateSnapshot } from "../state/read-snapshot.js";
 import { type CoverageReview, readReadinessEvidence } from "../state/readiness-evidence.js";
-import { readReviewCheckout, reviewPolicySha256 } from "./coverage.js";
+import { blockingContextDegradations, readReviewCheckout, reviewPolicySha256 } from "./coverage.js";
 import { readReadinessQueue } from "./readiness-runtime.js";
 import { isProcessLeaseAlive } from "../state/process-lease.js";
 
@@ -73,6 +73,7 @@ export async function getReadiness(options: ReadinessOptions): Promise<Readiness
     const selected = selectCoverage(reviews, policy, result.target, parents);
     result.coverage = selected.coverage;
     let reason: ReadinessReason = selected.reason;
+    let coverageDiagnostic: string | null = null;
     const valid = selected.valid;
     const seen = new Set<string>();
     for (const finding of evidence?.findings ?? []) {
@@ -107,8 +108,12 @@ export async function getReadiness(options: ReadinessOptions): Promise<Readiness
         if (execution.outcome !== "completed") { failed = true; continue; }
         const publication = reviews.find(review => review.sourceExecutionId === execution.id);
         if (publication === undefined || publication.reportPath === null) failed = true;
-        else if (publication.policySha256 !== policy) reason = "incompatible-policy";
-        else if (publication.inputVerified !== 1) reason = "incomplete-coverage";
+        else if (publication.policySha256 !== policy) {
+          if (reason !== "incomplete-coverage") reason = "incompatible-policy";
+        } else if (publication.inputVerified !== 1) {
+          reason = "incomplete-coverage";
+          coverageDiagnostic ??= describeIncompleteCoverage(publication);
+        }
       }
     }
     if (Object.values(result.blockers).some(count => count > 0)) reason = "finding-blocked";
@@ -132,6 +137,7 @@ export async function getReadiness(options: ReadinessOptions): Promise<Readiness
     if (reviewPolicySha256(configAfter, options.depth ?? configAfter.context.depth) !== policy) {
       throw new Error("Review policy changed during the readiness query. Query again.");
     }
+    result.diagnostic = reason === "incomplete-coverage" ? coverageDiagnostic ?? selected.diagnostic : null;
     return withReason(result, reason);
   } catch (error) {
     result.diagnostic = (error instanceof Error ? error.message : String(error)).slice(0, 1000);
@@ -151,11 +157,18 @@ function selectCoverage(
     review.baseCommit === base && review.mergeBaseCommit === mergeBase &&
     review.headCommit !== null && (parents.has(review.headCommit) || review.headCommit === head));
   let reason: ReadinessReason = reviews.length === 0 ? "missing-review" : "incomplete-coverage";
+  let diagnostic: string | null = null;
   const allBranchReviews = reviews.filter(review => review.targetKind === "base");
   if (allBranchReviews.length > 0) {
-    reason = allBranchReviews.some(review => review.baseCommit === base && review.mergeBaseCommit === mergeBase &&
-      review.headCommit !== null && (parents.has(review.headCommit) || review.headCommit === head))
-      ? "incompatible-policy" : "incompatible-lineage";
+    const exactBranchReviews = allBranchReviews.filter(review => review.baseCommit === base &&
+      review.mergeBaseCommit === mergeBase && review.headCommit !== null &&
+      (parents.has(review.headCommit) || review.headCommit === head));
+    const incomplete = exactBranchReviews.find(review => isIncompleteCoverage(review, policy));
+    reason = exactBranchReviews.length > 0 ? "incompatible-policy" : "incompatible-lineage";
+    if (incomplete !== undefined) {
+      reason = "incomplete-coverage";
+      diagnostic = describeIncompleteCoverage(incomplete);
+    }
   }
   for (const checkpoint of branchReviews) {
     const repairs: string[] = [];
@@ -175,7 +188,22 @@ function selectCoverage(
     }
     if (reason === "ready") break;
   }
-  return { coverage, reason, valid };
+  return { coverage, reason, valid, diagnostic };
+}
+
+function isIncompleteCoverage(review: CoverageReview, policy: string): boolean {
+  return review.policySha256 === policy && review.inputVerified !== 1 &&
+    review.reportPath !== null && review.outcome === "completed" && review.skippedReason === null;
+}
+
+function describeIncompleteCoverage(review: CoverageReview): string {
+  const blocking = review.contextManifest === null
+    ? []
+    : blockingContextDegradations(review.contextManifest.degradationCounts);
+  const missing = blocking.length > 0
+    ? blocking.map(degradation => `${degradation.code}=${degradation.count}`).join(", ")
+    : review.contextManifest === null ? "captured context manifest unavailable" : "checkout or captured input was not verified";
+  return `Review ${review.id} lacks required input coverage: ${missing}. Repair the input before retrying.`;
 }
 
 function containsCommit(ancestry: Map<string, string[]>, ancestor: string, descendant: string | null): boolean {

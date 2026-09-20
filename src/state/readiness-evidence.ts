@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { SqliteDatabase } from "./sqlite.js";
 import { getReviewOperationById } from "./repositories/review-operations.js";
 import { getReviewExecutionById } from "./repositories/review-executions.js";
+import type { ReviewContextManifest } from "../review/operation.js";
 
 const CoverageRowSchema = z.object({
   id: z.string(), operationId: z.string(), sourceExecutionId: z.string().nullable(), createdAt: z.string(),
@@ -12,7 +13,9 @@ const CoverageRowSchema = z.object({
   untrackedActionableCount: z.number().int().nonnegative().nullable(),
   reportPath: z.string().nullable(), skippedReason: z.string().nullable(), outcome: z.string().nullable(),
 });
-export type CoverageReview = z.output<typeof CoverageRowSchema>;
+export type CoverageReview = z.output<typeof CoverageRowSchema> & {
+  contextManifest: ReviewContextManifest | null;
+};
 
 const FindingRowSchema = z.object({
   id: z.string(), status: z.enum(["open", "regressed", "deferred", "fixed", "dismissed"]),
@@ -50,6 +53,9 @@ export function readCoverageReviews(db: SqliteDatabase): CoverageReview[] {
     LEFT JOIN review_coverage c ON c.review_id = r.id
     LEFT JOIN review_executions e ON e.id = r.source_execution_id
     ORDER BY r.created_at DESC, r.id DESC`).all().map(row => CoverageRowSchema.parse(row));
-  for (const review of reviews) getReviewOperationById(db, review.operationId);
-  return reviews;
+  return reviews.map(review => {
+    const operation = getReviewOperationById(db, review.operationId);
+    if (operation === undefined) throw new Error(`Missing review operation ${review.operationId}.`);
+    return { ...review, contextManifest: operation.contextManifest };
+  });
 }

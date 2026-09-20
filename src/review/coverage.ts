@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { execa } from "execa";
 import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
+import type { ReviewContextDegradation } from "./context-types.js";
 
 export interface ReviewCoverageEvidence {
   policySha256: string;
@@ -9,7 +10,18 @@ export interface ReviewCoverageEvidence {
 }
 
 /** Increment when review scope, prompt contract, or input interpretation changes. */
-const REVIEW_POLICY_VERSION = 1;
+const REVIEW_POLICY_VERSION = 2;
+
+const BOUNDED_CONTEXT_EXCERPTS = new Set<ReviewContextDegradation["code"]>([
+  "changed-file-truncated", "ast-symbol-truncated", "related-file-truncated",
+  "render-ast-symbol-omitted", "render-ast-symbol-truncated", "render-file-truncated",
+]);
+
+export function blockingContextDegradations(degradations: readonly ReviewContextDegradation[]): ReviewContextDegradation[] {
+  // Excerpts supplement the complete diff under the versioned input policy.
+  // Collection failures, lost diff hunks, and new degradation codes fail closed.
+  return degradations.filter(degradation => !BOUNDED_CONTEXT_EXCERPTS.has(degradation.code));
+}
 
 export async function readReviewCheckout(projectRoot: string): Promise<{ head: string; status: string }> {
   const options = { cwd: projectRoot, env: { GIT_OPTIONAL_LOCKS: "0" }, timeout: 10_000 };

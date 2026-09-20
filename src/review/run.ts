@@ -56,7 +56,7 @@ import { reasoningVariant } from "./reasoning.js";
 import type { EffectiveReviewConfig } from "./runtime-config.js";
 import { createReviewExecutionTelemetry } from "./execution-telemetry.js";
 import type { ReviewExecutionRecord } from "../state/types.js";
-import { readReviewCheckout, reviewPolicySha256 } from "./coverage.js";
+import { blockingContextDegradations, readReviewCheckout, reviewPolicySha256 } from "./coverage.js";
 import { computeFindingFingerprint } from "../state/fingerprint.js";
 
 const failureExecutionStore = new WeakMap<object, ReviewExecutionRecord>();
@@ -371,7 +371,7 @@ export async function runReviewPipeline(
         inputVerified: checkoutBefore.status === "" && checkoutAfter.status === "" &&
           checkoutBefore.head === snapshot.targetCommit && checkoutAfter.head === snapshot.targetCommit &&
           snapshot.source.kind === "git-commit" && snapshot.source.sha === snapshot.targetCommit &&
-          operation.contextManifest.degradationCounts.length === 0,
+          blockingContextDegradations(operation.contextManifest.degradationCounts).length === 0,
         untrackedActionableCount: persisted.actionableFindings.filter(finding => finding.severity !== "info" &&
           computeFindingFingerprint(toFindingCandidate(finding)) === null).length,
       };

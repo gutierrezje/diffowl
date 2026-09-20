@@ -236,7 +236,10 @@ async function buildChangedFileContext(
   const analysisContent = contentResult.fullContent;
   const astResult = extractAstSymbols(file.path, analysisContent, changedLines);
   const degradations: ReviewContextDegradation[] = [];
-  if (contentResult.truncated) {
+  const render = astResult.symbols.length > 0
+    ? "ast-symbols"
+    : shouldRenderFullFileContent(file, analysisContent) ? "full" : "diff-only";
+  if (contentResult.truncated && render === "full") {
     degradations.push({ code: "changed-file-truncated", count: 1 });
   }
   const truncatedSymbols = astResult.symbols.filter((symbol) => symbol.truncated).length;
@@ -260,12 +263,7 @@ async function buildChangedFileContext(
         status: "loaded",
         text: contentResult.content,
         truncated: contentResult.truncated,
-        render:
-          astResult.symbols.length > 0
-            ? "ast-symbols"
-            : shouldRenderFullFileContent(file, analysisContent)
-              ? "full"
-              : "diff-only",
+        render,
       },
     },
     diagnostics: astResult.diagnostics ?? [],
