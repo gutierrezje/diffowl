@@ -10,7 +10,17 @@ export const AGENT_PATH_INSTRUCTION_END = "<!-- DIFFOWL:AGENT-PATH:END -->";
 export const AGENT_PATH_INSTRUCTION = [
   "## DiffOwl",
   "",
-  "Before opening a pull request, run `diffowl review --base`. Inspect the backlog with `diffowl findings` and record fix, dismiss, or defer there. Treat findings as candidates. Do not edit review markdown.",
+  "Before declaring completion, handing off, or opening a pull request, run `diffowl readiness --base <base-ref> --format json` for the intended branch base (omit --base only when the local default branch is intended). Preserve the process exit status and JSON. Keep the intended base ref on re-queries, and pass the same --depth as the reviews when explicitly selected. This read-only query never starts a review. Re-query immediately before launching any review. Follow its `next_action`:",
+  "",
+  "- `wait`: wait for the existing queued/running review, then re-query. Do not launch a duplicate review.",
+  "- `review-branch`: run one `diffowl review --base <base_commit>` using the returned target; first confirm HEAD still equals `target.head_commit` and the checkout is clean.",
+  "- `review-uncovered-change`: review only `coverage.uncovered_commits` with `diffowl review --commit <sha>`, each from a clean checkout at that SHA (use a detached linked worktree for historical commits). Preserve the checkpoint and existing repair coverage; re-query from the original handoff checkout before each review.",
+  "- `disposition-findings`: inspect `diffowl findings` and `diffowl findings show <id> --format json`. Verify candidates, then explicitly record fix (with --verified-by), dismiss, or defer through `diffowl findings`, with evidence/reason and --actor agent. Deferred findings still block and cannot currently be reopened; omission from a later review never resolves a finding. Untracked blockers require an explicit blocked handoff because they have no lifecycle ID.",
+  "- `commit-or-restore`: handle only authorized local changes, preserving unrelated work, then re-query. If commit or restore authority is missing, report that blocker.",
+  "- `inspect-failure` or `repair-dependency`: inspect the failure/diagnostic, repair within scope, then re-query before retrying the exact missing review. Report unresolved failures as blocked.",
+  "- `handoff`: only exit 0 with schema_version 1 and result ready is a readiness proof. Attach the returned JSON unchanged, including schema_version, target (full base/merge-base/head OIDs), policy_sha256, coverage (checkpoint and repair review IDs, uncovered commits), blockers and their total, result, reason, next_action, exit_code, worktree_clean, and diagnostic in the handoff.",
+  "",
+  "Re-query after code, base/HEAD, policy, review, or finding-state changes and immediately before the final handoff. Exit 1 means not-ready; exit 2, a failed command, malformed JSON, unsupported schema/action, or inconsistent exit/result means no trustworthy proof. Report the exact blocker/diagnostic instead of claiming ready. Use CLI JSON as the authority; do not parse review Markdown or read SQLite to infer readiness. A proof grants no publishing authority.",
 ].join("\n");
 
 export type DetectedAgentClients = {

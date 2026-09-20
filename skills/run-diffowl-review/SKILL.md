@@ -7,10 +7,18 @@ description: Run DiffOwl reviews of the current checkout or a named pull request
 
 Keep the parent available while an internal runner waits for DiffOwl. DiffOwl remains the source of findings.
 
+Before starting a review for completion or handoff, follow the installed DiffOwl
+section of AGENTS.md (the shared
+[agent handoff workflow](https://github.com/gutierrezje/diffowl/blob/main/docs/agent-handoff.md)). Consume its readiness JSON:
+wait for pending work, reuse current coverage, and start this runner only for the
+returned review scope. An explicit request for a new independent review may
+still name a different scope.
+
 ## 1. Fix the target
 
 Inspect the current branch, `HEAD`, `git status --short`, relevant PR metadata, and `git worktree list --porcelain` before choosing a workspace.
 
+- **Readiness-selected scope:** preserve the returned full-branch or uncovered-commit command. For a repair, use a clean checkout whose HEAD equals that exact commit; do not broaden it to a branch review.
 - **Named PR:** read its number, head OID, base OID, and base branch. Select the current or an existing worktree only when its `HEAD` equals the PR head OID. If none matches, create a detached worktree under a run-owned directory from `mktemp -d`. Fetch only a missing PR head or base object, verify both OIDs, and record the canonical temporary parent and worktree paths. Run `diffowl review --base <base-oid>` in the selected worktree.
 - **Current branch:** use its PR base OID when available: `diffowl review --base <base-ref>`; otherwise use `diffowl review --base`.
 
@@ -39,5 +47,9 @@ Treat cleanup as `finally`, including failure or interruption. For a run-owned w
 Use the CLI-reported timestamped Markdown report in the primary checkout's shared `.diffowl/reviews` directory as the handoff artifact. Return: exit status, exact command, cwd, workspace ownership, report path, failure details when present, and cleanup status. Keep raw stdout with the runner unless no report was written. When OpenCode is unavailable, return the observed error promptly. This step is complete only when the command has exited or failed to launch, every evidence field is present, temporary cleanup is confirmed, and any reported artifact still exists.
 
 ## 4. Report the result
+
+Re-query readiness from the original handoff checkout after the runner settles;
+return that proof or blocker. The review report is finding context, not a
+readiness calculation. A successful runner exit alone does not establish ready.
 
 Read the returned Markdown report, then report completion or failure, target/base, artifact path, and concise findings. Preserve supplied `fnd_*` IDs and lifecycle states; use DiffOwl's `new`, `existing`, and `regressed` states for follow-up reviews. The report is complete when it distinguishes DiffOwl's result from the parent's assessment.

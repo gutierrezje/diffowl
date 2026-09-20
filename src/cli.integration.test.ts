@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { existsSync } from "node:fs";
-import { access, chmod, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, readdir, realpath, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -19,7 +19,11 @@ import { MIGRATION_001_INITIAL_SCHEMA } from "./state/migrations/001-initial-sch
 import { MIGRATION_002_BASE_REVIEW_TARGET } from "./state/migrations/002-base-review-target.js";
 import { suggestPossibleDuplicates } from "./state/possible-duplicates.js";
 import { reconcileReviewFindings } from "./state/reconcile.js";
-import { insertTestReview as insertReview } from "./state/test-helpers.js";
+import { getBranchDiff, getCommitComparison } from "./git/diff.js";
+import { loadConfigFromRoot } from "./config.js";
+import { reviewPolicySha256 } from "./review/coverage.js";
+import { computeDiffHash, updatePersistedReview } from "./state/persist.js";
+import { persistTestReview, insertTestReview as insertReview } from "./state/test-helpers.js";
 import { openSqliteDatabase } from "./state/sqlite.js";
 import { getFindingSummary } from "./state/findings-summary.js";
 import type { FindingCandidate, PossibleDuplicateRecord, ReviewSeverity } from "./state/types.js";
@@ -100,6 +104,108 @@ const ClaudeSettingsSchema = z.object({
 let tempDirs: string[] = [];
 
 describe("readiness CLI", () => {
+  it("drives agent handoff through waiting, exact coverage, and auditable dispositions", async () => {
+    const repo = await createRepo("diffowl-handoff-cli-", { localModel: false });
+    const run = (...args: string[]) => execa(process.execPath, [cliPath, ...args], {
+      cwd: repo, reject: false,
+      // Readiness and lifecycle commands must not need a provider executable.
+      env: { DIFFOWL_CODEX_EXECUTABLE: join(repo, "absent-provider") },
+    });
+    const query = async () => {
+      const response = await run("readiness", "--base", "main", "--format", "json");
+      const proof = JSON.parse(response.stdout);
+      expect(response.exitCode).toBe(proof.exit_code);
+      expect(proof.schema_version).toBe(1);
+      return proof;
+    };
+    await writeFile(join(repo, ".gitignore"), ".diffowl/\n");
+    await writeFile(join(repo, "price.ts"), "export const price = 10;\n");
+    await commitAll(repo, "base");
+    const base = (await execa("git", ["rev-parse", "HEAD"], { cwd: repo })).stdout;
+    await execa("git", ["checkout", "-b", "feature"], { cwd: repo });
+    await writeFile(join(repo, "price.ts"), "export const price = 12;\n");
+    await commitAll(repo, "change");
+    const head = (await execa("git", ["rev-parse", "HEAD"], { cwd: repo })).stdout;
+    const policy = reviewPolicySha256(await loadConfigFromRoot(repo), "default");
+
+    // Seed model output through production persistence; no live model or forge is involved.
+    const publish = async (kind: "base" | "commit", withFinding = false) => {
+      const snapshot = kind === "base"
+        ? await getBranchDiff("main", repo)
+        : await getCommitComparison("HEAD", repo);
+      const currentHead = (await execa("git", ["rev-parse", "HEAD"], { cwd: repo })).stdout;
+      const review = await persistTestReview(join(repo, ".diffowl"), {
+        targetKind: kind, baseCommit: snapshot.baseCommit,
+        mergeBaseCommit: kind === "base" ? base : null, targetCommit: currentHead,
+        diffHash: computeDiffHash(snapshot.diff.raw), model: "fixture", reasoning: null,
+        depth: "default", sessionId: "fixture", summary: "Fixture review",
+        findings: withFinding ? [{ file: "price.ts", line: 1, severity: "warning",
+          confidence: "high", title: "Check price", body: "Investigate this price.",
+          evidence: "export const price = 12;" }] : [],
+      });
+      await updatePersistedReview(join(repo, ".diffowl"), review.reviewId, {
+        reportPath: "fixture-review.md",
+        coverage: { policySha256: policy, inputVerified: true, untrackedActionableCount: 0 },
+      });
+      return review.reviewId;
+    };
+
+    expect(await query()).toMatchObject({ result: "not-ready", next_action: "review-branch" });
+    const queue = join(repo, ".diffowl", "pending-reviews");
+    await mkdir(queue);
+    const pendingPath = join(queue, head);
+    const pending = JSON.stringify({ sha: head, queuedAt: "2026-09-19T00:00:00.000Z" });
+    await writeFile(pendingPath, pending);
+    expect(await query()).toMatchObject({ reason: "review-pending", next_action: "wait" });
+    expect(await query()).toMatchObject({ next_action: "wait" });
+    expect(await readFile(pendingPath, "utf8")).toBe(pending);
+    expect(existsSync(join(repo, ".diffowl", "state.db"))).toBe(false);
+    await unlink(pendingPath); // The fixture runner settles; readiness did not consume the queue.
+
+    await publish("commit");
+    expect(await query()).toMatchObject({ reason: "incomplete-coverage", next_action: "review-branch" });
+    await publish("base", true);
+    expect(await query()).toMatchObject({ next_action: "disposition-findings", blockers: { open: 1 } });
+    const checkpoint = await publish("base"); // Later model omission is not a disposition.
+    expect(await query()).toMatchObject({ next_action: "disposition-findings", blockers: { open: 1 } });
+    const backlog = JSON.parse((await run("findings", "list", "--format", "json")).stdout);
+    const findingId = backlog.findings[0].finding.id;
+    const fixed = await run("findings", "fix", findingId, "--note", "Verified fixture price",
+      "--verified-by", "fixture assertion: price is 12", "--actor", "agent");
+    expect(fixed.exitCode, fixed.stderr).toBe(0);
+    const detail = JSON.parse((await run("findings", "show", findingId, "--format", "json")).stdout);
+    expect(detail.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actor: "agent", reason: "Verified fixture price", verification: ["fixture assertion: price is 12"] }),
+    ]));
+    expect(await query()).toEqual({
+      schema_version: 1, result: "ready", reason: "ready", exit_code: 0, next_action: "handoff",
+      target: { base_commit: base, merge_base_commit: base, head_commit: head },
+      policy_sha256: policy, worktree_clean: true,
+      coverage: { checkpoint_review_id: checkpoint, repair_review_ids: [], uncovered_commits: [] },
+      blockers: { open: 0, regressed: 0, deferred: 0, untracked: 0 }, diagnostic: null,
+    });
+    await writeFile(join(repo, "price.ts"), "export const price = 13;\n");
+    expect(await query()).toMatchObject({ next_action: "commit-or-restore" });
+    await commitAll(repo, "repair");
+    const repairHead = (await execa("git", ["rev-parse", "HEAD"], { cwd: repo })).stdout;
+    expect(await query()).toMatchObject({ next_action: "review-uncovered-change",
+      coverage: { checkpoint_review_id: checkpoint, uncovered_commits: [repairHead] } });
+    const repair = await publish("commit");
+    expect(await query()).toMatchObject({ result: "ready", target: { head_commit: repairHead },
+      coverage: { checkpoint_review_id: checkpoint, repair_review_ids: [repair], uncovered_commits: [] } });
+    await execa("git", ["branch", "-f", "main", head], { cwd: repo });
+    expect(await query()).toMatchObject({ result: "not-ready", reason: "incompatible-lineage", next_action: "review-branch" });
+    await execa("git", ["branch", "-f", "main", base], { cwd: repo });
+    expect((await run("findings", "reopen", findingId, "--reason", "New decision required", "--actor", "agent")).exitCode).toBe(0);
+    const deferred = await run("findings", "defer", findingId, "--reason", "Needs product decision", "--actor", "agent");
+    expect(deferred.exitCode, deferred.stderr).toBe(0);
+    expect(await query()).toMatchObject({ result: "not-ready", next_action: "disposition-findings", blockers: { deferred: 1 } });
+    const deferredDetail = JSON.parse((await run("findings", "show", findingId, "--format", "json")).stdout);
+    expect(deferredDetail.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actor: "agent", reason: "Needs product decision" }),
+    ]));
+  }, 30_000);
+
   it("emits one deterministic JSON document and distinguishes missing evidence from operational failure", async () => {
     const repo = await createRepo("diffowl-readiness-cli-", { localModel: false });
     await writeFile(join(repo, ".gitignore"), ".diffowl/\n");
