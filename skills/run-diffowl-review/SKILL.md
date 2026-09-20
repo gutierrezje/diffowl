@@ -14,6 +14,10 @@ wait for pending work, reuse current coverage, and start this runner only for th
 returned review scope. An explicit request for a new independent review may
 still name a different scope.
 
+If the target repository lacks the DiffOwl AGENTS.md section, read the linked
+shared workflow and apply it directly. If neither source is available, report
+the missing instructions as a blocker instead of inventing a readiness policy.
+
 ## 1. Fix the target
 
 Inspect the current branch, `HEAD`, `git status --short`, relevant PR metadata, and `git worktree list --porcelain` before choosing a workspace.

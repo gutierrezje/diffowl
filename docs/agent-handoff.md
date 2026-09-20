@@ -50,8 +50,19 @@ up its own temporary worktree.
 
 Use `diffowl findings list --format json` and
 `diffowl findings show <fnd_id> --format json` to inspect candidates, observations,
-and lifecycle events. Select relevant findings for the target branch; the
-backlog can also contain unrelated work. Record decisions with durable IDs:
+and lifecycle events. The list exposes open/regressed findings, not deferred
+ones. If `blockers.deferred` is nonzero, retain IDs from prior lifecycle receipts
+and inspect them with `show` when available. If IDs are unavailable, report the
+returned deferred count and the discovery limitation as an explicit blocker;
+an empty list is not evidence of readiness. The current lifecycle cannot reopen
+deferred findings, so this path requires a lifecycle capability change rather
+than another review or automatic dismissal. Select relevant findings for the
+target branch; the backlog can also contain unrelated work. Correlate known
+finding IDs with the exact review/finding receipts available for this task.
+Readiness returns counts, and the finding detail does not expose review target
+OIDs. If those receipts cannot establish a candidate's relevance, report the
+scope-discovery gap as a blocker instead of mutating an unrelated finding or
+reading SQLite to reconstruct scope. Record decisions with durable IDs:
 
 ```sh
 diffowl findings fix <fnd_id> --note '<fix evidence>' --verified-by '<passed check>' --actor agent
@@ -60,8 +71,7 @@ diffowl findings defer <fnd_id> --reason '<reason and follow-up>' --actor agent
 ```
 
 Verify a fix before recording it; add `--commit <sha>` only when that commit
-exists. A deferral is auditable but still blocks version 1 readiness. The current lifecycle cannot reopen deferred findings; report that limitation
-if further resolution is required. Do not
+exists. A deferral is auditable but still blocks version 1 readiness. Do not
 dismiss a real issue merely to obtain ready, infer resolution from a later
 review's omission, or change immutable Markdown reports. For an untracked
 blocker there is no lifecycle ID: report that limitation explicitly. Re-running

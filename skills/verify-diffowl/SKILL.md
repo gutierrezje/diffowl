@@ -34,3 +34,7 @@ section of AGENTS.md (the shared
 checkout. A disposable verification fixture proves a behavior, not readiness of
 the implementation branch. Return its current readiness JSON proof or an explicit
 blocker alongside the verification evidence.
+
+If the target repository lacks the DiffOwl AGENTS.md section, read the linked
+shared workflow and apply it directly. If neither source is available, report
+the missing instructions as a blocker instead of inventing a readiness policy.

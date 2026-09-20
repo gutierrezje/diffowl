@@ -92,6 +92,10 @@ Do not mark a durable finding fixed unless at least one relevant verification co
 
 **Do not** modify timestamped markdown reports, append `## Resolution`, or archive reports as a proxy for durable lifecycle state. Report archive/cleanup policy for durable reviews is deferred to a later release.
 
+If the target repository lacks the DiffOwl AGENTS.md section, read the linked
+shared workflow and apply it directly. If neither source is available, report
+the missing instructions as a blocker instead of inventing a readiness policy.
+
 ## Legacy Report Workflow (pre-0.3)
 
 Use when `diffowl findings` is unavailable or returns no durable backlog for the scope.
