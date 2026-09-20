@@ -117,7 +117,7 @@ describe("enableAgentPath", () => {
     });
     const markdown = await readFile(agentsMarkdownPath(projectRoot), "utf-8");
     expect(markdown).toContain(AGENT_PATH_INSTRUCTION_START);
-    expect(markdown).toContain("`diffowl review --base`");
+    expect(markdown).toContain("`diffowl readiness --base <base-ref> --format json`");
     expect(markdown).toContain("`diffowl findings`");
     expect(markdown).toContain(AGENT_PATH_INSTRUCTION_END);
     await expect(
@@ -199,7 +199,7 @@ describe("enableAgentPath", () => {
 
     expect(first).toBe(second);
     expect(first.match(new RegExp(AGENT_PATH_INSTRUCTION_START, "g"))).toHaveLength(1);
-    expect(first).toContain("`diffowl review --base`");
+    expect(first).toContain("`diffowl readiness --base <base-ref> --format json`");
     expect(first).toContain("Keep going.");
     expect(first).not.toContain("stale pointer");
   });
@@ -264,6 +264,6 @@ describe("enableAgentPath", () => {
       }),
     ).rejects.toThrow(/parse/);
     const markdown = await readFile(agentsMarkdownPath(projectRoot), "utf-8");
-    expect(markdown).toContain("`diffowl review --base`");
+    expect(markdown).toContain("`diffowl readiness --base <base-ref> --format json`");
   });
 });

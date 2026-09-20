@@ -105,28 +105,11 @@ diffowl hook install
 
 ## Review loop
 
-Treat DiffOwl reports as cumulative coverage, not a fresh approval gate after every
-edit.
-
-1. When the post-commit hook is installed, verify and commit one coherent
-   implementation unit. Wait for the exact-commit automatic review, read its report,
-   and disposition every finding. This is the initial complete review; a manual
-   staged review of the same changes duplicates it.
-2. When automatic coverage is unavailable, missing, or failed, stage the coherent
-   implementation and run one `diffowl review --staged`. Read its report and
-   disposition every finding before publishing.
-3. Batch accepted findings into one coherent repair commit. Consume its automatic
-   review or run `diffowl review --commit <sha>`. Keep later review ranges limited to
-   uncovered repair commits.
-4. `diffowl review --staged` always reviews the entire index. It cannot isolate edits
-   made after an earlier staged review. For uncommitted repairs, perform a focused
-   independent inspection or create the coherent repair commit first. A repeated
-   staged review is another complete review, not a repair-delta review.
-5. Restart the complete review only when the base or history changed, a repair
-   broadly altered the reviewed design or behavior, or the exact coverage chain
-   cannot be proved.
-6. Push after the initial review plus contiguous repair reviews cover the stable
-   local head and every finding has a disposition.
+Before completion or handoff, follow the [agent handoff workflow](docs/agent-handoff.md).
+Query `diffowl readiness --base <base-ref> --format json`, follow its next action,
+and re-query after changes. Include the current exact proof or an explicit blocker.
+Readiness owns cumulative coverage: wait for running work and review only the
+reported gaps. An isolated commit or staged review is not a branch checkpoint.
 
 ## Key Configs
 

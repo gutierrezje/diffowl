@@ -27,3 +27,14 @@ documented capture fallback only when a recipe needs manual driving.
 
 The selected skill loads the shared [evidence contract](references/evidence.md).
 It covers evidence reuse, run identity, manual recipes, verdicts, and cleanup.
+
+Before declaring the implementation complete, follow the installed DiffOwl
+section of AGENTS.md (the shared
+[agent handoff workflow](https://github.com/gutierrezje/diffowl/blob/main/docs/agent-handoff.md)) against the implementation
+checkout. A disposable verification fixture proves a behavior, not readiness of
+the implementation branch. Return its current readiness JSON proof or an explicit
+blocker alongside the verification evidence.
+
+If the target repository lacks the DiffOwl AGENTS.md section, read the linked
+shared workflow and apply it directly. If neither source is available, report
+the missing instructions as a blocker instead of inventing a readiness policy.

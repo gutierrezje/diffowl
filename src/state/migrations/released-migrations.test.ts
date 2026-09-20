@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
+import { readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { CURRENT_SCHEMA_VERSION } from "../types.js";
 import { MIGRATION_001_INITIAL_SCHEMA } from "./001-initial-schema.js";
 import { MIGRATION_002_BASE_REVIEW_TARGET } from "./002-base-review-target.js";
 import { MIGRATION_003_POSSIBLE_DUPLICATES } from "./003-possible-duplicates.js";
@@ -18,7 +20,8 @@ interface ReleasedMigration {
 const LATEST_RELEASED_SCHEMA_VERSION = 7;
 
 // Once a migration ships, changing its SQL cannot update databases that already recorded the
-// version. Fix released schemas with a new migration, then extend this list during the release.
+// version. Keep one mutable migration after this released boundary; freeze it in this list
+// with its package version and SQL hash when it ships. Feature PRs must not advance the boundary.
 const RELEASED_MIGRATIONS = [
   {
     version: 1,
@@ -65,6 +68,22 @@ const RELEASED_MIGRATIONS = [
 ] satisfies readonly ReleasedMigration[];
 
 describe("released state migrations", () => {
+  it("keeps at most one schema migration after the latest release", () => {
+    expect(CURRENT_SCHEMA_VERSION).toBeGreaterThanOrEqual(LATEST_RELEASED_SCHEMA_VERSION);
+    expect(
+      CURRENT_SCHEMA_VERSION,
+      "Extend the existing unreleased migration; allocate another number only after it ships.",
+    ).toBeLessThanOrEqual(LATEST_RELEASED_SCHEMA_VERSION + 1);
+
+    const migrationVersions = readdirSync(new URL(".", import.meta.url))
+      .filter(name => /^\d{3}-.+\.ts$/.test(name) && !name.endsWith(".test.ts"))
+      .map(name => Number(name.slice(0, 3)))
+      .sort((left, right) => left - right);
+    expect(migrationVersions, "Migration files must match the supported schema sequence.").toEqual(
+      Array.from({ length: CURRENT_SCHEMA_VERSION }, (_, index) => index + 1),
+    );
+  });
+
   it("keeps every released migration byte-for-byte as published", () => {
     expect(RELEASED_MIGRATIONS.map(({ version }) => version)).toEqual(
       Array.from({ length: LATEST_RELEASED_SCHEMA_VERSION }, (_, index) => index + 1),

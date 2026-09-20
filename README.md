@@ -161,6 +161,12 @@ full review with this version. Older databases require an explicit state-writing
 command to upgrade. Known actionable output without durable finding identity
 remains blocking because it cannot receive a lifecycle disposition.
 
+Agents must follow the [handoff workflow](docs/agent-handoff.md) before declaring
+completion: query, follow `next_action`, re-query after changes, and attach the
+current proof or an explicit blocker. That page includes small adapters for
+Codex, Claude Code, Cursor, and generic agents. `diffowl init` installs the shared
+instructions in its managed AGENTS.md block when accepted.
+
 See the [readiness contract](docs/readiness-contract.md) for policy and limitations.
 
 ## Work with findings

@@ -37,7 +37,10 @@ Preconditions:
   test. Capture the final screen and process exit.
 - **State proof.** Inspect `.diffowl.yml`, `.diffowl/preferences.yml`, AGENTS.md,
   and hook files. Each selected integration exists once; skipped integrations
-  are absent.
+  are absent. The managed AGENTS.md block queries readiness before completion,
+  follows `next_action`, requires lifecycle dispositions, and emits exact proof.
+  Re-running accepted setup replaces the managed block without duplicating it
+  or changing surrounding instructions.
 
 ## Gotchas
 

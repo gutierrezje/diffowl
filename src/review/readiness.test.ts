@@ -48,8 +48,12 @@ describe("review readiness", () => {
 
   afterEach(async () => { await removeTempDir(root); });
 
-  async function reviewBranch(findings: ReviewFinding[] = []) {
+  async function reviewBranch(
+    findings: ReviewFinding[] = [],
+    policySha256?: string,
+  ) {
     const snapshot = await getBranchDiff("main", root);
+    const effectivePolicySha256 = policySha256 ?? reviewPolicySha256(await loadConfigFromRoot(root), "default");
     const persisted = await persistTestReview(join(root, ".diffowl"), {
       targetKind: "base", targetRef: "main", baseCommit: base, mergeBaseCommit: base,
       targetCommit: head, diffHash: computeDiffHash(snapshot.diff.raw), model: "test/model",
@@ -57,7 +61,7 @@ describe("review readiness", () => {
     });
     await updatePersistedReview(join(root, ".diffowl"), persisted.reviewId, {
       reportPath: "review.md",
-      coverage: { policySha256: reviewPolicySha256(await loadConfigFromRoot(root), "default"), inputVerified: true, untrackedActionableCount: 0 },
+      coverage: { policySha256: effectivePolicySha256, inputVerified: true, untrackedActionableCount: 0 },
     });
     return persisted.reviewId;
   }
@@ -258,7 +262,7 @@ describe("review readiness", () => {
     const assignment = createSingleReviewAssignment({ backend: "codex", requestedModel: "test", source: { backend: "command", model: "command" } }, { kind: "backend-default" });
     return runReviewPipeline({
       target, config: { ...config, model: "test", reasoning: { kind: "backend-default" } },
-      depth: "default", verbose: false, projectRoot: directory, diffOwlDir: join(root, ".diffowl"), timings: [], persistEmptyDiff: false,
+      depth: config.context.depth, verbose: false, projectRoot: directory, diffOwlDir: join(root, ".diffowl"), timings: [], persistEmptyDiff: false,
       executor: { assignment, async execute() {
         return { review: { report: { summary: "Reviewed", findings }, sessionId: "test" }, timings: [],
           runtimeProvenance: { cohortId: null, reviewerId: assignment.reviewerId, role: "single", backend: "codex",
@@ -270,6 +274,19 @@ describe("review readiness", () => {
       await writeFile(path, markdown);
       return path;
     } });
+  }
+
+  async function readManifest(reviewId: string) {
+    const state = await openStateDatabase(join(root, ".diffowl"));
+    try {
+      const review = getReviewById(state.db, reviewId);
+      if (review === undefined) throw new Error(`Missing review ${reviewId}.`);
+      const operation = getReviewOperationById(state.db, review.operationId);
+      if (operation === undefined) throw new Error(`Missing operation for review ${reviewId}.`);
+      return operation.contextManifest;
+    } finally {
+      closeStateDatabase(state);
+    }
   }
 
   it("reports abandoned ownership and accepts a subsequently successful retry", async () => {
@@ -315,14 +332,162 @@ describe("review readiness", () => {
     await git("worktree", "remove", linked);
   });
 
-  it("does not turn a successful review with truncated input into complete coverage", async () => {
-    await writeFile(join(root, "price.ts"), `export const price = 12;\n${"// context\n".repeat(20_000)}`);
-    await git("commit", "-am", "large context");
+  it("accepts a large README with a tiny edit when only bounded related test context is truncated", async () => {
+    const readme = `# Review guide\n${"Context line.\n".repeat(2_000)}`;
+    await writeFile(join(root, "README.md"), readme);
+    await writeFile(join(root, "README.test.md"), `# Related fixture\n${"Fixture line.\n".repeat(600)}`);
+    await git("add", "README.md", "README.test.md");
+    await git("commit", "-m", "add large review guide");
     await git("branch", "-f", "main", "HEAD");
-    await writeFile(join(root, "price.ts"), `export const price = 13;\n${"// context\n".repeat(20_000)}`);
-    await git("commit", "-am", "small change in large file");
-    await pipelineReview();
-    expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({ result: "not-ready", reason: "incomplete-coverage" });
+    await writeFile(join(root, "README.md"), readme.replace("# Review guide", "# Updated review guide"));
+    await git("add", "README.md");
+    await git("commit", "-m", "update review guide");
+    head = await git("rev-parse", "HEAD");
+
+    const pipeline = await pipelineReview();
+    expect(pipeline.kind).toBe("completed");
+    if (pipeline.kind !== "completed") throw new Error("Pipeline review did not complete.");
+    expect((await readManifest(pipeline.persisted.reviewId))?.degradationCounts).toEqual(
+      expect.arrayContaining([{ code: "related-file-truncated", count: 1 }]),
+    );
+    expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({ result: "ready", reason: "ready" });
+  });
+
+  it("accepts a large changed plain-text file when its bounded file input is truncated", async () => {
+    const notes = `${Array.from({ length: 180 }, (_, index) => `line ${index} ${"x".repeat(80)}`).join("\n")}\n`;
+    await writeFile(join(root, "large-notes.txt"), notes);
+    await git("add", "large-notes.txt");
+    await git("commit", "-m", "add large notes fixture");
+    await git("branch", "-f", "main", "HEAD");
+    const changedNotes = `${Array.from({ length: 180 }, (_, index) =>
+      `line ${index} ${index < 100 ? "y" : "x"}${"x".repeat(79)}`,
+    ).join("\n")}\n`;
+    await writeFile(join(root, "large-notes.txt"), changedNotes);
+    await git("add", "large-notes.txt");
+    await git("commit", "-m", "change large notes fixture");
+    head = await git("rev-parse", "HEAD");
+
+    const pipeline = await pipelineReview();
+    if (pipeline.kind !== "completed") throw new Error("Pipeline review did not complete.");
+    expect((await readManifest(pipeline.persisted.reviewId))?.degradationCounts).toEqual(
+      expect.arrayContaining([{ code: "changed-file-truncated", count: 1 }]),
+    );
+    expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({ result: "ready", reason: "ready" });
+  });
+
+  it("does not turn a successful review with a genuinely truncated changed diff into complete coverage", async () => {
+    const changedLines = Array.from({ length: 8_000 }, (_, index) => `line ${index} ${"x".repeat(16)}`);
+    await writeFile(join(root, "README.md"), `${changedLines.join("\n")}\n`);
+    await git("add", "README.md");
+    await git("commit", "-m", "large changed diff");
+    head = await git("rev-parse", "HEAD");
+    const pipeline = await pipelineReview();
+    expect(pipeline.kind).toBe("completed");
+    if (pipeline.kind !== "completed") throw new Error("Pipeline review did not complete.");
+    expect((await readManifest(pipeline.persisted.reviewId))?.degradationCounts).toEqual(
+      expect.arrayContaining([{ code: "render-diff-truncated", count: 1 }]),
+    );
+    const result = await getReadiness({ projectRoot: root, base: "main" });
+    expect(result).toMatchObject({ result: "not-ready", reason: "incomplete-coverage" });
+    expect(result.diagnostic).toEqual(expect.stringContaining("render-diff-truncated"));
+    expect(result.diagnostic).toEqual(expect.stringContaining(pipeline.persisted.reviewId));
+  });
+
+  it("accepts a long changed symbol when only bounded AST excerpts are truncated", async () => {
+    const longFunction = `export function reviewFixture() {\n  const contextValue = 1;\n${"  // context padding\n".repeat(500)}  return contextValue;\n}\n`;
+    await writeFile(join(root, "large-review.ts"), longFunction);
+    await git("add", "large-review.ts");
+    await git("commit", "-m", "add long review fixture");
+    await git("branch", "-f", "main", "HEAD");
+    await writeFile(join(root, "large-review.ts"), longFunction.replace("return contextValue", "return contextValue + 1"));
+    await git("add", "large-review.ts");
+    await git("commit", "-m", "adjust long review fixture");
+    head = await git("rev-parse", "HEAD");
+
+    const pipeline = await pipelineReview();
+    if (pipeline.kind !== "completed") throw new Error("Pipeline review did not complete.");
+    expect((await readManifest(pipeline.persisted.reviewId))?.degradationCounts).toEqual(
+      expect.arrayContaining([
+        { code: "ast-symbol-truncated", count: 1 },
+        { code: "render-ast-symbol-truncated", count: 1 },
+      ]),
+    );
+    expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({ result: "ready", reason: "ready" });
+  });
+
+  it("accepts shallow bounded file and symbol excerpts when the complete diff remains available", async () => {
+    await writeFile(join(root, ".diffowl.yml"), "context:\n  depth: shallow\n");
+    const notes = `${Array.from({ length: 90 }, (_, index) => `line ${index} ${"x".repeat(60)}`).join("\n")}\n`;
+    const functions = Array.from({ length: 8 }, (_, index) =>
+      `export function review${index}() {\n  return ${index};\n}\n`,
+    ).join("");
+    await writeFile(join(root, "notes.txt"), notes);
+    await writeFile(join(root, "many-functions.ts"), functions);
+    await git("add", ".diffowl.yml", "notes.txt", "many-functions.ts");
+    await git("commit", "-m", "add shallow review fixtures");
+    await git("branch", "-f", "main", "HEAD");
+    const changedNotes = `${Array.from({ length: 90 }, (_, index) =>
+      `line ${index} ${index < 50 ? "y" : "x"}${"x".repeat(59)}`,
+    ).join("\n")}\n`;
+    const changedFunctions = Array.from({ length: 8 }, (_, index) =>
+      `export function review${index}() {\n  return ${index + 1};\n}\n`,
+    ).join("");
+    await writeFile(join(root, "notes.txt"), changedNotes);
+    await writeFile(join(root, "many-functions.ts"), changedFunctions);
+    await git("add", "notes.txt", "many-functions.ts");
+    await git("commit", "-m", "change shallow review fixtures");
+    head = await git("rev-parse", "HEAD");
+
+    const pipeline = await pipelineReview();
+    if (pipeline.kind !== "completed") throw new Error("Pipeline review did not complete.");
+    expect((await readManifest(pipeline.persisted.reviewId))?.degradationCounts).toEqual(
+      expect.arrayContaining([
+        { code: "render-file-truncated", count: 1 },
+        { code: "render-ast-symbol-omitted", count: 3 },
+      ]),
+    );
+    expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({ result: "ready", reason: "ready" });
+  });
+
+  it("keeps required unavailable changed input out of complete coverage", async () => {
+    const largeInput = "context line\n".repeat(45_000);
+    await writeFile(join(root, "large-input.ts"), largeInput);
+    await git("add", "large-input.ts");
+    await git("commit", "-m", "add large input fixture");
+    await git("branch", "-f", "main", "HEAD");
+    await writeFile(join(root, "large-input.ts"), largeInput.replace("context line", "updated line"));
+    await git("add", "large-input.ts");
+    await git("commit", "-m", "update large input fixture");
+    head = await git("rev-parse", "HEAD");
+    const pipeline = await pipelineReview();
+    if (pipeline.kind !== "completed") throw new Error("Pipeline review did not complete.");
+
+    const result = await getReadiness({ projectRoot: root, base: "main" });
+    expect((await readManifest(pipeline.persisted.reviewId))?.degradationCounts).toEqual(
+      expect.arrayContaining([{ code: "changed-file-unavailable", count: 1 }]),
+    );
+    expect(result).toMatchObject({ result: "not-ready", reason: "incomplete-coverage" });
+    expect(result.diagnostic).toEqual(expect.stringContaining("changed-file-unavailable"));
+    expect(result.diagnostic).toEqual(expect.stringContaining(pipeline.persisted.reviewId));
+  });
+
+  it("reports current-policy truncated input even when an older incompatible publication exists", async () => {
+    const changedLines = Array.from({ length: 8_000 }, (_, index) => `line ${index} ${"x".repeat(16)}`);
+    await writeFile(join(root, "README.md"), `${changedLines.join("\n")}\n`);
+    await git("add", "README.md");
+    await git("commit", "-m", "large changed diff");
+    head = await git("rev-parse", "HEAD");
+
+    await reviewBranch([], "0".repeat(64));
+    const currentPublication = await pipelineReview();
+    if (currentPublication.kind !== "completed") throw new Error("Pipeline review did not complete.");
+    expect((await readManifest(currentPublication.persisted.reviewId))?.degradationCounts).toEqual(
+      expect.arrayContaining([{ code: "render-diff-truncated", count: 1 }]),
+    );
+    const result = await getReadiness({ projectRoot: root, base: "main" });
+    expect(result).toMatchObject({ result: "not-ready", reason: "incomplete-coverage" });
+    expect(result.diagnostic).toEqual(expect.stringContaining(currentPublication.persisted.reviewId));
+    expect(result.diagnostic).toEqual(expect.stringContaining("render-diff-truncated"));
   });
 
   it("blocks actionable pipeline output that has no durable finding identity", async () => {

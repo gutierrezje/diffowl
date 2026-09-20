@@ -1005,6 +1005,23 @@ describe("buildReviewContext", () => {
     expect(rendered).toContain("File content skipped: file too large for context");
   });
 
+  it("does not count an unused shortened file copy as missing review input", async () => {
+    const root = await createGitRepository();
+    process.chdir(root);
+    await writeFile("README.md", `# Original\n${"Unchanged documentation.\n".repeat(800)}`);
+    await execa("git", ["add", "."]);
+    await execa("git", ["commit", "-m", "documentation"]);
+    await writeFile("README.md", `# Updated\n${"Unchanged documentation.\n".repeat(800)}`);
+    await execa("git", ["add", "."]);
+
+    const context = await buildReviewContext({ kind: "staged" }, config);
+    expect(context.changedFiles[0]!.content).toMatchObject({
+      status: "loaded", render: "diff-only", truncated: true,
+    });
+    expect(renderReviewContext(context)).toContain("+# Updated");
+    expect(context.degradations).not.toContainEqual({ code: "changed-file-truncated", count: 1 });
+  });
+
   it("keeps empty changed files as successfully loaded content", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-context-"));
     tempDirs.push(root);

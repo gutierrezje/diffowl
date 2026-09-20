@@ -29,3 +29,14 @@ For schema upgrades, follow [durable state](durable-state.md) and retain old-sch
 review/finding/lifecycle IDs across the explicit write. Separate synthetic
 fixture evidence from live provider publication. Retain a manual assessment,
 then clean only the controller-owned scratch.
+
+## Agent handoff acceptance
+
+Follow [the shared loop](../../../../docs/agent-handoff.md) in the implementation
+checkout after verification. For this workflow's regression evidence, run the
+CLI/application readiness tests with disposable local state. Cover a queued
+review (wait/re-query), missing and commit-only coverage (branch review), HEAD
+and base movement, explicit fix/dismiss/defer and regression events, an omitted
+finding, and operational read failure. Retain the final exact JSON proof and
+blocker total. These are deterministic contract tests, not evidence of live
+agent compliance or model review quality.

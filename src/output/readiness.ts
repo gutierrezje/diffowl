@@ -11,7 +11,7 @@ export function renderReadiness(result: ReadinessResult): string {
   if (result.diagnostic !== null) lines.push(result.diagnostic);
   const next = {
     handoff: "Hand off this committed snapshot.",
-    "review-branch": "Run a full branch review with diffowl review --base <base-ref>.",
+    "review-branch": "Resolve any input-coverage diagnostic first. Run a full branch review with diffowl review --base <base-ref>.",
     "review-uncovered-change": "Review the uncovered repair commits or run a full branch review.",
     wait: "Wait for the pending review, then query readiness again.",
     "inspect-failure": "Inspect the failed review execution, retry its target, then query again.",
