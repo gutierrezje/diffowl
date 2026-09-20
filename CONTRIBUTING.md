@@ -32,10 +32,25 @@ ships it. A feature PR, merge, or package-version edit does not start another
 schema cycle. A release without a schema change consumes no schema number.
 
 Released migrations are immutable. Verify the latest published package/tag
-against `src/state/migrations/released-migrations.test.ts`; only the release
-workflow advances its released boundary and records the shipped migration's
-package version and SQL checksum. Run that guard test with migration verification.
-It rejects extra schema numbers and migration files before the next release.
+against `src/state/migrations/released-migrations.test.ts`. Run that guard test
+with migration verification; it rejects extra schema numbers and migration files.
+The release ledger is maintained manually, not discovered from the network by CI.
+
+The maintainer releasing a pending schema must:
+
+1. Confirm the published package version and `gitHead` with `npm view diffowl
+   version gitHead --json`, and check the corresponding release tag's schema.
+2. Freeze the pending SQL in the release commit. Append its version, intended
+   package release, and SHA-256 of the exported SQL to `RELEASED_MIGRATIONS`, and
+   advance `LATEST_RELEASED_SCHEMA_VERSION` in the same test file.
+3. Run the release guard, fresh-creation tests, and upgrades from the last
+   published schema before publishing the package and release tag.
+4. Confirm the registry's version and `gitHead` match that release commit before
+   starting another schema number. If publication is deferred or fails, keep
+   using the pending number and restore the ledger's published boundary for
+   ordinary development; release preparation alone does not count as shipping.
+
+A release without schema changes leaves the ledger unchanged.
 
 Test upgrades from the latest released schema into the accumulated unreleased
 migration, as well as fresh database creation. An earlier development build may

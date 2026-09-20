@@ -15,7 +15,7 @@ driver's verdict does not cover it. Discover the affected command from current
 ## Schema release gate
 
 Before accepting a schema change, apply the
-[database schema release gate](../../../../../CONTRIBUTING.md#database-schema-release-gate).
+[database schema release gate](../../../../CONTRIBUTING.md#database-schema-release-gate).
 Confirm the latest published package/tag and its recorded schema boundary. Reuse
 the one unreleased migration; do not allocate another number for a feature PR.
 Run `pnpm exec vitest run src/state/migrations/released-migrations.test.ts` and
