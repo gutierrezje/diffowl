@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import packageJson from "../../package.json" with { type: "json" };
+import { createUnknownReviewRuntimeEvidence } from "../review/execution-evidence.js";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
@@ -35,6 +38,12 @@ async function execute(
       "Cursor reasoning overrides are not supported. Omit --reasoning, select Cursor with `diffowl backend cursor`, then clear its local override with `diffowl reasoning --reset`, and remove deprecated reasoning.effort from .diffowl.yml.",
     );
   }
+  const evidence = createUnknownReviewRuntimeEvidence();
+  evidence.runtime.name = "cursor-sdk";
+  evidence.runtime.adapterVersion = packageJson.version;
+  evidence.structuredOutput.strategy = "marker";
+  const publish = () => input.onProvenance?.(evidence);
+  publish();
   const started = performance.now();
   const timeoutMs = input.review.config.timeout * 1_000;
   const closeTimeoutMs = options.closeTimeoutMs ?? 5_000;
@@ -93,6 +102,9 @@ async function execute(
       );
     }
     const prompts = resolveReviewPrompts({ ...input.review, documentMode: "marker" });
+    evidence.prompts.systemSha256 = createHash("sha256").update(prompts.system).digest("hex");
+    evidence.prompts.userSha256 = createHash("sha256").update(prompts.user).digest("hex");
+    publish();
     throwIfStopped();
     input.onStatus?.("Reviewing changes with Cursor SDK...");
     throwIfStopped();
@@ -130,7 +142,35 @@ async function execute(
         if (terminal)
           throw new CursorReviewError("protocol", "Cursor worker emitted data after its result.");
         switch (message.kind) {
+          case "runtime":
+            evidence.runtime.version = message.version;
+            publish();
+            break;
+          case "turn":
+            evidence.native.runIds = [...(evidence.native.runIds ?? []), message.id];
+            if (message.requestId !== null)
+              evidence.native.requestIds = [
+                ...(evidence.native.requestIds ?? []),
+                message.requestId,
+              ];
+            evidence.structuredOutput.attempts = message.attempt;
+            publish();
+            break;
+          case "usage":
+            evidence.effectiveModel = message.effectiveModel;
+            evidence.usage = message.usage;
+            publish();
+            break;
           case "session":
+            evidence.native.sessionId = message.id;
+            evidence.authentication = "api-key";
+            evidence.policy = {
+              sandbox: null,
+              approval: "deny-requests",
+              tools: [...CURSOR_READ_ONLY_TOOLS],
+              network: null,
+            };
+            publish();
             input.review.onProgress?.({
               type: "session",
               message: "Cursor SDK review started.",
@@ -157,6 +197,10 @@ async function execute(
             input.onTelemetry?.({ type: "activity", activity: "tool" });
             break;
           case "validation":
+            evidence.structuredOutput.attempts = message.attempt;
+            evidence.structuredOutput.acceptedAttempt =
+              message.outcome === "accepted" ? message.attempt : null;
+            publish();
             input.onTelemetry?.({
               type: "phase",
               phase: "validation-repair",
@@ -171,6 +215,9 @@ async function execute(
               });
             break;
           case "result":
+            evidence.effectiveModel = message.effectiveModel;
+            evidence.usage = message.usage;
+            publish();
             terminal = message;
             break;
           case "error":
@@ -291,6 +338,7 @@ async function execute(
         "Cursor worker returned an invalid review document.",
       );
     const result: ReviewExecutionResult = {
+      evidence,
       review: { report: closed.report, sessionId: terminal.sessionId },
       timings: [
         {
@@ -303,6 +351,17 @@ async function execute(
     if (terminal.effectiveModel !== null) result.effectiveModel = terminal.effectiveModel;
     if (terminal.usage !== null) result.review.usage = terminal.usage;
     return result;
+  } catch (error) {
+    evidence.failureCategory =
+      error instanceof ReviewCancelledError
+        ? "cancelled"
+        : error instanceof ReviewTimeoutError
+          ? "timed-out"
+          : error instanceof CursorReviewError
+            ? error.category
+            : "unknown";
+    publish();
+    throw error;
   } finally {
     clearTimeout(timer);
     input.review.signal?.removeEventListener("abort", onAbort);

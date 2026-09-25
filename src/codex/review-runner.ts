@@ -57,6 +57,7 @@ export type CodexReviewInput = ReviewOptions & {
   closeTimeoutMs: number;
   includeIgnoredRepositoryPaths: boolean;
   onWarning?: (message: string) => void;
+  onUsage?: (usage: ReviewUsage) => void;
   onTelemetry?: (event: ReviewExecutionTelemetryEvent) => void;
 };
 
@@ -1010,6 +1011,7 @@ async function collectTurn(
         case "usage":
           recordProviderActivity(input.onTelemetry, attempt);
           usage = mapUsage(event.total);
+          input.onUsage?.(usage);
           break;
         case "turn-completed": {
           recordProviderActivity(input.onTelemetry, attempt);

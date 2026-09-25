@@ -4,6 +4,13 @@ import type { ReviewExecutionJournal } from "../state/review-execution-journal.j
 import type { LoadedReviewSnapshot, ReviewContext } from "./context.js";
 import type { ReviewContextSource } from "./context-source.js";
 import {
+  createUnknownReviewExecutionEvidence,
+  mergeReviewExecutionEvidence,
+  mergeReviewPipelineEvidence,
+  sanitizeReviewRuntimeEvidence,
+  type ReviewExecutionEvidence,
+} from "./execution-evidence.js";
+import {
   ReviewExecutionIdSchema,
   ReviewIdSchema,
   ReviewOperationIdSchema,
@@ -114,6 +121,7 @@ export function makeDeps(
   let journalTelemetry:
     | Parameters<ReviewPipelineDeps["startReviewExecutionJournal"]>[1]["telemetry"]
     | undefined;
+  let journalEvidence: ReviewExecutionEvidence = createUnknownReviewExecutionEvidence();
   const journal: ReviewExecutionJournal = {
     executionId: ReviewExecutionIdSchema.parse("exe_attempt"),
     captureContext: vi.fn((operation) => {
@@ -122,6 +130,18 @@ export function makeDeps(
     record: vi.fn((event) => {
       if (journalTelemetry === undefined) throw new Error("Journal telemetry was not started.");
       journalTelemetry.record(event);
+    }),
+    setPipelineEvidence: vi.fn((next) => {
+      journalEvidence = {
+        runtime: journalEvidence.runtime,
+        pipeline: mergeReviewPipelineEvidence(journalEvidence.pipeline, next),
+      };
+    }),
+    recordProvenance: vi.fn((snapshot) => {
+      journalEvidence = mergeReviewExecutionEvidence(
+        journalEvidence,
+        sanitizeReviewRuntimeEvidence(snapshot),
+      );
     }),
     snapshot: vi.fn(() => {
       if (journalTelemetry === undefined) throw new Error("Journal telemetry was not started.");
@@ -148,6 +168,7 @@ export function makeDeps(
         schemaVersion: 4,
         input: journalOperation.input,
         contextManifestSha256: journalOperation.contextManifestSha256,
+        evidence: journalEvidence,
         ...provenance,
       };
     }),
@@ -184,6 +205,7 @@ export function makeDeps(
     startReviewExecutionJournal: vi.fn(async (_dir, input) => {
       journalOperation = input.operation;
       journalTelemetry = input.telemetry;
+      journalEvidence = input.evidence ?? createUnknownReviewExecutionEvidence();
       return journal;
     }),
     renderMarkdown: vi.fn(() => "markdown"),

@@ -3,6 +3,7 @@ import { ReviewConfidenceSchema, type ReviewContextDepth } from "../config.js";
 import type { EffectiveReviewConfig } from "./runtime-config.js";
 import type { ReviewTarget } from "./target.js";
 import type { ReviewUsage } from "./usage.js";
+import type { ReviewRuntimeEvidence } from "./execution-evidence.js";
 import type {
   CompletedReviewExecutionProvenance,
   ReviewAssignment,
@@ -76,6 +77,8 @@ export interface ReviewExecutorOptions {
   onStatus?: (message: string) => void;
   onWarning?: (message: string) => void;
   onTelemetry?: (event: ReviewExecutionTelemetryEvent) => void;
+  /** Provider-neutral facts observed while the adapter is running. */
+  onProvenance?: (snapshot: ReviewRuntimeEvidence) => void;
 }
 
 export interface ReviewExecutionResult {
@@ -83,6 +86,8 @@ export interface ReviewExecutionResult {
   timings: ReviewTiming[];
   /** Backend-reported effective model. Omitted when the adapter cannot observe it. */
   effectiveModel?: string;
+  /** Provider-neutral facts observed by the adapter, including partial failures. */
+  evidence?: ReviewRuntimeEvidence;
   runtimeProvenance?: ReviewExecutionRuntimeProvenance;
 }
 

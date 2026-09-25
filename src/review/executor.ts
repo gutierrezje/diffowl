@@ -41,6 +41,13 @@ export function assignReviewExecutor(
     assignment,
     execute: async (options) => {
       const result = await adapter.execute(options);
+      const observedEffectiveModel =
+        result.effectiveModel ?? result.evidence?.effectiveModel ?? null;
+      const observedSessionId =
+        result.review.sessionId ||
+        result.evidence?.native.sessionId ||
+        result.evidence?.native.threadId ||
+        null;
       return {
         ...result,
         runtimeProvenance: {
@@ -49,10 +56,10 @@ export function assignReviewExecutor(
           role: assignment.role,
           backend: assignment.selection.backend,
           requestedModel: assignment.selection.requestedModel,
-          effectiveModel: result.effectiveModel ?? null,
+          effectiveModel: observedEffectiveModel,
           preferenceSource: assignment.selection.source,
           reasoningEffort: reasoningVariant(assignment.reasoning) ?? null,
-          sessionId: result.review.sessionId,
+          sessionId: observedSessionId ?? "",
           terminalOutcome: "completed",
         },
       };
