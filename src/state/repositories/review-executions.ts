@@ -12,6 +12,7 @@ import {
 import { ReasoningVariantSchema } from "../../review/reasoning.js";
 import {
   completeReviewExecutionProvenance,
+  createUnknownReviewExecutionEvidence,
   LegacyReviewInputIdentitySchema,
   REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION,
   RunningReviewExecutionRuntimeProvenanceSchema,
@@ -21,6 +22,10 @@ import {
   type ReviewAssignment,
   type ReviewExecutionRuntimeProvenance,
 } from "../../review/provenance.js";
+import {
+  ReviewExecutionEvidenceSchema,
+  type ReviewExecutionEvidence,
+} from "../../review/execution-evidence.js";
 import {
   finishPersistedReviewExecutionTelemetry,
   ReviewExecutionTelemetrySchema,
@@ -70,6 +75,7 @@ const ReviewExecutionRowSchema = z.object({
     z.literal(1),
     z.literal(2),
     z.literal(3),
+    z.literal(4),
     z.literal(REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION),
   ]),
   targetKind: z.enum(["staged", "commit", "last-commit", "base"]),
@@ -78,6 +84,7 @@ const ReviewExecutionRowSchema = z.object({
   headCommit: z.string().nullable(),
   diffHash: z.string(),
   contextManifestSha256: z.string().nullable(),
+  evidenceJson: z.string().nullable(),
 });
 
 const selectColumns = `
@@ -89,6 +96,7 @@ const selectColumns = `
   execution.owner_process_id AS ownerProcessId,
   execution.owner_lease_json AS ownerLeaseJson,
   execution.telemetry_json AS telemetryJson,
+  execution.evidence_json AS evidenceJson,
   execution.schema_version AS schemaVersion,
   execution.cohort_id AS cohortId,
   execution.reviewer_id AS reviewerId,
@@ -116,9 +124,10 @@ export function insertReviewExecution(
     input.provenance,
     input.operation.input,
     input.operation.contextManifestSha256,
+    input.evidence,
   );
   const createdAt = input.createdAt ?? new Date().toISOString();
-  const record = {
+  const record: ReviewExecutionRecord = {
     id: input.id === undefined ? createReviewExecutionId() : ReviewExecutionIdSchema.parse(input.id),
     operationId: input.operation.id,
     createdAt,
@@ -128,7 +137,8 @@ export function insertReviewExecution(
     ownerLease: null,
     telemetry: null,
     ...provenance,
-  } satisfies ReviewExecutionRecord;
+  };
+  if (input.evidence !== undefined) record.evidence = input.evidence;
   insertReviewExecutionRow(db, record);
   return record;
 }
@@ -141,24 +151,28 @@ export function insertRunningReviewExecution(
     telemetry: ReviewExecutionTelemetry;
     ownerProcessId: number;
     ownerLease: ProcessLease;
+    evidence?: ReviewExecutionEvidence;
   },
 ): ReviewExecutionRecord {
   const runtime = createRunningReviewExecutionProvenance(input.assignment);
   const createdAt = input.telemetry.startedAt;
-  const record = {
+  const record: ReviewExecutionRecord = {
     id: createReviewExecutionId(),
     operationId: input.operation.id,
     createdAt,
     updatedAt: input.telemetry.updatedAt,
     attemptNumber: nextAttemptNumber(db, input.operation.id, runtime.reviewerId),
-    schemaVersion: REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION,
+    // Running rows retain the legacy v4 shape until they settle. Terminal rows
+    // promote to v5 once evidence is present, while old running rows remain readable.
+    schemaVersion: 4,
     ownerProcessId: input.ownerProcessId,
     ownerLease: input.ownerLease,
     telemetry: input.telemetry,
     input: input.operation.input,
     contextManifestSha256: input.operation.contextManifestSha256,
     ...runtime,
-  } satisfies ReviewExecutionRecord;
+  };
+  if (input.evidence !== undefined) record.evidence = input.evidence;
   insertReviewExecutionRow(db, record);
   return record;
 }
@@ -196,14 +210,39 @@ export function updateReviewExecutionTelemetry(
   return requireReviewExecution(db, executionId);
 }
 
+export function updateReviewExecutionEvidence(
+  db: SqliteDatabase,
+  executionId: string,
+  evidence: ReviewExecutionEvidence,
+): ReviewExecutionRecord {
+  const existing = requireReviewExecution(db, executionId);
+  if (existing.terminalOutcome !== "running") {
+    throw new StateDatabaseError(
+      `Review execution ${executionId} cannot receive evidence after it is terminal.`,
+    );
+  }
+  const parsed = ReviewExecutionEvidenceSchema.parse(evidence);
+  const result = db
+    .prepare("UPDATE review_executions SET evidence_json = ?, updated_at = ? WHERE id = ?")
+    .run(JSON.stringify(parsed), new Date().toISOString(), executionId);
+  if (result.changes !== 1) {
+    throw new StateDatabaseError(`Review execution ${executionId} was not found.`);
+  }
+  return requireReviewExecution(db, executionId);
+}
+
 export function finalizeReviewExecution(
   db: SqliteDatabase,
   executionId: string,
   provenance: ReviewExecutionRuntimeProvenance,
   telemetry: ReviewExecutionTelemetry,
+  evidence?: ReviewExecutionEvidence,
 ): ReviewExecutionRecord {
   const existing = requireReviewExecution(db, executionId);
   const terminalTelemetry = normalizeTerminalTelemetry(provenance, telemetry);
+  const mergedEvidence = evidence === undefined
+    ? existing.evidence ?? null
+    : ReviewExecutionEvidenceSchema.parse(evidence);
   if (existing.terminalOutcome !== "running") {
     if (existing.terminalOutcome !== provenance.terminalOutcome) {
       throw new StateDatabaseError(`Review execution ${executionId} is already terminal.`);
@@ -218,16 +257,18 @@ export function finalizeReviewExecution(
   const result = db
     .prepare(`
       UPDATE review_executions
-      SET effective_model = ?, session_id = ?, terminal_outcome = ?, updated_at = ?,
-          owner_process_id = NULL, owner_lease_json = NULL, telemetry_json = ?
+      SET schema_version = ?, effective_model = ?, session_id = ?, terminal_outcome = ?, updated_at = ?,
+          owner_process_id = NULL, owner_lease_json = NULL, telemetry_json = ?, evidence_json = ?
       WHERE id = ? AND terminal_outcome = 'running'
     `)
     .run(
-      provenance.effectiveModel,
-      provenance.sessionId,
+      mergedEvidence === null ? 4 : REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION,
+      provenance.effectiveModel ?? observedEffectiveModel(mergedEvidence),
+      provenance.sessionId ?? observedSessionId(mergedEvidence),
       provenance.terminalOutcome,
       terminalTelemetry.updatedAt,
       JSON.stringify(terminalTelemetry),
+      mergedEvidence === null ? null : JSON.stringify(mergedEvidence),
       executionId,
     );
   if (result.changes !== 1) {
@@ -348,6 +389,9 @@ function mapReviewExecutionRow(
   row: z.output<typeof ReviewExecutionRowSchema>,
   owner: string,
 ): ReviewExecutionRecord {
+  if (row.terminalOutcome === "running" && row.schemaVersion !== 4) {
+    throw new StateDatabaseError(`${owner} contains invalid execution provenance.`);
+  }
   const runtime = {
     cohortId: row.cohortId,
     reviewerId: row.reviewerId,
@@ -370,11 +414,9 @@ function mapReviewExecutionRow(
     ownerLease: parseOwnerLease(row.ownerLeaseJson, row.id),
     telemetry: parseTelemetry(row.telemetryJson, row.id),
   };
+  const evidence = parseEvidence(row.evidenceJson, row.id);
 
   if (row.terminalOutcome === "running") {
-    if (row.schemaVersion !== REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION) {
-      throw new StateDatabaseError(`${owner} contains invalid running execution provenance.`);
-    }
     const input = ReviewInputIdentitySchema.safeParse({
       targetKind: row.targetKind,
       baseCommit: row.baseCommit,
@@ -391,16 +433,18 @@ function mapReviewExecutionRow(
     ) {
       throw new StateDatabaseError(`${owner} contains invalid running execution provenance.`);
     }
-    return {
+    const runningRecord: RunningReviewExecutionRecord = {
       ...recordIdentity,
       ...running.data,
       ownerProcessId: recordIdentity.ownerProcessId,
       ownerLease: recordIdentity.ownerLease,
       telemetry: recordIdentity.telemetry,
-      schemaVersion: REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION,
+      schemaVersion: 4,
       input: input.data,
       contextManifestSha256: row.contextManifestSha256,
     };
+    if (evidence !== null) runningRecord.evidence = evidence;
+    return runningRecord;
   }
 
   if (
@@ -477,6 +521,17 @@ function mapReviewExecutionRow(
     throw new StateDatabaseError(`${owner} contains invalid input identity.`);
   }
 
+  if (row.schemaVersion === REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION) {
+    return {
+      ...terminalIdentity,
+      ...completeReviewExecutionProvenance(
+        currentRuntime.data,
+        input.data,
+        row.contextManifestSha256,
+        evidence ?? createUnknownReviewExecutionEvidence(),
+      ),
+    };
+  }
   return {
     ...terminalIdentity,
     ...completeReviewExecutionProvenance(
@@ -498,6 +553,25 @@ function parseTelemetry(raw: string | null, executionId: string): ReviewExecutio
   }
 }
 
+function parseEvidence(raw: string | null, executionId: string): ReviewExecutionEvidence | null {
+  if (raw === null) return null;
+  try {
+    return ReviewExecutionEvidenceSchema.parse(JSON.parse(raw));
+  } catch {
+    throw new StateDatabaseError(
+      `Review execution ${executionId} contains invalid execution evidence JSON.`,
+    );
+  }
+}
+
+function observedEffectiveModel(evidence: ReviewExecutionEvidence | null): string | null {
+  return evidence?.runtime.effectiveModel ?? null;
+}
+
+function observedSessionId(evidence: ReviewExecutionEvidence | null): string | null {
+  return evidence?.runtime.native.sessionId ?? evidence?.runtime.native.threadId ?? null;
+}
+
 function parseOwnerLease(raw: string | null, executionId: string): ProcessLease | null {
   if (raw === null) return null;
   try {
@@ -510,19 +584,7 @@ function parseOwnerLease(raw: string | null, executionId: string): ProcessLease 
 }
 
 function insertReviewExecutionRow(db: SqliteDatabase, record: ReviewExecutionRecord): void {
-  db.prepare(`
-    INSERT INTO review_executions (
-      id, operation_id, created_at, attempt_number, schema_version, cohort_id, reviewer_id, role,
-      backend, requested_model, effective_model, preference_source_json, reasoning_effort,
-      session_id, terminal_outcome, updated_at, owner_process_id, telemetry_json,
-      owner_lease_json
-    ) VALUES (
-      @id, @operationId, @createdAt, @attemptNumber, @schemaVersion, @cohortId, @reviewerId, @role,
-      @backend, @requestedModel, @effectiveModel, @preferenceSourceJson, @reasoningEffort,
-      @sessionId, @terminalOutcome, @updatedAt, @ownerProcessId, @telemetryJson,
-      @ownerLeaseJson
-    )
-  `).run({
+  const parameters = {
     id: record.id,
     operationId: record.operationId,
     createdAt: record.createdAt,
@@ -543,7 +605,24 @@ function insertReviewExecutionRow(db: SqliteDatabase, record: ReviewExecutionRec
     ownerProcessId: record.ownerProcessId,
     ownerLeaseJson: record.ownerLease === null ? null : JSON.stringify(record.ownerLease),
     telemetryJson: record.telemetry === null ? null : JSON.stringify(record.telemetry),
-  });
+    evidenceJson:
+      record.evidence === undefined || record.evidence === null
+        ? null
+        : JSON.stringify(ReviewExecutionEvidenceSchema.parse(record.evidence)),
+  };
+  db.prepare(`
+    INSERT INTO review_executions (
+      id, operation_id, created_at, attempt_number, schema_version, cohort_id, reviewer_id, role,
+      backend, requested_model, effective_model, preference_source_json, reasoning_effort,
+      session_id, terminal_outcome, updated_at, owner_process_id, telemetry_json,
+      owner_lease_json, evidence_json
+    ) VALUES (
+      @id, @operationId, @createdAt, @attemptNumber, @schemaVersion, @cohortId, @reviewerId, @role,
+      @backend, @requestedModel, @effectiveModel, @preferenceSourceJson, @reasoningEffort,
+      @sessionId, @terminalOutcome, @updatedAt, @ownerProcessId, @telemetryJson,
+      @ownerLeaseJson, @evidenceJson
+    )
+  `).run(parameters);
 }
 
 function requireReviewExecution(db: SqliteDatabase, executionId: string): ReviewExecutionRecord {

@@ -11,6 +11,7 @@ import type {
 } from "../review/operation.js";
 import type { ReviewExecutionId } from "../review/ids.js";
 import type { ReviewExecutionTelemetry } from "../review/execution-telemetry.js";
+import type { ReviewExecutionEvidence } from "../review/execution-evidence.js";
 import type { ReasoningVariant } from "../review/reasoning.js";
 import type { ReviewFinding, ReviewTiming } from "../review/types.js";
 import { closeStateDatabase, runInTransaction } from "./db.js";
@@ -51,13 +52,18 @@ interface PersistReviewOutputInput {
 export interface PersistCanonicalReviewInput extends PersistReviewOutputInput {
   operation: CapturedReviewOperation;
   source:
-    | { kind: "new-execution"; execution: CompletedReviewExecutionProvenance }
+    | {
+        kind: "new-execution";
+        execution: CompletedReviewExecutionProvenance;
+        evidence?: ReviewExecutionEvidence;
+      }
     | { kind: "persisted-execution"; executionId: ReviewExecutionId }
     | {
         kind: "running-execution";
         executionId: ReviewExecutionId;
         execution: CompletedReviewExecutionProvenance;
         telemetry: ReviewExecutionTelemetry;
+        evidence?: ReviewExecutionEvidence;
       };
 }
 
@@ -72,6 +78,7 @@ export interface PersistSkippedReviewInput extends PersistReviewOutputInput {
 export interface PersistReviewExecutionAttemptInput {
   operation: CapturedReviewOperation;
   execution: ReviewExecutionRuntimeProvenance;
+  evidence?: ReviewExecutionEvidence;
   retention?: ExecutionRetention;
 }
 
@@ -390,6 +397,7 @@ function resolveCanonicalSourceExecution(
       return insertReviewExecution(db, {
         operation,
         provenance: source.execution,
+        evidence: source.evidence,
       });
     case "persisted-execution":
       return getCompletedSourceExecution(db, operation, source.executionId);
@@ -399,6 +407,7 @@ function resolveCanonicalSourceExecution(
         source.executionId,
         source.execution,
         source.telemetry,
+        source.evidence,
       );
     default: {
       const _exhaustive: never = source;
@@ -436,6 +445,7 @@ export async function persistReviewExecutionAttempt(
       return insertReviewExecution(state.db, {
         operation: input.operation,
         provenance: input.execution,
+        evidence: input.evidence,
       });
     });
     retainFailedExecutions(state, input.retention);

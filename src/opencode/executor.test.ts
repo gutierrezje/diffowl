@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EffectiveReviewConfig } from "../review/runtime-config.js";
+import { createUnknownReviewRuntimeEvidence } from "../review/execution-evidence.js";
 import type { ReviewOptions, ReviewResult } from "../review/types.js";
 import { createOpenCodeReviewExecutor } from "./executor.js";
 
@@ -57,7 +58,7 @@ describe("createOpenCodeReviewExecutor", () => {
     expect(onStatus).toHaveBeenNthCalledWith(2, "Reviewing changes...");
     expect(isServerRunning).toHaveBeenCalledWith(4096);
     expect(ensureServer).not.toHaveBeenCalled();
-    expect(runReview).toHaveBeenCalledWith(reviewOptions());
+    expect(runReview).toHaveBeenCalledWith(reviewOptions(), expect.any(Function));
     expect(execution.review.report.timings).toEqual([{ phase: "model", label: "Model", ms: 7 }]);
     expect(execution.timings).toEqual([
       expect.objectContaining({
@@ -73,17 +74,49 @@ describe("createOpenCodeReviewExecutor", () => {
     ]);
   });
 
+  it("forwards provenance snapshots and returns the final adapter evidence", async () => {
+    const ensureServer = vi.fn(async () => "http://127.0.0.1:4096");
+    const isServerRunning = vi.fn(async () => true);
+    const evidence = createUnknownReviewRuntimeEvidence();
+    evidence.runtime.name = "opencode";
+    evidence.effectiveModel = "reported-model";
+    const runReview = vi.fn(
+      async (_options: ReviewOptions, onProvenance?: (snapshot: typeof evidence) => void) => {
+        onProvenance?.(evidence);
+        return result();
+      },
+    );
+    const onProvenance = vi.fn();
+    const executor = createOpenCodeReviewExecutor({ ensureServer, isServerRunning, runReview });
+
+    const execution = await executor.execute({ review: reviewOptions(), onProvenance });
+
+    expect(runReview).toHaveBeenCalledWith(reviewOptions(), expect.any(Function));
+    expect(onProvenance).toHaveBeenCalledWith(evidence);
+    expect(execution.evidence).toBe(evidence);
+    expect(execution.effectiveModel).toBe("reported-model");
+  });
+
   it("rejects when auto-start is disabled and OpenCode is unavailable", async () => {
     const ensureServer = vi.fn(async () => "http://127.0.0.1:4096");
     const isServerRunning = vi.fn(async () => false);
     const runReview = vi.fn(async () => result());
+    const onProvenance = vi.fn();
     const executor = createOpenCodeReviewExecutor({ ensureServer, isServerRunning, runReview });
 
-    await expect(executor.execute({ review: reviewOptions() })).rejects.toThrow(
+    await expect(executor.execute({ review: reviewOptions(), onProvenance })).rejects.toThrow(
       "OpenCode server is not running on port 4096",
     );
     expect(ensureServer).not.toHaveBeenCalled();
     expect(runReview).not.toHaveBeenCalled();
+    expect(onProvenance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runtime: expect.objectContaining({ name: "opencode", adapterVersion: expect.any(String) }),
+      }),
+    );
+    expect(onProvenance).toHaveBeenLastCalledWith(
+      expect.objectContaining({ failureCategory: "unknown" }),
+    );
   });
 
   it("starts OpenCode before forwarding an aborted review signal", async () => {
