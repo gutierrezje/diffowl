@@ -206,10 +206,11 @@ describe("executeCodexReview", () => {
     );
   });
 
-  it("does not query model capabilities or send effort when no variant is selected", async () => {
+  it("checks the model catalog but sends no effort when no variant is selected", async () => {
     const outcome = await executeCodexReview(makeInput("reasoning-no-variant"));
 
     expect(outcome.reviewResult.report).toEqual({ summary: "schema summary", findings: [] });
+    expect(outcome.evidence.events).toContain("sent:model/list");
   });
 
   it("validates and forwards a supported opaque reasoning effort", async () => {

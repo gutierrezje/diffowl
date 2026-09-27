@@ -1,62 +1,52 @@
 import { performance } from "node:perf_hooks";
 import { ReviewCancelledError } from "../review/errors.js";
 import { formatReasoningVariantGuidance } from "../review/reasoning.js";
+import { findCodexModel, formatMissingCodexModelWarning, type ModelListParams } from "./model-availability.js";
 import { CodexTimeoutError, codexProtocolError } from "./errors.js";
-import {
-  isRecord,
-  isText,
-  type CodexJsonObject,
-  type CodexJsonValue,
-} from "./types.js";
+import { isRecord, isText, type CodexJsonObject, type CodexJsonValue } from "./types.js";
 
-export type ReasoningVariantResolution =
-  | { kind: "supported"; variant: string }
-  | { kind: "unsupported"; warning: string }
-  | { kind: "unavailable"; variant: string; warning: string };
-
-type ModelListRequestParameters = {
-  includeHidden: true;
-  limit: number;
-  cursor?: string;
+export type CodexModelResolution = {
+  variant: string | undefined;
+  warning?: string;
 };
 
-export type ResolveReasoningVariantInput = {
+export type ResolveCodexModelInput = {
   model: string;
-  variant: string;
+  variant: string | undefined;
   deadline: number;
   events: string[];
   signal?: AbortSignal;
   requestModelList: (
-    params: ModelListRequestParameters,
+    params: ModelListParams,
     deadline: number,
     signal?: AbortSignal,
   ) => Promise<CodexJsonValue | undefined>;
 };
 
-type ModelListPage = {
-  models: CodexJsonObject[];
-  nextCursor: CodexJsonValue | undefined;
-};
-
 const REASONING_VARIANT_VALIDATION_TIMEOUT_MS = 1_000;
 
-export async function resolveCodexReasoningVariant(
-  input: ResolveReasoningVariantInput,
-): Promise<ReasoningVariantResolution> {
+export async function resolveCodexModelCapabilities(
+  input: ResolveCodexModelInput,
+): Promise<CodexModelResolution> {
   const validationDeadline = Math.min(
     input.deadline,
     performance.now() + REASONING_VARIANT_VALIDATION_TIMEOUT_MS,
   );
   try {
-    const supportedVariants = await loadSupportedReasoningEfforts(
-      input,
-      validationDeadline,
-    );
+    const model = await loadCodexModel(input, validationDeadline);
+    if (model === null) {
+      return {
+        variant: input.variant,
+        warning: formatMissingCodexModelWarning(input.model),
+      };
+    }
+    if (input.variant === undefined) return { variant: undefined };
+    const supportedVariants = parseSupportedReasoningEfforts(model);
     if (supportedVariants.includes(input.variant)) {
-      return { kind: "supported", variant: input.variant };
+      return { variant: input.variant };
     }
     return {
-      kind: "unsupported",
+      variant: undefined,
       warning: `Codex model "${input.model}" does not advertise reasoning variant "${input.variant}"; continuing with backend default. ${formatReasoningVariantGuidance(supportedVariants)}`,
     };
   } catch (error) {
@@ -67,54 +57,24 @@ export async function resolveCodexReasoningVariant(
     ) {
       throw error;
     }
+    if (input.variant === undefined) return { variant: undefined };
     return {
-      kind: "unavailable",
       variant: input.variant,
       warning: `Codex model "${input.model}" reasoning variant validation was unavailable; forwarding requested variant "${input.variant}" unchanged. If Codex rejects it, remove the one-review \`--reasoning\` override or run \`diffowl reasoning --reset\` to clear the saved preference.`,
     };
   }
 }
 
-async function loadSupportedReasoningEfforts(
-  input: ResolveReasoningVariantInput,
+async function loadCodexModel(
+  input: ResolveCodexModelInput,
   deadline: number,
-): Promise<string[]> {
-  let cursor: string | undefined;
-  const seenCursors = new Set<string>();
-  while (true) {
-    const params =
-      cursor === undefined
-        ? { includeHidden: true as const, limit: 100 }
-        : { includeHidden: true as const, limit: 100, cursor };
+): Promise<CodexJsonObject | null> {
+  return findCodexModel(input.model, async (params) => {
     input.events.push("sent:model/list");
     const response = await input.requestModelList(params, deadline, input.signal);
     input.events.push("received:model/list");
-    const page = parseModelListPage(response);
-    const selected = page.models.find((candidate) => modelListEntryMatches(candidate, input.model));
-    if (selected !== undefined) return parseSupportedReasoningEfforts(selected);
-    const nextCursor = parseModelListNextCursor(page.nextCursor);
-    if (nextCursor === null) {
-      throw codexProtocolError(`model/list missing model ${input.model}`);
-    }
-    if (seenCursors.has(nextCursor)) {
-      throw codexProtocolError("model/list repeated nextCursor");
-    }
-    seenCursors.add(nextCursor);
-    cursor = nextCursor;
-  }
-}
-
-function parseModelListPage(value: CodexJsonValue | undefined): ModelListPage {
-  if (!isRecord(value)) throw codexProtocolError("model/list must be an object");
-  const models = value["data"];
-  if (!Array.isArray(models)) throw codexProtocolError("model/list.data");
-  return { models: models.filter(isRecord), nextCursor: value["nextCursor"] };
-}
-
-function parseModelListNextCursor(value: CodexJsonValue | undefined): string | null {
-  if (value === null) return null;
-  if (!isText(value) || value === "") throw codexProtocolError("model/list.nextCursor");
-  return value;
+    return response;
+  });
 }
 
 function parseSupportedReasoningEfforts(model: CodexJsonObject): string[] {
@@ -134,8 +94,4 @@ function parseSupportedReasoningEfforts(model: CodexJsonObject): string[] {
     }
     return effort === "" ? [] : [effort];
   });
-}
-
-function modelListEntryMatches(value: CodexJsonObject, model: string): boolean {
-  return value["id"] === model || value["model"] === model;
 }

@@ -13,6 +13,7 @@ const reasoningModes = [
   "reasoning-model-list-error",
   "reasoning-model-list-malformed",
   "reasoning-model-list-timeout",
+  "model-not-advertised",
 ];
 if (
   [
@@ -40,6 +41,7 @@ if (
     "canonical-cwd",
     "turn-status",
     "turn-failed",
+    "turn-failed-usage-limit",
     "turn-failed-empty-info",
     "usage-omitted",
     "model-rerouted",
@@ -147,6 +149,7 @@ const markerModes = [
   "canonical-cwd",
   "turn-status",
   "turn-failed",
+  "turn-failed-usage-limit",
   "turn-failed-empty-info",
   "usage-omitted",
   "model-rerouted",
@@ -281,7 +284,6 @@ function handleMarker(message) {
     return;
   }
   if (
-    reasoningModes.includes(mode) &&
     (markerStep === 3 || (mode === "reasoning-paginated" && markerStep === 3.25)) &&
     message.method === "model/list" &&
     isNumber(message.id)
@@ -321,10 +323,9 @@ function handleMarker(message) {
       send({ id: message.id, result: { data: "not-an-array", nextCursor: null } });
       return;
     }
-    const variants =
-      modelListVariants === undefined || modelListVariants === ""
-        ? []
-        : modelListVariants.split(",");
+    const variants = (modelListVariants ?? expectedReasoningVariant ?? "")
+      .split(",")
+      .filter(Boolean);
     if (mode === "reasoning-supported-no-cursor") {
       send({
         id: message.id,
@@ -345,8 +346,8 @@ function handleMarker(message) {
       result: {
         data: [
           {
-            id: expectedModel,
-            model: expectedModel,
+            id: mode === "model-not-advertised" ? "another-model" : expectedModel,
+            model: mode === "model-not-advertised" ? "another-model" : expectedModel,
             supportedReasoningEfforts: variants.map((reasoningEffort) => ({ reasoningEffort })),
           },
         ],
@@ -596,7 +597,7 @@ function handleMarker(message) {
         });
       }
     }
-    if (["turn-failed", "turn-failed-empty-info", "turn-failed-mutates"].includes(mode)) {
+    if (["turn-failed", "turn-failed-usage-limit", "turn-failed-empty-info", "turn-failed-mutates"].includes(mode)) {
       if (mode === "turn-failed-mutates") writeFileSync("codex-mutated.txt", "provider mutation\n");
       send({
         method: "turn/completed",
@@ -608,7 +609,12 @@ function handleMarker(message) {
             items: [],
             error: {
               message: mode === "turn-failed-empty-info" ? "" : "provider failed",
-              codexErrorInfo: mode === "turn-failed-empty-info" ? "other" : null,
+              codexErrorInfo:
+                mode === "turn-failed-usage-limit"
+                  ? "usageLimitExceeded"
+                  : mode === "turn-failed-empty-info"
+                    ? "other"
+                    : null,
               additionalDetails: mode === "turn-failed-empty-info" ? null : "provider detail",
               futureField: "ignored",
             },
@@ -900,6 +906,7 @@ input.on("close", () => {
       "canonical-cwd",
       "turn-status",
       "turn-failed",
+      "turn-failed-usage-limit",
       "turn-failed-empty-info",
       "usage-omitted",
       "model-rerouted",

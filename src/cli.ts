@@ -37,6 +37,7 @@ import {
   type ReviewSelection,
 } from "./review/backend-selection.js";
 import { parseReasoningVariant } from "./review/reasoning.js";
+import { formatMissingCodexModelWarning, inspectCodexModelAvailability } from "./codex/model-availability.js";
 import {
   getAvailableModels,
 } from "./opencode/client.js";
@@ -978,6 +979,7 @@ program
         ),
       );
       console.log(chalk.dim(`Local preference: ${configPath}`));
+      if (backend === "codex") await warnCodexModelAvailability(parsedModel);
       return;
     }
 
@@ -1177,6 +1179,7 @@ async function selectNativeModelInteractively(options: {
         const model = parseBackendModel(options.backend, raw);
         await saveReviewBackendModel(options.backend, model);
         console.log(chalk.green(`✓ ${label} model set to ${chalk.cyan(model)}`));
+        if (options.backend === "codex") await warnCodexModelAvailability(model);
         console.log();
         return;
       } catch {
@@ -1187,6 +1190,23 @@ async function selectNativeModelInteractively(options: {
     }
   } finally {
     rl.close();
+  }
+}
+
+async function warnCodexModelAvailability(model: string): Promise<void> {
+  const availability = await inspectCodexModelAvailability(model);
+  if (availability === "not-advertised") {
+    console.warn(
+      chalk.yellow(
+        `⚠ ${formatMissingCodexModelWarning(model)}`,
+      ),
+    );
+  } else if (availability === "unverified") {
+    console.warn(
+      chalk.yellow(
+        `⚠ Could not verify Codex model "${model}" against the current account. The preference was saved; open \`codex\` and run \`/model\` before reviewing.`,
+      ),
+    );
   }
 }
 

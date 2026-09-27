@@ -30,8 +30,8 @@ import {
   codexProtocolError as protocolError,
 } from "./errors.js";
 import {
-  resolveCodexReasoningVariant,
-  type ResolveReasoningVariantInput,
+  resolveCodexModelCapabilities,
+  type ResolveCodexModelInput,
 } from "./model-capabilities.js";
 import {
   ensureThrownValue,
@@ -478,43 +478,25 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     const email = accountValue["email"];
     if (email !== null && !isText(email)) throw protocolError("account/read.account.email");
 
-    let validatedReasoningVariant = input.reasoningVariant;
-    if (input.reasoningVariant !== undefined) {
-      const capabilityInput: ResolveReasoningVariantInput = {
-        model: input.model,
-        variant: input.reasoningVariant,
-        deadline,
-        events,
-        requestModelList: (params, requestDeadline, signal) =>
-          requestWithin(
-            peer,
-            "model/list",
-            params,
-            requestDeadline,
-            "model/list",
-            signal,
-          ),
-      };
-      if (input.signal !== undefined) capabilityInput.signal = input.signal;
-      const reasoning = await resolveCodexReasoningVariant(capabilityInput);
-      switch (reasoning.kind) {
-        case "supported":
-          validatedReasoningVariant = reasoning.variant;
-          break;
-        case "unsupported":
-          validatedReasoningVariant = undefined;
-          addRuntimeDiagnostic(reasoning.warning);
-          break;
-        case "unavailable":
-          validatedReasoningVariant = reasoning.variant;
-          addRuntimeDiagnostic(reasoning.warning);
-          break;
-        default: {
-          const exhaustive: never = reasoning;
-          throw new Error(`Unhandled reasoning variant resolution: ${String(exhaustive)}`);
-        }
-      }
-    }
+    const capabilityInput: ResolveCodexModelInput = {
+      model: input.model,
+      variant: input.reasoningVariant,
+      deadline,
+      events,
+      requestModelList: (params, requestDeadline, signal) =>
+        requestWithin(
+          peer,
+          "model/list",
+          params,
+          requestDeadline,
+          "model/list",
+          signal,
+        ),
+    };
+    if (input.signal !== undefined) capabilityInput.signal = input.signal;
+    const capabilities = await resolveCodexModelCapabilities(capabilityInput);
+    const validatedReasoningVariant = capabilities.variant;
+    if (capabilities.warning !== undefined) addRuntimeDiagnostic(capabilities.warning);
 
     events.push("sent:thread/start");
     const thread = asRecord(

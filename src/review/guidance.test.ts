@@ -47,4 +47,21 @@ describe("getReviewBackendFailureGuidance", () => {
     expect(guidance).toContain("Codex rejected the selected model");
     expect(guidance).not.toContain("private");
   });
+
+  it("explains a structured Codex usage limit error", () => {
+    const guidance = getReviewBackendFailureGuidance("codex", {
+      message: "Turn failed",
+      codexErrorInfo: "usageLimitExceeded",
+    }).join("\n");
+
+    expect(guidance).toContain("Codex usage limit reached");
+    expect(guidance).toContain("run `/status`");
+  });
+
+  it("does not describe transient rate limiting as account usage exhaustion", () => {
+    const guidance = getReviewBackendFailureGuidance("codex", "Rate limit exceeded").join("\n");
+
+    expect(guidance).toContain("temporarily rate limited");
+    expect(guidance).not.toContain("usage limit reached");
+  });
 });
