@@ -69,6 +69,42 @@ describe("Claude review executor", () => {
     await expect(execute(directory, mode)).rejects.toThrow(message);
   });
 
+  it.each(["invalid", "protocol", "timeout", "cancel"])(
+    "reports repository mutations when the review ends through %s",
+    async (mode) => {
+      const directory = await repository();
+      const controller = new AbortController();
+      const promise = execute(
+        directory,
+        `mutation-${mode}`,
+        {},
+        controller.signal,
+        mode === "timeout" ? 1 : 5,
+      );
+      try {
+        if (mode === "cancel") {
+          await vi.waitFor(async () => {
+            expect(await readFile(join(directory, "sample.ts"), "utf8")).toBe("mutation\n");
+          });
+          controller.abort();
+        }
+        await expect(promise).rejects.toThrow(
+          "Repository changed during Claude review: sample.ts.",
+        );
+      } finally {
+        controller.abort();
+        await promise.catch(() => undefined);
+      }
+    },
+  );
+
+  it("retains the execution error when the final repository check also fails", async () => {
+    const directory = await repository();
+    const promise = execute(directory, "cleanup-failure");
+    await expect(promise).rejects.toThrow("invalid protocol");
+    await expect(promise).rejects.toThrow("Repository check failed");
+  });
+
   it("uses one total deadline for a hung review", async () => {
     const directory = await repository();
     await expect(execute(directory, "hang", {}, undefined, 0.1)).rejects.toBeInstanceOf(

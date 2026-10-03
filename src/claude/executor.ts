@@ -96,10 +96,49 @@ async function execute(
     timeoutMs,
   );
   try {
-    return await executeReview(options, input, controller.signal);
-  } catch (error) {
-    if (controller.signal.aborted) controller.signal.throwIfAborted();
-    throw error;
+    const before = await captureRepositoryState(input.review.directory, {
+      signal: controller.signal,
+    }).catch((error: Error) => {
+      controller.signal.throwIfAborted();
+      throw error;
+    });
+    let outcome: { result: ReviewExecutionResult } | { error: Error };
+    try {
+      outcome = { result: await executeReview(options, input, controller.signal) };
+    } catch (error) {
+      const failure: unknown = controller.signal.aborted ? controller.signal.reason : error;
+      outcome = { error: failure instanceof Error ? failure : new Error(String(failure)) };
+    }
+    clearTimeout(timer);
+    // Cancellation must not skip the integrity check after the child has been stopped.
+    const cleanup = new AbortController();
+    const cleanupTimer = setTimeout(
+      () => cleanup.abort(new Error("Claude repository check deadline exceeded.")),
+      closeTimeoutMs,
+    );
+    try {
+      const after = await captureRepositoryState(input.review.directory, {
+        signal: cleanup.signal,
+      }).catch((error: Error) => {
+        if ("error" in outcome)
+          throw new AggregateError(
+            [outcome.error, error],
+            `${outcome.error.message} Repository check failed: ${error.message}`,
+          );
+        throw error;
+      });
+      const comparison = compareRepositoryStates(before, after);
+      if (comparison.kind === "changed")
+        throw new Error(
+          `Repository changed during Claude review: ${comparison.changedPaths.join(", ")}.`,
+          { cause: "error" in outcome ? outcome.error : undefined },
+        );
+    } finally {
+      clearTimeout(cleanupTimer);
+    }
+    if ("error" in outcome) throw outcome.error;
+    controller.signal.throwIfAborted();
+    return outcome.result;
   } finally {
     clearTimeout(timer);
     input.review.signal?.removeEventListener("abort", onAbort);
@@ -112,7 +151,6 @@ async function executeReview(
   signal: AbortSignal,
 ): Promise<ReviewExecutionResult> {
   const started = performance.now();
-  const before = await captureRepositoryState(input.review.directory, { signal });
   const prompts = resolveReviewPrompts({ ...input.review, documentMode: "native-json" });
   input.onStatus?.("Reviewing changes with Claude Code...");
   const usages: ReviewUsage[] = [];
@@ -159,14 +197,6 @@ async function executeReview(
       prompt = `${prompts.user}\n\nPrevious review document:\n${JSON.stringify(terminal.structured_output ?? null)}\n\n${decision.userMessage}`;
       continue;
     }
-    const comparison = compareRepositoryStates(
-      before,
-      await captureRepositoryState(input.review.directory, { signal }),
-    );
-    if (comparison.kind === "changed")
-      throw new Error(
-        `Repository changed during Claude review: ${comparison.changedPaths.join(", ")}.`,
-      );
     const result: ReviewExecutionResult = {
       review: { report: decision.report, sessionId: terminal.session_id },
       timings: [

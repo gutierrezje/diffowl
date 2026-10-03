@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import { execa } from "execa";
 
 const args = process.argv.slice(2);
@@ -33,8 +33,14 @@ if (mode === "descendant" || mode === "descendant-pipe" || mode === "descendant-
   child.unref();
   await writeFile(process.env.MOCK_CLAUDE_EVIDENCE, String(child.pid));
 }
+if (mode?.startsWith("mutation-")) await writeFile("sample.ts", "mutation\n");
+if (mode === "cleanup-failure") await rm(".git", { recursive: true, force: true });
+if (mode === "mutation-protocol" || mode === "cleanup-failure") {
+  process.stdout.write("invalid protocol\n");
+  process.exit(0);
+}
 const output =
-  mode === "invalid" || (mode === "retry" && !repairing)
+  mode === "mutation-invalid" || mode === "invalid" || (mode === "retry" && !repairing)
     ? { summary: "Incomplete review" }
     : { summary: repairing ? "Repaired review" : "Synthetic review", findings: [] };
 emit({
@@ -46,7 +52,12 @@ emit({
   mcp_servers: [],
   plugins: [],
 });
-if (mode === "hang" || mode === "descendant-pipe-hang")
+if (
+  mode === "hang" ||
+  mode === "descendant-pipe-hang" ||
+  mode === "mutation-timeout" ||
+  mode === "mutation-cancel"
+)
   await new Promise(() => setInterval(() => {}, 1_000));
 if (process.env.MOCK_CLAUDE_MODE === "unsafe-tool")
   emit({
