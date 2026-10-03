@@ -16,6 +16,12 @@ const repairing =
   prompt.includes("previous review document failed schema validation") &&
   prompt.includes("Synthetic local context");
 const mode = process.env.MOCK_CLAUDE_MODE;
+if (mode === "windows-missing-runtime") {
+  process.stderr.write(
+    "'claude' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+  );
+  process.exit(1);
+}
 if (mode === "descendant" || mode === "descendant-pipe" || mode === "descendant-pipe-hang") {
   const child = execa(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
     detached: false,

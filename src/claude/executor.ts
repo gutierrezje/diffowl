@@ -322,7 +322,12 @@ async function runAttempt(
   }
   if (failure) throw failure;
   signal.throwIfAborted();
-  if (exit.failed && exit.code === "ENOENT") {
+  // Windows command lookup can fail through cmd.exe without an ENOENT code.
+  if (
+    exit.failed &&
+    (exit.code === "ENOENT" ||
+      (!init && exit.stderr.includes("is not recognized as an internal or external command")))
+  ) {
     throw new Error(
       "Claude Code executable was not found. Install Claude Code and ensure `claude` is on PATH.",
     );

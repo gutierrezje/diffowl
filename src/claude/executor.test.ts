@@ -56,6 +56,7 @@ describe("Claude review executor", () => {
   });
 
   it.each([
+    ["windows-missing-runtime", "Claude Code executable was not found"],
     ["invalid", "after 3 attempts"],
     ["authentication", "Login expired"],
     ["missing-result", "without a review"],
