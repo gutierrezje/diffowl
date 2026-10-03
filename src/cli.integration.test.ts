@@ -31,6 +31,7 @@ import type { FindingCandidate, PossibleDuplicateRecord, ReviewSeverity } from "
 const projectRoot = join(import.meta.dirname, "..");
 const cliPath = join(projectRoot, "dist/cli.js");
 const mockCodexCliPath = join(projectRoot, "src/codex/fixtures/mock-codex-cli.mjs");
+const mockClaudeCliPath = join(projectRoot, "src/claude/fixtures/mock-claude.mjs");
 const ReviewTargetDocumentSchema = z.object({
   kind: z.enum(["staged", "commit", "last-commit", "base"]),
   ref: z.string().nullable(),
@@ -41,7 +42,7 @@ const ReviewTargetDocumentSchema = z.object({
 });
 const CliReviewSchema = z.object({
   model: z.string(),
-  backend: z.enum(["opencode", "codex", "cursor"]),
+  backend: z.enum(["opencode", "codex", "cursor", "claude"]),
   requested_model: z.string(),
   effective_model: z.string().nullable(),
   preference_source: z.json(),
@@ -266,6 +267,47 @@ describe("diffowl CLI", () => {
     expect(await readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).not.toContain(
       "composer-2.5",
     );
+  });
+
+  it("keeps Claude model preferences separate and suggests Sonnet for interactive setup", async () => {
+    const repo = await createRepo("diffowl-cli-claude-preferences-");
+    const run = (...args: string[]) =>
+      execa(process.execPath, [cliPath, ...args], { cwd: repo, reject: false });
+
+    expect((await run("backend", "claude")).stdout).toContain("Backend set to Claude");
+    expect((await run("model", "sonnet")).stdout).toContain("Claude model set to sonnet");
+    await run("backend", "codex");
+    expect((await run("model", "gpt-5.4")).stdout).toContain("Codex model set to gpt-5.4");
+    await run("backend", "claude");
+
+    await expect(readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).resolves.toBe(
+      [
+        "backend: claude",
+        "models:",
+        "  - backend: opencode",
+        "    model: provider/model",
+        "  - backend: codex",
+        "    model: gpt-5.4",
+        "  - backend: claude",
+        "    model: sonnet",
+        "",
+      ].join("\n"),
+    );
+
+    const interactive = await run("model");
+    expect(interactive.exitCode).toBe(1);
+    expect(interactive.stderr).toContain("diffowl model sonnet");
+  });
+
+  it("includes Claude in backend help and runtime status", async () => {
+    const reviewHelp = await execa(process.execPath, [cliPath, "review", "--help"]);
+    const backendHelp = await execa(process.execPath, [cliPath, "backend", "--help"]);
+    const repo = await createRepo("diffowl-cli-claude-runtime-");
+    const status = await execa(process.execPath, [cliPath, "backend"], { cwd: repo });
+
+    expect(reviewHelp.stdout).toContain("claude");
+    expect(backendHelp.stdout).toContain("claude");
+    expect(status.stdout).toContain("Claude runtime:");
   });
 
   it("explains tracked and local Husky hook ownership during installation", async () => {
@@ -753,6 +795,92 @@ describe("diffowl CLI", () => {
             diff_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
           },
         },
+      });
+    },
+    30_000,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "runs the selected Claude CLI adapter and persists its review provenance",
+    async () => {
+      const repo = await createRepo("diffowl-cli-review-claude-");
+      await writeFile(join(repo, ".gitignore"), ".diffowl/\n", "utf8");
+      await mkdir(join(repo, "src"));
+      await writeFile(join(repo, "src/app.ts"), "export const value = 1;\n", "utf8");
+      await commitAll(repo, "initial");
+      await writeFile(join(repo, "src/app.ts"), "export const value = 2;\n", "utf8");
+      await commitAll(repo, "change");
+      const executable = await createMockClaudeExecutable();
+      const evidence = join(dirname(executable), "request.json");
+
+      const { stdout } = await execa(
+        process.execPath,
+        [
+          cliPath,
+          "review",
+          "--backend",
+          "claude",
+          "--model",
+          "sonnet",
+          "--reasoning",
+          "xhigh",
+          "--format",
+          "json",
+        ],
+        {
+          cwd: repo,
+          env: {
+            DIFFOWL_CLAUDE_EXECUTABLE: executable,
+            MOCK_CLAUDE_EVIDENCE: evidence,
+          },
+        },
+      );
+      const document = CliReviewDocumentSchema.parse(JSON.parse(stdout));
+      const request = JSON.parse(await readFile(evidence, "utf8"));
+
+      expect(document.review).toMatchObject({
+        backend: "claude",
+        requested_model: "sonnet",
+        effective_model: "claude-sonnet-fixture",
+        session_id: "claude-fixture-session",
+        execution: {
+          backend: "claude",
+          requested_model: "sonnet",
+          effective_model: "claude-sonnet-fixture",
+          reasoning_effort: "xhigh",
+          session_id: "claude-fixture-session",
+          terminal_outcome: "completed",
+        },
+      });
+      expect(request.args).toEqual(
+        expect.arrayContaining([
+          "--print",
+          "--output-format",
+          "stream-json",
+          "--restricted",
+          "--safe-mode",
+          "--setting-sources",
+          "",
+          "--strict-mcp-config",
+          "--mcp-config",
+          '{"mcpServers":{}}',
+          "--settings",
+          '{"disableAllHooks":true}',
+          "--tools",
+          "Read,Glob,Grep",
+          "--permission-mode",
+          "dontAsk",
+          "--permission-prompts",
+          "none",
+          "--no-session-persistence",
+          "--effort",
+          "xhigh",
+          "--json-schema",
+        ]),
+      );
+      expect(JSON.parse(request.args[request.args.indexOf("--json-schema") + 1])).toMatchObject({
+        type: "object",
+        properties: { summary: { type: "string" }, findings: { type: "array" } },
       });
     },
     30_000,
@@ -2128,6 +2256,27 @@ async function createMockCodexExecutable(
     [
       `#!${process.execPath}`,
       `(async () => import(${JSON.stringify(pathToFileURL(mockCodexCliPath).href)}))().catch((error) => {`,
+      "  console.error(error);",
+      "  process.exit(1);",
+      "});",
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  return executable;
+}
+
+async function createMockClaudeExecutable(
+  prefix = "diffowl-cli-claude-wrapper-",
+): Promise<string> {
+  const bin = await mkdtemp(join(tmpdir(), prefix));
+  tempDirs.push(bin);
+  const executable = join(bin, "claude");
+  await writeFile(
+    executable,
+    [
+      `#!${process.execPath}`,
+      `(async () => import(${JSON.stringify(pathToFileURL(mockClaudeCliPath).href)}))().catch((error) => {`,
       "  console.error(error);",
       "  process.exit(1);",
       "});",

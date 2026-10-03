@@ -19,6 +19,7 @@ const MODEL_PREFERENCE_ORDER = {
   opencode: 0,
   codex: 1,
   cursor: 2,
+  claude: 3,
 } satisfies Record<ReviewBackend, number>;
 const LegacyPreferenceFileSchema = z.object({ model: OpenCodeModelSchema }).strict();
 const CurrentPreferenceFileSchema = z

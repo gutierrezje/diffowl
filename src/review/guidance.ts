@@ -14,6 +14,41 @@ export function getReviewBackendFailureGuidance<Failure>(
   if (backend === "opencode") return getOpenCodeFailureGuidance(message);
 
   const normalized = message.toLowerCase();
+  if (backend === "claude") {
+    if (
+      normalized.includes("executable was not found") ||
+      normalized.includes("command not found") ||
+      normalized.includes("enoent")
+    ) {
+      return [
+        "Claude Code CLI is not installed.",
+        "Install Claude Code and ensure `claude` is on PATH, then retry.",
+      ];
+    }
+    if (/auth|not logged in|unauthenticated|login expired/.test(normalized)) {
+      return [
+        "Claude Code authentication is missing or expired.",
+        "Run `claude auth login`, then retry.",
+      ];
+    }
+    if (
+      normalized.includes("model") &&
+      (normalized.includes("unsupported") ||
+        normalized.includes("unknown") ||
+        normalized.includes("not found") ||
+        normalized.includes("invalid") ||
+        normalized.includes("rejected"))
+    ) {
+      return [
+        "Claude rejected the selected model.",
+        "Confirm a valid Claude model alias or id, then save it with `diffowl model <model-id>`.",
+      ];
+    }
+    return [
+      "Claude Code review failed.",
+      "Run `claude --version` and `claude auth login` to verify the local runtime, then retry.",
+    ];
+  }
   if (backend === "cursor") {
     if (/auth|api.?key|\b401\b|\b403\b/.test(normalized)) {
       return [
