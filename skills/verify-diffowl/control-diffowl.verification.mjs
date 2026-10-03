@@ -155,11 +155,19 @@ describe("control-diffowl", () => {
       await execa("git", ["-c", "commit.gpgsign=false", "commit", "-qm", "baseline"], {
         cwd: source,
       });
+      const clean = await captureSourceIdentity(source);
+      expect(clean).toMatchObject({
+        head: expect.stringMatching(/^[0-9a-f]{40}$/),
+        dirtyEntries: 0,
+      });
       await writeFile(join(source, "tracked.txt"), "first change\n");
       const first = await captureSourceIdentity(source);
       await writeFile(join(source, "tracked.txt"), "other change\n");
       const second = await captureSourceIdentity(source);
 
+      expect(first.head).toBe(clean.head);
+      expect(first.dirtyEntries).toBe(1);
+      expect(first.hash).not.toBe(clean.hash);
       expect(second.dirtyEntries).toBe(first.dirtyEntries);
       expect(second.hash).not.toBe(first.hash);
     } finally {
@@ -168,6 +176,7 @@ describe("control-diffowl", () => {
   });
 
   it("creates an owned run with an inspectable receipt and dry-run cleanup", async () => {
+    const sourceIdentity = await captureSourceIdentity(projectRoot);
     const runId = `controller-test-${process.pid}-${Date.now()}`;
     const created = await execa(
       controller,
@@ -208,7 +217,11 @@ describe("control-diffowl", () => {
         command: "doctor",
         success: true,
         identity: {
-          source: { head: expect.stringMatching(/^[0-9a-f]{40}$/), dirty: true },
+          source: {
+            head: sourceIdentity.head,
+            dirty: sourceIdentity.dirtyEntries > 0,
+            dirtyEntries: sourceIdentity.dirtyEntries,
+          },
           binary: {
             version: expect.stringMatching(/^\d+\.\d+\.\d+$/),
             hash: expect.stringMatching(/^[0-9a-f]{40}$/),

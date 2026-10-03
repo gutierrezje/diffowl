@@ -25,8 +25,8 @@ describe("inspectCodexProtocol", () => {
       expect(evidence).toMatchObject({
         codexCliVersion: "codex-cli 0.147.0",
         generatedWithoutExperimentalApi: true,
-        typesFileCount: 644,
-        jsonSchemaFileCount: 287,
+        typesFileCount: 28,
+        jsonSchemaFileCount: 19,
       });
       expect(evidence.typesSha256).toMatch(/^[0-9a-f]{64}$/);
       expect(evidence.jsonSchemaSha256).toMatch(/^[0-9a-f]{64}$/);

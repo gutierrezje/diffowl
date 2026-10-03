@@ -48,5 +48,9 @@ jobs:
       - name: Run unit tests
         run: pnpm run test --testTimeout=${{ matrix.test_timeout_ms }}
 
+      - name: Run offline verification controller tests
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '22.14.0'
+        run: pnpm run test:verification
+
       - name: Build project
         run: pnpm run build

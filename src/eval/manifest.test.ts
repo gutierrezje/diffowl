@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { DiffOwlConfig } from "../config.js";
@@ -23,7 +25,14 @@ const baseConfig: DiffOwlConfig = {
 describe("buildEvalManifest", () => {
   it("captures corpus hashes, config, and tool versions", async () => {
     const corpus = await loadEvalCorpus(corpusDir);
-    const evalCase = await loadEvalCase(join(corpusDir, "missing-validation"));
+    const caseDirectory = join(corpusDir, "missing-validation");
+    const evalCase = await loadEvalCase(caseDirectory);
+    const caseJsonHash = createHash("sha256")
+      .update(await readFile(join(caseDirectory, "case.json")))
+      .digest("hex");
+    const patchHash = createHash("sha256")
+      .update(await readFile(join(caseDirectory, "change.patch")))
+      .digest("hex");
 
     const input = {
       corpus,
@@ -47,8 +56,11 @@ describe("buildEvalManifest", () => {
     });
 
     expect(manifest.corpus_version).toBe(corpus.version);
-    expect(manifest.cases).toHaveLength(1);
-    expect(manifest.cases[0]?.id).toBe("missing-validation");
+    expect(manifest.cases).toEqual([{
+      id: "missing-validation",
+      case_json_hash: caseJsonHash,
+      patch_hash: patchHash,
+    }]);
     expect(manifest.model).toBe("override/model");
     expect(manifest.reasoning).toBeNull();
     expect(explicitBackendDefaultVariant.reasoning).toBe("backend-default");

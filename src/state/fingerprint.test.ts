@@ -37,7 +37,7 @@ describe("computeFindingFingerprint", () => {
     expect(other).not.toBe(original);
   });
 
-  it("stays stable across whitespace and casing changes", () => {
+  it("stays stable across whitespace, casing, and Unicode compatibility changes", () => {
     const spaced = computeFindingFingerprint({
       file: "  src/auth.ts  ",
       evidence: "  if (!payload)   return;  ",
@@ -46,8 +46,18 @@ describe("computeFindingFingerprint", () => {
       file: "src/auth.ts",
       evidence: "if (!payload) return;",
     });
+    const cased = computeFindingFingerprint({
+      file: "SRC/AUTH.TS",
+      evidence: "IF (!PAYLOAD) RETURN;",
+    });
+    const compatibility = computeFindingFingerprint({
+      file: "ｓｒｃ／ａｕｔｈ．ｔｓ",
+      evidence: "ＩＦ　（！ＰＡＹＬＯＡＤ）　ＲＥＴＵＲＮ；",
+    });
 
     expect(spaced).toBe(compact);
+    expect(cased).toBe(compact);
+    expect(compatibility).toBe(compact);
   });
 
   it("returns null when evidence is missing or whitespace-only", () => {
