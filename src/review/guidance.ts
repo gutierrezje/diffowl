@@ -5,7 +5,7 @@ import type { ReviewBackend } from "./backend-selection.js";
 const RpcFailureSchema = z.object({
   rpcError: z.object({ message: z.string() }),
 });
-const CodexUsageLimitSchema = z.object({ codexErrorInfo: z.literal("usageLimitExceeded") });
+const CodexErrorKindSchema = z.object({ codexErrorInfo: z.string() });
 
 export function getReviewBackendFailureGuidance<Failure>(
   backend: ReviewBackend,
@@ -31,16 +31,14 @@ export function getReviewBackendFailureGuidance<Failure>(
       "Cursor SDK review failed. Check `diffowl cursor status` and the error above, then retry.",
     ];
   }
-  if (
-    CodexUsageLimitSchema.safeParse(error).success ||
-    /usage limit|quota exceeded/.test(normalized)
-  ) {
+  const errorKind = CodexErrorKindSchema.safeParse(error).data?.codexErrorInfo;
+  if (errorKind === "usageLimitExceeded" || /usage limit|quota exceeded/.test(normalized)) {
     return [
       "Codex usage limit reached.",
       "Open `codex` and run `/status` to check remaining usage and reset time, then retry after the limit resets.",
     ];
   }
-  if (normalized.includes("rate limit")) {
+  if (errorKind === "rateLimitExceeded" || normalized.includes("rate limit")) {
     return ["Codex is temporarily rate limited. Wait briefly, then retry the review."];
   }
   if (

@@ -61,9 +61,10 @@ export async function inspectCodexModelAvailability(model: string): Promise<Code
     );
     peer.notify("initialized");
     const account = await peer.request("account/read", { refreshToken: false }, { signal });
-    if (!isRecord(account) || !isRecord(account["account"]) || account["account"]["type"] !== "chatgpt") {
-      return "not-chatgpt";
-    }
+    const accountValue = isRecord(account) ? account["account"] : undefined;
+    if (accountValue === null) return "not-chatgpt";
+    if (!isRecord(accountValue) || !isText(accountValue["type"])) return "unverified";
+    if (accountValue["type"] !== "chatgpt") return "not-chatgpt";
 
     const activePeer = peer;
     const selected = await findCodexModel(model, (params) =>
