@@ -466,6 +466,29 @@ describe("diffowl CLI", () => {
     30_000,
   );
 
+  it.skipIf(process.platform === "win32")(
+    "tells a non-ChatGPT Codex account to sign in when saving a model",
+    async () => {
+      const repo = await createRepo("diffowl-cli-codex-model-apikey-");
+      await execa("node", [cliPath, "backend", "codex"], { cwd: repo });
+      const executable = await createMockCodexExecutable();
+
+      const result = await execa("node", [cliPath, "model", "gpt-6-luna"], {
+        cwd: repo,
+        env: {
+          DIFFOWL_CODEX_EXECUTABLE: executable,
+          MOCK_APP_SERVER_MODE: "auth-apikey",
+          MOCK_APP_SERVER_MODEL: "gpt-6-luna",
+        },
+      });
+
+      expect(result.stdout).toContain("Codex model set to gpt-6-luna");
+      expect(result.stderr).toContain("sign in with ChatGPT");
+      expect(result.stderr).not.toContain("/model");
+    },
+    30_000,
+  );
+
   it("stores and resets an arbitrary reasoning variant for the selected model", async () => {
     const repo = await createRepo("diffowl-cli-reasoning-");
     const configPath = join(repo, ".diffowl.yml");
@@ -1022,7 +1045,7 @@ describe("diffowl CLI", () => {
   );
 
   it.skipIf(process.platform === "win32")(
-    "warns before reviewing with a Codex model absent from the current catalog",
+    "warns when a reasoning check finds the Codex model absent from the catalog",
     async () => {
       const repo = await createRepo("diffowl-cli-review-model-warning-");
       await stageCodeChange(repo);
@@ -1030,13 +1053,24 @@ describe("diffowl CLI", () => {
 
       const result = await execa(
         process.execPath,
-        [cliPath, "review", "--staged", "--backend", "codex", "--model", "gpt-6-luna"],
+        [
+          cliPath,
+          "review",
+          "--staged",
+          "--backend",
+          "codex",
+          "--model",
+          "gpt-6-luna",
+          "--reasoning",
+          "high",
+        ],
         {
           cwd: repo,
           env: {
             DIFFOWL_CODEX_EXECUTABLE: executable,
             MOCK_APP_SERVER_MODE: "model-not-advertised",
             MOCK_APP_SERVER_MODEL: "gpt-6-luna",
+            MOCK_APP_SERVER_REASONING_VARIANT: "high",
           },
         },
       );

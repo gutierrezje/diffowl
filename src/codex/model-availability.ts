@@ -4,7 +4,7 @@ import { codexProtocolError } from "./errors.js";
 import { isRecord, isText, type CodexJsonObject, type CodexJsonValue } from "./types.js";
 import packageJson from "../../package.json" with { type: "json" };
 
-export type CodexModelAvailability = "available" | "not-advertised" | "unverified";
+export type CodexModelAvailability = "available" | "not-advertised" | "not-chatgpt" | "unverified";
 export type ModelListParams = { includeHidden: true; limit: 100; cursor?: string };
 
 export function formatMissingCodexModelWarning(model: string): string {
@@ -62,7 +62,7 @@ export async function inspectCodexModelAvailability(model: string): Promise<Code
     peer.notify("initialized");
     const account = await peer.request("account/read", { refreshToken: false }, { signal });
     if (!isRecord(account) || !isRecord(account["account"]) || account["account"]["type"] !== "chatgpt") {
-      return "unverified";
+      return "not-chatgpt";
     }
 
     const activePeer = peer;

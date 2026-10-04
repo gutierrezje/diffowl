@@ -478,25 +478,30 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
     const email = accountValue["email"];
     if (email !== null && !isText(email)) throw protocolError("account/read.account.email");
 
-    const capabilityInput: ResolveCodexModelInput = {
-      model: input.model,
-      variant: input.reasoningVariant,
-      deadline,
-      events,
-      requestModelList: (params, requestDeadline, signal) =>
-        requestWithin(
-          peer,
-          "model/list",
-          params,
-          requestDeadline,
-          "model/list",
-          signal,
-        ),
-    };
-    if (input.signal !== undefined) capabilityInput.signal = input.signal;
-    const capabilities = await resolveCodexModelCapabilities(capabilityInput);
-    const validatedReasoningVariant = capabilities.variant;
-    if (capabilities.warning !== undefined) addRuntimeDiagnostic(capabilities.warning);
+    // The catalog is queried only to validate a requested effort; a missing model then
+    // warns for free. Reviews without an effort leave model rejection to the provider.
+    let validatedReasoningVariant = input.reasoningVariant;
+    if (input.reasoningVariant !== undefined) {
+      const capabilityInput: ResolveCodexModelInput = {
+        model: input.model,
+        variant: input.reasoningVariant,
+        deadline,
+        events,
+        requestModelList: (params, requestDeadline, signal) =>
+          requestWithin(
+            peer,
+            "model/list",
+            params,
+            requestDeadline,
+            "model/list",
+            signal,
+          ),
+      };
+      if (input.signal !== undefined) capabilityInput.signal = input.signal;
+      const capabilities = await resolveCodexModelCapabilities(capabilityInput);
+      validatedReasoningVariant = capabilities.variant;
+      if (capabilities.warning !== undefined) addRuntimeDiagnostic(capabilities.warning);
+    }
 
     events.push("sent:thread/start");
     const thread = asRecord(

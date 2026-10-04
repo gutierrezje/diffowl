@@ -5,7 +5,7 @@ import type { ReviewBackend } from "./backend-selection.js";
 const RpcFailureSchema = z.object({
   rpcError: z.object({ message: z.string() }),
 });
-const CodexFailureSchema = z.object({ codexErrorInfo: z.unknown() });
+const CodexUsageLimitSchema = z.object({ codexErrorInfo: z.literal("usageLimitExceeded") });
 
 export function getReviewBackendFailureGuidance<Failure>(
   backend: ReviewBackend,
@@ -31,10 +31,8 @@ export function getReviewBackendFailureGuidance<Failure>(
       "Cursor SDK review failed. Check `diffowl cursor status` and the error above, then retry.",
     ];
   }
-  const codexErrorInfo = CodexFailureSchema.safeParse(error);
-  const errorKind = codexErrorInfo.success ? JSON.stringify(codexErrorInfo.data.codexErrorInfo) : "";
   if (
-    errorKind?.toLowerCase().includes("usagelimitexceeded") ||
+    CodexUsageLimitSchema.safeParse(error).success ||
     /usage limit|quota exceeded/.test(normalized)
   ) {
     return [

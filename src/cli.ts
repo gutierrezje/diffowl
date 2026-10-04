@@ -1201,6 +1201,12 @@ async function warnCodexModelAvailability(model: string): Promise<void> {
         `⚠ ${formatMissingCodexModelWarning(model)}`,
       ),
     );
+  } else if (availability === "not-chatgpt") {
+    console.warn(
+      chalk.yellow(
+        "⚠ Codex is not signed in with ChatGPT, which DiffOwl reviews require. The preference was saved; open `codex` and sign in with ChatGPT before reviewing.",
+      ),
+    );
   } else if (availability === "unverified") {
     console.warn(
       chalk.yellow(

@@ -284,6 +284,7 @@ function handleMarker(message) {
     return;
   }
   if (
+    reasoningModes.includes(mode) &&
     (markerStep === 3 || (mode === "reasoning-paginated" && markerStep === 3.25)) &&
     message.method === "model/list" &&
     isNumber(message.id)
@@ -323,9 +324,10 @@ function handleMarker(message) {
       send({ id: message.id, result: { data: "not-an-array", nextCursor: null } });
       return;
     }
-    const variants = (modelListVariants ?? expectedReasoningVariant ?? "")
-      .split(",")
-      .filter(Boolean);
+    const variants =
+      modelListVariants === undefined || modelListVariants === ""
+        ? []
+        : modelListVariants.split(",");
     if (mode === "reasoning-supported-no-cursor") {
       send({
         id: message.id,

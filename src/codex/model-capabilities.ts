@@ -12,7 +12,7 @@ export type CodexModelResolution = {
 
 export type ResolveCodexModelInput = {
   model: string;
-  variant: string | undefined;
+  variant: string;
   deadline: number;
   events: string[];
   signal?: AbortSignal;
@@ -40,7 +40,6 @@ export async function resolveCodexModelCapabilities(
         warning: formatMissingCodexModelWarning(input.model),
       };
     }
-    if (input.variant === undefined) return { variant: undefined };
     const supportedVariants = parseSupportedReasoningEfforts(model);
     if (supportedVariants.includes(input.variant)) {
       return { variant: input.variant };
@@ -57,7 +56,6 @@ export async function resolveCodexModelCapabilities(
     ) {
       throw error;
     }
-    if (input.variant === undefined) return { variant: undefined };
     return {
       variant: input.variant,
       warning: `Codex model "${input.model}" reasoning variant validation was unavailable; forwarding requested variant "${input.variant}" unchanged. If Codex rejects it, remove the one-review \`--reasoning\` override or run \`diffowl reasoning --reset\` to clear the saved preference.`,
