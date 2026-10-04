@@ -42,6 +42,7 @@ describe("installHook", () => {
     await execa("git", ["init"], { cwd: root });
 
     const hookPath = join(root, ".git", "hooks", "post-commit");
+    await mkdir(dirname(hookPath), { recursive: true });
     await writeFile(
       hookPath,
       [
@@ -186,6 +187,7 @@ describe("installHook", () => {
       "# end-diffowl",
       "",
     ].join("\n");
+    await mkdir(dirname(localLauncher), { recursive: true });
     await writeFile(localLauncher, unownedLauncher, "utf-8");
     process.chdir(root);
 

@@ -274,15 +274,12 @@ async function generate(output, extension = ".ts") {
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, `${content}\n`);
   }
-  const count = extension === ".ts" ? 617 : 269;
-  for (let index = 0; index < count; index += 1) {
-    const path = join(output, "generated", `Extra${String(index).padStart(3, "0")}${extension}`);
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(
-      path,
-      JSON.stringify({ index, variant: process.env.MOCK_CLI_EXTRA_VARIANT ?? "base" }) + "\n",
-    );
-  }
+  const extraPath = join(output, "generated", `Extra000${extension}`);
+  await mkdir(dirname(extraPath), { recursive: true });
+  await writeFile(
+    extraPath,
+    JSON.stringify({ index: 0, variant: process.env.MOCK_CLI_EXTRA_VARIANT ?? "base" }) + "\n",
+  );
   const marker = process.env.MOCK_CLI_MARKER_FILE;
   if (marker) await writeFile(marker, `${dirname(output)}\n`);
 }

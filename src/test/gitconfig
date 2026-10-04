@@ -1,0 +1,9 @@
+[user]
+	name = DiffOwl Test
+	email = test@example.invalid
+[init]
+	defaultBranch = main
+[commit]
+	gpgSign = false
+[core]
+	autocrlf = false

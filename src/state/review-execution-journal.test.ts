@@ -284,7 +284,8 @@ describe("review execution journal", () => {
     async (activity) => {
     const dir = await createTempDir();
     const operation = capturedOperation(`op_${activity}_activity_flush`);
-    const telemetry = createReviewExecutionTelemetry();
+    const clock = manualTelemetryClock();
+    const telemetry = createReviewExecutionTelemetry({ clock });
     telemetry.record({ type: "phase", phase: "turn-start", attempt: 1 });
     const journal = await startReviewExecutionJournal(dir, {
       operation,
@@ -294,14 +295,29 @@ describe("review execution journal", () => {
 
     journal.record({ type: "activity", activity });
     journal.record({ type: "activity", activity });
+    clock.advanceTo(999);
+    journal.record({ type: "activity", activity });
 
-    const runningState = await openStateDatabase(dir);
+    const coalescedState = await openStateDatabase(dir);
     try {
-      expect(listReviewExecutionsByOperationId(runningState.db, operation.id)[0]?.telemetry)
+      expect(listReviewExecutionsByOperationId(coalescedState.db, operation.id)[0]?.telemetry)
         .toMatchObject({ activity: { count: 1 } });
-      expect(journal.snapshot()).toMatchObject({ activity: { count: 2 } });
+      expect(journal.snapshot()).toMatchObject({ activity: { count: 3 } });
     } finally {
-      closeStateDatabase(runningState);
+      closeStateDatabase(coalescedState);
+    }
+
+    clock.advanceTo(1_000);
+    journal.record({ type: "activity", activity });
+    journal.record({ type: "activity", activity });
+
+    const intervalFlushedState = await openStateDatabase(dir);
+    try {
+      expect(listReviewExecutionsByOperationId(intervalFlushedState.db, operation.id)[0]?.telemetry)
+        .toMatchObject({ activity: { count: 4 } });
+      expect(journal.snapshot()).toMatchObject({ activity: { count: 5 } });
+    } finally {
+      closeStateDatabase(intervalFlushedState);
     }
 
     const execution = journal.finish({
@@ -321,7 +337,7 @@ describe("review execution journal", () => {
     expect(execution.telemetry).toMatchObject({
       terminal: { outcome: "completed", phase: "completion" },
       transitions: expect.arrayContaining([expect.objectContaining({ phase: "completion" })]),
-      activity: { count: 2, toolCount: activity === "tool" ? 2 : 0 },
+      activity: { count: 5, toolCount: activity === "tool" ? 5 : 0 },
     });
     },
   );
@@ -329,7 +345,7 @@ describe("review execution journal", () => {
   it("flushes the first activity of a quick retry before coalescing its burst", async () => {
     const dir = await createTempDir();
     const operation = capturedOperation("op_retry_activity_flush");
-    const telemetry = createReviewExecutionTelemetry();
+    const telemetry = createReviewExecutionTelemetry({ clock: manualTelemetryClock() });
     telemetry.record({ type: "phase", phase: "turn-start", attempt: 1 });
     const journal = await startReviewExecutionJournal(dir, {
       operation,
@@ -566,4 +582,18 @@ async function createTempDir(): Promise<string> {
   tempDirs.push(dir);
   await mkdir(dir, { recursive: true });
   return dir;
+}
+
+function manualTelemetryClock() {
+  const startedAtMs = Date.parse("2026-08-01T00:00:00.000Z");
+  let elapsedMs = 0;
+  return {
+    read: () => ({
+      wallTime: new Date(startedAtMs + elapsedMs).toISOString(),
+      elapsedMs,
+    }),
+    advanceTo(nextElapsedMs: number) {
+      elapsedMs = nextElapsedMs;
+    },
+  };
 }

@@ -1,3 +1,4 @@
+import { access, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DiffOwlConfig } from "../config.js";
@@ -342,12 +343,23 @@ describe("runEvalCaseTrial", () => {
 });
 
 describe("runEvalCase", () => {
-  it("runs the requested number of trials in fresh repos", async () => {
+  it("isolates trial repos and disposes each repo after its trial", async () => {
     const evalCase = await loadEvalCase(join(corpusDir, "harmless-trim"));
-    const runReview = vi.fn(async (): Promise<ReviewResult> => ({
-      sessionId: "session-eval",
-      report: { summary: "Clean.", findings: [] },
-    }));
+    const reviewDirectories: string[] = [];
+    const mutationName = "trial-mutation-marker";
+    const runReview = vi.fn(async (options: ReviewOptions): Promise<ReviewResult> => {
+      const marker = join(options.directory, mutationName);
+      if (reviewDirectories.length === 0) {
+        await writeFile(marker, "written by the first trial");
+      } else {
+        await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });
+      }
+      reviewDirectories.push(options.directory);
+      return {
+        sessionId: "session-eval",
+        report: { summary: "Clean.", findings: [] },
+      };
+    });
 
     const result = await runEvalCase(
       evalCase,
@@ -358,7 +370,13 @@ describe("runEvalCase", () => {
     expect(result.trials).toHaveLength(2);
     expect(result.mode).toBe("diffowl");
     expect(result.trials.map((trial) => trial.trial)).toEqual([0, 1]);
+    expect(result.trials.every((trial) => trial.error === undefined)).toBe(true);
     expect(runReview).toHaveBeenCalledTimes(2);
+    expect(reviewDirectories).toHaveLength(2);
+    expect(reviewDirectories[0]).not.toBe(reviewDirectories[1]);
+    for (const directory of reviewDirectories) {
+      await expect(access(directory)).rejects.toMatchObject({ code: "ENOENT" });
+    }
   });
 });
 

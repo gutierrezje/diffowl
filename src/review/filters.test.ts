@@ -15,6 +15,14 @@ const sampleFindings: ReviewFinding[] = [
     severity: "warning",
     file: "src/b.ts",
     line: 2,
+    title: "Medium",
+    body: "medium",
+    confidence: "medium",
+  },
+  {
+    severity: "warning",
+    file: "src/c.ts",
+    line: 3,
     title: "Low",
     body: "low",
     confidence: "low",
@@ -24,7 +32,7 @@ const sampleFindings: ReviewFinding[] = [
 describe("filterFindingsByConfidence", () => {
   it("drops findings below the configured minimum", () => {
     const result = filterFindingsByConfidence(sampleFindings, "medium");
-    expect(result.findings).toHaveLength(1);
+    expect(result.findings.map((finding) => finding.title)).toEqual(["High", "Medium"]);
     expect(result.dropped).toBe(1);
   });
 });
@@ -32,8 +40,7 @@ describe("filterFindingsByConfidence", () => {
 describe("filterFindingsByChangedFiles", () => {
   it("suppresses findings outside the changed file set", () => {
     const result = filterFindingsByChangedFiles(sampleFindings, new Set(["src/a.ts"]));
-    expect(result.findings).toHaveLength(1);
-    expect(result.suppressed).toHaveLength(1);
-    expect(result.suppressed[0]?.file).toBe("src/b.ts");
+    expect(result.findings.map((finding) => finding.title)).toEqual(["High"]);
+    expect(result.suppressed.map((finding) => finding.title)).toEqual(["Medium", "Low"]);
   });
 });

@@ -250,17 +250,16 @@ describe("config", () => {
     await expect(loadConfig()).rejects.toThrow("context");
   });
 
-  it("fails fast for invalid ports and array fields", async () => {
+  it.each([
+    ["server.port", ["model: provider/model", "server:", "  port: 70000"].join("\n")],
+    ["include", ["model: provider/model", "include: '**/*'"].join("\n")],
+  ])("fails fast for invalid %s", async (field, yaml) => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
     tempDirs.push(root);
-    await writeFile(
-      join(root, ".diffowl.yml"),
-      ["model: provider/model", "server:", "  port: 70000", "include: '**/*'"].join("\n"),
-      "utf-8",
-    );
+    await writeFile(join(root, ".diffowl.yml"), yaml, "utf-8");
     process.chdir(root);
 
-    await expect(loadConfig()).rejects.toThrow(/server\.port|include/);
+    await expect(loadConfig()).rejects.toThrow(field);
   });
 
   it("loads hook log retention and rejects removed review limits", async () => {
