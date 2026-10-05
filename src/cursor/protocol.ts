@@ -21,6 +21,22 @@ export const CursorErrorCategorySchema = z.enum([
   "teardown",
 ]);
 export const CursorMessageSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("runtime"), version: z.string().nullable() }).strict(),
+  z
+    .object({
+      kind: z.literal("turn"),
+      id: z.string(),
+      requestId: z.string().nullable(),
+      attempt: z.number().int().positive(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("usage"),
+      effectiveModel: z.string().nullable(),
+      usage: ReviewUsageSchema.nullable(),
+    })
+    .strict(),
   z.object({ kind: z.literal("session"), id: z.string().min(1) }).strict(),
   z.object({ kind: z.literal("tool"), name: z.string(), status: z.string() }).strict(),
   z.object({ kind: z.literal("activity") }).strict(),

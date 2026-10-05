@@ -1,6 +1,8 @@
 import { createOpencodeClient } from "@opencode-ai/sdk";
+import packageJson from "../../package.json" with { type: "json" };
+import { createHash } from "node:crypto";
 import { z } from "zod";
-import { isServerRunning } from "./server.js";
+import { getServerHealth } from "./server.js";
 import { resolveReviewPrompts } from "../review/prompt.js";
 import { resolveReviewDocument, SCHEMA_VALIDATION_MAX_ATTEMPTS } from "../review/document.js";
 import { ReviewCancelledError } from "../review/errors.js";
@@ -39,12 +41,17 @@ import {
   reasoningVariant,
   type ReasoningVariant,
 } from "../review/reasoning.js";
+import {
+  createUnknownReviewRuntimeEvidence,
+  type ReviewRuntimeEvidence,
+} from "../review/execution-evidence.js";
 import type { ReviewOptions, ReviewResult, ReviewTiming, ReviewUsage } from "../review/types.js";
 import { aggregateReviewUsage, parseAssistantUsage } from "../review/usage.js";
 
 type OpencodeDirectoryOptions = { query: { directory: string } };
 type OpenCodeClient = ReturnType<typeof createOpencodeClient>;
 type ProviderClient = { provider?: { list?: () => Promise<ProviderResponseInput> } };
+export type OpenCodeProvenanceSink = (snapshot: ReviewRuntimeEvidence) => void;
 type OpenCodePromptBody = {
   system?: string;
   model: { providerID: string; modelID: string };
@@ -90,6 +97,8 @@ type OpenCodeEvent =
       messageId: string;
       error?: Error;
       usage?: ReviewUsage;
+      provider?: string;
+      model?: string;
     }
   | { type: "session-status"; sessionId: string; status: string; message?: string }
   | { type: "session-idle"; sessionId: string };
@@ -231,6 +240,10 @@ function normalizeAssistantMessage(
     sessionId: value.sessionID,
     messageId: value.id,
   };
+  const provider = nonEmptyString(value.providerID);
+  if (provider) event.provider = provider;
+  const model = nonEmptyString(value.modelID);
+  if (model) event.model = model;
   if (value.error) {
     event.error = new Error(describeSessionError(value.error) || "Review failed");
   }
@@ -242,8 +255,17 @@ function normalizeAssistantMessage(
  * Run a code review using OpenCode serve.
  * Creates a session, sends the review prompt, and returns a structured report.
  */
-export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
+export async function runReview(
+  options: ReviewOptions,
+  onProvenance?: OpenCodeProvenanceSink,
+): Promise<ReviewResult> {
   const { target, directory, config, localContext, depth, onProgress, signal } = options;
+  const evidence = createUnknownReviewRuntimeEvidence();
+  evidence.runtime.name = "opencode";
+  evidence.runtime.adapterVersion = packageJson.version;
+  evidence.structuredOutput.strategy = "marker";
+  const publishEvidence = () => onProvenance?.(evidence);
+  publishEvidence();
   if (signal?.aborted) {
     throw new ReviewCancelledError("Review cancelled by user.");
   }
@@ -254,9 +276,12 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
 
   // The CLI owns startup policy. Reviews only connect to the configured server.
   const connectStart = performance.now();
-  if (!(await isServerRunning(port))) {
+  const serverHealth = await getServerHealth(port);
+  if (!serverHealth?.healthy) {
     throw new Error(`OpenCode server is not running on port ${port}.`);
   }
+  evidence.runtime.version = serverHealth.version ?? null;
+  publishEvidence();
   onProgress?.({ type: "server", message: `Connected to OpenCode on port ${port}.` });
   const client = createOpencodeClient({
     baseUrl: `http://127.0.0.1:${port}`,
@@ -272,11 +297,23 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
     }),
   );
   const sessionId = extractSessionId(session);
+  evidence.native.sessionId = sessionId;
+  publishEvidence();
   recordTiming(timings, onProgress, "session-create", "OpenCode session creation", sessionStart);
   onProgress?.({ type: "session", message: "Created review session.", sessionId });
 
   const toolPolicyStart = performance.now();
   const tools = await buildToolPolicy(client, depth);
+  evidence.policy = {
+    sandbox: null,
+    approval: "reject",
+    tools: Object.entries(tools)
+      .filter(([, enabled]) => enabled)
+      .map(([tool]) => tool)
+      .sort(),
+    network: null,
+  };
+  publishEvidence();
   recordTiming(timings, onProgress, "tool-policy", "OpenCode tool policy", toolPolicyStart);
 
   // Build the review prompt
@@ -286,6 +323,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
   if (options.systemPrompt !== undefined) promptOptions.systemPrompt = options.systemPrompt;
   if (options.userPrompt !== undefined) promptOptions.userPrompt = options.userPrompt;
   const { system, user: prompt } = resolveReviewPrompts(promptOptions);
+  evidence.prompts.systemSha256 = sha256(system);
+  evidence.prompts.userSha256 = sha256(prompt);
+  publishEvidence();
   recordTiming(timings, onProgress, "prompt-build", "Review prompt build", promptStart);
 
   // Parse the model string (e.g. "anthropic/claude-sonnet-4-20250514")
@@ -298,7 +338,6 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
     modelID,
     reasoningVariant(config.reasoning),
   );
-
   let fullResponse = "";
   const eventsController = new AbortController();
   const cancelReview = () => {
@@ -402,9 +441,14 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
             if (consumedMessageIds.has(normalized.messageId)) break;
             attemptMessageIds.add(normalized.messageId);
             assistantMessageIds.add(normalized.messageId);
+            evidence.native.messageIds = [...assistantMessageIds];
+            if (normalized.provider !== undefined) evidence.provider = normalized.provider;
+            if (normalized.model !== undefined) evidence.effectiveModel = normalized.model;
             if (normalized.usage) {
               usageByMessageId.set(normalized.messageId, normalized.usage);
+              evidence.usage = aggregateReviewUsage([...usageByMessageId.values()]) ?? null;
             }
+            publishEvidence();
             const parts = textPartsByMessageId.get(normalized.messageId);
             const text = parts ? [...parts.values()].join("") : undefined;
             attempt.settlement.acceptAssistantMessage({
@@ -467,6 +511,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
 
   try {
     onProgress?.({ type: "session", message: "Sending review prompt.", sessionId });
+    evidence.structuredOutput.attempts = 1;
+    publishEvidence();
     const promptSendStart = performance.now();
     const promptBody: OpenCodePromptBody = {
       system,
@@ -492,6 +538,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
         withOpenCodeDiagnostics("agent-wait", { port, sessionId }, () => attempt.promise),
       sendRetry: async (userMessage) => {
         schemaAttempt += 1;
+        evidence.structuredOutput.attempts = schemaAttempt;
+        publishEvidence();
         onProgress?.({
           type: "session",
           message: `Review JSON failed schema validation; retrying (${schemaAttempt}/${SCHEMA_VALIDATION_MAX_ATTEMPTS}).`,
@@ -526,6 +574,10 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
     recordTiming(timings, onProgress, "agent-wait", "OpenCode review generation", agentWaitStart);
 
     eventsController.abort();
+    evidence.structuredOutput.attempts = resolved.attempt;
+    evidence.structuredOutput.acceptedAttempt = resolved.attempt;
+    evidence.usage = aggregateReviewUsage([...usageByMessageId.values()]) ?? null;
+    publishEvidence();
     const diagnostics = [...(resolved.report.diagnostics ?? []), ...reasoning.diagnostics];
     if (resolved.attempt > 1) {
       diagnostics.push(`Schema validation succeeded on attempt ${resolved.attempt}.`);
@@ -782,6 +834,10 @@ export function handledAwaitable<T>(promise: Promise<T>): Promise<T> {
     // terminating if it rejects before the later await is attached.
   });
   return promise;
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
 export function extractSessionId(response: SessionResponseInput): string {

@@ -28,7 +28,9 @@ async function handleStart(message) {
     if (evidencePath) await writeFile(evidencePath, "started\n");
     return;
   }
+  await send({ kind: "runtime", version: "fixture-sdk-1" });
   await send({ kind: "session", id: "fixture-session" });
+  await send({ kind: "turn", id: "fixture-run-1", requestId: "fixture-request-1", attempt: 1 });
   if (finished) return;
 
   if (scenario === "store" && evidencePath) {
@@ -88,6 +90,8 @@ async function handleStart(message) {
   if (scenario === "timeout") return;
 
   await send({ kind: "activity" });
+  if (scenario === "retry") await send({ kind: "turn", id: "fixture-run-2", requestId: null, attempt: 2 });
+  await send({ kind: "validation", outcome: "accepted", attempt: scenario === "retry" ? 2 : 1 });
   await send({
     kind: "result",
     text: validReview(scenario === "retry" ? "retried" : "fixture"),

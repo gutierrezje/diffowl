@@ -13,8 +13,13 @@ import {
   type ReasoningVariant,
 } from "./reasoning.js";
 import type { ReviewTarget } from "./target.js";
+import {
+  ReviewExecutionEvidenceSchema,
+  createUnknownReviewExecutionEvidence,
+  type ReviewExecutionEvidence,
+} from "./execution-evidence.js";
 
-export const REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION = 4 as const;
+export const REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION = 5 as const;
 
 export const ReviewExecutionTerminalOutcomeSchema = z.enum([
   "completed",
@@ -169,21 +174,36 @@ export type ReviewExecutionProvenanceV3 = ReviewExecutionRuntimeProvenance & {
 
 export type ReviewExecutionProvenanceV4 =
   | (Extract<ReviewExecutionRuntimeProvenance, { terminalOutcome: "completed" }> & {
+      schemaVersion: 4;
+      input: ReviewInputIdentity;
+      contextManifestSha256: string;
+    })
+  | (Exclude<ReviewExecutionRuntimeProvenance, { terminalOutcome: "completed" }> & {
+      schemaVersion: 4;
+      input: ReviewInputIdentity;
+      contextManifestSha256: string | null;
+    });
+
+export type ReviewExecutionProvenanceV5 =
+  | (Extract<ReviewExecutionRuntimeProvenance, { terminalOutcome: "completed" }> & {
       schemaVersion: typeof REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION;
       input: ReviewInputIdentity;
       contextManifestSha256: string;
+      evidence: ReviewExecutionEvidence;
     })
   | (Exclude<ReviewExecutionRuntimeProvenance, { terminalOutcome: "completed" }> & {
       schemaVersion: typeof REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION;
       input: ReviewInputIdentity;
       contextManifestSha256: string | null;
+      evidence: ReviewExecutionEvidence;
     });
 
 export type ReviewExecutionProvenance =
   | ReviewExecutionProvenanceV1
   | ReviewExecutionProvenanceV2
   | ReviewExecutionProvenanceV3
-  | ReviewExecutionProvenanceV4;
+  | ReviewExecutionProvenanceV4
+  | ReviewExecutionProvenanceV5;
 
 export function createSingleReviewAssignment(
   selection: ReviewSelection,
@@ -289,14 +309,32 @@ export function completeReviewExecutionProvenance(
   runtime: ReviewExecutionRuntimeProvenance,
   input: ReviewInputIdentity,
   contextManifestSha256: string | null,
-): ReviewExecutionProvenanceV4 {
+  evidence?: ReviewExecutionEvidence,
+): ReviewExecutionProvenanceV4 | ReviewExecutionProvenanceV5 {
   if (runtime.terminalOutcome === "completed") {
     if (contextManifestSha256 === null) {
       throw new Error("A completed review execution requires captured context.");
     }
+    if (evidence === undefined) {
+      return {
+        ...runtime,
+        schemaVersion: 4,
+        input,
+        contextManifestSha256,
+      };
+    }
     return {
       ...runtime,
       schemaVersion: REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION,
+      input,
+      contextManifestSha256,
+      evidence: ReviewExecutionEvidenceSchema.parse(evidence),
+    };
+  }
+  if (evidence === undefined) {
+    return {
+      ...runtime,
+      schemaVersion: 4,
       input,
       contextManifestSha256,
     };
@@ -306,5 +344,9 @@ export function completeReviewExecutionProvenance(
     schemaVersion: REVIEW_EXECUTION_PROVENANCE_SCHEMA_VERSION,
     input,
     contextManifestSha256,
+    evidence: ReviewExecutionEvidenceSchema.parse(evidence),
   };
 }
+
+export { createUnknownReviewExecutionEvidence };
+export type { ReviewExecutionEvidence } from "./execution-evidence.js";

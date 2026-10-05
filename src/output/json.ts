@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ReviewFinding, ReviewTiming, ReviewUsage } from "../review/types.js";
 import type { ReviewSelection } from "../review/backend-selection.js";
 import type { ReviewExecutionTelemetry } from "../review/execution-telemetry.js";
+import type { ReviewExecutionEvidence } from "../review/execution-evidence.js";
 import type {
   LegacyReviewInputIdentity,
   ReviewExecutionProvenance,
@@ -123,6 +124,8 @@ export interface ReviewJsonExecutionV4
   extends Omit<ReviewJsonExecutionV3, "schema_version" | "input"> {
   schema_version: 4;
   input: ReviewJsonInputIdentityV2;
+  /** Additive durable evidence for executions without telemetry. */
+  evidence?: ReviewJsonEvidenceV1;
 }
 
 export interface ReviewJsonExecutionTelemetryV1 {
@@ -171,6 +174,63 @@ export interface ReviewJsonExecutionV5
   context_manifest_sha256: string | null;
   telemetry: ReviewJsonExecutionTelemetryV1;
 }
+
+export interface ReviewJsonEvidenceV1 {
+  runtime: {
+    name: string | null;
+    version: string | null;
+    adapter_version: string | null;
+    protocol_version: string | null;
+    protocol_sha256: string | null;
+  };
+  provider: string | null;
+  effective_model: string | null;
+  failure_category: string | null;
+  authentication: "local-subscription" | "provider-configuration" | "api-key" | null;
+  policy: {
+    sandbox: string | null;
+    approval: string | null;
+    tools: string[] | null;
+    network: string | null;
+  };
+  native: {
+    session_id: string | null;
+    thread_id: string | null;
+    turn_ids: string[] | null;
+    message_ids: string[] | null;
+    run_ids: string[] | null;
+    request_ids: string[] | null;
+  };
+  prompts: {
+    system_sha256: string | null;
+    user_sha256: string | null;
+    developer_instructions_sha256: string | null;
+  };
+  structured_output: {
+    strategy: string | null;
+    attempts: number | null;
+    accepted_attempt: number | null;
+  };
+  usage: ReviewUsage | null;
+  pipeline: {
+    rules_sha256: string | null;
+    config_sha256: string | null;
+    profile_sha256: string | null;
+    schema_sha256: string | null;
+    context_manifest_sha256: string | null;
+    context: {
+      changed_file_count: number | null;
+      skipped_file_count: number | null;
+      related_file_count: number | null;
+      reference_count: number | null;
+      degradation_counts: Record<string, number> | null;
+    };
+  };
+}
+
+type ReviewJsonExecutionCommon = Omit<ReviewJsonExecutionV1, "schema_version"> & {
+  evidence?: ReviewJsonEvidenceV1;
+};
 
 export interface ReviewJsonDocumentV8 {
   schema_version: typeof JSON_OUTPUT_SCHEMA_VERSION;
@@ -331,7 +391,7 @@ function mapJsonExecution(
   | ReviewJsonExecutionV3
   | ReviewJsonExecutionV4
   | ReviewJsonExecutionV5 {
-  const common = {
+  const common: ReviewJsonExecutionCommon = {
     cohort_id: execution.cohortId,
     reviewer_id: execution.reviewerId,
     role: execution.role,
@@ -343,6 +403,8 @@ function mapJsonExecution(
     session_id: execution.sessionId,
     terminal_outcome: execution.terminalOutcome,
   };
+  const evidence = mapJsonEvidenceIfPresent(execution);
+  if (evidence !== undefined) common.evidence = evidence;
 
   if (execution.schemaVersion === 1) {
     return { ...common, schema_version: execution.schemaVersion };
@@ -372,14 +434,83 @@ function mapJsonExecution(
       telemetry: mapJsonExecutionTelemetry(execution.telemetry),
     };
   }
-  if (execution.contextManifestSha256 === null) {
-    throw new Error("A review execution without telemetry requires captured context.");
+  if (execution.schemaVersion === 4 || execution.schemaVersion === 5) {
+    if (execution.contextManifestSha256 === null) {
+      throw new Error("A review execution without telemetry requires captured context.");
+    }
+    return {
+      ...common,
+      // Durable provenance v5 is an internal state version. The public wire
+      // shape remains v4 when no telemetry is available; evidence is additive.
+      schema_version: 4,
+      input: mapJsonInputIdentity(execution.input),
+      context_manifest_sha256: execution.contextManifestSha256,
+    };
   }
+  throw new Error("Unsupported review execution provenance version.");
+}
+
+function mapJsonEvidenceIfPresent(
+  execution: ReviewExecutionProvenance | ReviewExecutionRecord,
+): ReviewJsonEvidenceV1 | undefined {
+  if (!("evidence" in execution) || execution.evidence === null || execution.evidence === undefined) {
+    return undefined;
+  }
+  return mapJsonEvidence(execution.evidence);
+}
+
+function mapJsonEvidence(evidence: ReviewExecutionEvidence): ReviewJsonEvidenceV1 {
   return {
-    ...common,
-    schema_version: execution.schemaVersion,
-    input: mapJsonInputIdentity(execution.input),
-    context_manifest_sha256: execution.contextManifestSha256,
+    runtime: {
+      name: evidence.runtime.runtime.name,
+      version: evidence.runtime.runtime.version,
+      adapter_version: evidence.runtime.runtime.adapterVersion,
+      protocol_version: evidence.runtime.runtime.protocolVersion,
+      protocol_sha256: evidence.runtime.runtime.protocolSha256,
+    },
+    provider: evidence.runtime.provider,
+    effective_model: evidence.runtime.effectiveModel,
+    failure_category: evidence.runtime.failureCategory,
+    authentication: evidence.runtime.authentication,
+    policy: {
+      sandbox: evidence.runtime.policy.sandbox,
+      approval: evidence.runtime.policy.approval,
+      tools: evidence.runtime.policy.tools,
+      network: evidence.runtime.policy.network,
+    },
+    native: {
+      session_id: evidence.runtime.native.sessionId,
+      thread_id: evidence.runtime.native.threadId,
+      turn_ids: evidence.runtime.native.turnIds,
+      message_ids: evidence.runtime.native.messageIds,
+      run_ids: evidence.runtime.native.runIds,
+      request_ids: evidence.runtime.native.requestIds,
+    },
+    prompts: {
+      system_sha256: evidence.runtime.prompts.systemSha256,
+      user_sha256: evidence.runtime.prompts.userSha256,
+      developer_instructions_sha256: evidence.runtime.prompts.developerInstructionsSha256,
+    },
+    structured_output: {
+      strategy: evidence.runtime.structuredOutput.strategy,
+      attempts: evidence.runtime.structuredOutput.attempts,
+      accepted_attempt: evidence.runtime.structuredOutput.acceptedAttempt,
+    },
+    usage: evidence.runtime.usage,
+    pipeline: {
+      rules_sha256: evidence.pipeline.rulesSha256,
+      config_sha256: evidence.pipeline.configSha256,
+      profile_sha256: evidence.pipeline.profileSha256,
+      schema_sha256: evidence.pipeline.schemaSha256,
+      context_manifest_sha256: evidence.pipeline.contextManifestSha256,
+      context: {
+        changed_file_count: evidence.pipeline.context.changedFileCount,
+        skipped_file_count: evidence.pipeline.context.skippedFileCount,
+        related_file_count: evidence.pipeline.context.relatedFileCount,
+        reference_count: evidence.pipeline.context.referenceCount,
+        degradation_counts: evidence.pipeline.context.degradationCounts,
+      },
+    },
   };
 }
 

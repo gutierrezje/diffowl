@@ -16,6 +16,7 @@ import type {
 } from "../state/types.js";
 import type { ReviewFinding } from "../review/types.js";
 import { createReviewExecutionTelemetry } from "../review/execution-telemetry.js";
+import { createUnknownReviewExecutionEvidence } from "../review/execution-evidence.js";
 import {
   ReviewExecutionIdSchema,
   ReviewIdSchema,
@@ -327,6 +328,51 @@ describe("buildReviewJsonDocument", () => {
     });
     expect(JSON.stringify(document.review.execution)).not.toContain("prompt");
     expect(JSON.stringify(document.review.execution)).not.toContain("payload");
+  });
+
+  it("projects durable evidence additively while preserving the wire v4 shape", () => {
+    const execution = evidenceExecution();
+    const document = buildDocument({
+      review,
+      persisted: { ...persisted, execution },
+      occurrenceCounts: new Map(),
+      suppressed: { outsideChangedFiles: 0, belowConfidence: 0 },
+      execution,
+    });
+
+    expect(document.review.execution).toMatchObject({
+      schema_version: 4,
+      context_manifest_sha256: "context-hash",
+      evidence: {
+        runtime: {
+          name: "codex",
+        },
+        provider: "openai",
+        effective_model: "gpt-5.6",
+        failure_category: "protocol",
+        native: {
+          thread_id: "thread-1",
+          turn_ids: ["turn-1"],
+          run_ids: ["run-1"],
+          request_ids: ["request-1"],
+        },
+        prompts: {
+          system_sha256: "a".repeat(64),
+          user_sha256: "b".repeat(64),
+        },
+        usage: {
+          tokens: { input: 10, output: 20, reasoning: 3, cache: { read: 4, write: 5 } },
+          cost: 0.04,
+        },
+        pipeline: {
+          rules_sha256: "c".repeat(64),
+          config_sha256: "d".repeat(64),
+          schema_sha256: "e".repeat(64),
+        },
+      },
+    });
+    expect(document.review.execution).not.toHaveProperty("telemetry");
+    expect(document.review.execution).not.toHaveProperty("evidence.pipeline.prompt_sha256");
   });
 
   it("renders immutable base review identity in schema version 8", () => {
@@ -744,6 +790,35 @@ function telemetryExecution(): ReviewExecutionRecord {
       diffHash: review.diffHash,
     },
     contextManifestSha256: "context-hash",
+  };
+}
+
+function evidenceExecution(): ReviewExecutionRecord {
+  const evidence = createUnknownReviewExecutionEvidence();
+  evidence.runtime.runtime.name = "codex";
+  evidence.runtime.provider = "openai";
+  evidence.runtime.effectiveModel = "gpt-5.6";
+  evidence.runtime.failureCategory = "protocol";
+  evidence.runtime.native.threadId = "thread-1";
+  evidence.runtime.native.turnIds = ["turn-1"];
+  evidence.runtime.native.runIds = ["run-1"];
+  evidence.runtime.native.requestIds = ["request-1"];
+  evidence.runtime.prompts.systemSha256 = "a".repeat(64);
+  evidence.runtime.prompts.userSha256 = "b".repeat(64);
+  evidence.runtime.usage = {
+    tokens: { input: 10, output: 20, reasoning: 3, cache: { read: 4, write: 5 } },
+    cost: 0.04,
+  };
+  evidence.pipeline.rulesSha256 = "c".repeat(64);
+  evidence.pipeline.configSha256 = "d".repeat(64);
+  evidence.pipeline.schemaSha256 = "e".repeat(64);
+  // SAFETY: this fixture is constructed with terminalOutcome "completed" below and never uses the running variant.
+  const base = telemetryExecution() as Extract<ReviewExecutionRecord, { terminalOutcome: "completed" }>;
+  return {
+    ...base,
+    schemaVersion: 5,
+    telemetry: null,
+    evidence,
   };
 }
 

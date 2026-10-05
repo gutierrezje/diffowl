@@ -11,7 +11,12 @@ import {
   captureReviewOperation,
   createUnavailableContextReviewOperation,
 } from "../review/operation.js";
-import { createRunningReviewExecutionProvenance, createSingleReviewAssignment } from "../review/provenance.js";
+import {
+  createFailedReviewExecutionProvenance,
+  createRunningReviewExecutionProvenance,
+  createSingleReviewAssignment,
+} from "../review/provenance.js";
+import { createUnknownReviewRuntimeEvidence } from "../review/execution-evidence.js";
 import { selectReasoningVariant } from "../review/reasoning.js";
 import type { ReviewContext } from "../review/context.js";
 import { closeStateDatabase, openStateDatabase } from "./db.js";
@@ -189,6 +194,51 @@ describe("review execution journal", () => {
       },
     });
   });
+
+  it.each(["failed", "cancelled", "timed-out"] as const)(
+    "durably records runtime evidence before a %s terminal failure",
+    async (terminalOutcome) => {
+      const dir = await createTempDir();
+      const operation = capturedOperation(`op_evidence_${terminalOutcome}`);
+      const journal = await startReviewExecutionJournal(dir, {
+        operation,
+        assignment: assignment(),
+        telemetry: createReviewExecutionTelemetry(),
+      });
+      const runtime = createUnknownReviewRuntimeEvidence();
+      runtime.provider = "openai";
+      runtime.effectiveModel = "gpt-5.6-observed";
+      runtime.failureCategory = terminalOutcome === "failed" ? "provider" : terminalOutcome;
+      runtime.native.threadId = `thread-${terminalOutcome}`;
+      journal.recordProvenance(runtime);
+      const execution = journal.finish(
+        createFailedReviewExecutionProvenance(assignment(), terminalOutcome),
+      );
+      journal.close();
+
+      const state = await openStateDatabase(dir);
+      try {
+        const persisted = listReviewExecutionsByOperationId(state.db, operation.id)[0];
+        expect(persisted).toMatchObject({
+          id: execution.id,
+          schemaVersion: 5,
+          terminalOutcome,
+          effectiveModel: "gpt-5.6-observed",
+          sessionId: `thread-${terminalOutcome}`,
+          evidence: {
+            runtime: {
+              provider: "openai",
+              effectiveModel: "gpt-5.6-observed",
+              failureCategory: runtime.failureCategory,
+              native: { threadId: `thread-${terminalOutcome}` },
+            },
+          },
+        });
+      } finally {
+        closeStateDatabase(state);
+      }
+    },
+  );
 
   it("captures the completed context on an already-running execution", async () => {
     const dir = await createTempDir();

@@ -58,6 +58,7 @@ import { createReviewExecutionTelemetry } from "./execution-telemetry.js";
 import type { ReviewExecutionRecord } from "../state/types.js";
 import { blockingContextDegradations, readReviewCheckout, reviewPolicySha256 } from "./coverage.js";
 import { computeFindingFingerprint } from "../state/fingerprint.js";
+import { createReviewPipelineEvidence } from "./execution-evidence.js";
 
 const failureExecutionStore = new WeakMap<object, ReviewExecutionRecord>();
 
@@ -210,6 +211,12 @@ export async function runReviewPipeline(
       createdAt: pendingOperation.createdAt,
     });
     executionJournal.captureContext(operation);
+    executionJournal.setPipelineEvidence(
+      createReviewPipelineEvidence({
+        config: input.config,
+        contextManifest: operation.contextManifest,
+      }),
+    );
   } catch (error) {
     finishFailedExecutionJournal(executionJournal, executor, null, input.onWarning);
     throw error;
@@ -225,6 +232,7 @@ export async function runReviewPipeline(
       depth: input.depth,
     },
     onTelemetry: (event) => executionJournal.record(event),
+    onProvenance: (snapshot) => executionJournal.recordProvenance(snapshot),
   };
   if (input.signal) executorOptions.review.signal = input.signal;
   if (input.onProgress) executorOptions.review.onProgress = input.onProgress;
@@ -251,6 +259,9 @@ export async function runReviewPipeline(
     throw error;
   }
   timings.push(...execution.timings);
+  if (execution.evidence !== undefined) {
+    executionJournal.recordProvenance(execution.evidence);
+  }
   const reviewResult = execution.review;
   const report: ReviewReport = reviewResult.report;
 
@@ -397,8 +408,8 @@ export async function runReviewPipeline(
       belowConfidence: confidenceFilter.dropped,
     },
     timings: [...timings, ...(report.timings ?? [])],
-    usage: reviewResult.usage ?? null,
-    effectiveModel: execution.effectiveModel ?? null,
+    usage: reviewResult.usage ?? execution.evidence?.usage ?? null,
+    effectiveModel: execution.effectiveModel ?? execution.evidence?.effectiveModel ?? null,
     execution: persisted.execution,
   };
 }

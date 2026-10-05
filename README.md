@@ -136,6 +136,10 @@ Commit review compares the selected commit with its first parent. For a merge co
 
 Branch review uses the merge base through `HEAD`, matching the committed diff in a pull request. Use `--base` for pull-request coverage. Neither mode includes staged or unstaged changes.
 
+JSON reviews include durable [execution provenance](docs/review-provenance.md):
+input and prompt identities, observed runtime/model details, validation attempts,
+and provider-reported usage. Missing facts remain explicitly unknown.
+
 ## Check readiness before handoff
 
 ```bash
