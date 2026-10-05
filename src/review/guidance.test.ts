@@ -61,6 +61,19 @@ describe("getReviewBackendFailureGuidance", () => {
     expect(guidance.toLowerCase()).not.toMatch(/subscription|entitlement|billing/);
   });
 
+  it("does not classify changed repository paths as Claude runtime failures", () => {
+    const guidance = getReviewBackendFailureGuidance(
+      "claude",
+      new Error(
+        "Repository changed during Claude review: src/auth/session.ts, src/model/unknown.ts.",
+      ),
+    ).join("\n");
+
+    expect(guidance).toContain("repository changed during the Claude review");
+    expect(guidance).not.toContain("claude auth login");
+    expect(guidance).not.toContain("rejected the selected model");
+  });
+
   it("preserves the existing OpenCode guidance", () => {
     expect(getReviewBackendFailureGuidance("opencode", "ECONNREFUSED")).toContain(
       "Start the managed server: diffowl server start",

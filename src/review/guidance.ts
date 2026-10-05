@@ -15,6 +15,13 @@ export function getReviewBackendFailureGuidance<Failure>(
 
   const normalized = message.toLowerCase();
   if (backend === "claude") {
+    // The integrity error lists repository paths, which can contain any keyword below.
+    if (normalized.startsWith("repository changed during claude review")) {
+      return [
+        "The repository changed during the Claude review, so the review was rejected.",
+        "Inspect the listed paths, then retry once the working tree is stable.",
+      ];
+    }
     if (
       normalized.includes("executable was not found") ||
       normalized.includes("command not found") ||
