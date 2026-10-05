@@ -97,11 +97,28 @@ DiffOwl uses a single-context domain-doc layout. See `docs/agents/domain.md`.
 pnpm run build      # tsup → dist/cli.js
 pnpm run lint       # oxlint + tsc --noEmit
 pnpm run test       # vitest
-pnpm run build && pnpm link --global   # install diffowl binary
+node dist/cli.js <command>   # run this checkout's build
 
 diffowl init        # create .diffowl.yml
 diffowl hook install
 ```
+
+## Dogfooding
+
+Keep the global `diffowl` a released install (`npm install --global diffowl`) so
+other projects never run in-progress work. Do not `pnpm link --global` a branch
+build.
+
+- Worktrees of this repo share `.git/hooks` and `.diffowl/state.db`. Migrations
+  are forward-only, so the build that reviews this repo must be at least as new
+  as every migration applied to that database.
+- Review this repo with a dedicated worktree detached at `origin/main`. Run
+  `node <dogfood-worktree>/dist/cli.js hook install` here once; `hook install`
+  pins the CLI that ran it, for this repo only.
+- After merges, refresh it: `git checkout --detach origin/main`,
+  `pnpm install --frozen-lockfile`, `pnpm run build`. The hook path is unchanged.
+- Verify unreleased migrations in a disposable repository, never against the
+  shared `state.db`.
 
 ## Review loop
 
@@ -121,7 +138,7 @@ reported gaps. An isolated commit or staged review is not a branch checkpoint.
 
 ## Notes
 
-- After changing `src/**`, rebuild so the linked global binary picks up `dist/cli.js`.
+- After changing `src/**`, rebuild before running `node dist/cli.js`; the global binary and the dogfood hook do not pick up branch changes.
 - Unit tests are heavily mocked and will miss simple ReferenceErrors. Always run `pnpm run lint` before committing.
 - /tdd skill always for any moderate to large change
 
