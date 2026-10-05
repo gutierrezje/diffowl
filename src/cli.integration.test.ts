@@ -443,6 +443,52 @@ describe("diffowl CLI", () => {
     );
   });
 
+  it.skipIf(process.platform === "win32")(
+    "warns when a saved Codex model is absent from the current catalog",
+    async () => {
+      const repo = await createRepo("diffowl-cli-codex-model-warning-");
+      await execa("node", [cliPath, "backend", "codex"], { cwd: repo });
+      const executable = await createMockCodexExecutable();
+
+      const result = await execa("node", [cliPath, "model", "gpt-6-luna"], {
+        cwd: repo,
+        env: {
+          DIFFOWL_CODEX_EXECUTABLE: executable,
+          MOCK_APP_SERVER_MODE: "model-not-advertised",
+          MOCK_APP_SERVER_MODEL: "gpt-6-luna",
+        },
+      });
+
+      expect(result.stdout).toContain("Codex model set to gpt-6-luna");
+      expect(result.stderr).toContain('Codex does not advertise model "gpt-6-luna"');
+      expect(result.stderr).toContain("may fail");
+    },
+    30_000,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "tells a non-ChatGPT Codex account to sign in when saving a model",
+    async () => {
+      const repo = await createRepo("diffowl-cli-codex-model-apikey-");
+      await execa("node", [cliPath, "backend", "codex"], { cwd: repo });
+      const executable = await createMockCodexExecutable();
+
+      const result = await execa("node", [cliPath, "model", "gpt-6-luna"], {
+        cwd: repo,
+        env: {
+          DIFFOWL_CODEX_EXECUTABLE: executable,
+          MOCK_APP_SERVER_MODE: "auth-apikey",
+          MOCK_APP_SERVER_MODEL: "gpt-6-luna",
+        },
+      });
+
+      expect(result.stdout).toContain("Codex model set to gpt-6-luna");
+      expect(result.stderr).toContain("sign in with ChatGPT");
+      expect(result.stderr).not.toContain("/model");
+    },
+    30_000,
+  );
+
   it("stores and resets an arbitrary reasoning variant for the selected model", async () => {
     const repo = await createRepo("diffowl-cli-reasoning-");
     const configPath = join(repo, ".diffowl.yml");
@@ -994,6 +1040,72 @@ describe("diffowl CLI", () => {
       );
       expect(result.stderr).toContain('Advertised variants: "high".');
       expect(result.stdout).toMatch(/Slowest execution phase: .+ \([\d.]+(?:ms|s)\)\./);
+    },
+    30_000,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "warns when a reasoning check finds the Codex model absent from the catalog",
+    async () => {
+      const repo = await createRepo("diffowl-cli-review-model-warning-");
+      await stageCodeChange(repo);
+      const executable = await createMockCodexExecutable();
+
+      const result = await execa(
+        process.execPath,
+        [
+          cliPath,
+          "review",
+          "--staged",
+          "--backend",
+          "codex",
+          "--model",
+          "gpt-6-luna",
+          "--reasoning",
+          "high",
+        ],
+        {
+          cwd: repo,
+          env: {
+            DIFFOWL_CODEX_EXECUTABLE: executable,
+            MOCK_APP_SERVER_MODE: "model-not-advertised",
+            MOCK_APP_SERVER_MODEL: "gpt-6-luna",
+            MOCK_APP_SERVER_REASONING_VARIANT: "high",
+          },
+        },
+      );
+
+      expect(result.stderr).toContain('Codex does not advertise model "gpt-6-luna"');
+      expect(result.stdout).toContain("No issues found. Clean commit!");
+    },
+    30_000,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "explains a Codex usage limit failure in review output",
+    async () => {
+      const repo = await createRepo("diffowl-cli-codex-usage-limit-");
+      await stageCodeChange(repo);
+      const executable = await createMockCodexExecutable();
+
+      const result = await execa(
+        process.execPath,
+        [cliPath, "review", "--staged", "--backend", "codex", "--model", "gpt-6-luna", "--format", "json"],
+        {
+          cwd: repo,
+          reject: false,
+          env: {
+            DIFFOWL_CODEX_EXECUTABLE: executable,
+            MOCK_APP_SERVER_MODE: "turn-failed-usage-limit",
+            MOCK_APP_SERVER_MODEL: "gpt-6-luna",
+          },
+        },
+      );
+
+      expect(result.exitCode).toBe(1);
+      const document = JSON.parse(result.stderr);
+      expect(document.error.message).toContain("Codex usage limit reached");
+      expect(document.error.message).toContain("run `/status`");
     },
     30_000,
   );
