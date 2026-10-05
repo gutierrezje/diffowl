@@ -213,7 +213,7 @@ program
   .option("--depth <depth>", "Review context depth: shallow or default")
   .option("--reasoning <variant>", "Backend-native reasoning variant")
   .option("--model <id>", "Review model override")
-  .option("--backend <backend>", "Review backend override: opencode, codex, or cursor")
+  .option("--backend <backend>", "Review backend override: opencode, codex, cursor, or claude")
   .option("--verbose", "Include suppressed findings and extra review details")
   .option("--format <format>", "Output format: text or json", "text")
   .action(async (options: ReviewCommandOptions) => {
@@ -826,7 +826,7 @@ function printAgentPathResult(result: AgentPathResult): void {
 program
   .command("backend")
   .description("View or change the local review backend")
-  .argument("[backend]", "Review backend: opencode, codex, or cursor")
+  .argument("[backend]", "Review backend: opencode, codex, cursor, or claude")
   .option("--reset", "Use the backward-compatible OpenCode default")
   .action(async (backendValue: string | undefined, options: { reset?: boolean }) => {
     if (backendValue && options.reset) {
@@ -849,7 +849,7 @@ program
         backend = parseReviewBackend(backendValue);
       } catch {
         console.error(chalk.red(`Invalid backend: ${backendValue}`));
-        console.error(chalk.dim("Expected one of: opencode, codex, cursor"));
+        console.error(chalk.dim("Expected one of: opencode, codex, cursor, claude"));
         process.exit(1);
       }
       let path: string;
@@ -870,7 +870,7 @@ program
     console.log(`${chalk.bold("Current backend:")} ${formatReviewBackend(backend)}`);
     console.log(`Preference source: ${source}`);
     console.log(`Model: ${model ?? "not selected"}`);
-    for (const runtimeBackend of ["opencode", "codex", "cursor"] as const) {
+    for (const runtimeBackend of ["opencode", "codex", "cursor", "claude"] as const) {
       const runtime = runtimes[runtimeBackend];
       console.log(
         `${formatReviewBackend(runtimeBackend)} runtime: ${
@@ -1151,10 +1151,15 @@ async function selectModelInteractively(
 async function selectNativeModelInteractively(options: {
   allowKeepCurrent: boolean;
   currentModel?: string;
-  backend: "codex" | "cursor";
+  backend: "codex" | "cursor" | "claude";
 }): Promise<void> {
   const label = formatReviewBackend(options.backend);
-  const example = options.backend === "cursor" ? "composer-2.5" : "gpt-5.4";
+  const example =
+    options.backend === "cursor"
+      ? "composer-2.5"
+      : options.backend === "claude"
+        ? "sonnet"
+        : "gpt-5.4";
   if (!canSelectModelInteractively(process.stdin.isTTY, process.stdout.isTTY)) {
     console.error(
       chalk.red(

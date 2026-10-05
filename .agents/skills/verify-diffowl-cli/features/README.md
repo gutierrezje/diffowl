@@ -17,6 +17,7 @@ verification artifacts; product-state mutations stay in the scratch.
 | `diffowl backend|model|reasoning --reset` | `preference-reset` |
 | `diffowl hook install|status|uninstall` | `hook-install-status`, `hook-uninstall` |
 | `diffowl agent-hook install --client claude` | `agent-hook-install-summary` |
+| Claude backend selection and `review --backend claude` | Manual [Claude Code recipe](claude-code.md); no automated Claude controller surface |
 | `diffowl server start|status|stop` | Routed to `opencode-server-owned-lifecycle` in the OpenCode map |
 | `diffowl findings list|summary|show` | `findings-inspect` |
 | `diffowl readiness [--base <ref>] [--format json]` | Manual [readiness recipe](readiness.md); `findings-inspect` supplies scratch setup only |

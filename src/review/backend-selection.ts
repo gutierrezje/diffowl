@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ReasoningVariantSchema } from "./reasoning.js";
 
-export const ReviewBackendSchema = z.enum(["opencode", "codex", "cursor"]);
+export const ReviewBackendSchema = z.enum(["opencode", "codex", "cursor", "claude"]);
 export const BackendPreferenceSourceSchema = z.enum(["command", "local", "legacy", "default"]);
 export const ModelPreferenceSourceSchema = z.enum(["command", "environment", "local", "legacy"]);
 export const ReviewPreferenceSourceSchema = z
@@ -26,6 +26,11 @@ export const CursorModelSchema = z
   .trim()
   .min(1, "Cursor model must not be empty")
   .regex(/^[^/\s]+$/, "Cursor model must be a bare model id");
+export const ClaudeModelSchema = z
+  .string()
+  .trim()
+  .min(1, "Claude model must not be empty")
+  .regex(/^[^/\s]+$/, "Claude model must be a bare model id");
 
 export const BackendModelSelectionSchema = z.discriminatedUnion("backend", [
   z
@@ -46,6 +51,13 @@ export const BackendModelSelectionSchema = z.discriminatedUnion("backend", [
     .object({
       backend: z.literal("codex"),
       model: CodexModelSchema,
+      reasoning: BackendModelReasoningSchema.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      backend: z.literal("claude"),
+      model: ClaudeModelSchema,
       reasoning: BackendModelReasoningSchema.optional(),
     })
     .strict(),
@@ -77,6 +89,8 @@ export function parseBackendModel(backend: ReviewBackend, value: string): string
       return CodexModelSchema.parse(value);
     case "cursor":
       return CursorModelSchema.parse(value);
+    case "claude":
+      return ClaudeModelSchema.parse(value);
   }
 }
 
@@ -88,5 +102,7 @@ export function formatReviewBackend(backend: ReviewBackend): string {
       return "Codex";
     case "cursor":
       return "Cursor";
+    case "claude":
+      return "Claude";
   }
 }
