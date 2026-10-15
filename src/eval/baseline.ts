@@ -3,7 +3,9 @@ import type { LoadedReviewSnapshot } from "../review/context.js";
 import type { ReviewTarget } from "../review/target.js";
 import { REVIEW_JSON_MARKER } from "../review/document.js";
 
-const MAX_DIFF_CHARS = 40_000;
+// Keep in sync with src/review/context-render.ts so the baseline arm sees the
+// same diff as the DiffOwl arm it is compared against.
+const MAX_DIFF_CHARS = 80_000;
 const MAX_QUICK_DIFF_CHARS = 12_000;
 
 interface TruncatedText {

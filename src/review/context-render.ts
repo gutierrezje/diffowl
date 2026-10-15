@@ -6,7 +6,7 @@ import type {
   ReviewContext,
 } from "./context-types.js";
 
-const MAX_DIFF_CHARS = 40_000;
+const MAX_DIFF_CHARS = 80_000;
 const MAX_AST_SYMBOL_CHARS = 8_000;
 const MAX_QUICK_DIFF_CHARS = 12_000;
 const MAX_QUICK_SYMBOL_CHARS = 4_000;
