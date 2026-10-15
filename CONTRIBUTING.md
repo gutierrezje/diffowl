@@ -23,6 +23,29 @@ historical and should not receive new issues.
 A tiny, obvious fix may skip the issue and use the pull request as its complete
 record.
 
+## Verification automation
+
+Run `pnpm run test:verification` when changing the verification controller or its
+feature assertions. The suite drives public controller commands in disposable
+repositories, including known-good cases and deliberately stale evidence. It
+requires Git, Bash, Node, and pnpm; it does not require a model or provider login.
+CI runs it on Ubuntu with Node 22.14 and retains failed verification evidence for
+seven days as a workflow artifact.
+
+An automated run must match the Git-visible source, binary, and controller recorded by
+`new-run` before executing and before accepting a result. Source must also stay
+stable while `new-run` builds the binary. An identity mismatch
+leaves the attempt inconclusive; create a fresh run after the checkout settles.
+Keep its receipt and diagnostics instead of replacing a failed attempt with a
+later success. `doctor` remains available to diagnose prerequisites explicitly.
+
+When strengthening an assertion, first demonstrate a defect it misses, then
+check that the repair still accepts a known-good case through the same interface.
+These tests establish the controller's offline behavior, not live provider
+compatibility or review quality. The
+[research and experiment note](docs/research/verification-automation-2026-10-15.md)
+explains the scope and evidence.
+
 ## Database schema release gate
 
 Keep at most one unreleased database schema version. If the latest published

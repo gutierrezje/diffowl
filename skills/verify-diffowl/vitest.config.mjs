@@ -5,6 +5,9 @@ export default defineConfig({
   test: {
     env: gitTestEnvironment,
     fileParallelism: false,
-    include: ["skills/verify-diffowl/control-diffowl.verification.mjs"],
+    include: [
+      "skills/verify-diffowl/control-diffowl.verification.mjs",
+      "skills/verify-diffowl/run-identity.verification.mjs",
+    ],
   },
 });
