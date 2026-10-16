@@ -18,6 +18,7 @@ import {
   loadEffectiveReviewConfig,
   MissingModelError,
   resolveReviewBackendPreference,
+  type EffectiveReviewOverrides,
 } from "./effective-config.js";
 import {
   getReviewPreferencesPath,
@@ -50,6 +51,7 @@ import {
   ensureServer,
   getInstalledOpencodeVersion,
   getServerHealth,
+  isServerRunning,
   stopServer,
 } from "./opencode/server.js";
 import {
@@ -243,13 +245,7 @@ program
       await failReview(format, "Not a git repository", { hook: options.hook, hookCommit });
     }
 
-    // First run: prompt for setup
-    if (!configExists()) {
-      console.log(chalk.yellow("No .diffowl.yml found. Running first-time setup...\n"));
-      await runInit();
-    }
-
-    const reviewOverrides: Parameters<typeof loadEffectiveReviewConfigOrExit>[0] = {};
+    const reviewOverrides: EffectiveReviewOverrides = {};
     if (options.backend !== undefined) {
       reviewOverrides.backend = options.backend;
     }
@@ -259,6 +255,15 @@ program
     if (options.reasoning !== undefined) {
       reviewOverrides.reasoning = options.reasoning;
     }
+
+    // First run: prompt for setup
+    if (!configExists()) {
+      (jsonMode ? console.error : console.log)(
+        chalk.yellow("No .diffowl.yml found. Running first-time setup...\n"),
+      );
+      await runInit({ overrides: reviewOverrides, format });
+    }
+
     const effective = await loadEffectiveReviewConfigOrExit(reviewOverrides, format);
     const { config, selection } = effective;
     const reviewWarnings = [...effective.warnings];
@@ -656,31 +661,58 @@ program
     await runInit();
   });
 
-async function runInit() {
-  console.log(chalk.bold("DiffOwl Setup\n"));
+async function runInit(
+  options: { overrides?: EffectiveReviewOverrides; format?: ReviewOutputFormat } = {},
+) {
+  const format = options.format ?? "text";
+  // JSON review output owns stdout, so first-run setup reports progress on stderr.
+  const log = format === "json" ? console.error : console.log;
+  log(chalk.bold("DiffOwl Setup\n"));
   const config = await loadProjectConfigOrExit();
-  const preferences = await loadReviewPreferencesOrExit();
-  const { backend, source } = resolveReviewBackendPreference(preferences);
-  const currentModel = preferences.models.find((selection) => selection.backend === backend)?.model;
-  console.log(`${chalk.bold("Review backend:")} ${formatReviewBackend(backend)} (${source})`);
-  console.log(chalk.dim(`Local preference: ${await getReviewPreferencesPath()}`));
-  const modelOptions: Parameters<typeof selectModelInteractively>[1] = {
-    allowKeepCurrent: false,
-    backend,
-  };
-  if (currentModel !== undefined) {
-    modelOptions.currentModel = currentModel;
+  // Resolve exactly as the review will, so --backend, --model, and DIFFOWL_MODEL apply here too.
+  let selection: ReviewSelection | undefined;
+  let backend: ReviewBackend;
+  try {
+    selection = (await loadEffectiveReviewConfig(options.overrides)).selection;
+    backend = selection.backend;
+  } catch (err) {
+    if (!(err instanceof MissingModelError)) failEffectiveConfig(err, format);
+    backend = err.backend;
   }
-  await selectModelInteractively(config, modelOptions);
-  console.log(chalk.green(`✓ Config saved to ${await saveConfig(config)}`));
-  await enableAgentPathFromCli();
+  const source =
+    selection?.source.backend ??
+    resolveReviewBackendPreference(
+      await loadReviewPreferencesOrExit(),
+      options.overrides?.backend === undefined ? undefined : backend,
+    ).source;
+  log(`${chalk.bold("Review backend:")} ${formatReviewBackend(backend)} (${source})`);
+  log(chalk.dim(`Local preference: ${await getReviewPreferencesPath()}`));
+  if (selection?.source.model === "command" || selection?.source.model === "environment") {
+    log(formatEffectiveModel(selection));
+    log(
+      chalk.dim(
+        `Not saved as a preference. To keep it, run \`diffowl backend ${backend}\` and \`diffowl model ${selection.requestedModel}\`.\n`,
+      ),
+    );
+  } else {
+    const modelOptions: Parameters<typeof selectModelInteractively>[1] = {
+      allowKeepCurrent: false,
+      backend,
+    };
+    if (selection !== undefined) {
+      modelOptions.currentModel = selection.requestedModel;
+    }
+    await selectModelInteractively(config, modelOptions);
+  }
+  log(chalk.green(`✓ Config saved to ${await saveConfig(config)}`));
+  await enableAgentPathFromCli(log);
 }
 
-async function enableAgentPathFromCli(): Promise<void> {
+async function enableAgentPathFromCli(log: (message: string) => void = console.log): Promise<void> {
   const projectRoot = getProjectRoot();
   if (!canSelectModelInteractively(process.stdin.isTTY, process.stdout.isTTY)) {
-    console.log(chalk.dim("Skipped setup prompts (no terminal)."));
-    console.log(
+    log(chalk.dim("Skipped setup prompts (no terminal)."));
+    log(
       chalk.dim(
         "Later: add AGENTS.md, `diffowl agent-hook install --client claude`, or `diffowl hook install`.",
       ),
@@ -1069,12 +1101,27 @@ async function selectModelInteractively(
     return;
   }
 
+  // Check before querying: the query can auto-start a server that nothing would select from.
+  if (!canSelectModelInteractively(process.stdin.isTTY, process.stdout.isTTY)) {
+    console.error(
+      chalk.red(
+        "Interactive model selection requires a terminal. Pass a model explicitly, for example `diffowl model provider/model`.",
+      ),
+    );
+    process.exit(1);
+  }
+
+  const port = config.server.port;
+  const startsServer = config.server.auto_start && !(await isServerRunning(port));
+  // A failed selection must not leave behind a server this query started.
+  const failSelection = async (): Promise<never> => {
+    if (startsServer) await stopServer(port).catch(() => false);
+    process.exit(1);
+  };
   const spinner = ora("Querying available models from OpenCode...").start();
   let models: string[] = [];
   try {
-    models = await getAvailableModels(config.server.port, {
-      autoStart: config.server.auto_start,
-    });
+    models = await getAvailableModels(port, { autoStart: config.server.auto_start });
     spinner.stop();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1082,21 +1129,12 @@ async function selectModelInteractively(
     for (const line of getOpenCodeFailureGuidance(message)) {
       console.error(chalk.dim(line));
     }
-    process.exit(1);
+    await failSelection();
   }
 
   let selectedModel = options.currentModel ?? models[0] ?? "";
 
   if (models.length > 0) {
-    if (!canSelectModelInteractively(process.stdin.isTTY, process.stdout.isTTY)) {
-      console.error(
-        chalk.red(
-          "Interactive model selection requires a terminal. Pass a model explicitly, for example `diffowl model provider/model`.",
-        ),
-      );
-      process.exit(1);
-    }
-
     console.log(
       chalk.bold(
         options.allowKeepCurrent
@@ -1139,7 +1177,7 @@ async function selectModelInteractively(
   } else {
     console.error(chalk.red("\nNo active/connected providers found in OpenCode."));
     console.error(chalk.dim("Run opencode to configure a provider, then retry."));
-    process.exit(1);
+    await failSelection();
   }
 
   // Only update/save if a new model was selected or config is being initialized
@@ -1806,14 +1844,18 @@ async function loadEffectiveReviewConfigOrExit(
   try {
     return await loadEffectiveReviewConfig(overrides);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (format === "json") {
-      writeJsonError(`Config error: ${message}`);
-    } else {
-      console.error(chalk.red(`Config error: ${message}`));
-    }
-    process.exit(1);
+    failEffectiveConfig(err, format);
   }
+}
+
+function failEffectiveConfig<Failure>(err: Failure, format: ReviewOutputFormat): never {
+  const message = err instanceof Error ? err.message : String(err);
+  if (format === "json") {
+    writeJsonError(`Config error: ${message}`);
+  } else {
+    console.error(chalk.red(`Config error: ${message}`));
+  }
+  process.exit(1);
 }
 
 async function loadReviewPreferencesOrExit() {
