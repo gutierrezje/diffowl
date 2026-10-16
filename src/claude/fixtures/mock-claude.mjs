@@ -48,7 +48,9 @@ if (mode === "mutation-protocol" || mode === "cleanup-failure") {
   process.exit(0);
 }
 const output =
-  mode === "mutation-invalid" || mode === "invalid" || (mode === "retry" && !repairing)
+  mode === "mutation-invalid" ||
+  mode === "invalid" ||
+  ((mode === "retry" || mode === "retry-cache-unknown") && !repairing)
     ? { summary: "Incomplete review" }
     : { summary: repairing ? "Repaired review" : "Synthetic review", findings: [] };
 emit({
@@ -78,6 +80,33 @@ if (mode === "fallback-model")
     type: "assistant",
     message: { model: "claude-opus-fixture", content: [] },
   });
+if (mode === "last-assistant-model-unknown") {
+  emit({
+    type: "assistant",
+    message: { model: "claude-opus-fixture", content: [] },
+  });
+  emit({ type: "assistant", message: { content: [] } });
+}
+const usage = {
+  input_tokens: 10,
+  output_tokens: 5,
+  cache_read_input_tokens: 10,
+  cache_creation_input_tokens: 3,
+};
+if (mode === "usage-cache-omitted") {
+  delete usage.cache_read_input_tokens;
+  delete usage.cache_creation_input_tokens;
+}
+if (mode === "usage-cache-null" || (mode === "retry-cache-unknown" && !repairing)) {
+  usage.cache_read_input_tokens = null;
+  usage.cache_creation_input_tokens = null;
+}
+if (mode === "usage-cache-zero") {
+  usage.cache_read_input_tokens = 0;
+  usage.cache_creation_input_tokens = 0;
+}
+if (mode === "usage-cache-string") usage.cache_read_input_tokens = "10";
+if (mode === "usage-cache-negative") usage.cache_creation_input_tokens = -3;
 if (mode !== "missing-result")
   emit({
     type: "result",
@@ -87,17 +116,14 @@ if (mode !== "missing-result")
     session_id: "claude-fixture-session",
     structured_output: output,
     modelUsage:
-      mode === "fallback-model" || mode === "ambiguous-model"
+      mode === "fallback-model" ||
+      mode === "ambiguous-model" ||
+      mode === "last-assistant-model-unknown"
         ? { "claude-sonnet-fixture": {}, "claude-opus-fixture": {} }
         : mode === "remapped-model"
           ? { "claude-opus-fixture": {} }
           : { "claude-sonnet-fixture": {} },
-    usage: {
-      input_tokens: 10,
-      output_tokens: 5,
-      cache_read_input_tokens: 10,
-      cache_creation_input_tokens: 3,
-    },
+    usage,
     total_cost_usd: 0.001,
   });
 if (mode === "after-result") emit({ type: "assistant", message: { content: [] } });
