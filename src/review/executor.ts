@@ -1,3 +1,7 @@
+import {
+  createClaudeReviewExecutor,
+  type ClaudeReviewExecutorOptions,
+} from "../claude/executor.js";
 import { createCodexReviewExecutor, type CodexReviewExecutorOptions } from "../codex/executor.js";
 import {
   createCursorReviewExecutor,
@@ -8,6 +12,7 @@ import type { ReviewAssignment } from "./provenance.js";
 import { reasoningVariant } from "./reasoning.js";
 import type { AssignedReviewExecutor, ReviewExecutor } from "./types.js";
 
+const CLAUDE_CLOSE_TIMEOUT_MS = 5_000;
 const CODEX_PROTOCOL_TIMEOUT_MS = 30_000;
 const CODEX_INTERRUPT_TIMEOUT_MS = 5_000;
 const CODEX_CLOSE_TIMEOUT_MS = 5_000;
@@ -16,12 +21,14 @@ export interface SelectedReviewExecutorDependencies {
   createOpenCode(): ReviewExecutor;
   createCodex(options: CodexReviewExecutorOptions): ReviewExecutor;
   createCursor(options: CursorReviewExecutorOptions): ReviewExecutor;
+  createClaude(options: ClaudeReviewExecutorOptions): ReviewExecutor;
 }
 
 const defaultDependencies: SelectedReviewExecutorDependencies = {
   createOpenCode: createOpenCodeReviewExecutor,
   createCodex: createCodexReviewExecutor,
   createCursor: createCursorReviewExecutor,
+  createClaude: createClaudeReviewExecutor,
 };
 
 export function createSelectedReviewExecutor(
@@ -70,6 +77,14 @@ function createReviewExecutor(
       return dependencies.createOpenCode();
     case "cursor":
       return dependencies.createCursor({ model: assignment.selection.requestedModel });
+    case "claude": {
+      const options: ClaudeReviewExecutorOptions = {
+        model: assignment.selection.requestedModel,
+        command: { executable: env["DIFFOWL_CLAUDE_EXECUTABLE"]?.trim() || "claude" },
+        closeTimeoutMs: CLAUDE_CLOSE_TIMEOUT_MS,
+      };
+      return dependencies.createClaude(options);
+    }
     case "codex": {
       const options: CodexReviewExecutorOptions = {
         command: {

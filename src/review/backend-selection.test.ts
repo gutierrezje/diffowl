@@ -17,3 +17,16 @@ describe("Cursor backend selection", () => {
     expect(() => parseBackendModel("cursor", "cursor/composer-2.5")).toThrow();
   });
 });
+
+describe("Claude backend selection", () => {
+  it("accepts a bare Claude model id and rejects provider-prefixed ids", () => {
+    expect(parseReviewBackend("claude")).toBe("claude");
+    expect(parseBackendModel("claude", " sonnet ")).toBe("sonnet");
+    expect(formatReviewBackend("claude")).toBe("Claude");
+    expect(BackendModelSelectionSchema.parse({ backend: "claude", model: "sonnet" })).toEqual({
+      backend: "claude",
+      model: "sonnet",
+    });
+    expect(() => parseBackendModel("claude", "anthropic/sonnet")).toThrow();
+  });
+});

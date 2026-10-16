@@ -6,6 +6,8 @@ const RpcFailureSchema = z.object({
   rpcError: z.object({ message: z.string() }),
 });
 const CodexErrorKindSchema = z.object({ codexErrorInfo: z.string() });
+const ClaudeModelRejectionPattern =
+  /\b(?:unsupported model|unknown model|invalid model|(?:the )?(?:requested )?model(?:\s+(?:"[\w./:+-]+"|'[\w./:+-]+'|`[\w./:+-]+`|[\w./:+-]+))?\s+(?:(?:is|was)\s+)?(?:unknown|unsupported|invalid|not found|rejected|not supported))\b/;
 
 export function getReviewBackendFailureGuidance<Failure>(
   backend: ReviewBackend,
@@ -15,6 +17,41 @@ export function getReviewBackendFailureGuidance<Failure>(
   if (backend === "opencode") return getOpenCodeFailureGuidance(message);
 
   const normalized = message.toLowerCase();
+  if (backend === "claude") {
+    // The integrity error lists repository paths, which can contain any keyword below.
+    if (normalized.startsWith("repository changed during claude review")) {
+      return [
+        "The repository changed during the Claude review, so the review was rejected.",
+        "Inspect the listed paths, then retry once the working tree is stable.",
+      ];
+    }
+    if (
+      normalized.includes("executable was not found") ||
+      normalized.includes("command not found") ||
+      normalized.includes("enoent")
+    ) {
+      return [
+        "Claude Code CLI is not installed.",
+        "Install Claude Code and ensure `claude` is on PATH, then retry.",
+      ];
+    }
+    if (/auth|not logged in|unauthenticated|login expired/.test(normalized)) {
+      return [
+        "Claude Code authentication is missing or expired.",
+        "Run `claude auth login`, then retry.",
+      ];
+    }
+    if (ClaudeModelRejectionPattern.test(normalized)) {
+      return [
+        "Claude rejected the selected model.",
+        "Confirm a valid Claude model alias or id, then save it with `diffowl model <model-id>`.",
+      ];
+    }
+    return [
+      "Claude Code review failed.",
+      "Run `claude --version` and `claude auth login` to verify the local runtime, then retry.",
+    ];
+  }
   if (backend === "cursor") {
     if (/auth|api.?key|\b401\b|\b403\b/.test(normalized)) {
       return [

@@ -1,6 +1,6 @@
 # Backend and model preferences
 
-Preference commands let a user select OpenCode or Codex and preserve one model
+Preference commands let a user select OpenCode, Codex, Cursor, or Claude and preserve one model
 per backend without rewriting committed project policy.
 
 ## Sub-features
@@ -19,6 +19,7 @@ without `--dry-run`. Inspect the preference and policy observations in the recei
 ## How to get to it (user POV)
 
 - Run `diffowl backend`, `diffowl backend opencode`, or `diffowl backend codex`.
+- For Claude selection and review, follow the [Claude Code recipe](claude-code.md).
 - Run `diffowl model <id>` for the selected backend.
 - Run `diffowl backend --reset` or `diffowl model --reset`.
 

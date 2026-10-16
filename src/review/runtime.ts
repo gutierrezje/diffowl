@@ -1,3 +1,4 @@
+import { getInstalledClaudeVersion } from "../claude/runtime.js";
 import { getInstalledCodexVersion } from "../codex/runtime.js";
 import { getInstalledCursorVersion } from "../cursor/runtime.js";
 import { getInstalledOpencodeVersion } from "../opencode/server.js";
@@ -13,21 +14,24 @@ interface ReviewRuntimeDependencies {
   getOpenCodeVersion(): Promise<string | null>;
   getCodexVersion(): Promise<string | null>;
   getCursorVersion(): Promise<string | null>;
+  getClaudeVersion(): Promise<string | null>;
 }
 
 const defaultDependencies: ReviewRuntimeDependencies = {
   getOpenCodeVersion: getInstalledOpencodeVersion,
   getCodexVersion: getInstalledCodexVersion,
   getCursorVersion: getInstalledCursorVersion,
+  getClaudeVersion: getInstalledClaudeVersion,
 };
 
 export async function inspectReviewRuntimes(
   dependencies: ReviewRuntimeDependencies = defaultDependencies,
 ): Promise<ReviewRuntimeStatuses> {
-  const [openCodeVersion, codexVersion, cursorVersion] = await Promise.all([
+  const [openCodeVersion, codexVersion, cursorVersion, claudeVersion] = await Promise.all([
     dependencies.getOpenCodeVersion(),
     dependencies.getCodexVersion(),
     dependencies.getCursorVersion(),
+    dependencies.getClaudeVersion(),
   ]);
   return {
     opencode:
@@ -42,5 +46,9 @@ export async function inspectReviewRuntimes(
       cursorVersion === null
         ? { available: false, version: null }
         : { available: true, version: cursorVersion },
+    claude:
+      claudeVersion === null
+        ? { available: false, version: null }
+        : { available: true, version: claudeVersion },
   };
 }
