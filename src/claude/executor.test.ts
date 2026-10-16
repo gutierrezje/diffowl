@@ -249,6 +249,44 @@ describe("Claude review executor", () => {
     expect(result.effectiveModel).toBe("claude-opus-fixture");
   });
 
+  it("does not reuse an earlier model when the final assistant message omits its identity", async () => {
+    const directory = await repository();
+    const result = await execute(directory, "last-assistant-model-unknown");
+    expect(result.effectiveModel).toBeUndefined();
+  });
+
+  it.each(["usage-cache-omitted", "usage-cache-null"])(
+    "accepts a review when %s leaves cache usage unknown",
+    async (mode) => {
+      const directory = await repository();
+      const result = await execute(directory, mode);
+      expect(result.review.report.summary).toBe("Synthetic review");
+      expect(result.review.usage).toBeUndefined();
+    },
+  );
+
+  it("preserves zero cache usage as known data", async () => {
+    const directory = await repository();
+    const result = await execute(directory, "usage-cache-zero");
+    expect(result.review.usage?.tokens.input).toBe(10);
+    expect(result.review.usage?.tokens.cache).toEqual({ read: 0, write: 0 });
+  });
+
+  it("omits aggregate usage when a retry attempt has unknown cache counts", async () => {
+    const directory = await repository();
+    const result = await execute(directory, "retry-cache-unknown");
+    expect(result.review.report.summary).toBe("Repaired review");
+    expect(result.review.usage).toBeUndefined();
+  });
+
+  it.each([
+    ["usage-cache-string", "cache_read_input_tokens"],
+    ["usage-cache-negative", "cache_creation_input_tokens"],
+  ])("rejects invalid cache usage metadata from %s", async (mode, field) => {
+    const directory = await repository();
+    await expect(execute(directory, mode)).rejects.toThrow(field);
+  });
+
   it("leaves model provenance unknown when multiple models ran without a final model identity", async () => {
     const directory = await repository();
     const result = await execute(directory, "ambiguous-model");

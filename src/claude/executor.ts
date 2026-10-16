@@ -44,8 +44,8 @@ const ResultSchema = z.object({
     .object({
       input_tokens: z.number().nonnegative(),
       output_tokens: z.number().nonnegative(),
-      cache_read_input_tokens: z.number().nonnegative(),
-      cache_creation_input_tokens: z.number().nonnegative(),
+      cache_read_input_tokens: z.number().nonnegative().nullable().optional(),
+      cache_creation_input_tokens: z.number().nonnegative().nullable().optional(),
     })
     .optional(),
   total_cost_usd: z.number().nonnegative().optional(),
@@ -153,7 +153,7 @@ async function executeReview(
   const started = performance.now();
   const prompts = resolveReviewPrompts({ ...input.review, documentMode: "native-json" });
   input.onStatus?.("Reviewing changes with Claude Code...");
-  const usages: ReviewUsage[] = [];
+  const usages: (ReviewUsage | undefined)[] = [];
   let prompt = prompts.user;
   for (let attempt = 1; ; attempt++) {
     input.onTelemetry?.({ type: "phase", phase: "turn-start", attempt });
@@ -165,22 +165,32 @@ async function executeReview(
       prompt,
       signal,
     );
-    if (terminal.usage)
+    const usage = terminal.usage;
+    const cacheRead = usage?.cache_read_input_tokens;
+    const cacheWrite = usage?.cache_creation_input_tokens;
+    // Unknown cache counts must not be reported as zero or included in a partial retry total.
+    if (
+      usage !== undefined &&
+      cacheRead !== undefined &&
+      cacheRead !== null &&
+      cacheWrite !== undefined &&
+      cacheWrite !== null
+    ) {
       usages.push({
         tokens: {
-          input:
-            terminal.usage.input_tokens +
-            terminal.usage.cache_read_input_tokens +
-            terminal.usage.cache_creation_input_tokens,
-          output: terminal.usage.output_tokens,
+          input: usage.input_tokens + cacheRead + cacheWrite,
+          output: usage.output_tokens,
           reasoning: 0,
           cache: {
-            read: terminal.usage.cache_read_input_tokens,
-            write: terminal.usage.cache_creation_input_tokens,
+            read: cacheRead,
+            write: cacheWrite,
           },
         },
         cost: terminal.total_cost_usd ?? null,
       });
+    } else {
+      usages.push(undefined);
+    }
     const decision = decideReviewAttempt({
       closed: validateReviewDocument(terminal.structured_output ?? null, "native-json"),
       attempt,
@@ -208,8 +218,11 @@ async function executeReview(
       ],
     };
     if (effectiveModel !== undefined) result.effectiveModel = effectiveModel;
-    const usage = aggregateReviewUsage(usages);
-    if (usage) result.review.usage = usage;
+    const knownUsages = usages.filter((usage): usage is ReviewUsage => usage !== undefined);
+    if (knownUsages.length === usages.length) {
+      const usage = aggregateReviewUsage(knownUsages);
+      if (usage) result.review.usage = usage;
+    }
     return result;
   }
 }
