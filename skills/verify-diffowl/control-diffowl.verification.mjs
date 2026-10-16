@@ -436,6 +436,9 @@ describe("control-diffowl", () => {
     expect(receiptResult).toMatchObject({
       result: "INCONCLUSIVE",
       controller: { state: "failed", finishedAt: expect.any(String) },
+      observed: expect.arrayContaining([
+        expect.objectContaining({ check: "feature execution completed", ok: false }),
+      ]),
       confounds: [expect.any(Object)],
     });
     receiptResult.cleanup = {

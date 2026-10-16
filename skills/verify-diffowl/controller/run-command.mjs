@@ -305,11 +305,11 @@ function runAlreadyStarted(run, state) {
   });
 }
 
-async function terminalizeRunFailure(run, error, observed = []) {
+async function terminalizeRunFailure(run, error, observed) {
   const feature = inconclusiveFeature(error);
   await updateReceipt(run, (receipt) => {
     receipt.result = "INCONCLUSIVE";
-    receipt.observed.push(...observed, ...feature.observed);
+    receipt.observed.push(...(observed ?? feature.observed));
     receipt.confounds.push(...feature.confounds);
     receipt.controller.state = "failed";
     receipt.controller.finishedAt = new Date().toISOString();
@@ -501,10 +501,10 @@ export async function createRun(adapter, featureId, options) {
     observedTarget: { scratch, evidence },
     artifacts: [evidence, join(evidence, "receipt.json")],
     cleanup: receipt.cleanup,
-    scalar: scratch,
+    scalar: sourceIdentityStable ? scratch : undefined,
     human: sourceIdentityStable
       ? `Created ${runId}\nScratch: ${scratch}\nEvidence: ${evidence}`
-      : `INCONCLUSIVE: ${runId}\nReceipt: ${join(evidence, "receipt.json")}`,
+      : `INCONCLUSIVE: ${runId}\n${sourceBoundaryFailure.details.likelyCause}\nReceipt: ${join(evidence, "receipt.json")}`,
   };
   if (!sourceIdentityStable) {
     result.result = "INCONCLUSIVE";

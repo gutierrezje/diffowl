@@ -92,6 +92,9 @@ describe("run identity binding", () => {
       expect(beforeSha256).not.toBe(afterSha256);
       expect(execution.exitCode).not.toBe(0);
       expect(output).toMatchObject({ success: false, result: "INCONCLUSIVE" });
+      expect(receipt.observed).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ check: "feature execution completed" }),
+      ]));
       expect(doctor.exitCode).not.toBe(0);
       expect(doctorOutput.problems).toContain(
         "run source content identity no longer matches checkout",
@@ -361,7 +364,7 @@ describe("run identity binding", () => {
       command: "run",
       args: (runId) => ["run", "cli", "cli-version-help", "--run-id", runId, "--json"],
     },
-  ])("fails $command when source changes while the helper builds the binary", async ({ command, args }) => {
+  ].flatMap((entry) => [true, false].map((json) => ({ ...entry, json }))))("fails $command (json=$json) when source changes while the helper builds the binary", async ({ command, args, json }) => {
     const runId = `identity-build-drift-${command}-${process.pid}-${Date.now()}`;
     const fixturePath = join(projectRoot, `${runId}.fixture`);
     const shimDir = join(experimentRoot, `${runId}-bin`);
@@ -397,14 +400,14 @@ describe("run identity binding", () => {
 
       const execution = await execa(
         controller,
-        args(runId),
+        args(runId).filter((arg) => json || arg !== "--json"),
         {
           cwd: projectRoot,
           reject: false,
           env: { ...process.env, PATH: `${shimDir}${delimiter}${process.env.PATH}` },
         },
       );
-      const output = JSON.parse(execution.stdout);
+      const output = json ? JSON.parse(execution.stdout) : execution.stdout;
       const receiptResult = await execa(
         controller,
         ["cli", "receipt", "--run", runId, "--json"],
@@ -424,8 +427,14 @@ describe("run identity binding", () => {
 
       expect(beforeSha256).not.toBe(afterSha256);
       expect(execution.exitCode).not.toBe(0);
-      expect(output).toMatchObject({ command, success: false, result: "INCONCLUSIVE" });
-      if (command === "run") {
+      if (json) {
+        expect(output).toMatchObject({ command, success: false, result: "INCONCLUSIVE" });
+      } else {
+        expect(output).toContain("INCONCLUSIVE:");
+        expect(output).toContain("Receipt:");
+        expect(output).toContain("Source changed or became unreadable");
+      }
+      if (json && command === "run") {
         expect(output).toMatchObject({
           evidence: expect.any(String),
           receipt: expect.stringContaining("receipt.json"),
