@@ -262,7 +262,11 @@ program
       !process.env["DIFFOWL_MODEL"]?.trim()
     ) {
       console.log(chalk.yellow("No .diffowl.yml found. Running first-time setup...\n"));
-      await runInit(options.backend);
+      try {
+        await runInit(options.backend);
+      } catch (error) {
+        failConfigError(CliErrorSchema.parse(error));
+      }
     }
     const effective = await loadEffectiveReviewConfigOrExit(reviewOverrides, format);
     if (!configExists()) await saveConfig(await loadProjectConfigOrExit());
