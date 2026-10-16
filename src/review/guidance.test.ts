@@ -61,6 +61,16 @@ describe("getReviewBackendFailureGuidance", () => {
     expect(guidance.toLowerCase()).not.toMatch(/subscription|entitlement|billing/);
   });
 
+  it.each([
+    "Claude model claude-3-5-sonnet is not supported.",
+    'The requested model "claude-opus-next" is invalid.',
+  ])("directs Claude model rejection to model selection for %s", (message) => {
+    const guidance = getReviewBackendFailureGuidance("claude", message).join("\n");
+
+    expect(guidance).toContain("Claude rejected the selected model");
+    expect(guidance).toContain("diffowl model <model-id>");
+  });
+
   it("does not mistake a structured validation path for a Claude model rejection", () => {
     const guidance = getReviewBackendFailureGuidance(
       "claude",

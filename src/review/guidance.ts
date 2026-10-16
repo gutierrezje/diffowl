@@ -6,6 +6,8 @@ const RpcFailureSchema = z.object({
   rpcError: z.object({ message: z.string() }),
 });
 const CodexErrorKindSchema = z.object({ codexErrorInfo: z.string() });
+const ClaudeModelRejectionPattern =
+  /\b(?:unsupported model|unknown model|invalid model|(?:the )?(?:requested )?model(?:\s+(?:"[\w./:+-]+"|'[\w./:+-]+'|`[\w./:+-]+`|[\w./:+-]+))?\s+(?:(?:is|was)\s+)?(?:unknown|unsupported|invalid|not found|rejected|not supported))\b/;
 
 export function getReviewBackendFailureGuidance<Failure>(
   backend: ReviewBackend,
@@ -39,11 +41,7 @@ export function getReviewBackendFailureGuidance<Failure>(
         "Run `claude auth login`, then retry.",
       ];
     }
-    if (
-      /\b(?:unsupported model|unknown model|invalid model|model (?:is )?(?:unknown|unsupported|invalid|not found|rejected))\b/.test(
-        normalized,
-      )
-    ) {
+    if (ClaudeModelRejectionPattern.test(normalized)) {
       return [
         "Claude rejected the selected model.",
         "Confirm a valid Claude model alias or id, then save it with `diffowl model <model-id>`.",
