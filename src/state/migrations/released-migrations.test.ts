@@ -9,6 +9,7 @@ import { MIGRATION_004_REVIEW_EXECUTIONS } from "./004-review-executions.js";
 import { MIGRATION_005_REVIEW_INPUT_IDENTITY } from "./005-review-input-identity.js";
 import { MIGRATION_006_REVIEW_OPERATIONS } from "./006-review-operations.js";
 import { MIGRATION_007_REVIEW_RUNTIME_AND_MIGRATION_IDENTITY } from "./007-review-runtime-and-migration-identity.js";
+import { MIGRATION_008_REVIEW_COVERAGE } from "./008-review-coverage.js";
 
 interface ReleasedMigration {
   version: number;
@@ -17,7 +18,7 @@ interface ReleasedMigration {
   sha256: string;
 }
 
-const LATEST_RELEASED_SCHEMA_VERSION = 7;
+const LATEST_RELEASED_SCHEMA_VERSION = 8;
 
 // Once a migration ships, changing its SQL cannot update databases that already recorded the
 // version. Keep one mutable migration after this released boundary; freeze it in this list
@@ -64,6 +65,12 @@ const RELEASED_MIGRATIONS = [
     releasedIn: "0.5.2",
     sql: MIGRATION_007_REVIEW_RUNTIME_AND_MIGRATION_IDENTITY,
     sha256: "0c6d4fbc726e62b42ce4557b18885e0642e77b860245b1843af56632c98a6cdb",
+  },
+  {
+    version: 8,
+    releasedIn: "0.5.3",
+    sql: MIGRATION_008_REVIEW_COVERAGE,
+    sha256: "4c54fbbf84ce3ea9251cad15f1493e5bc7b464feaafc4e71f4cef61e00aeec56",
   },
 ] satisfies readonly ReleasedMigration[];
 
