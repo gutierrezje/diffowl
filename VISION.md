@@ -251,14 +251,15 @@ Meet agentic workflows at their natural unit: the branch, not the commit.
 
 - Extract a review-backend interface around the current OpenCode execution
   path while keeping review progress and results backend-neutral.
-- Spike a Codex-subprocess implementation behind that interface. Rationale: it
-  is the one backend that can unlock a subscription users already pay for
-  (Anthropic's terms keep Claude subscriptions out of reach for any third-party
-  path, so for Claude a direct backend buys nothing over OpenCode). Adoption
-  should weigh review quality, reliability, latency, and operating cost — with
-  eval comparisons as supporting input once the suite is mature enough to be
-  trusted, not as an automatic pass/fail. Subscription economics alone are not
-  a sufficient reason.
+- Support installed Codex and Claude subprocesses behind that interface so users
+  can reuse their existing CLI authentication. Anthropic's current
+  [Claude plan guidance](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)
+  permits subscription use through `claude -p` and third-party applications,
+  subject to plan limits and organization policy. Keep authentication in the
+  installed CLI; DiffOwl does not extract or reuse subscription tokens. Adoption
+  should weigh review quality, reliability, latency, and operating cost, with
+  eval comparisons as supporting evidence once the suite is mature enough to
+  be trusted. Subscription economics alone are not a sufficient reason.
 
 ### TypeScript Module-Impact Index
 

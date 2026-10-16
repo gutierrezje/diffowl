@@ -65,6 +65,28 @@ describe("review preferences", () => {
     );
   });
 
+  it("keeps a Claude model preference independent and in canonical backend order", async () => {
+    const repo = await createRepo("diffowl-review-preference-claude-");
+    process.chdir(repo);
+
+    await saveReviewBackendModel("claude", "claude-sonnet-4-5-20250929");
+    await saveReviewBackendModel("cursor", "composer-2.5");
+    await saveReviewBackendModel("codex", "gpt-5.4");
+    await saveReviewBackendModel("opencode", "provider/local");
+    await saveReviewBackendPreference("claude");
+
+    await expect(loadReviewPreferences()).resolves.toEqual({
+      kind: "current",
+      selectedBackend: "claude",
+      models: [
+        { backend: "opencode", model: "provider/local" },
+        { backend: "codex", model: "gpt-5.4" },
+        { backend: "cursor", model: "composer-2.5" },
+        { backend: "claude", model: "claude-sonnet-4-5-20250929" },
+      ],
+    });
+  });
+
   it("resets the explicit backend to the OpenCode default without deleting saved models", async () => {
     const repo = await createRepo("diffowl-review-preference-reset-");
     process.chdir(repo);

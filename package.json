@@ -1,9 +1,11 @@
 {
   "name": "diffowl",
   "version": "0.5.2",
-  "description": "Local AI code review agent for OpenCode and Codex",
+  "description": "Local AI code review CLI for OpenCode, Codex, Claude Code, and Cursor",
   "keywords": [
     "ai",
+    "claude",
+    "claude-code",
     "code-review",
     "codex",
     "git",
