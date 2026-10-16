@@ -109,6 +109,7 @@ describe("first-run setup CLI", () => {
   it.each([
     { backend: "codex", model: "gpt-5-codex" },
     { backend: "cursor", model: "composer-2.5" },
+    { backend: "claude", model: "sonnet" },
   ])("honors explicit $backend selection without prompting or starting OpenCode", async ({ backend, model }) => {
     const repo = await mkdtemp(join(tmpdir(), "diffowl-first-run-"));
     tempDirs.push(repo);
