@@ -18,6 +18,7 @@ import {
 } from "./run-store.mjs";
 import { snapshot } from "./snapshot-command.mjs";
 import { captureSourceIdentity } from "./source-identity.mjs";
+import { inspectRunIdentity } from "./run-identity.mjs";
 import { digest, inspectProcess, pathExists, runCommand } from "./system.mjs";
 
 export async function executeRun({ adapter, featureId, options }) {
@@ -68,6 +69,16 @@ export async function executeRun({ adapter, featureId, options }) {
     }
   } else {
     const created = await createRun(adapter, featureId, options);
+    if (!created.success) {
+      const evidence = created.observedTarget.evidence;
+      return {
+        ...created,
+        command: "run",
+        evidence,
+        receipt: join(evidence, "receipt.json"),
+        verification: { identityBound: false },
+      };
+    }
     run = await loadRun(created.runId, "run");
   }
 
@@ -107,6 +118,33 @@ export async function executeRun({ adapter, featureId, options }) {
     };
   });
   try {
+  const identityBefore = await inspectRunIdentity(run);
+  if (!identityBefore.ok) {
+    const error = identityFailure(identityBefore, "before feature actions");
+    await terminalizeRunFailure(
+      run,
+      error,
+      identityBefore.checks.map((check) => ({ ...check, phase: "preflight" })),
+    );
+    const receipt = await readReceipt(run);
+    const receiptPath = join(run.evidence, "receipt.json");
+    return {
+      schemaVersion: 1,
+      command: "run",
+      success: false,
+      surface: adapter.surface,
+      runId: run.manifest.runId,
+      result: "INCONCLUSIVE",
+      observedTarget: { scratch: run.manifest.scratch },
+      evidence: run.evidence,
+      receipt: receiptPath,
+      verification: { identityBound: false },
+      artifacts: receipt.artifacts,
+      cleanup: receipt.cleanup,
+      error: error.details,
+      human: `INCONCLUSIVE: ${featureId}\nReceipt: ${receiptPath}`,
+    };
+  }
   run.manifest.requestedModel = requestedModel ?? null;
   run.manifest.requestedReasoning = options.reasoning ?? run.manifest.requestedReasoning;
   await writeManifest(run, run.manifest);
@@ -156,13 +194,6 @@ export async function executeRun({ adapter, featureId, options }) {
     preservation.complete &&
     (feature.report === true || feature.report === "not-required") &&
     (feature.database === true || feature.database === "not-required");
-  const result =
-    feature.result === "INCONCLUSIVE"
-      ? "INCONCLUSIVE"
-      : requirementsAgree
-        ? "VERIFIED"
-        : "NOT VERIFIED";
-
   run.manifest.effectiveBackend = feature.effectiveBackend ?? null;
   run.manifest.effectiveModel = feature.effectiveModel;
   run.manifest.sessionId = feature.sessionId ?? null;
@@ -177,6 +208,15 @@ export async function executeRun({ adapter, featureId, options }) {
     ...runtimeIdentity,
     children: processes,
   });
+  const identityAfter = await inspectRunIdentity(run);
+  const result =
+    feature.result === "INCONCLUSIVE"
+      ? "INCONCLUSIVE"
+      : !identityAfter.ok
+        ? "INCONCLUSIVE"
+        : requirementsAgree
+          ? "VERIFIED"
+          : "NOT VERIFIED";
   const current = await updateReceipt(run, (receipt) => {
     receipt.result = result;
     receipt.observed.push(...feature.observed, {
@@ -185,6 +225,10 @@ export async function executeRun({ adapter, featureId, options }) {
       before: before.state.git,
       after: after.state.git,
     });
+    receipt.observed.push(
+      ...identityBefore.checks.map((check) => ({ ...check, phase: "preflight" })),
+      ...identityAfter.checks.map((check) => ({ ...check, phase: "postflight" })),
+    );
     receipt.observed.push({ check: "owned process teardown", ok: teardown, processes });
     receipt.observed.push({
       check: "durable artifacts retained byte-for-byte",
@@ -197,6 +241,9 @@ export async function executeRun({ adapter, featureId, options }) {
     receipt.mutation.records.push(...preparation.mutationRecords, ...feature.mutationRecords);
     receipt.cleanup.running = processes.filter(({ alive }) => alive).map(({ pid }) => ({ pid }));
     receipt.confounds.push(...feature.confounds);
+    if (!identityAfter.ok) {
+      receipt.confounds.push(identityFailure(identityAfter, "after feature actions").details);
+    }
     receipt.controller.state = "completed";
     receipt.controller.finishedAt = new Date().toISOString();
     receipt.target.runtime = runtime;
@@ -220,6 +267,7 @@ export async function executeRun({ adapter, featureId, options }) {
       repositoryImmutable,
       teardown,
       artifactsPreserved: preservation.complete,
+      identityBound: identityAfter.ok,
     },
     artifacts: current.artifacts,
     cleanup: current.cleanup,
@@ -227,15 +275,17 @@ export async function executeRun({ adapter, featureId, options }) {
     human: `${result}: ${featureId}\nReceipt: ${receiptPath}`,
   };
   if (result !== "VERIFIED") {
-    runResult.error = {
-      expected: "behavior, report, database, repository immutability, and teardown checks to agree",
-      observed: JSON.stringify(runResult.verification),
-      likelyCause:
-        result === "INCONCLUSIVE"
-          ? "A prerequisite or observable identity required by the feature was unavailable."
-          : "At least one product result or durable-state check contradicted the feature recipe.",
-      nextAction: `Inspect ${receiptPath}, console, and snapshots before cleanup.`,
-    };
+    runResult.error = !identityAfter.ok
+      ? identityFailure(identityAfter, "after feature actions").details
+      : {
+          expected: "behavior, report, database, repository immutability, and teardown checks to agree",
+          observed: JSON.stringify(runResult.verification),
+          likelyCause:
+            result === "INCONCLUSIVE"
+              ? "A prerequisite or observable identity required by the feature was unavailable."
+              : "At least one product result or durable-state check contradicted the feature recipe.",
+          nextAction: `Inspect ${receiptPath}, console, and snapshots before cleanup.`,
+        };
   }
   return runResult;
   } catch (error) {
@@ -255,14 +305,24 @@ function runAlreadyStarted(run, state) {
   });
 }
 
-async function terminalizeRunFailure(run, error) {
+async function terminalizeRunFailure(run, error, observed) {
   const feature = inconclusiveFeature(error);
   await updateReceipt(run, (receipt) => {
     receipt.result = "INCONCLUSIVE";
-    receipt.observed.push(...feature.observed);
+    receipt.observed.push(...(observed ?? feature.observed));
     receipt.confounds.push(...feature.confounds);
     receipt.controller.state = "failed";
     receipt.controller.finishedAt = new Date().toISOString();
+  });
+}
+
+function identityFailure(identity, phase) {
+  return new ControllerError({
+    command: "run",
+    expected: "source, controller, and binary identity recorded by this run to match the current checkout",
+    observed: identity.problems.join("; "),
+    likelyCause: `The run identity changed or could not be read ${phase}.`,
+    nextAction: "Retain this evidence, create a new run from the current checkout, and retry.",
   });
 }
 
@@ -315,6 +375,9 @@ export async function createRun(adapter, featureId, options) {
     });
   }
 
+  const controllerPath = join(projectRoot, "skills", "verify-diffowl", "control-diffowl");
+  const controllerHash = digest(await readFile(controllerPath));
+  const sourceIdentityBeforeBuild = await captureSourceIdentity(projectRoot);
   const helper = join(helpersRoot, "scratch-repo.sh");
   const created = await runCommand(helper, [adapter.surface, featureId, runId], {
     cwd: projectRoot,
@@ -333,12 +396,47 @@ export async function createRun(adapter, featureId, options) {
   const evidenceText = await readFile(join(scratch, ".diffowl-verify", "evidence.path"), "utf8");
   const evidence = evidenceText.trim();
   const legacy = await parseLegacyReceipt(join(evidence, "receipt.txt"));
+  let sourceIdentityAfterBuild = null;
+  let sourceIdentityError = null;
+  try {
+    sourceIdentityAfterBuild = await captureSourceIdentity(projectRoot);
+  } catch (error) {
+    sourceIdentityError = error instanceof Error ? error.message : String(error);
+  }
+  const sourceIdentityStable = Boolean(
+    sourceIdentityAfterBuild &&
+      sourceIdentityBeforeBuild.head === sourceIdentityAfterBuild.head &&
+      sourceIdentityBeforeBuild.hash === sourceIdentityAfterBuild.hash,
+  );
+  const sourceBoundaryCheck = {
+    check: "source identity stable across build",
+    ok: sourceIdentityStable,
+    expected: {
+      head: sourceIdentityBeforeBuild.head,
+      hash: sourceIdentityBeforeBuild.hash,
+    },
+    observed: sourceIdentityAfterBuild
+      ? { head: sourceIdentityAfterBuild.head, hash: sourceIdentityAfterBuild.hash }
+      : null,
+  };
+  if (sourceIdentityError) sourceBoundaryCheck.error = sourceIdentityError;
+  const sourceBoundaryFailure = sourceIdentityStable
+    ? null
+    : new ControllerError({
+        command: "new-run",
+        expected: "source identity to remain unchanged while the helper builds the binary",
+        observed: JSON.stringify({
+          expected: sourceBoundaryCheck.expected,
+          observed: sourceBoundaryCheck.observed,
+          error: sourceIdentityError,
+        }),
+        likelyCause: "Source changed or became unreadable while the helper built the run binary.",
+        nextAction: "Retain this failed run evidence, restore a stable checkout, and create a new run.",
+      });
   const requestedBackend = adapter.surface === "cli" ? null : adapter.surface;
   const requestedModel = options.model ?? null;
   const createdAt = legacy.started_at ?? new Date().toISOString();
-  const sourceIdentity = await captureSourceIdentity(projectRoot);
-  const controllerPath = join(projectRoot, "skills", "verify-diffowl", "control-diffowl");
-  const controllerHash = digest(await readFile(controllerPath));
+  const sourceIdentity = sourceIdentityBeforeBuild;
   const manifest = {
     schemaVersion: 1,
     runId,
@@ -375,17 +473,17 @@ export async function createRun(adapter, featureId, options) {
       runtime: `${adapter.surface}; requested model ${requestedModel ?? "none"}; effective runtime pending`,
     },
     actions: [],
-    observed: [],
+    observed: [sourceBoundaryCheck],
     artifacts: [evidence],
     mutation: { authority: "disposable-repository-only", records: [] },
     cleanup: { removed: [], restored: [], retained: [evidence, scratch], running: [] },
-    confounds: [],
+    confounds: sourceBoundaryFailure ? [sourceBoundaryFailure.details] : [],
     controller: {
       runId,
       surface: adapter.surface,
-      state: "created",
+      state: sourceIdentityStable ? "created" : "failed",
       startedAt: createdAt,
-      finishedAt: null,
+      finishedAt: sourceIdentityStable ? null : new Date().toISOString(),
     },
   };
   await Promise.all([
@@ -394,18 +492,25 @@ export async function createRun(adapter, featureId, options) {
     saveRunIndex(runId, { schemaVersion: 1, runId, surface: adapter.surface, evidence }),
   ]);
 
-  return {
+  const result = {
     schemaVersion: 1,
     command: "new-run",
-    success: true,
+    success: sourceIdentityStable,
     surface: adapter.surface,
     runId,
     observedTarget: { scratch, evidence },
     artifacts: [evidence, join(evidence, "receipt.json")],
     cleanup: receipt.cleanup,
-    scalar: scratch,
-    human: `Created ${runId}\nScratch: ${scratch}\nEvidence: ${evidence}`,
+    scalar: sourceIdentityStable ? scratch : undefined,
+    human: sourceIdentityStable
+      ? `Created ${runId}\nScratch: ${scratch}\nEvidence: ${evidence}`
+      : `INCONCLUSIVE: ${runId}\n${sourceBoundaryFailure.details.likelyCause}\nReceipt: ${join(evidence, "receipt.json")}`,
   };
+  if (!sourceIdentityStable) {
+    result.result = "INCONCLUSIVE";
+    result.error = sourceBoundaryFailure.details;
+  }
+  return result;
 }
 
 async function captureAction(run, { label, displayCommand, file, args }) {

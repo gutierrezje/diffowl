@@ -319,16 +319,18 @@ describe("durable 0.3 lifecycle flow", () => {
     };
 
     const markdown = renderMarkdown(report);
+    expect(second.reconcile.observations).toHaveLength(2);
     const regressionId = second.reconcile.observations.find(
-      (item) => item.fingerprint !== first.reconcile.observations[0]?.fingerprint,
+      (item) => item.observation.file === regressionFinding.file,
     )?.finding.id;
+    if (!regressionId) {
+      throw new Error("Expected regression finding id.");
+    }
 
     expect(markdown).toContain(`\`${findingId}\``);
     expect(markdown).toContain("— **suppressed (dismissed)**");
-    if (regressionId) {
-      expect(markdown).toContain(`\`${regressionId}\``);
-      expect(markdown).toContain("— **new**");
-    }
+    expect(markdown).toContain(`\`${regressionId}\``);
+    expect(markdown).toContain("— **new**");
   });
 });
 

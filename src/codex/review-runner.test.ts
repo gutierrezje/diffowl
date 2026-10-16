@@ -210,6 +210,7 @@ describe("executeCodexReview", () => {
     const outcome = await executeCodexReview(makeInput("reasoning-no-variant"));
 
     expect(outcome.reviewResult.report).toEqual({ summary: "schema summary", findings: [] });
+    expect(outcome.evidence.events).not.toContain("sent:model/list");
   });
 
   it("validates and forwards a supported opaque reasoning effort", async () => {

@@ -155,11 +155,19 @@ describe("control-diffowl", () => {
       await execa("git", ["-c", "commit.gpgsign=false", "commit", "-qm", "baseline"], {
         cwd: source,
       });
+      const clean = await captureSourceIdentity(source);
+      expect(clean).toMatchObject({
+        head: expect.stringMatching(/^[0-9a-f]{40}$/),
+        dirtyEntries: 0,
+      });
       await writeFile(join(source, "tracked.txt"), "first change\n");
       const first = await captureSourceIdentity(source);
       await writeFile(join(source, "tracked.txt"), "other change\n");
       const second = await captureSourceIdentity(source);
 
+      expect(first.head).toBe(clean.head);
+      expect(first.dirtyEntries).toBe(1);
+      expect(first.hash).not.toBe(clean.hash);
       expect(second.dirtyEntries).toBe(first.dirtyEntries);
       expect(second.hash).not.toBe(first.hash);
     } finally {
@@ -167,7 +175,46 @@ describe("control-diffowl", () => {
     }
   });
 
+  it("frames untracked paths and contents without concatenation collisions", async () => {
+    const source = await mkdtemp(join(tmpdir(), "control-diffowl-source-frames-"));
+    try {
+      await execa("git", ["init", "-q"], { cwd: source });
+      await execa("git", ["config", "user.email", "verification@example.invalid"], {
+        cwd: source,
+      });
+      await execa("git", ["config", "user.name", "Verification"], { cwd: source });
+      await writeFile(join(source, "tracked.txt"), "baseline\n");
+      await execa("git", ["add", "tracked.txt"], { cwd: source });
+      await execa("git", ["-c", "commit.gpgsign=false", "commit", "-qm", "baseline"], {
+        cwd: source,
+      });
+
+      await writeFile(join(source, "a"), "");
+      await writeFile(join(source, "b"), "b");
+      const first = await captureSourceIdentity(source);
+      await writeFile(join(source, "a"), "b");
+      await writeFile(join(source, "b"), "");
+      const second = await captureSourceIdentity(source);
+
+      expect(second.head).toBe(first.head);
+      expect(second.dirtyEntries).toBe(first.dirtyEntries);
+      expect(second.hash).not.toBe(first.hash);
+    } finally {
+      await rm(source, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when source identity is requested outside a Git repository", async () => {
+    const sourceRoot = await mkdtemp(join(tmpdir(), "source-identity-non-repo-"));
+    try {
+      await expect(captureSourceIdentity(sourceRoot)).rejects.toThrow("git rev-parse failed");
+    } finally {
+      await rm(sourceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("creates an owned run with an inspectable receipt and dry-run cleanup", async () => {
+    const sourceIdentity = await captureSourceIdentity(projectRoot);
     const runId = `controller-test-${process.pid}-${Date.now()}`;
     const created = await execa(
       controller,
@@ -196,19 +243,23 @@ describe("control-diffowl", () => {
         observedTarget: { scratch },
       });
 
-      const doctor = JSON.parse(
-        (
-          await execa(controller, ["cli", "doctor", "--run", runId, "--json"], {
-            cwd: projectRoot,
-          })
-        ).stdout,
+      const doctorExecution = await execa(
+        controller,
+        ["cli", "doctor", "--run", runId, "--json"],
+        { cwd: projectRoot, reject: false },
       );
+      const doctor = JSON.parse(doctorExecution.stdout);
+      expect(doctorExecution.exitCode).toBe(0);
       expect(doctor).toMatchObject({
         schemaVersion: 1,
         command: "doctor",
         success: true,
         identity: {
-          source: { head: expect.stringMatching(/^[0-9a-f]{40}$/), dirty: true },
+          source: {
+            head: sourceIdentity.head,
+            dirty: sourceIdentity.dirtyEntries > 0,
+            dirtyEntries: sourceIdentity.dirtyEntries,
+          },
           binary: {
             version: expect.stringMatching(/^\d+\.\d+\.\d+$/),
             hash: expect.stringMatching(/^[0-9a-f]{40}$/),
@@ -297,7 +348,9 @@ describe("control-diffowl", () => {
             at: expect.any(String),
           },
         ]),
-        observed: [],
+        observed: expect.arrayContaining([
+          expect.objectContaining({ check: "source identity stable across build", ok: true }),
+        ]),
         artifacts: expect.arrayContaining([expect.stringContaining(runId)]),
         mutation: { authority: "disposable-repository-only", records: [] },
         cleanup: { removed: [], restored: [], retained: expect.any(Array), running: [] },
@@ -383,6 +436,9 @@ describe("control-diffowl", () => {
     expect(receiptResult).toMatchObject({
       result: "INCONCLUSIVE",
       controller: { state: "failed", finishedAt: expect.any(String) },
+      observed: expect.arrayContaining([
+        expect.objectContaining({ check: "feature execution completed", ok: false }),
+      ]),
       confounds: [expect.any(Object)],
     });
     receiptResult.cleanup = {
@@ -432,6 +488,7 @@ describe("control-diffowl", () => {
         database: "not-required",
         repositoryImmutable: true,
         teardown: true,
+        identityBound: true,
       },
     });
 
@@ -454,6 +511,16 @@ describe("control-diffowl", () => {
         observed: expect.arrayContaining([
           expect.objectContaining({ check: "version matches package", ok: true }),
           expect.objectContaining({ check: "repository immutable", ok: true }),
+          expect.objectContaining({
+            check: "run source content identity",
+            phase: "preflight",
+            ok: true,
+          }),
+          expect.objectContaining({
+            check: "run source content identity",
+            phase: "postflight",
+            ok: true,
+          }),
         ]),
         cleanup: { running: [] },
         confounds: [],

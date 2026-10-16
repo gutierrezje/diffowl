@@ -1,19 +1,16 @@
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ControllerError } from "./errors.mjs";
 import { binaryPath, helpersRoot, projectRoot } from "./paths.mjs";
 import { createRun } from "./run-command.mjs";
 import {
   loadSurfaceRun,
-  parseLegacyReceipt,
   readReceipt,
   updateReceipt,
 } from "./run-store.mjs";
 import { snapshot } from "./snapshot-command.mjs";
 import { captureState } from "./state.mjs";
-import { captureSourceIdentity } from "./source-identity.mjs";
+import { captureRunIdentity, inspectRunIdentity } from "./run-identity.mjs";
 import {
-  digest,
   inspectPort,
   inspectProcess,
   pathExists,
@@ -114,11 +111,22 @@ async function getRunInfo(adapter, runIdInput) {
 
 async function doctor(adapter, runIdInput, requestedModel) {
   const run = runIdInput ? await loadSurfaceRun(adapter, runIdInput, "doctor") : null;
-  const legacy = run ? await parseLegacyReceipt(join(run.evidence, "receipt.txt")) : null;
   const readiness = await runCommand(join(helpersRoot, "doctor.sh"), [projectRoot], {
     cwd: projectRoot,
   });
   const localIdentity = parseDoctorOutput(readiness.stdout);
+  const identity = run
+    ? await inspectRunIdentity(run)
+    : {
+        current: await captureRunIdentity({
+          projectRoot,
+          binaryPath,
+          controllerPath: join(projectRoot, "skills", "verify-diffowl", "control-diffowl"),
+        }),
+        problems: [],
+      };
+  const sourceIdentity = identity.current.source;
+  const controllerHash = identity.current.controllerHash;
   const scratch = run?.manifest.scratch ?? null;
   const port = run?.manifest.reservedPort ?? null;
   const pidText = scratch ? await readTextIfPresent(join(scratch, ".diffowl", "server.pid")) : null;
@@ -151,16 +159,19 @@ async function doctor(adapter, runIdInput, requestedModel) {
   if (localIdentity.source.head === null) problems.push("source HEAD unavailable");
   if (localIdentity.binary.version === null) problems.push("binary version unavailable");
   if (localIdentity.binary.hash === null) problems.push("binary hash unavailable");
-  if (legacy && legacy.source_head !== localIdentity.source.head)
-    problems.push("run source HEAD no longer matches checkout");
-  const sourceIdentity = await captureSourceIdentity(projectRoot);
-  if (run?.manifest.sourceIdentity?.hash !== undefined && run.manifest.sourceIdentity.hash !== sourceIdentity.hash)
-    problems.push("run source content identity no longer matches checkout");
-  const controllerHash = digest(await readFile(run?.manifest.controllerPath ?? join(projectRoot, "skills", "verify-diffowl", "control-diffowl")));
-  if (run?.manifest.controllerHash !== undefined && run.manifest.controllerHash !== controllerHash)
-    problems.push("run controller artifact no longer matches checkout");
-  if (legacy && legacy.binary_hash !== localIdentity.binary.hash)
-    problems.push("run artifact no longer matches current binary");
+  if (run) {
+    problems.push(...identity.problems);
+  } else {
+    problems.push(
+      ...identity.current.errors.map(
+        ({ identity: field, error }) => `current ${field} identity unavailable: ${error}`,
+      ),
+    );
+    if (!sourceIdentity?.head) problems.push("source HEAD identity unavailable");
+    if (!sourceIdentity?.hash) problems.push("source content identity unavailable");
+    if (!controllerHash) problems.push("controller artifact identity unavailable");
+    if (!identity.current.binaryHash) problems.push("binary artifact identity unavailable");
+  }
   if (adapter.surface === "codex" && runtime.authentication !== "ChatGPT") {
     problems.push("Codex ChatGPT authentication not effective");
   }
@@ -177,12 +188,17 @@ async function doctor(adapter, runIdInput, requestedModel) {
     observedTarget: { scratch, evidence: run?.evidence ?? null },
     identity: {
       source: {
-        head: localIdentity.source.head,
-        dirty: localIdentity.source.dirtyEntries > 0,
-        dirtyEntries: localIdentity.source.dirtyEntries,
-        hash: sourceIdentity.hash,
+        head: sourceIdentity?.head ?? localIdentity.source.head,
+        dirty: (sourceIdentity?.dirtyEntries ?? localIdentity.source.dirtyEntries) > 0,
+        dirtyEntries: sourceIdentity?.dirtyEntries ?? localIdentity.source.dirtyEntries,
+        hash: sourceIdentity?.hash ?? null,
       },
-      binary: { path: binaryPath, ...localIdentity.binary, controllerHash },
+      binary: {
+        path: run?.manifest.binaryPath ?? binaryPath,
+        ...localIdentity.binary,
+        hash: identity.current.binaryHash ?? localIdentity.binary.hash,
+        controllerHash,
+      },
       scratch: { path: scratch, present: scratch ? await pathExists(scratch) : false },
       runtime,
     },

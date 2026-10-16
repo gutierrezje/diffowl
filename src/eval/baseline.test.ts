@@ -41,6 +41,14 @@ describe("renderBaselineDiff", () => {
     expect(rendered).not.toContain("### File Context");
     expect(rendered).not.toContain("AST");
   });
+
+  it("matches the review renderer's diff budgets", () => {
+    const raw = `diff --git a/big.txt b/big.txt\n${"+x\n".repeat(20_000)}`;
+
+    expect(renderBaselineDiff(makeSnapshot({ raw }))).not.toContain("[truncated ");
+    expect(renderBaselineDiff(makeSnapshot({ raw: raw.repeat(2) }))).toContain("[truncated ");
+    expect(renderBaselineDiff(makeSnapshot({ raw }), "shallow")).toContain("[truncated ");
+  });
 });
 
 describe("buildBaselinePrompt", () => {
