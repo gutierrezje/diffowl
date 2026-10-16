@@ -40,12 +40,9 @@ export function getReviewBackendFailureGuidance<Failure>(
       ];
     }
     if (
-      normalized.includes("model") &&
-      (normalized.includes("unsupported") ||
-        normalized.includes("unknown") ||
-        normalized.includes("not found") ||
-        normalized.includes("invalid") ||
-        normalized.includes("rejected"))
+      /\b(?:unsupported model|unknown model|invalid model|model (?:is )?(?:unknown|unsupported|invalid|not found|rejected))\b/.test(
+        normalized,
+      )
     ) {
       return [
         "Claude rejected the selected model.",

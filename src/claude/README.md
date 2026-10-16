@@ -19,11 +19,17 @@ uses that same executable's `--version`.
 
 Authentication remains in Claude Code. The adapter preserves its normal home,
 `CLAUDE_CONFIG_DIR`, and explicit Anthropic authentication environment variables.
-It does not read credential files or implement a sign-in flow. Consult
-[Anthropic's authentication guidance](https://support.claude.com/en/articles/13189465-log-in-to-your-claude-account)
-for supported account modes. This adapter uses the documented
-[programmatic CLI](https://code.claude.com/docs/en/headless) interface rather than
-embedding the Agent SDK or managing account tokens.
+It does not read credential files or implement a sign-in flow. DiffOwl uses your
+existing Claude Code authentication, subject to your plan and administrator
+policies. Anthropic explicitly supports subscription limits for `claude -p` and
+third-party apps in its [Claude plan guidance](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan).
+This adapter uses the documented [programmatic CLI](https://code.claude.com/docs/en/headless)
+interface without embedding the Agent SDK or managing account tokens.
+
+The CLI's `--bare` mode does not read subscription credentials, so DiffOwl keeps
+the normal authentication path and isolates settings and tools with the flags
+below. An explicit `ANTHROPIC_API_KEY` takes precedence over subscription login
+and uses API billing; see [Anthropic's environment-variable guidance](https://support.claude.com/en/articles/12304248-manage-api-key-environment-variables-in-claude-code).
 
 ## Execution and policy
 

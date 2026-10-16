@@ -8,7 +8,15 @@ for await (const chunk of process.stdin) prompt += chunk;
 if (process.env.MOCK_CLAUDE_EVIDENCE) {
   await writeFile(
     process.env.MOCK_CLAUDE_EVIDENCE,
-    JSON.stringify({ args, prompt, pid: process.pid }),
+    JSON.stringify({
+      args,
+      prompt,
+      pid: process.pid,
+      windowsEnvironment: {
+        SystemRoot: process.env.SystemRoot,
+        WINDIR: process.env.WINDIR,
+      },
+    }),
   );
 }
 const emit = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);

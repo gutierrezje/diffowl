@@ -55,6 +55,25 @@ describe("Claude review executor", () => {
     }
   });
 
+  it("preserves Windows system paths in the Claude child environment", async () => {
+    const directory = await repository();
+    const evidence = join(dirname(directory), `${basename(directory)}-windows-env.json`);
+    try {
+      await execute(directory, "success", {
+        MOCK_CLAUDE_EVIDENCE: evidence,
+        SystemRoot: "C:\\Windows",
+        WINDIR: "C:\\Windows",
+      });
+      const request = JSON.parse(await readFile(evidence, "utf8"));
+      expect(request.windowsEnvironment).toEqual({
+        SystemRoot: "C:\\Windows",
+        WINDIR: "C:\\Windows",
+      });
+    } finally {
+      await rm(evidence, { force: true });
+    }
+  });
+
   it.each([
     ["windows-missing-runtime", "Claude Code executable was not found"],
     ["invalid", "after 3 attempts"],

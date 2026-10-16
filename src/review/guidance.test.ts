@@ -61,6 +61,17 @@ describe("getReviewBackendFailureGuidance", () => {
     expect(guidance.toLowerCase()).not.toMatch(/subscription|entitlement|billing/);
   });
 
+  it("does not mistake a structured validation path for a Claude model rejection", () => {
+    const guidance = getReviewBackendFailureGuidance(
+      "claude",
+      'Claude Code review failed. [{"path":["model"],"code":"invalid_type","message":"Invalid input"}]',
+    ).join("\n");
+
+    expect(guidance).toContain("Claude Code review failed");
+    expect(guidance).not.toContain("rejected the selected model");
+    expect(guidance).not.toContain("diffowl model <model-id>");
+  });
+
   it("does not classify changed repository paths as Claude runtime failures", () => {
     const guidance = getReviewBackendFailureGuidance(
       "claude",

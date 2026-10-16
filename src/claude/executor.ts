@@ -430,6 +430,8 @@ function claudeEnvironment(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv
     "ANTHROPIC_BASE_URL",
     "MOCK_CLAUDE_MODE",
     "MOCK_CLAUDE_EVIDENCE",
+    "SystemRoot",
+    "WINDIR",
   ]) {
     const value = overrides[key] ?? process.env[key];
     if (value !== undefined) environment[key] = value;
