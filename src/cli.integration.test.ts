@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { existsSync } from "node:fs";
+import { createServer } from "node:http";
 import { access, chmod, mkdir, mkdtemp, readFile, readdir, realpath, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
@@ -103,6 +104,58 @@ const ClaudeSettingsSchema = z.object({
 });
 
 let tempDirs: string[] = [];
+
+describe("first-run setup CLI", () => {
+  it.each([
+    { backend: "codex", model: "gpt-5-codex" },
+    { backend: "cursor", model: "composer-2.5" },
+    { backend: "claude", model: "sonnet" },
+  ])("honors explicit $backend selection without prompting or starting OpenCode", async ({ backend, model }) => {
+    const repo = await mkdtemp(join(tmpdir(), "diffowl-first-run-"));
+    tempDirs.push(repo);
+    await execa("git", ["init", "--initial-branch=main"], { cwd: repo });
+    const result = await execa(process.execPath, [
+      cliPath, "review", "--staged", "--backend", backend, "--model", model, "--format", "json",
+    ], { cwd: repo, reject: false, env: { DIFFOWL_MODEL: "" } });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      review: { backend, requested_model: model, status: "skipped" },
+    });
+    expect(result.stderr).not.toContain("Querying available models");
+    expect(await readFile(join(repo, ".diffowl.yml"), "utf8")).toContain("timeout:");
+    expect(existsSync(join(repo, ".diffowl", "server.pid"))).toBe(false);
+    expect(existsSync(join(repo, ".diffowl", "preferences.yml"))).toBe(false);
+  });
+
+  it("rejects non-terminal OpenCode setup before contacting or starting a server", async () => {
+    const repo = await mkdtemp(join(tmpdir(), "diffowl-init-no-terminal-"));
+    tempDirs.push(repo);
+    const requests: string[] = [];
+    const server = createServer((request, response) => {
+      requests.push(request.url ?? "");
+      response.setHeader("Content-Type", "application/json");
+      response.end(JSON.stringify(request.url === "/global/health"
+        ? { healthy: true }
+        : { all: [{ id: "fixture", models: { model: { id: "model" } } }], connected: ["fixture"] }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const address = z.object({ port: z.number() }).parse(server.address());
+      await writeFile(join(repo, ".diffowl.yml"), `server:\n  port: ${address.port}\n`);
+      const result = await execa(process.execPath, [cliPath, "init"], { cwd: repo, reject: false });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("requires a terminal");
+      expect(requests).toEqual([]);
+      expect(existsSync(join(repo, ".diffowl", "server.pid"))).toBe(false);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
+});
 
 describe("readiness CLI", () => {
   // Sequential CLI/Git launches can exceed 30s on Windows CI; allow 60s.

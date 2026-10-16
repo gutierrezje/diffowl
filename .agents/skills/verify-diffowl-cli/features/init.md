@@ -1,4 +1,4 @@
-# Interactive setup
+# Project setup
 
 Setup chooses a backend-specific model, writes project policy, and offers agent
 and Git hook integration through a real terminal.
@@ -41,6 +41,21 @@ Preconditions:
   follows `next_action`, requires lifecycle dispositions, and emits exact proof.
   Re-running accepted setup replaces the managed block without duplicating it
   or changing surrounding instructions.
+
+## First review without a terminal
+
+`pnpm exec vitest run src/cli.integration.test.ts -t "first-run setup CLI"` exercises
+first-run selection through the built CLI in disposable repositories. Run it when
+changing setup or backend overrides.
+It checks explicit native backend/model selection, one JSON review document,
+project policy creation, unchanged local preferences, and rejection of interactive
+OpenCode setup before contacting a server.
+
+For a live first-review check, remove only the disposable scratch's seeded
+`.diffowl.yml`, select the intended backend and model with `review --staged
+--backend <backend> --model <model> --format json`, and inspect the returned review
+and saved policy. Command overrides remain local to that invocation. With no
+model selected and no terminal, setup must fail without starting OpenCode.
 
 ## Gotchas
 
