@@ -1085,7 +1085,7 @@ async function selectModelInteractively(
   if (!canSelectModelInteractively(process.stdin.isTTY, process.stdout.isTTY)) {
     console.error(
       chalk.red(
-        "Interactive model selection requires a terminal. For a non-interactive review, pass --backend opencode --model provider/model.",
+        "Interactive model selection requires a terminal. To save a model, run `diffowl backend opencode` then `diffowl model provider/model`. For one review, pass --backend opencode --model provider/model.",
       ),
     );
     process.exit(1);
