@@ -68,7 +68,7 @@ const RELEASED_MIGRATIONS = [
   },
   {
     version: 8,
-    releasedIn: "0.6.0",
+    releasedIn: "0.5.3",
     sql: MIGRATION_008_REVIEW_COVERAGE,
     sha256: "4c54fbbf84ce3ea9251cad15f1493e5bc7b464feaafc4e71f4cef61e00aeec56",
   },

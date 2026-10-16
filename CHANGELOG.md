@@ -7,7 +7,7 @@ increments that may include backward-compatible features and fixes.
 
 ## [Unreleased]
 
-## [0.6.0] - 2026-10-16
+## [0.5.3] - 2026-10-16
 
 DiffOwl adds Claude Code and Cursor review backends, plus a readiness check that
 helps coding agents verify branch coverage before handoff.
@@ -319,7 +319,7 @@ reviewer prompt; the measurement machinery itself is internal tooling.
 
 See the Git history and release notes for versions at and before `v0.3.1`.
 
-[0.6.0]: https://github.com/gutierrezje/diffowl/compare/v0.5.2...v0.6.0
+[0.5.3]: https://github.com/gutierrezje/diffowl/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/gutierrezje/diffowl/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/gutierrezje/diffowl/compare/156e20d...v0.5.1
 [0.5.0]: https://github.com/gutierrezje/diffowl/compare/v0.4.0...156e20d
