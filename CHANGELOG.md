@@ -7,8 +7,43 @@ increments that may include backward-compatible features and fixes.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-16
+
+DiffOwl adds Claude Code and Cursor review backends, plus a readiness check that
+helps coding agents verify branch coverage before handoff.
+
+### Added
+
+- Native Claude Code and Cursor review backends with independent model and
+  reasoning preferences, existing CLI authentication, structured output,
+  restricted tool policies, and durable execution metadata.
+- `diffowl readiness --base [ref]` checks committed branch review coverage and
+  finding dispositions. JSON output includes exact commits, coverage evidence,
+  and the next required handoff step.
+- Shared agent handoff instructions in the managed block offered by `diffowl init`.
+- A local verification controller and skills for reproducible CLI and provider
+  checks with evidence receipts.
+
+### Changed
+
+- State schema 8 records review coverage evidence. Upgrades preserve existing
+  findings and dispositions; older reviews without coverage evidence cannot
+  establish readiness.
+- Unreferenced failed, cancelled, and timed-out execution history is limited to
+  14 days and 200 attempts by default. Either retention limit can be disabled
+  independently with `0`; completed reviews and their findings are preserved.
+- Internal checker contracts define immutable claim-verification inputs and
+  outcomes. Checker execution is not yet part of production reviews.
+
 ### Fixed
 
+- First-run reviews honor explicit backend and model selections without prompting.
+  Noninteractive OpenCode setup checks for a terminal before contacting or
+  starting a server.
+- Codex warns when the selected model is unavailable without changing the choice.
+- Branch reviews retain larger diffs within the configured context budget.
+- Automated verification rejects stale source, binary, and controller evidence.
+- Finding paths reject Windows drive-relative paths.
 - Husky hook installation now keeps machine-specific Node and DiffOwl paths in
   worktree-local Git state. The tracked `.husky/post-commit` contains only a
   portable bridge and remains unchanged across local reinstalls and runtime
@@ -284,6 +319,7 @@ reviewer prompt; the measurement machinery itself is internal tooling.
 
 See the Git history and release notes for versions at and before `v0.3.1`.
 
+[0.6.0]: https://github.com/gutierrezje/diffowl/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/gutierrezje/diffowl/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/gutierrezje/diffowl/compare/156e20d...v0.5.1
 [0.5.0]: https://github.com/gutierrezje/diffowl/compare/v0.4.0...156e20d
