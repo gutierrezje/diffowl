@@ -243,12 +243,6 @@ program
       await failReview(format, "Not a git repository", { hook: options.hook, hookCommit });
     }
 
-    // First run: prompt for setup
-    if (!configExists()) {
-      console.log(chalk.yellow("No .diffowl.yml found. Running first-time setup...\n"));
-      await runInit();
-    }
-
     const reviewOverrides: Parameters<typeof loadEffectiveReviewConfigOrExit>[0] = {};
     if (options.backend !== undefined) {
       reviewOverrides.backend = options.backend;
@@ -259,7 +253,19 @@ program
     if (options.reasoning !== undefined) {
       reviewOverrides.reasoning = options.reasoning;
     }
+    // Explicit and non-interactive reviews use the same selection precedence on first run.
+    if (
+      !configExists() &&
+      !jsonMode &&
+      canSelectModelInteractively(process.stdin.isTTY, process.stdout.isTTY) &&
+      options.model === undefined &&
+      !process.env["DIFFOWL_MODEL"]?.trim()
+    ) {
+      console.log(chalk.yellow("No .diffowl.yml found. Running first-time setup...\n"));
+      await runInit(options.backend);
+    }
     const effective = await loadEffectiveReviewConfigOrExit(reviewOverrides, format);
+    if (!configExists()) await saveConfig(await loadProjectConfigOrExit());
     const { config, selection } = effective;
     const reviewWarnings = [...effective.warnings];
     const projectRoot = getProjectRoot();
@@ -656,11 +662,14 @@ program
     await runInit();
   });
 
-async function runInit() {
+async function runInit(backendOverride?: string) {
   console.log(chalk.bold("DiffOwl Setup\n"));
   const config = await loadProjectConfigOrExit();
   const preferences = await loadReviewPreferencesOrExit();
-  const { backend, source } = resolveReviewBackendPreference(preferences);
+  const { backend, source } = resolveReviewBackendPreference(
+    preferences,
+    backendOverride === undefined ? undefined : parseReviewBackend(backendOverride),
+  );
   const currentModel = preferences.models.find((selection) => selection.backend === backend)?.model;
   console.log(`${chalk.bold("Review backend:")} ${formatReviewBackend(backend)} (${source})`);
   console.log(chalk.dim(`Local preference: ${await getReviewPreferencesPath()}`));
@@ -1069,6 +1078,15 @@ async function selectModelInteractively(
     return;
   }
 
+  if (!canSelectModelInteractively(process.stdin.isTTY, process.stdout.isTTY)) {
+    console.error(
+      chalk.red(
+        "Interactive model selection requires a terminal. For a non-interactive review, pass --backend opencode --model provider/model.",
+      ),
+    );
+    process.exit(1);
+  }
+
   const spinner = ora("Querying available models from OpenCode...").start();
   let models: string[] = [];
   try {
@@ -1088,15 +1106,6 @@ async function selectModelInteractively(
   let selectedModel = options.currentModel ?? models[0] ?? "";
 
   if (models.length > 0) {
-    if (!canSelectModelInteractively(process.stdin.isTTY, process.stdout.isTTY)) {
-      console.error(
-        chalk.red(
-          "Interactive model selection requires a terminal. Pass a model explicitly, for example `diffowl model provider/model`.",
-        ),
-      );
-      process.exit(1);
-    }
-
     console.log(
       chalk.bold(
         options.allowKeepCurrent
