@@ -1516,24 +1516,51 @@ describe.skipIf(process.platform === "win32")("first-time setup", () => {
     await expect(access(calls)).rejects.toThrow();
   });
 
+  it("uses a saved model when non-interactive setup cannot prompt", async () => {
+    const { repo, env, calls } = await setupRepo("diffowl-cli-setup-saved-");
+    await mkdir(join(repo, ".diffowl"));
+    await writeFile(
+      join(repo, ".diffowl/preferences.yml"),
+      "backend: codex\nmodels:\n  - backend: codex\n    model: gpt-5.4\n",
+      "utf8",
+    );
+
+    const result = await execa(
+      process.execPath,
+      [cliPath, "review", "--staged", "--format", "json"],
+      { cwd: repo, env, reject: false },
+    );
+
+    expect(result.exitCode).toBe(0);
+    const document = CliReviewDocumentSchema.parse(JSON.parse(result.stdout));
+    expect(document.review.backend).toBe("codex");
+    expect(document.review.requested_model).toBe("gpt-5.4");
+    expect(result.stderr).not.toContain("Not saved as a preference");
+    await expect(access(calls)).rejects.toThrow();
+  });
+
   it("does not start an OpenCode server when non-interactive setup cannot select a model", async () => {
     const { repo, env, calls } = await setupRepo("diffowl-cli-setup-opencode-no-tty-");
 
-    const result = await execa(process.execPath, [cliPath, "review", "--staged"], {
-      cwd: repo,
-      env,
-      reject: false,
-    });
+    const result = await execa(
+      process.execPath,
+      [cliPath, "review", "--staged", "--format", "json"],
+      { cwd: repo, env, reject: false },
+    );
 
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("Interactive model selection requires a terminal");
+    expect(result.stdout).toBe("");
+    const errorLine = result.stderr.split("\n").filter((line) => line.startsWith("{")).at(-1);
+    const document = CliErrorDocumentSchema.parse(JSON.parse(errorLine ?? ""));
+    expect(document.error.message).toContain("No model selected for OpenCode");
+    expect(document.error.message).toContain("Setup cannot prompt without a terminal");
     await expect(access(calls)).rejects.toThrow();
     await expect(access(join(repo, ".diffowl/server.pid"))).rejects.toThrow();
     await expect(access(join(repo, ".diffowl.yml"))).rejects.toThrow();
   });
 
   // util-linux `script` provides the terminal; its BSD variant takes different arguments.
-  it.skipIf(process.platform !== "linux")(
+  it.skipIf(process.platform !== "linux" || !hasUtilLinuxScript())(
     "stops the OpenCode server that a failed interactive setup started",
     async () => {
       const { repo, env, calls, terminated } = await setupRepo(
@@ -1550,7 +1577,11 @@ describe.skipIf(process.platform === "win32")("first-time setup", () => {
       // Without a window size, ora's cursor redraws can spin on some sandboxed ptys.
       const result = await execa(
         "script",
-        ["-qec", `stty cols 120 rows 40; ${process.execPath} ${cliPath} init`, "/dev/null"],
+        [
+          "-qec",
+          `stty cols 120 rows 40; ${shellQuote(process.execPath)} ${shellQuote(cliPath)} init`,
+          "/dev/null",
+        ],
         { cwd: repo, env, reject: false, stdin: "ignore" },
       );
 
@@ -2394,6 +2425,14 @@ async function createSetupRepo(prefix: string): Promise<{
     terminated,
     serverPid,
   };
+}
+
+function hasUtilLinuxScript(): boolean {
+  return ["/usr/bin/script", "/bin/script"].some((path) => existsSync(path));
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 async function findFreePort(): Promise<number> {

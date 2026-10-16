@@ -687,12 +687,24 @@ async function runInit(
     ).source;
   log(`${chalk.bold("Review backend:")} ${formatReviewBackend(backend)} (${source})`);
   log(chalk.dim(`Local preference: ${await getReviewPreferencesPath()}`));
-  if (selection?.source.model === "command" || selection?.source.model === "environment") {
+  const explicitModel =
+    selection?.source.model === "command" || selection?.source.model === "environment";
+  const canPrompt = canSelectModelInteractively(process.stdin.isTTY, process.stdout.isTTY);
+  if (selection !== undefined && (explicitModel || !canPrompt)) {
     log(formatEffectiveModel(selection));
-    log(
-      chalk.dim(
-        `Not saved as a preference. To keep it, run \`diffowl backend ${backend}\` and \`diffowl model ${selection.requestedModel}\`.\n`,
+    if (explicitModel) {
+      log(
+        chalk.dim(
+          `Not saved as a preference. To keep it, run \`diffowl backend ${backend}\` and \`diffowl model ${selection.requestedModel}\`.\n`,
+        ),
+      );
+    }
+  } else if (!canPrompt) {
+    failEffectiveConfig(
+      new Error(
+        `${new MissingModelError(backend).message} Setup cannot prompt without a terminal, so select one first or pass --model.`,
       ),
+      format,
     );
   } else {
     const modelOptions: Parameters<typeof selectModelInteractively>[1] = {
@@ -1115,7 +1127,12 @@ async function selectModelInteractively(
   const startsServer = config.server.auto_start && !(await isServerRunning(port));
   // A failed selection must not leave behind a server this query started.
   const failSelection = async (): Promise<never> => {
-    if (startsServer) await stopServer(port).catch(() => false);
+    if (startsServer) {
+      await stopServer(port).catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(chalk.yellow(`Could not stop the OpenCode server setup started: ${message}`));
+      });
+    }
     process.exit(1);
   };
   const spinner = ora("Querying available models from OpenCode...").start();
