@@ -104,6 +104,7 @@ const ClaudeSettingsSchema = z.object({
 let tempDirs: string[] = [];
 
 describe("readiness CLI", () => {
+  // Sequential CLI/Git launches can exceed 30s on Windows CI; allow 60s.
   it("drives agent handoff through waiting, exact coverage, and auditable dispositions", async () => {
     const repo = await createRepo("diffowl-handoff-cli-", { localModel: false });
     const run = (...args: string[]) => execa(process.execPath, [cliPath, ...args], {
@@ -204,7 +205,7 @@ describe("readiness CLI", () => {
     expect(deferredDetail.events).toEqual(expect.arrayContaining([
       expect.objectContaining({ actor: "agent", reason: "Needs product decision" }),
     ]));
-  }, 30_000);
+  }, 60_000);
 
   it("emits one deterministic JSON document and distinguishes missing evidence from operational failure", async () => {
     const repo = await createRepo("diffowl-readiness-cli-", { localModel: false });
