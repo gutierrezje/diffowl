@@ -46,7 +46,7 @@ jobs:
         run: pnpm run lint
 
       - name: Run unit tests
-        run: pnpm run test --testTimeout=${{ matrix.test_timeout_ms }}
+        run: pnpm run test --testTimeout=${{ matrix.test_timeout_ms }} ${{ matrix.os == 'windows-2022' && '--maxWorkers=2' || '' }}
 
       - name: Run offline verification controller tests
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == '22.14.0'
