@@ -1,7 +1,8 @@
-import { Agent, JsonlLocalAgentStore, type Run, type SDKAgent } from "@cursor/sdk";
+import { Agent, JsonlLocalAgentStore, type Run, type SDKAgent, type TokenUsage } from "@cursor/sdk";
 import { getEachMessage, sendMessage } from "execa";
 import { decideReviewAttempt, inspectReviewText } from "../review/document.js";
 import { aggregateReviewUsage, type ReviewUsage } from "../review/usage.js";
+import { getInstalledCursorVersion } from "./runtime.js";
 import { CursorReviewError, cursorFailure } from "./errors.js";
 import {
   CURSOR_READ_ONLY_TOOLS,
@@ -39,6 +40,7 @@ async function main(): Promise<void> {
   const usages: ReviewUsage[] = [];
   let effectiveModel: string | null = null;
   try {
+    await sendMessage({ kind: "runtime", version: await getInstalledCursorVersion() });
     agent = await Agent.create({
       model: { id: request.model },
       tools: CURSOR_READ_ONLY_TOOLS,
@@ -55,7 +57,14 @@ async function main(): Promise<void> {
     let prompt = request.prompt;
     for (let attempt = 1; ; attempt++) {
       if (cancelled) throw cancelFailure ?? new Error("Cursor review cancelled.");
+      let turnUsage: ReviewUsage | undefined;
       activeRun = await agent.send(prompt);
+      await sendMessage({
+        kind: "turn",
+        id: activeRun.id,
+        requestId: activeRun.requestId ?? null,
+        attempt,
+      });
       if (cancelled) await activeRun.cancel();
       for await (const event of activeRun.stream()) {
         switch (event.type) {
@@ -74,9 +83,16 @@ async function main(): Promise<void> {
               "policy",
               `Cursor attempted unsupported ${event.type} interaction.`,
             );
+          case "usage":
+            turnUsage = mapUsage(event.usage);
+            await sendMessage({
+              kind: "usage",
+              effectiveModel,
+              usage: aggregateReviewUsage([...usages, turnUsage]) ?? null,
+            });
+            break;
           case "thinking":
           case "assistant":
-          case "usage":
           case "system":
           case "status":
           case "user":
@@ -90,22 +106,19 @@ async function main(): Promise<void> {
       }
       const turn = await activeRun.wait();
       activeRun = undefined;
+      if (turn.model?.id) effectiveModel = turn.model.id;
+      if (turn.usage) turnUsage = mapUsage(turn.usage);
+      if (turnUsage) usages.push(turnUsage);
+      await sendMessage({
+        kind: "usage",
+        effectiveModel,
+        usage: aggregateReviewUsage(usages) ?? null,
+      });
       if (cancelled) throw cancelFailure ?? new Error("Cursor review cancelled.");
       if (turn.status !== "finished") {
         const failure = cursorFailure(turn.error ?? new Error(`Cursor turn ${turn.status}.`));
         throw new CursorReviewError(failure.category, failure.message);
       }
-      if (turn.model?.id) effectiveModel = turn.model.id;
-      if (turn.usage)
-        usages.push({
-          tokens: {
-            input: turn.usage.inputTokens,
-            output: turn.usage.outputTokens,
-            reasoning: turn.usage.reasoningTokens ?? 0,
-            cache: { read: turn.usage.cacheReadTokens, write: turn.usage.cacheWriteTokens },
-          },
-          cost: null,
-        });
       const text = turn.result ?? "";
       const inspection = inspectReviewText(text);
       const decision = decideReviewAttempt({
@@ -166,3 +179,15 @@ void main().then(
     process.exit(1);
   },
 );
+
+function mapUsage(usage: TokenUsage): ReviewUsage {
+  return {
+    tokens: {
+      input: usage.inputTokens,
+      output: usage.outputTokens,
+      reasoning: usage.reasoningTokens ?? 0,
+      cache: { read: usage.cacheReadTokens, write: usage.cacheWriteTokens },
+    },
+    cost: null,
+  };
+}

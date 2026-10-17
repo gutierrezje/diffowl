@@ -62,6 +62,13 @@ describe("createCodexReviewExecutor", () => {
       report: { summary: "schema summary", findings: [] },
       sessionId: "thread-1",
     });
+    expect(execution.evidence).toMatchObject({
+      runtime: { name: "codex", version: "codex-cli 0.147.0" },
+      authentication: "local-subscription",
+      native: { sessionId: "thread-1", threadId: "thread-1", turnIds: ["turn-1"] },
+      structuredOutput: { strategy: "native-json", attempts: 1, acceptedAttempt: 1 },
+    });
+    expect(JSON.stringify(execution.evidence)).not.toContain("must-not-cross-the-child-boundary");
     expect(statuses).toEqual([
       "Checking Codex compatibility...",
       "Reviewing changes with Codex...",
@@ -74,6 +81,42 @@ describe("createCodexReviewExecutor", () => {
       expect.objectContaining({ phase: "review-run", label: "Codex review run" }),
     ]);
   });
+
+  it.each([
+    ["output-schema-retry", 2, 2],
+    ["output-schema-three-invalid", 3, null],
+  ] as const)(
+    "retains native attempt and usage evidence for %s",
+    async (mode, attempts, acceptedAttempt) => {
+      const snapshots: unknown[] = [];
+      const executor = createCodexReviewExecutor({
+        command: {
+          executable: process.execPath,
+          prefixArgs: [cliFixture],
+          env: { MOCK_APP_SERVER_MODE: mode, MOCK_APP_SERVER_MODEL: "gpt-5-codex" },
+        },
+        model: "gpt-5-codex",
+        protocolTimeoutMs: 10_000,
+        interruptTimeoutMs: 300,
+        closeTimeoutMs: 500,
+      });
+      const run = executor.execute({
+        review: { target: { kind: "staged" }, directory: process.cwd(), config, depth: "default" },
+        onProvenance: (evidence) => snapshots.push(structuredClone(evidence)),
+      });
+      if (acceptedAttempt === null) await expect(run).rejects.toThrow();
+      else await run;
+      expect(snapshots.at(-1)).toMatchObject({
+        authentication: "local-subscription",
+        native: {
+          threadId: "thread-1",
+          turnIds: Array.from({ length: attempts }, (_, index) => `turn-${index + 1}`),
+        },
+        structuredOutput: { strategy: "native-json", attempts, acceptedAttempt },
+        failureCategory: acceptedAttempt === null ? "validation" : null,
+      });
+    },
+  );
 
   it("stops before App Server startup when compatibility fails", async () => {
     const directory = await mkdtemp(join(tmpdir(), "diffowl-codex-executor-"));

@@ -5,6 +5,15 @@ import type {
   ReviewExecutionRuntimeProvenance,
 } from "../review/provenance.js";
 import {
+  createUnknownReviewExecutionEvidence,
+  mergeReviewExecutionEvidence,
+  mergeReviewPipelineEvidence,
+  sanitizeReviewRuntimeEvidence,
+  type ReviewExecutionEvidence,
+  type ReviewPipelineEvidence,
+  type ReviewRuntimeEvidence,
+} from "../review/execution-evidence.js";
+import {
   type ReviewExecutionTelemetry,
   type ReviewExecutionTelemetryEvent,
   type ReviewExecutionTelemetryTracker,
@@ -26,6 +35,7 @@ import {
 import {
   finalizeReviewExecution,
   insertRunningReviewExecution,
+  updateReviewExecutionEvidence,
   updateReviewExecutionTelemetry,
 } from "./repositories/review-executions.js";
 import type { ReviewExecutionRecord } from "./types.js";
@@ -36,9 +46,14 @@ const ACTIVITY_FLUSH_INTERVAL_MS = 1_000;
 export interface ReviewExecutionJournal {
   readonly executionId: ReviewExecutionId;
   captureContext(operation: CapturedReviewOperation): void;
+  setPipelineEvidence(evidence: ReviewPipelineEvidence): void;
+  recordProvenance(snapshot: ReviewRuntimeEvidence): void;
   record(event: ReviewExecutionTelemetryEvent): void;
   snapshot(): ReviewExecutionTelemetry;
-  finish(provenance: ReviewExecutionRuntimeProvenance): ReviewExecutionRecord;
+  finish(
+    provenance: ReviewExecutionRuntimeProvenance,
+    evidence?: ReviewExecutionEvidence,
+  ): ReviewExecutionRecord;
   close(): void;
 }
 
@@ -49,6 +64,7 @@ export async function startReviewExecutionJournal(
     assignment: ReviewAssignment;
     telemetry: ReviewExecutionTelemetryTracker;
     retention?: ExecutionRetention;
+    evidence?: ReviewExecutionEvidence;
   },
 ): Promise<ReviewExecutionJournal> {
   const state = await openStateDatabaseForWrite(diffOwlDir);
@@ -62,6 +78,7 @@ export async function startReviewExecutionJournal(
         operation: input.operation,
         assignment: input.assignment,
         telemetry: input.telemetry.snapshot(),
+        evidence: input.evidence ?? createUnknownReviewExecutionEvidence(),
         ownerProcessId: process.pid,
         ownerLease: ownedProcessLease.identity,
       });
@@ -73,6 +90,7 @@ export async function startReviewExecutionJournal(
       input.telemetry,
       ownedProcessLease,
       input.retention,
+      input.evidence ?? createUnknownReviewExecutionEvidence(),
     );
   } catch (error) {
     processLease?.close();
@@ -88,9 +106,11 @@ function createJournal(
   telemetry: ReviewExecutionTelemetryTracker,
   processLease: OwnedProcessLease,
   retention: ExecutionRetention | undefined,
+  initialEvidence: ReviewExecutionEvidence,
 ): ReviewExecutionJournal {
   let closed = false;
   let terminal = false;
+  let evidence = initialEvidence;
   const initialTelemetry = telemetry.snapshot();
   let persistedTransitionCount = initialTelemetry.transitions.length;
   let persistedActivityCount = initialTelemetry.activity.count;
@@ -108,6 +128,21 @@ function createJournal(
         throw new Error("Captured context belongs to a different review operation.");
       }
       captureReviewOperationContext(state.db, operation);
+    },
+    setPipelineEvidence(next) {
+      requireOpen();
+      if (terminal) throw new Error("Review execution journal is already terminal.");
+      evidence = {
+        runtime: evidence.runtime,
+        pipeline: mergeReviewPipelineEvidence(evidence.pipeline, next),
+      };
+      updateReviewExecutionEvidence(state.db, executionId, evidence);
+    },
+    recordProvenance(snapshot) {
+      requireOpen();
+      if (terminal) throw new Error("Review execution journal is already terminal.");
+      evidence = mergeReviewExecutionEvidence(evidence, sanitizeReviewRuntimeEvidence(snapshot));
+      updateReviewExecutionEvidence(state.db, executionId, evidence);
     },
     record(event) {
       requireOpen();
@@ -135,7 +170,7 @@ function createJournal(
       requireOpen();
       return telemetry.snapshot();
     },
-    finish(provenance) {
+    finish(provenance, finalEvidence) {
       requireOpen();
       if (terminal) throw new Error("Review execution journal is already terminal.");
       if (provenance.terminalOutcome === "completed") {
@@ -147,6 +182,7 @@ function createJournal(
         executionId,
         provenance,
         telemetry.snapshot(),
+        finalEvidence ?? evidence,
       ));
       terminal = true;
       processLease.close();

@@ -118,6 +118,29 @@ describe("normalizeOpenCodeEvent", () => {
         cost: 0.002,
       },
     });
+
+    expect(
+      normalizeOpenCodeEvent({
+        payload: {
+          type: "message.updated",
+          properties: {
+            info: {
+              role: "assistant",
+              sessionID: "session-1",
+              id: "message-3",
+              providerID: "reported-provider",
+              modelID: "reported-model",
+            },
+          },
+        },
+      }),
+    ).toMatchObject({
+      type: "assistant-message",
+      sessionId: "session-1",
+      messageId: "message-3",
+      provider: "reported-provider",
+      model: "reported-model",
+    });
   });
 
   it("normalizes session status and permission events", () => {

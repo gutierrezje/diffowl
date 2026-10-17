@@ -15,11 +15,9 @@ import type {
   RunningReviewExecutionRuntimeProvenance,
 } from "../review/provenance.js";
 import type { ReviewExecutionTelemetry } from "../review/execution-telemetry.js";
+import type { ReviewExecutionEvidence } from "../review/execution-evidence.js";
 import type { ProcessLease } from "./process-lease.js";
-import type {
-  CapturedReviewOperation,
-  ReviewOperation,
-} from "../review/operation.js";
+import type { ReviewOperation } from "../review/operation.js";
 
 export const CURRENT_SCHEMA_VERSION = 8;
 
@@ -119,6 +117,7 @@ export type ReviewExecutionRecord =
         ownerProcessId: null;
         ownerLease: null;
         telemetry: ReviewExecutionTelemetry | null;
+        evidence?: ReviewExecutionEvidence | null;
       })
   | (RunningReviewExecutionRuntimeProvenance &
       ReviewExecutionRecordIdentity & {
@@ -128,6 +127,7 @@ export type ReviewExecutionRecord =
         ownerProcessId: number;
         ownerLease: ProcessLease | null;
         telemetry: ReviewExecutionTelemetry;
+        evidence?: ReviewExecutionEvidence | null;
       });
 
 export type RunningReviewExecutionRecord = Extract<
@@ -137,9 +137,10 @@ export type RunningReviewExecutionRecord = Extract<
 
 export interface InsertReviewExecutionInput {
   id?: string;
-  operation: CapturedReviewOperation;
+  operation: ReviewOperation;
   createdAt?: string;
   provenance: ReviewExecutionRuntimeProvenance;
+  evidence?: ReviewExecutionEvidence | undefined;
 }
 
 export interface FindingRecord {

@@ -49,6 +49,8 @@ export const AssistantInfoSchema = z.object({
   role: z.literal("assistant"),
   sessionID: z.string(),
   id: z.string(),
+  providerID: BoundaryValueSchema.optional(),
+  modelID: BoundaryValueSchema.optional(),
   error: BoundaryValueSchema.optional(),
   cost: BoundaryValueSchema.optional(),
   tokens: BoundaryValueSchema.optional(),
