@@ -18,7 +18,6 @@ import {
   loadEffectiveReviewConfig,
   MissingModelError,
   resolveReviewBackendPreference,
-  type EffectiveReviewOverrides,
 } from "./effective-config.js";
 import {
   getReviewPreferencesPath,
@@ -216,7 +215,7 @@ program
   .option("--depth <depth>", "Review context depth: shallow or default")
   .option("--reasoning <variant>", "Backend-native reasoning variant")
   .option("--model <id>", "Review model override")
-  .option("--backend <backend>", "Review backend override: opencode, codex, or cursor")
+  .option("--backend <backend>", "Review backend override: opencode, codex, cursor, or claude")
   .option("--verbose", "Include suppressed findings and extra review details")
   .option("--format <format>", "Output format: text or json", "text")
   .action(async (options: ReviewCommandOptions) => {
@@ -245,7 +244,7 @@ program
       await failReview(format, "Not a git repository", { hook: options.hook, hookCommit });
     }
 
-    const reviewOverrides: EffectiveReviewOverrides = {};
+    const reviewOverrides: Parameters<typeof loadEffectiveReviewConfigOrExit>[0] = {};
     if (options.backend !== undefined) {
       reviewOverrides.backend = options.backend;
     }
@@ -255,16 +254,23 @@ program
     if (options.reasoning !== undefined) {
       reviewOverrides.reasoning = options.reasoning;
     }
-
-    // First run: prompt for setup
-    if (!configExists()) {
-      (jsonMode ? console.error : console.log)(
-        chalk.yellow("No .diffowl.yml found. Running first-time setup...\n"),
-      );
-      await runInit({ overrides: reviewOverrides, format });
+    // Explicit and non-interactive reviews use the same selection precedence on first run.
+    if (
+      !configExists() &&
+      !jsonMode &&
+      canSelectModelInteractively(process.stdin.isTTY, process.stdout.isTTY) &&
+      options.model === undefined &&
+      !process.env["DIFFOWL_MODEL"]?.trim()
+    ) {
+      console.log(chalk.yellow("No .diffowl.yml found. Running first-time setup...\n"));
+      try {
+        await runInit(options.backend);
+      } catch (error) {
+        failConfigError(CliErrorSchema.parse(error));
+      }
     }
-
     const effective = await loadEffectiveReviewConfigOrExit(reviewOverrides, format);
+    if (!configExists()) await saveConfig(await loadProjectConfigOrExit());
     const { config, selection } = effective;
     const reviewWarnings = [...effective.warnings];
     const projectRoot = getProjectRoot();
@@ -661,70 +667,34 @@ program
     await runInit();
   });
 
-async function runInit(
-  options: { overrides?: EffectiveReviewOverrides; format?: ReviewOutputFormat } = {},
-) {
-  const format = options.format ?? "text";
-  // JSON review output owns stdout, so first-run setup reports progress on stderr.
-  const log = format === "json" ? console.error : console.log;
-  log(chalk.bold("DiffOwl Setup\n"));
+async function runInit(backendOverride?: string) {
+  console.log(chalk.bold("DiffOwl Setup\n"));
   const config = await loadProjectConfigOrExit();
-  // Resolve exactly as the review will, so --backend, --model, and DIFFOWL_MODEL apply here too.
-  let selection: ReviewSelection | undefined;
-  let backend: ReviewBackend;
-  try {
-    selection = (await loadEffectiveReviewConfig(options.overrides)).selection;
-    backend = selection.backend;
-  } catch (err) {
-    if (!(err instanceof MissingModelError)) failEffectiveConfig(err, format);
-    backend = err.backend;
+  const preferences = await loadReviewPreferencesOrExit();
+  const { backend, source } = resolveReviewBackendPreference(
+    preferences,
+    backendOverride === undefined ? undefined : parseReviewBackend(backendOverride),
+  );
+  const currentModel = preferences.models.find((selection) => selection.backend === backend)?.model;
+  console.log(`${chalk.bold("Review backend:")} ${formatReviewBackend(backend)} (${source})`);
+  console.log(chalk.dim(`Local preference: ${await getReviewPreferencesPath()}`));
+  const modelOptions: Parameters<typeof selectModelInteractively>[1] = {
+    allowKeepCurrent: false,
+    backend,
+  };
+  if (currentModel !== undefined) {
+    modelOptions.currentModel = currentModel;
   }
-  const source =
-    selection?.source.backend ??
-    resolveReviewBackendPreference(
-      await loadReviewPreferencesOrExit(),
-      options.overrides?.backend === undefined ? undefined : backend,
-    ).source;
-  log(`${chalk.bold("Review backend:")} ${formatReviewBackend(backend)} (${source})`);
-  log(chalk.dim(`Local preference: ${await getReviewPreferencesPath()}`));
-  const explicitModel =
-    selection?.source.model === "command" || selection?.source.model === "environment";
-  const canPrompt = canSelectModelInteractively(process.stdin.isTTY, process.stdout.isTTY);
-  if (selection !== undefined && (explicitModel || !canPrompt)) {
-    log(formatEffectiveModel(selection));
-    if (explicitModel) {
-      log(
-        chalk.dim(
-          `Not saved as a preference. To keep it, run \`diffowl backend ${backend}\` and \`diffowl model ${selection.requestedModel}\`.\n`,
-        ),
-      );
-    }
-  } else if (!canPrompt) {
-    failEffectiveConfig(
-      new Error(
-        `${new MissingModelError(backend).message} Setup cannot prompt without a terminal, so select one first or pass --model.`,
-      ),
-      format,
-    );
-  } else {
-    const modelOptions: Parameters<typeof selectModelInteractively>[1] = {
-      allowKeepCurrent: false,
-      backend,
-    };
-    if (selection !== undefined) {
-      modelOptions.currentModel = selection.requestedModel;
-    }
-    await selectModelInteractively(config, modelOptions);
-  }
-  log(chalk.green(`✓ Config saved to ${await saveConfig(config)}`));
-  await enableAgentPathFromCli(log);
+  await selectModelInteractively(config, modelOptions);
+  console.log(chalk.green(`✓ Config saved to ${await saveConfig(config)}`));
+  await enableAgentPathFromCli();
 }
 
-async function enableAgentPathFromCli(log: (message: string) => void = console.log): Promise<void> {
+async function enableAgentPathFromCli(): Promise<void> {
   const projectRoot = getProjectRoot();
   if (!canSelectModelInteractively(process.stdin.isTTY, process.stdout.isTTY)) {
-    log(chalk.dim("Skipped setup prompts (no terminal)."));
-    log(
+    console.log(chalk.dim("Skipped setup prompts (no terminal)."));
+    console.log(
       chalk.dim(
         "Later: add AGENTS.md, `diffowl agent-hook install --client claude`, or `diffowl hook install`.",
       ),
@@ -871,7 +841,7 @@ function printAgentPathResult(result: AgentPathResult): void {
 program
   .command("backend")
   .description("View or change the local review backend")
-  .argument("[backend]", "Review backend: opencode, codex, or cursor")
+  .argument("[backend]", "Review backend: opencode, codex, cursor, or claude")
   .option("--reset", "Use the backward-compatible OpenCode default")
   .action(async (backendValue: string | undefined, options: { reset?: boolean }) => {
     if (backendValue && options.reset) {
@@ -894,7 +864,7 @@ program
         backend = parseReviewBackend(backendValue);
       } catch {
         console.error(chalk.red(`Invalid backend: ${backendValue}`));
-        console.error(chalk.dim("Expected one of: opencode, codex, cursor"));
+        console.error(chalk.dim("Expected one of: opencode, codex, cursor, claude"));
         process.exit(1);
       }
       let path: string;
@@ -915,7 +885,7 @@ program
     console.log(`${chalk.bold("Current backend:")} ${formatReviewBackend(backend)}`);
     console.log(`Preference source: ${source}`);
     console.log(`Model: ${model ?? "not selected"}`);
-    for (const runtimeBackend of ["opencode", "codex", "cursor"] as const) {
+    for (const runtimeBackend of ["opencode", "codex", "cursor", "claude"] as const) {
       const runtime = runtimes[runtimeBackend];
       console.log(
         `${formatReviewBackend(runtimeBackend)} runtime: ${
@@ -1113,11 +1083,10 @@ async function selectModelInteractively(
     return;
   }
 
-  // Check before querying: the query can auto-start a server that nothing would select from.
   if (!canSelectModelInteractively(process.stdin.isTTY, process.stdout.isTTY)) {
     console.error(
       chalk.red(
-        "Interactive model selection requires a terminal. Pass a model explicitly, for example `diffowl model provider/model`.",
+        "Interactive model selection requires a terminal. To save a model, run `diffowl backend opencode` then `diffowl model provider/model`. For one review, pass --backend opencode --model provider/model.",
       ),
     );
     process.exit(1);
@@ -1208,10 +1177,15 @@ async function selectModelInteractively(
 async function selectNativeModelInteractively(options: {
   allowKeepCurrent: boolean;
   currentModel?: string;
-  backend: "codex" | "cursor";
+  backend: "codex" | "cursor" | "claude";
 }): Promise<void> {
   const label = formatReviewBackend(options.backend);
-  const example = options.backend === "cursor" ? "composer-2.5" : "gpt-5.4";
+  const example =
+    options.backend === "cursor"
+      ? "composer-2.5"
+      : options.backend === "claude"
+        ? "sonnet"
+        : "gpt-5.4";
   if (!canSelectModelInteractively(process.stdin.isTTY, process.stdout.isTTY)) {
     console.error(
       chalk.red(
@@ -1861,18 +1835,14 @@ async function loadEffectiveReviewConfigOrExit(
   try {
     return await loadEffectiveReviewConfig(overrides);
   } catch (err) {
-    failEffectiveConfig(err, format);
+    const message = err instanceof Error ? err.message : String(err);
+    if (format === "json") {
+      writeJsonError(`Config error: ${message}`);
+    } else {
+      console.error(chalk.red(`Config error: ${message}`));
+    }
+    process.exit(1);
   }
-}
-
-function failEffectiveConfig<Failure>(err: Failure, format: ReviewOutputFormat): never {
-  const message = err instanceof Error ? err.message : String(err);
-  if (format === "json") {
-    writeJsonError(`Config error: ${message}`);
-  } else {
-    console.error(chalk.red(`Config error: ${message}`));
-  }
-  process.exit(1);
 }
 
 async function loadReviewPreferencesOrExit() {

@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { existsSync } from "node:fs";
+import { createServer } from "node:http";
 import { access, chmod, mkdir, mkdtemp, readFile, readdir, realpath, unlink, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -32,6 +32,7 @@ import type { FindingCandidate, PossibleDuplicateRecord, ReviewSeverity } from "
 const projectRoot = join(import.meta.dirname, "..");
 const cliPath = join(projectRoot, "dist/cli.js");
 const mockCodexCliPath = join(projectRoot, "src/codex/fixtures/mock-codex-cli.mjs");
+const mockClaudeCliPath = join(projectRoot, "src/claude/fixtures/mock-claude.mjs");
 const ReviewTargetDocumentSchema = z.object({
   kind: z.enum(["staged", "commit", "last-commit", "base"]),
   ref: z.string().nullable(),
@@ -42,7 +43,7 @@ const ReviewTargetDocumentSchema = z.object({
 });
 const CliReviewSchema = z.object({
   model: z.string(),
-  backend: z.enum(["opencode", "codex", "cursor"]),
+  backend: z.enum(["opencode", "codex", "cursor", "claude"]),
   requested_model: z.string(),
   effective_model: z.string().nullable(),
   preference_source: z.json(),
@@ -104,7 +105,60 @@ const ClaudeSettingsSchema = z.object({
 
 let tempDirs: string[] = [];
 
+describe("first-run setup CLI", () => {
+  it.each([
+    { backend: "codex", model: "gpt-5-codex" },
+    { backend: "cursor", model: "composer-2.5" },
+    { backend: "claude", model: "sonnet" },
+  ])("honors explicit $backend selection without prompting or starting OpenCode", async ({ backend, model }) => {
+    const repo = await mkdtemp(join(tmpdir(), "diffowl-first-run-"));
+    tempDirs.push(repo);
+    await execa("git", ["init", "--initial-branch=main"], { cwd: repo });
+    const result = await execa(process.execPath, [
+      cliPath, "review", "--staged", "--backend", backend, "--model", model, "--format", "json",
+    ], { cwd: repo, reject: false, env: { DIFFOWL_MODEL: "" } });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      review: { backend, requested_model: model, status: "skipped" },
+    });
+    expect(result.stderr).not.toContain("Querying available models");
+    expect(await readFile(join(repo, ".diffowl.yml"), "utf8")).toContain("timeout:");
+    expect(existsSync(join(repo, ".diffowl", "server.pid"))).toBe(false);
+    expect(existsSync(join(repo, ".diffowl", "preferences.yml"))).toBe(false);
+  });
+
+  it("rejects non-terminal OpenCode setup before contacting or starting a server", async () => {
+    const repo = await mkdtemp(join(tmpdir(), "diffowl-init-no-terminal-"));
+    tempDirs.push(repo);
+    const requests: string[] = [];
+    const server = createServer((request, response) => {
+      requests.push(request.url ?? "");
+      response.setHeader("Content-Type", "application/json");
+      response.end(JSON.stringify(request.url === "/global/health"
+        ? { healthy: true }
+        : { all: [{ id: "fixture", models: { model: { id: "model" } } }], connected: ["fixture"] }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const address = z.object({ port: z.number() }).parse(server.address());
+      await writeFile(join(repo, ".diffowl.yml"), `server:\n  port: ${address.port}\n`);
+      const result = await execa(process.execPath, [cliPath, "init"], { cwd: repo, reject: false });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("requires a terminal");
+      expect(requests).toEqual([]);
+      expect(existsSync(join(repo, ".diffowl", "server.pid"))).toBe(false);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
+});
+
 describe("readiness CLI", () => {
+  // Sequential CLI/Git launches can exceed 30s on Windows CI; allow 60s.
   it("drives agent handoff through waiting, exact coverage, and auditable dispositions", async () => {
     const repo = await createRepo("diffowl-handoff-cli-", { localModel: false });
     const run = (...args: string[]) => execa(process.execPath, [cliPath, ...args], {
@@ -205,7 +259,7 @@ describe("readiness CLI", () => {
     expect(deferredDetail.events).toEqual(expect.arrayContaining([
       expect.objectContaining({ actor: "agent", reason: "Needs product decision" }),
     ]));
-  }, 30_000);
+  }, 60_000);
 
   it("emits one deterministic JSON document and distinguishes missing evidence from operational failure", async () => {
     const repo = await createRepo("diffowl-readiness-cli-", { localModel: false });
@@ -267,6 +321,47 @@ describe("diffowl CLI", () => {
     expect(await readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).not.toContain(
       "composer-2.5",
     );
+  });
+
+  it("keeps Claude model preferences separate and suggests Sonnet for interactive setup", async () => {
+    const repo = await createRepo("diffowl-cli-claude-preferences-");
+    const run = (...args: string[]) =>
+      execa(process.execPath, [cliPath, ...args], { cwd: repo, reject: false });
+
+    expect((await run("backend", "claude")).stdout).toContain("Backend set to Claude");
+    expect((await run("model", "sonnet")).stdout).toContain("Claude model set to sonnet");
+    await run("backend", "codex");
+    expect((await run("model", "gpt-5.4")).stdout).toContain("Codex model set to gpt-5.4");
+    await run("backend", "claude");
+
+    await expect(readFile(join(repo, ".diffowl/preferences.yml"), "utf8")).resolves.toBe(
+      [
+        "backend: claude",
+        "models:",
+        "  - backend: opencode",
+        "    model: provider/model",
+        "  - backend: codex",
+        "    model: gpt-5.4",
+        "  - backend: claude",
+        "    model: sonnet",
+        "",
+      ].join("\n"),
+    );
+
+    const interactive = await run("model");
+    expect(interactive.exitCode).toBe(1);
+    expect(interactive.stderr).toContain("diffowl model sonnet");
+  });
+
+  it("includes Claude in backend help and runtime status", async () => {
+    const reviewHelp = await execa(process.execPath, [cliPath, "review", "--help"]);
+    const backendHelp = await execa(process.execPath, [cliPath, "backend", "--help"]);
+    const repo = await createRepo("diffowl-cli-claude-runtime-");
+    const status = await execa(process.execPath, [cliPath, "backend"], { cwd: repo });
+
+    expect(reviewHelp.stdout).toContain("claude");
+    expect(backendHelp.stdout).toContain("claude");
+    expect(status.stdout).toContain("Claude runtime:");
   });
 
   it("explains tracked and local Husky hook ownership during installation", async () => {
@@ -800,6 +895,92 @@ describe("diffowl CLI", () => {
             diff_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
           },
         },
+      });
+    },
+    30_000,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "runs the selected Claude CLI adapter and persists its review provenance",
+    async () => {
+      const repo = await createRepo("diffowl-cli-review-claude-");
+      await writeFile(join(repo, ".gitignore"), ".diffowl/\n", "utf8");
+      await mkdir(join(repo, "src"));
+      await writeFile(join(repo, "src/app.ts"), "export const value = 1;\n", "utf8");
+      await commitAll(repo, "initial");
+      await writeFile(join(repo, "src/app.ts"), "export const value = 2;\n", "utf8");
+      await commitAll(repo, "change");
+      const executable = await createMockClaudeExecutable();
+      const evidence = join(dirname(executable), "request.json");
+
+      const { stdout } = await execa(
+        process.execPath,
+        [
+          cliPath,
+          "review",
+          "--backend",
+          "claude",
+          "--model",
+          "sonnet",
+          "--reasoning",
+          "xhigh",
+          "--format",
+          "json",
+        ],
+        {
+          cwd: repo,
+          env: {
+            DIFFOWL_CLAUDE_EXECUTABLE: executable,
+            MOCK_CLAUDE_EVIDENCE: evidence,
+          },
+        },
+      );
+      const document = CliReviewDocumentSchema.parse(JSON.parse(stdout));
+      const request = JSON.parse(await readFile(evidence, "utf8"));
+
+      expect(document.review).toMatchObject({
+        backend: "claude",
+        requested_model: "sonnet",
+        effective_model: "claude-sonnet-fixture",
+        session_id: "claude-fixture-session",
+        execution: {
+          backend: "claude",
+          requested_model: "sonnet",
+          effective_model: "claude-sonnet-fixture",
+          reasoning_effort: "xhigh",
+          session_id: "claude-fixture-session",
+          terminal_outcome: "completed",
+        },
+      });
+      expect(request.args).toEqual(
+        expect.arrayContaining([
+          "--print",
+          "--output-format",
+          "stream-json",
+          "--restricted",
+          "--safe-mode",
+          "--setting-sources",
+          "",
+          "--strict-mcp-config",
+          "--mcp-config",
+          '{"mcpServers":{}}',
+          "--settings",
+          '{"disableAllHooks":true}',
+          "--tools",
+          "Read,Glob,Grep",
+          "--permission-mode",
+          "dontAsk",
+          "--permission-prompts",
+          "none",
+          "--no-session-persistence",
+          "--effort",
+          "xhigh",
+          "--json-schema",
+        ]),
+      );
+      expect(JSON.parse(request.args[request.args.indexOf("--json-schema") + 1])).toMatchObject({
+        type: "object",
+        properties: { summary: { type: "string" }, findings: { type: "array" } },
       });
     },
     30_000,
@@ -1441,135 +1622,30 @@ describe("diffowl CLI", () => {
 
 // A fake `opencode` on PATH records each launch; `serve` stays alive without listening,
 // so DiffOwl's managed-server startup times out the way a broken install does.
-describe.skipIf(process.platform === "win32")("first-time setup", () => {
-  let servers: string[] = [];
+// util-linux `script` provides the terminal; its BSD variant takes different arguments.
+describe.skipIf(process.platform !== "linux" || !hasUtilLinuxScript())(
+  "interactive OpenCode setup cleanup",
+  () => {
+    let serverPidFile: string | undefined;
 
-  afterEach(async () => {
-    for (const pidFile of servers) {
-      const pid = Number(await readFile(pidFile, "utf8").catch(() => ""));
+    afterEach(async () => {
+      // Reap the fake server even when a regression leaves it running.
+      const pid = Number(await readFile(serverPidFile ?? "", "utf8").catch(() => ""));
       if (pid > 0) {
         try {
           process.kill(pid, "SIGKILL");
         } catch {}
       }
-    }
-    servers = [];
-  });
-  // Reap the fake server even when a regression starts one the CLI never stops.
-  const setupRepo = async (prefix: string) => {
-    const setup = await createSetupRepo(prefix);
-    servers.push(setup.serverPid);
-    return setup;
-  };
+      serverPidFile = undefined;
+    });
 
-  it.each([
-    { backend: "codex", label: "Codex", model: "gpt-5.4" },
-    { backend: "cursor", label: "Cursor", model: "composer-2.5" },
-  ])(
-    "completes non-interactive $label setup from --backend and --model without OpenCode",
-    async ({ backend, label, model }) => {
-      const { repo, env, calls } = await setupRepo("diffowl-cli-setup-native-");
-
-      const result = await execa(
-        process.execPath,
-        [cliPath, "review", "--staged", "--backend", backend, "--model", model, "--format", "json"],
-        { cwd: repo, env, reject: false },
-      );
-
-      expect(result.exitCode).toBe(0);
-      const document = CliReviewDocumentSchema.parse(JSON.parse(result.stdout));
-      expect(document.review.backend).toBe(backend);
-      expect(document.review.requested_model).toBe(model);
-      expect(result.stderr).toContain(`Review backend: ${label} (command)`);
-      expect(result.stderr).toContain(`${label} model: ${model} (command)`);
-      await expect(access(join(repo, ".diffowl.yml"))).resolves.toBeUndefined();
-      await expect(access(calls)).rejects.toThrow();
-    },
-    30_000,
-  );
-
-  it("rejects an invalid --model before writing setup files", async () => {
-    const { repo, env, calls } = await setupRepo("diffowl-cli-setup-invalid-");
-
-    const result = await execa(
-      process.execPath,
-      [
-        cliPath,
-        "review",
-        "--staged",
-        "--backend",
-        "codex",
-        "--model",
-        "provider/model",
-        "--format",
-        "json",
-      ],
-      { cwd: repo, env, reject: false },
-    );
-
-    expect(result.exitCode).toBe(1);
-    expect(result.stdout).toBe("");
-    const errorLine = result.stderr.split("\n").filter((line) => line.startsWith("{")).at(-1);
-    const document = CliErrorDocumentSchema.parse(JSON.parse(errorLine ?? ""));
-    expect(document.error.message).toContain("Codex model must be a bare model id");
-    await expect(access(join(repo, ".diffowl.yml"))).rejects.toThrow();
-    await expect(access(calls)).rejects.toThrow();
-  });
-
-  it("uses a saved model when non-interactive setup cannot prompt", async () => {
-    const { repo, env, calls } = await setupRepo("diffowl-cli-setup-saved-");
-    await mkdir(join(repo, ".diffowl"));
-    await writeFile(
-      join(repo, ".diffowl/preferences.yml"),
-      "backend: codex\nmodels:\n  - backend: codex\n    model: gpt-5.4\n",
-      "utf8",
-    );
-
-    const result = await execa(
-      process.execPath,
-      [cliPath, "review", "--staged", "--format", "json"],
-      { cwd: repo, env, reject: false },
-    );
-
-    expect(result.exitCode).toBe(0);
-    const document = CliReviewDocumentSchema.parse(JSON.parse(result.stdout));
-    expect(document.review.backend).toBe("codex");
-    expect(document.review.requested_model).toBe("gpt-5.4");
-    expect(result.stderr).not.toContain("Not saved as a preference");
-    await expect(access(calls)).rejects.toThrow();
-  });
-
-  it("does not start an OpenCode server when non-interactive setup cannot select a model", async () => {
-    const { repo, env, calls } = await setupRepo("diffowl-cli-setup-opencode-no-tty-");
-
-    const result = await execa(
-      process.execPath,
-      [cliPath, "review", "--staged", "--format", "json"],
-      { cwd: repo, env, reject: false },
-    );
-
-    expect(result.exitCode).toBe(1);
-    expect(result.stdout).toBe("");
-    const errorLine = result.stderr.split("\n").filter((line) => line.startsWith("{")).at(-1);
-    const document = CliErrorDocumentSchema.parse(JSON.parse(errorLine ?? ""));
-    expect(document.error.message).toContain("No model selected for OpenCode");
-    expect(document.error.message).toContain("Setup cannot prompt without a terminal");
-    await expect(access(calls)).rejects.toThrow();
-    await expect(access(join(repo, ".diffowl/server.pid"))).rejects.toThrow();
-    await expect(access(join(repo, ".diffowl.yml"))).rejects.toThrow();
-  });
-
-  // util-linux `script` provides the terminal; its BSD variant takes different arguments.
-  it.skipIf(process.platform !== "linux" || !hasUtilLinuxScript())(
-    "stops the OpenCode server that a failed interactive setup started",
-    async () => {
-      const { repo, env, calls, terminated } = await setupRepo(
-        "diffowl-cli-setup-opencode-cleanup-",
-      );
+    it("stops the OpenCode server that a failed interactive setup started", async () => {
+      const setup = await createFakeOpencodeRepo("diffowl-cli-setup-opencode-cleanup-");
+      serverPidFile = setup.serverPid;
       // A private port keeps the test away from any developer server on the default 4096.
       const port = await findFreePort();
       await writeFile(
-        join(repo, ".diffowl.yml"),
+        join(setup.repo, ".diffowl.yml"),
         `server:\n  port: ${port}\n  auto_start: true\n`,
         "utf8",
       );
@@ -1582,18 +1658,17 @@ describe.skipIf(process.platform === "win32")("first-time setup", () => {
           `stty cols 120 rows 40; ${shellQuote(process.execPath)} ${shellQuote(cliPath)} init`,
           "/dev/null",
         ],
-        { cwd: repo, env, reject: false, stdin: "ignore" },
+        { cwd: setup.repo, env: setup.env, reject: false, stdin: "ignore" },
       );
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toContain("Failed to query models");
-      await expect(readFile(calls, "utf8")).resolves.toContain(`serve --port ${port}`);
-      await expect(access(join(repo, ".diffowl/server.pid"))).rejects.toThrow();
-      await waitForPath(terminated);
-    },
-    30_000,
-  );
-});
+      await expect(readFile(setup.calls, "utf8")).resolves.toContain(`serve --port ${port}`);
+      await expect(access(join(setup.repo, ".diffowl/server.pid"))).rejects.toThrow();
+      await waitForPath(setup.terminated);
+    }, 30_000);
+  },
+);
 
 describe("diffowl findings summary", () => {
   it("surfaces a reachable open finding, then nothing once it is resolved", async () => {
@@ -2386,7 +2461,7 @@ async function createRepo(
   return repo;
 }
 
-async function createSetupRepo(prefix: string): Promise<{
+async function createFakeOpencodeRepo(prefix: string): Promise<{
   repo: string;
   env: Record<string, string>;
   calls: string;
@@ -2454,6 +2529,27 @@ async function createMockCodexExecutable(
     [
       `#!${process.execPath}`,
       `(async () => import(${JSON.stringify(pathToFileURL(mockCodexCliPath).href)}))().catch((error) => {`,
+      "  console.error(error);",
+      "  process.exit(1);",
+      "});",
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  return executable;
+}
+
+async function createMockClaudeExecutable(
+  prefix = "diffowl-cli-claude-wrapper-",
+): Promise<string> {
+  const bin = await mkdtemp(join(tmpdir(), prefix));
+  tempDirs.push(bin);
+  const executable = join(bin, "claude");
+  await writeFile(
+    executable,
+    [
+      `#!${process.execPath}`,
+      `(async () => import(${JSON.stringify(pathToFileURL(mockClaudeCliPath).href)}))().catch((error) => {`,
       "  console.error(error);",
       "  process.exit(1);",
       "});",

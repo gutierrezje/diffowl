@@ -9,7 +9,7 @@
 
 Review agent-written code with a second model before it ships.
 
-DiffOwl is a local code review CLI. It builds focused context from a Git diff, runs a model through OpenCode, Codex, or the Cursor SDK, and records actionable findings in your repository.
+DiffOwl is a local code review CLI. It builds focused context from a Git diff, runs a model through OpenCode, Codex, Claude Code, or the Cursor SDK, and records actionable findings in your repository.
 
 It works with changes from any coding agent or human. You choose the backend and model on your machine. DiffOwl does not require a hosted DiffOwl account.
 
@@ -20,7 +20,7 @@ The agent that wrote a change should not be its only reviewer. Asking it to revi
 DiffOwl adds an independent pass between writing code and shipping it:
 
 - Review the last commit, staged changes, a specific commit, or a whole branch.
-- Review through OpenCode, a local Codex CLI authenticated with ChatGPT, or the Cursor SDK.
+- Review through OpenCode, the local Codex or Claude Code CLI, or the Cursor SDK.
 - Give the reviewer bounded local context instead of dumping the entire repository into a prompt.
 - Keep findings after the review ends, with stable IDs and lifecycle states.
 - Inspect and disposition durable findings after the review ends.
@@ -55,7 +55,7 @@ cd your-repository
 diffowl init
 ```
 
-`diffowl init` reports the selected runtime and the gitignored preference path. With OpenCode selected, it lists the models from your connected providers. Use `diffowl backend codex` before initialization if you want Codex, then choose a bare Codex model ID. The committed `.diffowl.yml` contains review policy, never your backend or model choice.
+`diffowl init` reports the selected runtime and the gitignored preference path. With OpenCode selected, it lists the models from your connected providers. Use `diffowl backend codex` before initialization for Codex, or `diffowl backend claude` for Claude Code, then choose a bare model ID. The committed `.diffowl.yml` contains review policy, never your backend or model choice.
 
 Codex reviews use an existing ChatGPT login from the local Codex CLI:
 
@@ -64,6 +64,16 @@ codex
 diffowl backend codex
 diffowl model gpt-5-codex
 ```
+
+Claude Code reviews use the installed Claude CLI and its local authentication:
+
+```bash
+claude auth login
+diffowl backend claude
+diffowl model sonnet
+```
+
+Claude models accept bare aliases such as `sonnet` and full model IDs. DiffOwl uses the installed CLI configuration and does not provide a separate Claude login command. See [the Claude adapter notes](src/claude/README.md) for its runtime and policy details.
 
 Cursor reviews use the official Cursor SDK with a separate SDK sign-in:
 
@@ -124,6 +134,9 @@ diffowl review --staged --model openai/gpt-5.6-luna
 
 # Use Codex once without changing saved preferences
 diffowl review --staged --backend codex --model gpt-5-codex
+
+# Use Claude Code once with a local model alias
+diffowl review --staged --backend claude --model sonnet
 
 # Emit a versioned JSON document for scripts
 diffowl review --base --format json
@@ -273,6 +286,7 @@ diffowl backend
 diffowl backend opencode
 diffowl backend codex
 diffowl backend cursor
+diffowl backend claude
 diffowl backend --reset
 
 diffowl model

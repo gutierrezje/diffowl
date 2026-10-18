@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { ClaudeReviewExecutorOptions } from "../claude/executor.js";
 import type { CodexReviewExecutorOptions } from "../codex/executor.js";
 import type { ReviewExecutionResult, ReviewExecutor } from "./types.js";
 import { createSelectedReviewExecutor } from "./executor.js";
@@ -6,6 +7,7 @@ import { createSingleReviewAssignment } from "./provenance.js";
 
 const openCodeExecutor: ReviewExecutor = { execute: vi.fn() };
 const createCursor = vi.fn(() => openCodeExecutor);
+const createClaude = vi.fn(() => openCodeExecutor);
 const codexExecutor: ReviewExecutor = { execute: vi.fn() };
 
 describe("createSelectedReviewExecutor", () => {
@@ -25,6 +27,7 @@ describe("createSelectedReviewExecutor", () => {
         createOpenCode: () => openCodeExecutor,
         createCodex: () => codexExecutor,
         createCursor: cursorFactory,
+        createClaude,
       },
     );
     const result = await executor.execute(reviewExecutorOptions("composer-2.5"));
@@ -51,7 +54,7 @@ describe("createSelectedReviewExecutor", () => {
         },
         { kind: "backend-default" },
       ),
-      { createOpenCode, createCodex, createCursor },
+      { createOpenCode, createCodex, createCursor, createClaude },
     );
 
     expect(executor).not.toBe(openCodeExecutor);
@@ -75,7 +78,7 @@ describe("createSelectedReviewExecutor", () => {
         },
         { kind: "variant", value: "thinking" },
       ),
-      { createOpenCode: () => openCodeExecutor, createCodex, createCursor },
+      { createOpenCode: () => openCodeExecutor, createCodex, createCursor, createClaude },
       { DIFFOWL_CODEX_EXECUTABLE: "/opt/codex" },
     );
 
@@ -84,6 +87,38 @@ describe("createSelectedReviewExecutor", () => {
       command: { executable: "/opt/codex" },
       model: "gpt-5.4",
       reasoningVariant: "thinking",
+    });
+  });
+
+  it("routes Claude through its CLI adapter with a bare model and executable", () => {
+    const createClaudeFactory = vi.fn((input: ClaudeReviewExecutorOptions) => {
+        void input;
+        return openCodeExecutor;
+      },
+    );
+
+    createSelectedReviewExecutor(
+      createSingleReviewAssignment(
+        {
+          backend: "claude",
+          requestedModel: "sonnet",
+          source: { backend: "command", model: "command" },
+        },
+        { kind: "variant", value: "xhigh" },
+      ),
+      {
+        createOpenCode: () => openCodeExecutor,
+        createCodex: () => codexExecutor,
+        createCursor,
+        createClaude: createClaudeFactory,
+      },
+      { DIFFOWL_CLAUDE_EXECUTABLE: "/opt/claude" },
+    );
+
+    expect(createClaudeFactory).toHaveBeenCalledWith({
+      model: "sonnet",
+      command: { executable: "/opt/claude" },
+      closeTimeoutMs: 5_000,
     });
   });
 
@@ -99,7 +134,7 @@ describe("createSelectedReviewExecutor", () => {
     );
     const executor = createSelectedReviewExecutor(
       assignment,
-      { createOpenCode: () => openCodeExecutor, createCodex: () => adapter, createCursor },
+      { createOpenCode: () => openCodeExecutor, createCodex: () => adapter, createCursor, createClaude },
       {},
     );
 
@@ -130,7 +165,7 @@ describe("createSelectedReviewExecutor", () => {
         },
         { kind: "variant", value: "high" },
       ),
-      { createOpenCode: () => adapter, createCodex: () => codexExecutor, createCursor },
+      { createOpenCode: () => adapter, createCodex: () => codexExecutor, createCursor, createClaude },
     );
 
     const result = await executor.execute(reviewExecutorOptions("provider/model", "high"));
@@ -171,7 +206,10 @@ function reviewExecutorOptions(model: string, effort?: "high" | "max") {
         model,
         server: { port: 4096, auto_start: false },
         context: { depth: "default" as const },
-        reasoning: effort === undefined ? { kind: "backend-default" as const } : { kind: "variant" as const, value: effort },
+        reasoning:
+          effort === undefined
+            ? { kind: "backend-default" as const }
+            : { kind: "variant" as const, value: effort },
         retention: { hook_log_kb: 1024, failed_execution_days: 14, failed_execution_limit: 200 },
         gate: { fail_on_findings: false },
         timeout: 300,

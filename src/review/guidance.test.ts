@@ -32,6 +32,69 @@ describe("getReviewBackendFailureGuidance", () => {
     for (const fragment of expected) expect(guidance).toContain(fragment);
   });
 
+  it.each([
+    {
+      message: "Claude CLI executable was not found (ENOENT).",
+      expected: ["Claude Code CLI is not installed", "ensure `claude` is on PATH"],
+    },
+    {
+      message: "Claude authentication is missing.",
+      expected: ["Claude Code authentication is missing", "`claude auth login`"],
+    },
+    {
+      message: "Login expired",
+      expected: ["Claude Code authentication is missing", "`claude auth login`"],
+    },
+    {
+      message:
+        "Login expired · Run /login to sign in again, or re-authenticate your Anthropic profile",
+      expected: ["Claude Code authentication is missing", "`claude auth login`"],
+    },
+    {
+      message: "Unknown model sonnet-next.",
+      expected: ["Claude rejected the selected model", "diffowl model <model-id>"],
+    },
+  ])("gives Claude Code recovery steps for $message", ({ message, expected }) => {
+    const guidance = getReviewBackendFailureGuidance("claude", message).join("\n");
+
+    for (const fragment of expected) expect(guidance).toContain(fragment);
+    expect(guidance.toLowerCase()).not.toMatch(/subscription|entitlement|billing/);
+  });
+
+  it.each([
+    "Claude model claude-3-5-sonnet is not supported.",
+    'The requested model "claude-opus-next" is invalid.',
+  ])("directs Claude model rejection to model selection for %s", (message) => {
+    const guidance = getReviewBackendFailureGuidance("claude", message).join("\n");
+
+    expect(guidance).toContain("Claude rejected the selected model");
+    expect(guidance).toContain("diffowl model <model-id>");
+  });
+
+  it("does not mistake a structured validation path for a Claude model rejection", () => {
+    const guidance = getReviewBackendFailureGuidance(
+      "claude",
+      'Claude Code review failed. [{"path":["model"],"code":"invalid_type","message":"Invalid input"}]',
+    ).join("\n");
+
+    expect(guidance).toContain("Claude Code review failed");
+    expect(guidance).not.toContain("rejected the selected model");
+    expect(guidance).not.toContain("diffowl model <model-id>");
+  });
+
+  it("does not classify changed repository paths as Claude runtime failures", () => {
+    const guidance = getReviewBackendFailureGuidance(
+      "claude",
+      new Error(
+        "Repository changed during Claude review: src/auth/session.ts, src/model/unknown.ts.",
+      ),
+    ).join("\n");
+
+    expect(guidance).toContain("repository changed during the Claude review");
+    expect(guidance).not.toContain("claude auth login");
+    expect(guidance).not.toContain("rejected the selected model");
+  });
+
   it("preserves the existing OpenCode guidance", () => {
     expect(getReviewBackendFailureGuidance("opencode", "ECONNREFUSED")).toContain(
       "Start the managed server: diffowl server start",
