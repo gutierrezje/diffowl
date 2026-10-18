@@ -236,7 +236,8 @@ DiffOwl for every contributor. Machine-specific Node and DiffOwl paths stay in
 worktree-local Git hook state, so later installs and runtime upgrades do not
 dirty the tracked Husky hook or interfere with another linked worktree. A linked
 worktree without its own launcher uses the one installed in the main checkout,
-so one install covers new worktrees.
+so one install covers new worktrees. Uninstalling in a linked worktree removes
+only that worktree's launcher.
 
 ```bash
 diffowl hook status

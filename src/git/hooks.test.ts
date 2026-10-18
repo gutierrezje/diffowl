@@ -92,7 +92,7 @@ describe("installHook", () => {
     const portableBridge = await readFile(huskyUserHook, "utf-8");
     expect(portableBridge).toContain("# diffowl-managed");
     expect(portableBridge).toContain("git rev-parse --absolute-git-dir");
-    expect(portableBridge).toContain("git rev-parse --path-format=absolute --git-common-dir");
+    expect(portableBridge).toContain("git rev-parse --git-common-dir");
     expect(portableBridge).not.toContain(process.execPath);
     await expect(readFile(localLauncher, "utf-8")).resolves.toContain(process.execPath);
     await expect(isHookInstalled()).resolves.toBe(true);
@@ -207,6 +207,12 @@ describe("installHook", () => {
       };
       await writeMarkerLauncher(sharedLauncher, "shared");
       await expect(runBridge()).resolves.toBe("shared\n");
+      await expect(checkHookStale()).resolves.toEqual({
+        installed: true,
+        stale: true,
+        reason:
+          "Shared DiffOwl launcher path is occupied by an unmanaged file; run `diffowl hook install` in the main checkout",
+      });
 
       const { stdout: worktreeGitDir } = await execa("git", ["rev-parse", "--absolute-git-dir"], {
         cwd: worktree,
