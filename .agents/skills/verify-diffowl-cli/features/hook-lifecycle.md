@@ -47,7 +47,9 @@ Preconditions:
   one portable managed bridge and no absolute runtime paths; the Git-local
   `hooks/diffowl-post-commit` launcher has the absolute built entrypoint. Commit
   the bridge with hooks disabled, reinstall, and prove the tracked worktree
-  remains clean while status reports current.
+  remains clean while status reports current. Add a linked worktree without
+  installing there, and prove status reports current and a commit in it runs the
+  main checkout's launcher.
 - **Uninstall.** Capture `node "$DIFFOWL_BIN" hook uninstall`, then inspect the
   hook file and Git-local launcher. The managed entry and launcher are gone,
   while unrelated Husky content remains.

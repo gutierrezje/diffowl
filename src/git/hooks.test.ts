@@ -92,6 +92,7 @@ describe("installHook", () => {
     const portableBridge = await readFile(huskyUserHook, "utf-8");
     expect(portableBridge).toContain("# diffowl-managed");
     expect(portableBridge).toContain("git rev-parse --absolute-git-dir");
+    expect(portableBridge).toContain("git rev-parse --path-format=absolute --git-common-dir");
     expect(portableBridge).not.toContain(process.execPath);
     await expect(readFile(localLauncher, "utf-8")).resolves.toContain(process.execPath);
     await expect(isHookInstalled()).resolves.toBe(true);
@@ -176,6 +177,44 @@ describe("installHook", () => {
     expect(existsSync(worktreeInstall.launcherPath)).toBe(false);
     expect(existsSync(rootInstall.launcherPath)).toBe(true);
   });
+
+  it.skipIf(process.platform === "win32")(
+    "runs the shared Husky launcher from a linked worktree without its own",
+    async () => {
+      const { root, localLauncher: sharedLauncher } = await createHuskyRepo();
+      process.chdir(root);
+      await installHook();
+      await execa("git", ["add", ".husky/post-commit"], { cwd: root });
+      await commitWithoutHooks(root, "add portable DiffOwl bridge");
+      const worktree = join(dirname(root), `${basename(root)}-shared-launcher`);
+      tempDirs.push(worktree);
+      await execa("git", ["worktree", "add", worktree], { cwd: root });
+      await configureHuskyRepo(worktree);
+      process.chdir(worktree);
+
+      await expect(checkHookStale()).resolves.toMatchObject({ installed: true, stale: false });
+
+      // Swap in marker launchers to observe which one the committed bridge runs.
+      const marker = join(worktree, "launcher-ran");
+      const runBridge = async () => {
+        await execa("sh", [join(worktree, ".husky", "post-commit")], { cwd: worktree });
+        return readFile(marker, "utf-8");
+      };
+      const writeMarkerLauncher = async (path: string, label: string) => {
+        await mkdir(dirname(path), { recursive: true });
+        await writeFile(path, `#!/bin/sh\necho ${label} > '${marker}'\n`, "utf-8");
+        await chmod(path, 0o755);
+      };
+      await writeMarkerLauncher(sharedLauncher, "shared");
+      await expect(runBridge()).resolves.toBe("shared\n");
+
+      const { stdout: worktreeGitDir } = await execa("git", ["rev-parse", "--absolute-git-dir"], {
+        cwd: worktree,
+      });
+      await writeMarkerLauncher(join(worktreeGitDir, "hooks", "diffowl-post-commit"), "worktree");
+      await expect(runBridge()).resolves.toBe("worktree\n");
+    },
+  );
 
   it("refuses to overwrite an unowned Husky launcher", async () => {
     const { root, huskyUserHook, localLauncher } = await createHuskyRepo();
