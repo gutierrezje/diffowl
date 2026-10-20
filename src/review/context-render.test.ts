@@ -24,13 +24,13 @@ describe("renderReviewContextDocument diff budget", () => {
     expect(rendered.text).toContain(diff.raw.slice(diff.raw.indexOf("diff --git")).trimEnd());
   });
 
-  it("reports render-diff-truncated when a real Git diff exceeds 80K", async () => {
+  it("keeps the complete collected diff beyond the former 80K rendering limit", async () => {
     const { diff, rendered, tailMarker } = await renderCommitDiff(900);
 
     expect(diff.raw.length).toBeGreaterThan(80_000);
-    expect(rendered.degradations).toContainEqual({ code: "render-diff-truncated", count: 1 });
-    expect(rendered.text).toContain("... [truncated ");
-    expect(rendered.text).not.toContain(tailMarker);
+    expect(rendered.degradations).not.toContainEqual({ code: "render-diff-truncated", count: 1 });
+    expect(rendered.text).toContain(tailMarker);
+    expect(rendered.text).toContain(diff.raw.slice(diff.raw.indexOf("diff --git")).trimEnd());
   });
 });
 

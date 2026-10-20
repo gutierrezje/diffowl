@@ -23,8 +23,8 @@ Builds the review context from diffs, AST, and cross-references, then renders an
 ## Conventions
 
 - Context respects `include`/`exclude` globs and skips lockfiles.
-- Changed file context truncated at 12K chars; related files at 6K; diff at 80K (12K for shallow depth).
-- The import index stores content-addressed module bindings under `.diffowl/impact` and caps reference matches at 200.
+- Changed file excerpts are capped at 12K chars and related files at 6K. Default depth retains the complete collected diff; shallow depth caps it at 12K. Git collection truncation still blocks complete coverage.
+- The import index stores content-addressed module bindings under `.diffowl/impact`. It retains all discovered locations for up to eight selected terms, enriching at most eight locations per term with source excerpts.
 - Reports written to `.diffowl/reviews/review-{ISO}-{uuid8}.md` (no `latest.md` copy).
 - Report timestamps: `ISOString().replace(/[:.]/g, "-")`.
 

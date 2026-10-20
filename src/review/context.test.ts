@@ -620,14 +620,23 @@ describe("buildReviewContext", () => {
     await execa("git", ["add", "src/popular.ts", "src/rare.ts"], { cwd: root });
 
     process.chdir(root);
-    const context = await buildReviewContext({ kind: "staged" }, config);
+    const snapshot = await loadReviewSnapshot(root, { kind: "staged" });
+    const reads = vi.spyOn(snapshot.source, "read");
+    const context = await buildReviewContextFromDiff(snapshot, config);
 
     expect(
       context.references.find((reference) => reference.term === "rare")?.matches,
     ).toContainEqual(expect.objectContaining({ path: "src/rare-consumer.ts" }));
-    expect(
-      context.references.find((reference) => reference.term === "popular")?.matches.length,
-    ).toBeGreaterThan(0);
+    const popular = context.references.find((reference) => reference.term === "popular");
+    expect(popular?.matches).toHaveLength(201);
+    expect(popular?.matches.filter((match) => match.snippet)).toHaveLength(8);
+    expect(context.degradations).not.toContainEqual(
+      expect.objectContaining({ code: "impact-index-results-truncated" }),
+    );
+    expect(renderReviewContext(context)).toContain("src/importers/c200.ts:1:");
+    const importerReads = reads.mock.calls.filter(([path]) => path.startsWith("src/importers/"));
+    expect(importerReads).toHaveLength(8);
+    reads.mockRestore();
   }, 20_000);
 
   it("keeps import references when one module fails to parse", async () => {

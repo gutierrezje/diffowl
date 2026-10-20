@@ -28,10 +28,9 @@ import type {
 } from "./context-types.js";
 import type { ReviewTarget } from "./target.js";
 
-const MAX_REFERENCES_PER_TERM = 8;
+const MAX_REFERENCE_SNIPPETS_PER_TERM = 8;
 const MAX_REFERENCE_TERMS = 8;
 const MAX_REFERENCE_LINE_CHARS = 220;
-const MAX_BATCH_REFERENCE_MATCHES = 200;
 const REFERENCE_SNIPPET_RADIUS = 2;
 const MAX_REFERENCE_SNIPPET_CHARS = 1_200;
 const MAX_REFERENCE_SNIPPET_FILE_BYTES = 256 * 1024;
@@ -135,8 +134,6 @@ export async function buildReferenceContexts(
       snapshot.source,
       changedFiles,
       skippedFiles,
-      diagnostics,
-      degradations,
     );
   } catch (error) {
     addDiagnostic(
@@ -296,8 +293,6 @@ async function referencesFromGraph(
   source: ReviewContextSource,
   changedFiles: ChangedFileContext[],
   skippedFiles: DiffFile[],
-  diagnostics: string[],
-  degradations: ReviewContextDegradation[],
 ): Promise<ReferenceContext[]> {
   const ignoredPaths = new Set([
     ...changedFiles.map((file) => file.file.path),
@@ -307,7 +302,6 @@ async function referencesFromGraph(
   const inverted = invertImports(graph, overlay);
   const pending: PendingReference[] = [];
   const seen = new Set<string>();
-  const pendingByTerm = new Map<string, number>();
 
   for (const query of queries) {
     for (const hit of inverted.get(query.target) ?? []) {
@@ -318,27 +312,14 @@ async function referencesFromGraph(
       );
       if (seen.has(key)) continue;
       seen.add(key);
-      const termCount = pendingByTerm.get(query.term) ?? 0;
-      if (termCount >= MAX_REFERENCES_PER_TERM) continue;
-      if (pending.length >= MAX_BATCH_REFERENCE_MATCHES) continue;
-      pendingByTerm.set(query.term, termCount + 1);
       pending.push({ term: query.term, hit });
     }
-  }
-
-  if (seen.size > pending.length) {
-    addDiagnostic(
-      diagnostics,
-      `TypeScript import index found ${seen.size} matches; only ${pending.length} are included.`,
-    );
-    addDegradation(degradations, "impact-index-results-truncated", seen.size - pending.length);
   }
 
   const matches = await addReferenceSnippets(source, pending);
   const byTerm = new Map<string, ReferenceMatch[]>();
   for (const [index, reference] of pending.entries()) {
     const termMatches = byTerm.get(reference.term) ?? [];
-    if (termMatches.length >= MAX_REFERENCES_PER_TERM) continue;
     const match = matches[index];
     if (!match) continue;
     termMatches.push(match);
@@ -427,9 +408,17 @@ async function addReferenceSnippets(
   references: PendingReference[],
 ): Promise<ReferenceMatch[]> {
   const files = new Map<string, string>();
+  const excerptReferences = new Set<PendingReference>();
+  const excerptsByTerm = new Map<string, number>();
+  for (const reference of references) {
+    const count = excerptsByTerm.get(reference.term) ?? 0;
+    if (count >= MAX_REFERENCE_SNIPPETS_PER_TERM) continue;
+    excerptReferences.add(reference);
+    excerptsByTerm.set(reference.term, count + 1);
+  }
 
   await Promise.all(
-    [...new Set(references.map((reference) => reference.hit.importer))].map(async (path) => {
+    [...new Set([...excerptReferences].map((reference) => reference.hit.importer))].map(async (path) => {
       try {
         const result = await source.read(path, MAX_PARSE_FILE_BYTES);
         if (result.status === "loaded" && !result.content.includes("\0")) {
@@ -441,8 +430,9 @@ async function addReferenceSnippets(
     }),
   );
 
-  return references.map(({ hit }) => {
-    const content = files.get(hit.importer);
+  return references.map((reference) => {
+    const { hit } = reference;
+    const content = excerptReferences.has(reference) ? files.get(hit.importer) : undefined;
     const lines = content?.split("\n");
     const fullText =
       lines?.[hit.binding.line - 1]?.trim() ??

@@ -6,7 +6,6 @@ import type {
   ReviewContext,
 } from "./context-types.js";
 
-const MAX_DIFF_CHARS = 80_000;
 const MAX_AST_SYMBOL_CHARS = 8_000;
 const MAX_QUICK_DIFF_CHARS = 12_000;
 const MAX_QUICK_SYMBOL_CHARS = 4_000;
@@ -47,13 +46,13 @@ export function renderReviewContextDocument(
   }
   lines.push("");
   lines.push("### Diff");
-  const renderedDiff = truncateText(
-    filterDiffRaw(
-      context.diff.raw,
-      new Set(context.changedFiles.map((fileContext) => fileContext.file.path)),
-    ),
-    shallow ? MAX_QUICK_DIFF_CHARS : MAX_DIFF_CHARS,
+  const diff = filterDiffRaw(
+    context.diff.raw,
+    new Set(context.changedFiles.map((fileContext) => fileContext.file.path)),
   );
+  const renderedDiff = shallow
+    ? truncateText(diff, MAX_QUICK_DIFF_CHARS)
+    : { text: diff, truncated: false };
   if (renderedDiff.truncated) degradations.push({ code: "render-diff-truncated", count: 1 });
   lines.push(fence(renderedDiff.text, "diff"));
   lines.push("");
@@ -153,7 +152,7 @@ export function renderReviewContextDocument(
 
   if (!shallow && context.references.length > 0) {
     lines.push("### Import references");
-    lines.push("These snippets show TypeScript modules that import a changed file or symbol.");
+    lines.push("These locations show TypeScript modules that import a changed file or symbol. Selected locations include source excerpts.");
     for (const reference of context.references) {
       lines.push(`#### Term: ${reference.term}`);
       for (const match of reference.matches) {
