@@ -7,6 +7,12 @@ increments that may include backward-compatible features and fixes.
 
 ## [Unreleased]
 
+### Fixed
+
+- Husky bridges in linked worktrees without their own launcher now run the
+  launcher installed in the main checkout instead of skipping the review.
+  Reinstall and commit the updated `.husky/post-commit` bridge.
+
 ## [0.5.3] - 2026-10-16
 
 DiffOwl adds Claude Code and Cursor review backends, plus a readiness check that
