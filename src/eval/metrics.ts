@@ -60,8 +60,7 @@ export function computeStatSummary(values: number[]): StatSummary | null {
     return { mean, stddev: 0, values };
   }
 
-  const variance =
-    values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
+  const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
   return { mean, stddev: Math.sqrt(variance), values };
 }
 
@@ -123,15 +122,22 @@ function computeLatencyMetrics(durationValues: number[]): EvalLatencyMetrics {
 }
 
 function computeUsageMetrics(trials: EvalTrialMetrics[]): EvalUsageMetrics {
-  const costs = trials.map((trial) => trial.usageCost).filter((value): value is number => value !== null);
-  const tokens = trials.map((trial) => trial.totalTokens).filter((value): value is number => value !== null);
+  const costs = trials
+    .map((trial) => trial.usageCost)
+    .filter((value): value is number => value !== null);
+  const tokens = trials
+    .map((trial) => trial.totalTokens)
+    .filter((value): value is number => value !== null);
   const coverage =
-    trials.length === 0 ? 0 : trials.filter((trial) => trial.totalTokens !== null).length / trials.length;
+    trials.length === 0
+      ? 0
+      : trials.filter((trial) => trial.totalTokens !== null).length / trials.length;
 
   return {
     meanCost: costs.length > 0 ? costs.reduce((sum, value) => sum + value, 0) / costs.length : null,
     totalCost: costs.length > 0 ? costs.reduce((sum, value) => sum + value, 0) : null,
-    meanTokens: tokens.length > 0 ? tokens.reduce((sum, value) => sum + value, 0) / tokens.length : null,
+    meanTokens:
+      tokens.length > 0 ? tokens.reduce((sum, value) => sum + value, 0) / tokens.length : null,
     coverage,
   };
 }
@@ -145,7 +151,9 @@ export function computeCaseMetrics(
   const trialMetrics = caseScore.trials.map((trialScore) => {
     const trialResult = trialResults.find((trial) => trial.trial === trialScore.trial);
     if (!trialResult) {
-      throw new Error(`Missing trial result for case "${caseScore.caseId}" trial ${trialScore.trial}.`);
+      throw new Error(
+        `Missing trial result for case "${caseScore.caseId}" trial ${trialScore.trial}.`,
+      );
     }
     return trialMetricsFromScore(trialScore, trialResult, caseScore.category, resolved.beta);
   });
@@ -227,16 +235,19 @@ export function computeCorpusMetrics(caseMetrics: EvalCaseMetrics[]): EvalCorpus
         return null;
       }
       return (
-        cleanCases.reduce((sum, entry) => sum + (entry.emptyOnCleanRate ?? 0), 0) / cleanCases.length
+        cleanCases.reduce((sum, entry) => sum + (entry.emptyOnCleanRate ?? 0), 0) /
+        cleanCases.length
       );
     })(),
     latencyMs: computeLatencyMetrics(allTrials.map((trial) => trial.durationMs)),
     usage: computeUsageMetrics(allTrials),
     byCategory: categories
-      .map((category) => aggregateCategoryMetrics(
-        category,
-        caseMetrics.filter((entry) => entry.category === category),
-      ))
+      .map((category) =>
+        aggregateCategoryMetrics(
+          category,
+          caseMetrics.filter((entry) => entry.category === category),
+        ),
+      )
       .filter((entry) => entry.caseCount > 0),
   };
 }

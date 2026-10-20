@@ -15,10 +15,7 @@ export function filterFindingsByConfidence(
   return { findings: kept, dropped: findings.length - kept.length };
 }
 
-export function filterFindingsByChangedFiles(
-  findings: ReviewFinding[],
-  changedFiles: Set<string>,
-) {
+export function filterFindingsByChangedFiles(findings: ReviewFinding[], changedFiles: Set<string>) {
   const kept: ReviewFinding[] = [];
   const suppressed: ReviewFinding[] = [];
   for (const finding of findings) {

@@ -28,7 +28,8 @@ export function severityRank(severity: ReviewSeverity): number {
 function resolveScoreOptions(options?: EvalScoreOptions): Required<EvalScoreOptions> {
   return {
     fnMode: options?.fnMode ?? DEFAULT_EVAL_SCORE_OPTIONS.fnMode,
-    repeatedFpThreshold: options?.repeatedFpThreshold ?? DEFAULT_EVAL_SCORE_OPTIONS.repeatedFpThreshold,
+    repeatedFpThreshold:
+      options?.repeatedFpThreshold ?? DEFAULT_EVAL_SCORE_OPTIONS.repeatedFpThreshold,
   };
 }
 
@@ -91,10 +92,7 @@ function buildMatchCandidates(
   return candidates;
 }
 
-function assignTruePositives(
-  candidates: MatchCandidate[],
-  reported: ReviewFinding[],
-): EvalMatch[] {
+function assignTruePositives(candidates: MatchCandidate[], reported: ReviewFinding[]): EvalMatch[] {
   const sorted = [...candidates].sort((left, right) => {
     if (left.lineDistance !== right.lineDistance) {
       return left.lineDistance - right.lineDistance;
@@ -130,10 +128,7 @@ function assignTruePositives(
   return matches;
 }
 
-function expectedCountsAsFalseNegative(
-  expected: EvalExpectedFinding,
-  fnMode: EvalFnMode,
-): boolean {
+function expectedCountsAsFalseNegative(expected: EvalExpectedFinding, fnMode: EvalFnMode): boolean {
   return fnMode === "strict" || expected.must_detect;
 }
 
@@ -164,8 +159,7 @@ export function scoreEvalTrial(
 
     const matchesAssignedExpected = expected.some(
       (entry, expectedIndex) =>
-        matchedExpected.has(expectedIndex) &&
-        findingMatchesExpected(entry, reportedFinding),
+        matchedExpected.has(expectedIndex) && findingMatchesExpected(entry, reportedFinding),
     );
     if (matchesAssignedExpected) {
       redundancies.push(reportedFinding);
@@ -182,8 +176,7 @@ export function scoreEvalTrial(
 
   const falseNegatives = expected.filter(
     (entry, expectedIndex) =>
-      !matchedExpected.has(expectedIndex) &&
-      expectedCountsAsFalseNegative(entry, resolved.fnMode),
+      !matchedExpected.has(expectedIndex) && expectedCountsAsFalseNegative(entry, resolved.fnMode),
   );
 
   return {
@@ -254,9 +247,6 @@ export function scoreEvalCase(
     category: evalCase.category,
     tags: evalCase.tags,
     trials: trialScores,
-    repeatedFalsePositives: detectRepeatedFalsePositives(
-      trialScores,
-      resolved.repeatedFpThreshold,
-    ),
+    repeatedFalsePositives: detectRepeatedFalsePositives(trialScores, resolved.repeatedFpThreshold),
   };
 }

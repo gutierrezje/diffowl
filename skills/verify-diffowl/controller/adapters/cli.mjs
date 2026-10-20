@@ -209,8 +209,7 @@ export const cliAdapter = {
         const afterBackend = parse(await readFile(preferencePath, "utf8"));
         const opencodeSurvives = (document) =>
           document.models?.some(
-            (selection) =>
-              selection.backend === "opencode" && selection.model === "provider/model",
+            (selection) => selection.backend === "opencode" && selection.model === "provider/model",
           );
         const codexAfterReasoning = afterReasoning.models?.find(
           (selection) => selection.backend === "codex",

@@ -287,18 +287,27 @@ describe("corpus expectation contract", () => {
       expect(rawCase.expected ?? []).toEqual(rawCase.expected);
 
       if (rawCase.category === "clean") {
-        expect(rawCase.expected, `${rawCase.id} clean cases must declare no expected findings`).toEqual([]);
+        expect(
+          rawCase.expected,
+          `${rawCase.id} clean cases must declare no expected findings`,
+        ).toEqual([]);
         continue;
       }
 
-      expect(rawCase.expected?.length, `${rawCase.id} bug/mixed cases need expected findings`).toBeGreaterThan(0);
+      expect(
+        rawCase.expected?.length,
+        `${rawCase.id} bug/mixed cases need expected findings`,
+      ).toBeGreaterThan(0);
 
       const patchPath = rawCase.steps
         ? join(evalCase.dir, rawCase.steps[rawCase.steps.length - 1]!.patchPath)
         : join(evalCase.dir, "change.patch");
       const patchText = await readFile(patchPath, "utf8");
       for (const expected of rawCase.expected) {
-        expect(expected, `${rawCase.id} expected findings must not include category`).not.toHaveProperty("category");
+        expect(
+          expected,
+          `${rawCase.id} expected findings must not include category`,
+        ).not.toHaveProperty("category");
         expect(expected, `${rawCase.id} must omit default line_tolerance`).not.toHaveProperty(
           "line_tolerance",
           2,
@@ -361,13 +370,21 @@ describe("applyMaterializedEvalCaseStep", () => {
   it("applies a later step on an already-materialized workDir", async () => {
     const caseDir = await createMultiStepCase();
     const evalCase = await loadEvalCase(caseDir);
-    const singleStep = { ...evalCase, steps: [evalCase.steps[0]!], patchPath: evalCase.steps[0]!.patchPath };
+    const singleStep = {
+      ...evalCase,
+      steps: [evalCase.steps[0]!],
+      patchPath: evalCase.steps[0]!.patchPath,
+    };
     const materialized = await materializeEvalCaseRepo(singleStep);
     tempDirs.push(materialized.workDir);
 
-    expect(await readFile(join(materialized.workDir, "src/example.ts"), "utf8")).toContain("step-one");
+    expect(await readFile(join(materialized.workDir, "src/example.ts"), "utf8")).toContain(
+      "step-one",
+    );
     await applyMaterializedEvalCaseStep(evalCase, materialized.workDir, 1);
-    expect(await readFile(join(materialized.workDir, "src/example.ts"), "utf8")).toContain("step-two");
+    expect(await readFile(join(materialized.workDir, "src/example.ts"), "utf8")).toContain(
+      "step-two",
+    );
   });
 });
 
@@ -444,10 +461,14 @@ async function createMalformedCase(input: {
   const caseDir = join(root, input.dirName);
   const baseDir = join(caseDir, "base");
   await mkdir(join(baseDir, "src"), { recursive: true });
-  await writeFile(join(caseDir, "case.json"), `${JSON.stringify(input.caseJson, null, 2)}\n`, "utf8");
+  await writeFile(
+    join(caseDir, "case.json"),
+    `${JSON.stringify(input.caseJson, null, 2)}\n`,
+    "utf8",
+  );
   await writeFile(
     join(caseDir, "change.patch"),
-    input.patch ?? await readFile(join(corpusDir, "harmless-trim/change.patch"), "utf8"),
+    input.patch ?? (await readFile(join(corpusDir, "harmless-trim/change.patch"), "utf8")),
     "utf8",
   );
 

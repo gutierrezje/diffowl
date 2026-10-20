@@ -32,15 +32,15 @@ diffowl review --staged --backend cursor --model composer-2.5 \
   --format json --fail-on-findings
 ```
 
-| Observation | Built CLI | Fresh npm package installation |
-| --- | --- | --- |
-| Seeded bug at `price.js:2` | Found | Found |
-| Findings | 1 | 1 |
-| Backend / effective model | cursor / composer-2.5 | cursor / composer-2.5 |
-| Exit status | 1, expected for findings | 1, expected for findings |
-| HEAD, index, worktree, fixture file hashes | Unchanged | Unchanged |
-| Review and findings persisted | Yes | Yes |
-| Elapsed single run | 8.996 s | 8.570 s |
+| Observation                                | Built CLI                | Fresh npm package installation |
+| ------------------------------------------ | ------------------------ | ------------------------------ |
+| Seeded bug at `price.js:2`                 | Found                    | Found                          |
+| Findings                                   | 1                        | 1                              |
+| Backend / effective model                  | cursor / composer-2.5    | cursor / composer-2.5          |
+| Exit status                                | 1, expected for findings | 1, expected for findings       |
+| HEAD, index, worktree, fixture file hashes | Unchanged                | Unchanged                      |
+| Review and findings persisted              | Yes                      | Yes                            |
+| Elapsed single run                         | 8.996 s                  | 8.570 s                        |
 
 The installed run used `npm pack`, a fresh installation with package scripts
 disabled, and the installed `dist/cli.js`. The existing official SDK login was

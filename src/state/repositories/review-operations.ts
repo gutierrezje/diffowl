@@ -129,9 +129,7 @@ export function captureReviewOperationContext(
     `)
     .run(JSON.stringify(contextManifest), operation.contextManifestSha256, operation.id);
   if (result.changes !== 1) {
-    throw new StateDatabaseError(
-      `Review operation ${operation.id} context could not be captured.`,
-    );
+    throw new StateDatabaseError(`Review operation ${operation.id} context could not be captured.`);
   }
   const captured = getReviewOperationById(db, operation.id);
   if (captured === undefined || JSON.stringify(captured) !== JSON.stringify(operation)) {

@@ -18,7 +18,10 @@ export async function captureSourceIdentity(sourceRoot) {
   if (failed.length > 0) {
     throw new Error(
       failed
-        .map(([operation, result]) => `git ${operation} failed: ${result.stderr || `exit ${result.exitCode}`}`)
+        .map(
+          ([operation, result]) =>
+            `git ${operation} failed: ${result.stderr || `exit ${result.exitCode}`}`,
+        )
         .join("; "),
     );
   }

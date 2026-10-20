@@ -22,10 +22,7 @@ import type {
 } from "../review/types.js";
 import { assignReviewExecutor } from "../review/executor.js";
 import { createSingleReviewAssignment } from "../review/provenance.js";
-import {
-  BACKEND_DEFAULT_REASONING,
-  selectReasoningVariant,
-} from "../review/reasoning.js";
+import { BACKEND_DEFAULT_REASONING, selectReasoningVariant } from "../review/reasoning.js";
 import type { EffectiveReviewConfig } from "../review/runtime-config.js";
 import type { ReviewUsage } from "../review/usage.js";
 import { BASELINE_AGENT_PROMPT, buildBaselinePrompt, renderBaselineDiff } from "./baseline.js";
@@ -151,9 +148,14 @@ async function runMultiStepEvalCaseTrial(
     return runMultiStepBaselineTrial(evalCase, options, dependencies, trial);
   }
 
-  return runEvalIdentityTrial(evalCase, options, {
-    getFindingsForStep: buildDiffowlGetFindingsForStep(options, dependencies),
-  }, trial);
+  return runEvalIdentityTrial(
+    evalCase,
+    options,
+    {
+      getFindingsForStep: buildDiffowlGetFindingsForStep(options, dependencies),
+    },
+    trial,
+  );
 }
 
 async function runMultiStepBaselineTrial(
@@ -215,9 +217,7 @@ async function materializeMultiStepEvalCaseAtFinalState(
     // Cumulative diff from pre-step baseline through HEAD so baseline mode
     // sees every step's defects, not only the last commit's patch.
     const target: ReviewTarget =
-      evalCase.target === "staged"
-        ? { kind: "staged" }
-        : { kind: "base", ref: baselineSha };
+      evalCase.target === "staged" ? { kind: "staged" } : { kind: "base", ref: baselineSha };
 
     return { workDir, target };
   } catch (error) {
@@ -264,10 +264,7 @@ async function runReviewForMaterializedCase(
   trial: number,
   startedAt: number,
 ): Promise<EvalTrialResult> {
-  const config = resolveEvalRunnerConfig(
-    await loadConfigFromRoot(materialized.workDir),
-    options,
-  );
+  const config = resolveEvalRunnerConfig(await loadConfigFromRoot(materialized.workDir), options);
   const review =
     mode === "baseline"
       ? await runBaselineReview(materialized, config, options, dependencies)
@@ -492,10 +489,7 @@ function applyActionableFindingFilters(
 
   if (confidenceFilter.dropped > 0 || changedFileFilter.suppressed.length > 0) {
     nextDiagnostics.push(
-      formatExcludedCandidateSummary(
-        confidenceFilter.dropped,
-        changedFileFilter.suppressed.length,
-      ),
+      formatExcludedCandidateSummary(confidenceFilter.dropped, changedFileFilter.suppressed.length),
     );
   }
 

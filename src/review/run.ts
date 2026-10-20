@@ -33,7 +33,12 @@ import {
   type ReviewExecutionJournal,
 } from "../state/review-execution-journal.js";
 import { filterFindingsByChangedFiles, filterFindingsByConfidence } from "./filters.js";
-import { formatExcludedCandidateSummary, renderMarkdown, REPORT_SCHEMA_VERSION, writeMarkdownReport } from "./formatter.js";
+import {
+  formatExcludedCandidateSummary,
+  renderMarkdown,
+  REPORT_SCHEMA_VERSION,
+  writeMarkdownReport,
+} from "./formatter.js";
 import {
   buildReviewContextFromDiff,
   loadReviewSnapshot,
@@ -68,15 +73,23 @@ export function getReviewFailureExecution(cause: unknown): ReviewExecutionRecord
 
 export type ReviewPipelineOutcome =
   | {
-      kind: "completed"; report: ReviewReport; persisted: PersistReviewRunResult;
-      reportPath: string; sessionId: string;
+      kind: "completed";
+      report: ReviewReport;
+      persisted: PersistReviewRunResult;
+      reportPath: string;
+      sessionId: string;
       suppressed: { outsideChangedFiles: number; belowConfidence: number };
-      timings: ReviewTiming[]; usage: ReviewUsage | null; effectiveModel: string | null;
+      timings: ReviewTiming[];
+      usage: ReviewUsage | null;
+      effectiveModel: string | null;
       execution: PersistReviewRunResult["execution"];
     }
   | {
-      kind: "skipped"; reason: "empty-diff" | "documentation-only";
-      persisted: PersistReviewRunResult; reportPath: string | null; timings: ReviewTiming[];
+      kind: "skipped";
+      reason: "empty-diff" | "documentation-only";
+      persisted: PersistReviewRunResult;
+      reportPath: string | null;
+      timings: ReviewTiming[];
     }
   | { kind: "empty-diff"; timings: ReviewTiming[] };
 
@@ -177,7 +190,8 @@ export async function runReviewPipeline(
   }
 
   const { snapshot, timings, operation: pendingOperation } = outcome;
-  const checkoutBefore = snapshot.targetCommit === null ? null : await deps.readReviewCheckout(input.projectRoot);
+  const checkoutBefore =
+    snapshot.targetCommit === null ? null : await deps.readReviewCheckout(input.projectRoot);
   const executionTelemetry = createReviewExecutionTelemetry();
   executionTelemetry.record({ type: "phase", phase: "context-build" });
   const executor = input.executor ?? deps.createExecutor(input.config);
@@ -198,7 +212,12 @@ export async function runReviewPipeline(
     const contextRenderStart = performance.now();
     const renderedContext = deps.renderReviewContextDocument(reviewContext, { depth: input.depth });
     localContext = renderedContext.text;
-    recordReviewTiming(timings, "context-render", "Local review context render", contextRenderStart);
+    recordReviewTiming(
+      timings,
+      "context-render",
+      "Local review context render",
+      contextRenderStart,
+    );
     if (reviewContext.diagnostics.length > 0) {
       input.onDiagnostics?.(reviewContext.diagnostics);
     }
@@ -261,7 +280,10 @@ export async function runReviewPipeline(
   }
 
   const diagnostics = [...(input.initialDiagnostics ?? []), ...(report.diagnostics ?? [])];
-  const confidenceFilter = deps.filterFindingsByConfidence(report.findings, input.config.min_confidence);
+  const confidenceFilter = deps.filterFindingsByConfidence(
+    report.findings,
+    input.config.min_confidence,
+  );
   report.findings = confidenceFilter.findings;
 
   const changedFilesSet = new Set(reviewContext.changedFiles.map((file) => file.file.path));
@@ -271,10 +293,12 @@ export async function runReviewPipeline(
     report.suppressedFindings = changedFileFilter.suppressed;
   }
   if (confidenceFilter.dropped > 0 || changedFileFilter.suppressed.length > 0) {
-    diagnostics.push(deps.formatExcludedCandidateSummary(
-      confidenceFilter.dropped,
-      changedFileFilter.suppressed.length,
-    ));
+    diagnostics.push(
+      deps.formatExcludedCandidateSummary(
+        confidenceFilter.dropped,
+        changedFileFilter.suppressed.length,
+      ),
+    );
   }
   if (diagnostics.length > 0) {
     report.diagnostics = diagnostics;
@@ -319,7 +343,9 @@ export async function runReviewPipeline(
   persisted = { ...persisted, execution: completedExecution };
 
   report.findings = persisted.actionableFindings;
-  const lifecycleSummary = deps.formatLifecycleSuppressedSummary(persisted.reconcile.suppressedCounts);
+  const lifecycleSummary = deps.formatLifecycleSuppressedSummary(
+    persisted.reconcile.suppressedCounts,
+  );
   if (lifecycleSummary) {
     diagnostics.push(lifecycleSummary);
     report.diagnostics = diagnostics;
@@ -342,9 +368,15 @@ export async function runReviewPipeline(
     ];
   }
 
-  report.findings = deps.enrichReviewFindingsWithDurableMetadata(report.findings, persisted.reconcile);
+  report.findings = deps.enrichReviewFindingsWithDurableMetadata(
+    report.findings,
+    persisted.reconcile,
+  );
   if (report.suppressedFindings) {
-    report.suppressedFindings = deps.enrichReviewFindingsWithDurableMetadata(report.suppressedFindings, persisted.reconcile);
+    report.suppressedFindings = deps.enrichReviewFindingsWithDurableMetadata(
+      report.suppressedFindings,
+      persisted.reconcile,
+    );
   }
 
   const renderStart = performance.now();
@@ -368,12 +400,19 @@ export async function runReviewPipeline(
       const checkoutAfter = await deps.readReviewCheckout(input.projectRoot);
       publication.coverage = {
         policySha256: reviewPolicySha256(input.config, input.depth),
-        inputVerified: checkoutBefore.status === "" && checkoutAfter.status === "" &&
-          checkoutBefore.head === snapshot.targetCommit && checkoutAfter.head === snapshot.targetCommit &&
-          snapshot.source.kind === "git-commit" && snapshot.source.sha === snapshot.targetCommit &&
+        inputVerified:
+          checkoutBefore.status === "" &&
+          checkoutAfter.status === "" &&
+          checkoutBefore.head === snapshot.targetCommit &&
+          checkoutAfter.head === snapshot.targetCommit &&
+          snapshot.source.kind === "git-commit" &&
+          snapshot.source.sha === snapshot.targetCommit &&
           blockingContextDegradations(operation.contextManifest.degradationCounts).length === 0,
-        untrackedActionableCount: persisted.actionableFindings.filter(finding => finding.severity !== "info" &&
-          computeFindingFingerprint(toFindingCandidate(finding)) === null).length,
+        untrackedActionableCount: persisted.actionableFindings.filter(
+          (finding) =>
+            finding.severity !== "info" &&
+            computeFindingFingerprint(toFindingCandidate(finding)) === null,
+        ).length,
       };
     }
     await deps.updatePersistedReview(input.diffOwlDir, persisted.reviewId, publication);
@@ -381,7 +420,10 @@ export async function runReviewPipeline(
     const message = err instanceof Error ? err.message : String(err);
     diagnostics.push(`Report write failed: ${message}`);
     report.diagnostics = diagnostics;
-    await deps.updatePersistedReview(input.diffOwlDir, persisted.reviewId, { reportPath: null, diagnostics });
+    await deps.updatePersistedReview(input.diffOwlDir, persisted.reviewId, {
+      reportPath: null,
+      diagnostics,
+    });
     throw err;
   }
   recordReviewTiming(timings, "write-report", "Report write", writeStart);

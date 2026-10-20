@@ -461,27 +461,31 @@ describe("executeCodexReview", () => {
     }
   });
 
-  it("distinguishes a silent provider turn from an active timeout", { timeout: 10_000 }, async () => {
-    const directory = await temporaryRepository();
-    try {
-      const telemetry: ReviewExecutionTelemetryEvent[] = [];
-      const error = await executeCodexReview({
-        ...makeInput("timeout-silent", true, directory),
-        timeoutMs: 2_000,
-        onTelemetry: (event) => telemetry.push(event),
-      }).catch((cause: unknown) => cause);
-      expect(error).toMatchObject({ kind: "timeout", phase: "turn" });
-      expect(telemetry).toEqual(
-        expect.arrayContaining([
-          { type: "phase", phase: "turn-start", attempt: 1 },
-          { type: "phase", phase: "provider-work", attempt: 1 },
-        ]),
-      );
-      expect(telemetry.some((event) => event.type === "activity")).toBe(false);
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
-  });
+  it(
+    "distinguishes a silent provider turn from an active timeout",
+    { timeout: 10_000 },
+    async () => {
+      const directory = await temporaryRepository();
+      try {
+        const telemetry: ReviewExecutionTelemetryEvent[] = [];
+        const error = await executeCodexReview({
+          ...makeInput("timeout-silent", true, directory),
+          timeoutMs: 2_000,
+          onTelemetry: (event) => telemetry.push(event),
+        }).catch((cause: unknown) => cause);
+        expect(error).toMatchObject({ kind: "timeout", phase: "turn" });
+        expect(telemetry).toEqual(
+          expect.arrayContaining([
+            { type: "phase", phase: "turn-start", attempt: 1 },
+            { type: "phase", phase: "provider-work", attempt: 1 },
+          ]),
+        );
+        expect(telemetry.some((event) => event.type === "activity")).toBe(false);
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
 
   it(
     "detects a timed-out turn mutation before teardown can restore it",

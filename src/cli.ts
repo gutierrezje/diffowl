@@ -37,10 +37,11 @@ import {
   type ReviewSelection,
 } from "./review/backend-selection.js";
 import { parseReasoningVariant } from "./review/reasoning.js";
-import { formatMissingCodexModelWarning, inspectCodexModelAvailability } from "./codex/model-availability.js";
 import {
-  getAvailableModels,
-} from "./opencode/client.js";
+  formatMissingCodexModelWarning,
+  inspectCodexModelAvailability,
+} from "./codex/model-availability.js";
+import { getAvailableModels } from "./opencode/client.js";
 import { ReviewCancelledError } from "./review/errors.js";
 import type { ReviewProgressEvent, ReviewTiming, ReviewUsage } from "./review/types.js";
 import { getOpenCodeFailureGuidance } from "./opencode/guidance.js";
@@ -143,9 +144,7 @@ import { resolveCompletedReviewExit } from "./review/gate.js";
 import { getReviewFailureExecution, runReviewPipeline } from "./review/run.js";
 import { getSlowestReviewExecutionPhase } from "./review/execution-telemetry.js";
 import { createSelectedReviewExecutor } from "./review/executor.js";
-import {
-  createSingleReviewAssignment,
-} from "./review/provenance.js";
+import { createSingleReviewAssignment } from "./review/provenance.js";
 import type { ReviewTarget } from "./review/target.js";
 import { inspectReviewRuntimes } from "./review/runtime.js";
 import { getReviewBackendFailureGuidance } from "./review/guidance.js";
@@ -181,10 +180,7 @@ type ReviewCommandOptions = {
   format: string;
 };
 
-program
-  .name("diffowl")
-  .description("Local AI code review agent")
-  .version(packageJson.version);
+program.name("diffowl").description("Local AI code review agent").version(packageJson.version);
 
 program
   .command("readiness")
@@ -507,10 +503,7 @@ program
         printExecutionTelemetrySummary(outcome.execution);
         printTimingSummary(outputTimings);
       }
-      const status = reviewStatusFromPersisted(
-        { skippedReason: null },
-        outcome.persisted,
-      );
+      const status = reviewStatusFromPersisted({ skippedReason: null }, outcome.persisted);
       const { exitCode, announceFailure } = resolveCompletedReviewExit({
         status,
         cliFlag: Boolean(options.failOnFindings),
@@ -1062,12 +1055,9 @@ program
     if (selection === undefined) {
       failConfigError(new MissingModelError(backend));
     }
-    const selectedVariant =
-      "reasoning" in selection ? selection.reasoning?.variant : undefined;
+    const selectedVariant = "reasoning" in selection ? selection.reasoning?.variant : undefined;
     console.log(
-      `${chalk.bold("Reasoning variant:")} ${chalk.cyan(
-        selectedVariant ?? "backend default",
-      )}`,
+      `${chalk.bold("Reasoning variant:")} ${chalk.cyan(selectedVariant ?? "backend default")}`,
     );
     console.log(chalk.dim(`Backend: ${formatReviewBackend(backend)}`));
     console.log(chalk.dim(`Model: ${selection.model}`));
@@ -1214,11 +1204,7 @@ async function selectNativeModelInteractively(options: {
 async function warnCodexModelAvailability(model: string): Promise<void> {
   const availability = await inspectCodexModelAvailability(model);
   if (availability === "not-advertised") {
-    console.warn(
-      chalk.yellow(
-        `⚠ ${formatMissingCodexModelWarning(model)}`,
-      ),
-    );
+    console.warn(chalk.yellow(`⚠ ${formatMissingCodexModelWarning(model)}`));
   } else if (availability === "not-chatgpt") {
     console.warn(
       chalk.yellow(
@@ -1512,7 +1498,9 @@ duplicateCmd
       const detail = await withFindingDatabaseForRead(await getSharedDiffOwlDir(), (db) => {
         const item = getPossibleDuplicateDetailById(db, duplicateId);
         if (!item) {
-          throw new InvalidFindingTransitionError(`Possible duplicate ${duplicateId} was not found.`);
+          throw new InvalidFindingTransitionError(
+            `Possible duplicate ${duplicateId} was not found.`,
+          );
         }
         return item;
       });
@@ -1557,24 +1545,32 @@ for (const decision of ["confirm", "reject"] as const) {
     .requiredOption("--reason <text>", "Decision reason")
     .option("--actor <actor>", "Actor: user or agent", "user")
     .option("--format <format>", "Output format: text or json", "json")
-    .action(async (duplicateId: string, options: { reason: string; actor?: string; format?: string }) => {
-      await loadConfigOrExit();
-      const format = resolveReviewOutputFormat(options.format);
-      try {
-        const updated = await withFindingDatabase(await getSharedDiffOwlDir(), (db) =>
-          decision === "confirm"
-            ? confirmPossibleDuplicate(db, duplicateId, { actor: parseFindingActor(options.actor), reason: options.reason })
-            : rejectPossibleDuplicate(db, duplicateId, { actor: parseFindingActor(options.actor), reason: options.reason }),
-        );
-        if (format === "json") {
-          process.stdout.write(renderPossibleDuplicateDetailJson(updated));
-        } else {
-          console.log(formatPossibleDuplicateDetail(updated));
+    .action(
+      async (duplicateId: string, options: { reason: string; actor?: string; format?: string }) => {
+        await loadConfigOrExit();
+        const format = resolveReviewOutputFormat(options.format);
+        try {
+          const updated = await withFindingDatabase(await getSharedDiffOwlDir(), (db) =>
+            decision === "confirm"
+              ? confirmPossibleDuplicate(db, duplicateId, {
+                  actor: parseFindingActor(options.actor),
+                  reason: options.reason,
+                })
+              : rejectPossibleDuplicate(db, duplicateId, {
+                  actor: parseFindingActor(options.actor),
+                  reason: options.reason,
+                }),
+          );
+          if (format === "json") {
+            process.stdout.write(renderPossibleDuplicateDetailJson(updated));
+          } else {
+            console.log(formatPossibleDuplicateDetail(updated));
+          }
+        } catch (err) {
+          failFindingsCommand(format, CliErrorSchema.parse(err));
         }
-      } catch (err) {
-        failFindingsCommand(format, CliErrorSchema.parse(err));
-      }
-    });
+      },
+    );
 }
 
 /**
@@ -1802,10 +1798,13 @@ function parsePossibleDuplicateStatus(
   format: ReviewOutputFormat,
 ): PossibleDuplicateStatus | undefined {
   if (value === undefined) return undefined;
-  if (value === "suggested" || value === "confirmed" || value === "rejected" || value === "expired") return value;
+  if (value === "suggested" || value === "confirmed" || value === "rejected" || value === "expired")
+    return value;
   failFindingsCommand(
     format,
-    new Error(`Invalid duplicate status: ${value}. Expected suggested, confirmed, rejected, or expired.`),
+    new Error(
+      `Invalid duplicate status: ${value}. Expected suggested, confirmed, rejected, or expired.`,
+    ),
   );
 }
 

@@ -2,15 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { EvalCase, EvalExpectedFinding } from "./case-types.js";
 import type { EvalCaseRunResult, EvalTrialResult } from "./runner-types.js";
 import type { ReviewFinding } from "../review/types.js";
-import {
-  findingMatchesExpected,
-  scoreEvalCase,
-  scoreEvalTrial,
-  severityRank,
-} from "./score.js";
+import { findingMatchesExpected, scoreEvalCase, scoreEvalTrial, severityRank } from "./score.js";
 import { computeCaseMetrics, computeCorpusMetrics } from "./metrics.js";
 
-function makeFinding(overrides: Partial<ReviewFinding> & Pick<ReviewFinding, "file" | "line">): ReviewFinding {
+function makeFinding(
+  overrides: Partial<ReviewFinding> & Pick<ReviewFinding, "file" | "line">,
+): ReviewFinding {
   return {
     severity: "warning",
     title: "Issue",
@@ -20,7 +17,9 @@ function makeFinding(overrides: Partial<ReviewFinding> & Pick<ReviewFinding, "fi
   };
 }
 
-function makeExpected(overrides: Partial<EvalExpectedFinding> & Pick<EvalExpectedFinding, "file" | "line">): EvalExpectedFinding {
+function makeExpected(
+  overrides: Partial<EvalExpectedFinding> & Pick<EvalExpectedFinding, "file" | "line">,
+): EvalExpectedFinding {
   return {
     line_tolerance: 2,
     min_severity: "warning",
@@ -78,12 +77,18 @@ describe("findingMatchesExpected", () => {
   const expected = makeExpected({ file: "src/a.ts", line: 10 });
 
   it("matches within line tolerance", () => {
-    expect(findingMatchesExpected(expected, makeFinding({ file: "src/a.ts", line: 11 }))).toBe(true);
-    expect(findingMatchesExpected(expected, makeFinding({ file: "src/a.ts", line: 13 }))).toBe(false);
+    expect(findingMatchesExpected(expected, makeFinding({ file: "src/a.ts", line: 11 }))).toBe(
+      true,
+    );
+    expect(findingMatchesExpected(expected, makeFinding({ file: "src/a.ts", line: 13 }))).toBe(
+      false,
+    );
   });
 
   it("rejects a different file", () => {
-    expect(findingMatchesExpected(expected, makeFinding({ file: "src/b.ts", line: 10 }))).toBe(false);
+    expect(findingMatchesExpected(expected, makeFinding({ file: "src/b.ts", line: 10 }))).toBe(
+      false,
+    );
   });
 
   it("rejects severity below min_severity", () => {
@@ -152,9 +157,7 @@ describe("scoreEvalTrial", () => {
     ]);
 
     const score = scoreEvalTrial(evalCase, trial);
-    expect(score.truePositives).toEqual([
-      { expectedIndex: 0, reportedIndex: 1, lineDistance: 1 },
-    ]);
+    expect(score.truePositives).toEqual([{ expectedIndex: 0, reportedIndex: 1, lineDistance: 1 }]);
     expect(score.counts).toEqual({ tp: 1, fp: 0, fn: 0, redundancy: 1 });
     expect(score.redundancies).toHaveLength(1);
     expect(score.redundancies[0]?.title).toBe("Far");
@@ -258,7 +261,9 @@ describe("end-to-end scoring and metrics", () => {
       mode: "diffowl",
       trials: [
         makeTrial([], 1, { durationMs: 800 }),
-        makeTrial([makeFinding({ file: "src/util.ts", line: 1, title: "Nit" })], 2, { durationMs: 700 }),
+        makeTrial([makeFinding({ file: "src/util.ts", line: 1, title: "Nit" })], 2, {
+          durationMs: 700,
+        }),
       ],
     };
 

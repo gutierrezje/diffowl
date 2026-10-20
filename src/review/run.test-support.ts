@@ -19,11 +19,7 @@ import {
   type ReviewExecutionRuntimeProvenance,
 } from "./provenance.js";
 import { BACKEND_DEFAULT_REASONING } from "./reasoning.js";
-import {
-  defaultReviewPipelineDeps,
-  runReviewSkipChecks,
-  type ReviewPipelineDeps,
-} from "./run.js";
+import { defaultReviewPipelineDeps, runReviewSkipChecks, type ReviewPipelineDeps } from "./run.js";
 import type { EffectiveReviewConfig } from "./runtime-config.js";
 import type { AssignedReviewExecutor, ReviewFinding } from "./types.js";
 
@@ -75,15 +71,14 @@ export function makeSnapshot(
     mergeBaseCommit: target.kind === "base" ? "merge-base" : null,
     targetCommit: target.kind === "staged" ? null : "abc123",
     diff: { files, raw: "diff --git a/README.md b/README.md", summary: "" },
-    source: target.kind === "staged"
-      ? { ...unusedContextSource, kind: "git-index" }
-      : { ...unusedContextSource, kind: "git-commit", sha: "abc123" },
+    source:
+      target.kind === "staged"
+        ? { ...unusedContextSource, kind: "git-index" }
+        : { ...unusedContextSource, kind: "git-commit", sha: "abc123" },
   };
 }
 
-export function makeDeps(
-  snapshot: LoadedReviewSnapshot,
-): ReviewPipelineDeps & {
+export function makeDeps(snapshot: LoadedReviewSnapshot): ReviewPipelineDeps & {
   executor: AssignedReviewExecutor;
   journal: ReviewExecutionJournal;
 } {
@@ -158,7 +153,10 @@ export function makeDeps(
     journal: ReviewExecutionJournal;
   } = {
     ...defaultReviewPipelineDeps,
-    readReviewCheckout: vi.fn(async () => ({ head: snapshot.targetCommit ?? "abc123", status: "" })),
+    readReviewCheckout: vi.fn(async () => ({
+      head: snapshot.targetCommit ?? "abc123",
+      status: "",
+    })),
     buildReviewContextFromDiff: vi.fn(async () => makeReviewContext(snapshot)),
     captureReviewOperation: vi.fn(() => makeOperation(snapshot)),
     createUnavailableContextReviewOperation: vi.fn((input) =>
@@ -250,10 +248,16 @@ export function makeReviewContext(snapshot: LoadedReviewSnapshot): ReviewContext
     target: snapshot.target,
     depth: "default",
     diff: snapshot.diff,
-    changedFiles: [{
-      file: codeFile(), imports: [], symbols: [], changedLines: [1], astSymbols: [],
-      content: { status: "loaded", text: "", truncated: false, render: "diff-only" },
-    }],
+    changedFiles: [
+      {
+        file: codeFile(),
+        imports: [],
+        symbols: [],
+        changedLines: [1],
+        astSymbols: [],
+        content: { status: "loaded", text: "", truncated: false, render: "diff-only" },
+      },
+    ],
     skippedFiles: [],
     relatedFiles: [],
     references: [],

@@ -25,6 +25,24 @@ record.
 
 ## Verification automation
 
+Run `pnpm run format` before submitting changes and `pnpm run format:check` to
+check formatting without editing files. The formatter excludes evaluation corpus
+fixtures and recorded baselines to preserve their exact contents. CI checks the
+remaining files.
+
+Run `pnpm run verify:package` to build and pack the package, install the tarball
+with its production dependencies in a temporary project, and check the installed
+CLI's version and help. This requires package-registry access but no provider
+login. The command removes its temporary project when it finishes. CI runs this
+check on each supported platform and Node version in its matrix.
+
+The live eval integration test requires both a nonblank `DIFFOWL_EVAL_MODEL` and
+an explicit opt-in. Set the model in your environment, then run
+`pnpm run test:eval:live`. That command enables the live test on every platform;
+setting the model alone does not enable it during `pnpm test`. To include it in a
+direct Vitest run, also set `DIFFOWL_EVAL_INTEGRATION=1`. Live evaluation requires
+an authenticated provider and can incur usage charges.
+
 Run `pnpm run test:verification` when changing the verification controller or its
 feature assertions. The suite drives public controller commands in disposable
 repositories, including known-good cases and deliberately stale evidence. It
@@ -62,7 +80,7 @@ The release ledger is maintained manually, not discovered from the network by CI
 The maintainer releasing a pending schema must:
 
 1. Confirm the published package version and `gitHead` with `npm view diffowl
-   version gitHead --json`, and check the corresponding release tag's schema.
+version gitHead --json`, and check the corresponding release tag's schema.
 2. Freeze the pending SQL in the release commit. Append its version, intended
    package release, and SHA-256 of the exported SQL to `RELEASED_MIGRATIONS`, and
    advance `LATEST_RELEASED_SCHEMA_VERSION` in the same test file.
@@ -105,16 +123,16 @@ agent surface: `integration:codex`, `integration:cursor`, and
 
 Workflow labels have precise meanings:
 
-| Label | Meaning |
-| --- | --- |
-| `needs-triage` | The maintainer has not classified the issue yet. |
-| `needs-info` | Work is waiting for evidence or a product answer. |
-| `needs-design` | The outcome is known, but the design is not settled. |
-| `ready-for-agent` | The issue is specific enough for autonomous execution. |
-| `ready-for-human` | Live maintainer judgment or implementation is required. |
-| `human-gated` | A measurement or decision must be performed by the maintainer. |
-| `blocked` | A named dependency prevents progress. |
-| `tracking` | The issue tracks a larger outcome through linked issues. |
+| Label             | Meaning                                                        |
+| ----------------- | -------------------------------------------------------------- |
+| `needs-triage`    | The maintainer has not classified the issue yet.               |
+| `needs-info`      | Work is waiting for evidence or a product answer.              |
+| `needs-design`    | The outcome is known, but the design is not settled.           |
+| `ready-for-agent` | The issue is specific enough for autonomous execution.         |
+| `ready-for-human` | Live maintainer judgment or implementation is required.        |
+| `human-gated`     | A measurement or decision must be performed by the maintainer. |
+| `blocked`         | A named dependency prevents progress.                          |
+| `tracking`        | The issue tracks a larger outcome through linked issues.       |
 
 Assignment means someone is actively working on the issue. Leave ready backlog
 items unassigned so they remain available to claim.

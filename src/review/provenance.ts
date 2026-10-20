@@ -24,9 +24,7 @@ export const ReviewExecutionTerminalOutcomeSchema = z.enum([
   "interrupted",
 ]);
 
-export type ReviewExecutionTerminalOutcome = z.output<
-  typeof ReviewExecutionTerminalOutcomeSchema
->;
+export type ReviewExecutionTerminalOutcome = z.output<typeof ReviewExecutionTerminalOutcomeSchema>;
 
 export type ReviewRole = "single" | "proposer" | "checker";
 
@@ -49,21 +47,18 @@ const AssignedReviewExecutionProvenanceSchema = z.object({
   reasoningEffort: ReasoningVariantSchema.nullable(),
 });
 
-export const ReviewExecutionRuntimeProvenanceSchema = z.discriminatedUnion(
-  "terminalOutcome",
-  [
-    AssignedReviewExecutionProvenanceSchema.extend({
-      terminalOutcome: z.literal("completed"),
-      effectiveModel: z.string().nullable(),
-      sessionId: z.string(),
-    }).strict(),
-    AssignedReviewExecutionProvenanceSchema.extend({
-      terminalOutcome: ReviewExecutionTerminalOutcomeSchema.exclude(["completed"]),
-      effectiveModel: z.string().nullable(),
-      sessionId: z.string().nullable(),
-    }).strict(),
-  ],
-);
+export const ReviewExecutionRuntimeProvenanceSchema = z.discriminatedUnion("terminalOutcome", [
+  AssignedReviewExecutionProvenanceSchema.extend({
+    terminalOutcome: z.literal("completed"),
+    effectiveModel: z.string().nullable(),
+    sessionId: z.string(),
+  }).strict(),
+  AssignedReviewExecutionProvenanceSchema.extend({
+    terminalOutcome: ReviewExecutionTerminalOutcomeSchema.exclude(["completed"]),
+    effectiveModel: z.string().nullable(),
+    sessionId: z.string().nullable(),
+  }).strict(),
+]);
 
 export const RunningReviewExecutionRuntimeProvenanceSchema =
   AssignedReviewExecutionProvenanceSchema.extend({

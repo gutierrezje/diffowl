@@ -35,8 +35,16 @@ describe("run identity binding", () => {
       expect(output.verification.identityBound).toBe(true);
       expect(receipt.observed).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ check: "run source content identity", ok: true, phase: "preflight" }),
-          expect.objectContaining({ check: "run source content identity", ok: true, phase: "postflight" }),
+          expect.objectContaining({
+            check: "run source content identity",
+            ok: true,
+            phase: "preflight",
+          }),
+          expect.objectContaining({
+            check: "run source content identity",
+            ok: true,
+            phase: "postflight",
+          }),
         ]),
       );
     } finally {
@@ -53,11 +61,9 @@ describe("run identity binding", () => {
     let created = false;
     await writeFile(fixturePath, before);
     try {
-      await execa(
-        controller,
-        ["cli", "new-run", "cli-version-help", "--run-id", runId, "--json"],
-        { cwd: projectRoot },
-      );
+      await execa(controller, ["cli", "new-run", "cli-version-help", "--run-id", runId, "--json"], {
+        cwd: projectRoot,
+      });
       created = true;
       await writeFile(fixturePath, after);
 
@@ -67,20 +73,19 @@ describe("run identity binding", () => {
         { cwd: projectRoot, reject: false },
       );
       const output = JSON.parse(execution.stdout);
-      const doctor = await execa(
-        controller,
-        ["cli", "doctor", "--run", runId, "--json"],
-        { cwd: projectRoot, reject: false },
-      );
+      const doctor = await execa(controller, ["cli", "doctor", "--run", runId, "--json"], {
+        cwd: projectRoot,
+        reject: false,
+      });
       const doctorOutput = JSON.parse(doctor.stdout);
-      const receiptResult = await execa(
-        controller,
-        ["cli", "receipt", "--run", runId, "--json"],
-        { cwd: projectRoot },
-      );
+      const receiptResult = await execa(controller, ["cli", "receipt", "--run", runId, "--json"], {
+        cwd: projectRoot,
+      });
       const receipt = JSON.parse(receiptResult.stdout);
       const beforeSha256 = createHash("sha256").update(before).digest("hex");
-      const afterSha256 = createHash("sha256").update(await readFile(fixturePath)).digest("hex");
+      const afterSha256 = createHash("sha256")
+        .update(await readFile(fixturePath))
+        .digest("hex");
       await recordExperiment(runId, {
         case: "source-drift",
         fixture: { path: fixturePath, beforeSha256, afterSha256 },
@@ -92,9 +97,9 @@ describe("run identity binding", () => {
       expect(beforeSha256).not.toBe(afterSha256);
       expect(execution.exitCode).not.toBe(0);
       expect(output).toMatchObject({ success: false, result: "INCONCLUSIVE" });
-      expect(receipt.observed).not.toEqual(expect.arrayContaining([
-        expect.objectContaining({ check: "feature execution completed" }),
-      ]));
+      expect(receipt.observed).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ check: "feature execution completed" })]),
+      );
       expect(doctor.exitCode).not.toBe(0);
       expect(doctorOutput.problems).toContain(
         "run source content identity no longer matches checkout",
@@ -129,7 +134,10 @@ describe("run identity binding", () => {
       created = true;
       const manifest = await readRunManifest(runId);
       originalBinary = await readFile(manifest.binaryPath);
-      await writeFile(manifest.binaryPath, Buffer.concat([originalBinary, Buffer.from("\n// identity-only drift\n")]));
+      await writeFile(
+        manifest.binaryPath,
+        Buffer.concat([originalBinary, Buffer.from("\n// identity-only drift\n")]),
+      );
 
       const execution = await executeRun(runId);
       const output = JSON.parse(execution.stdout);
@@ -147,14 +155,21 @@ describe("run identity binding", () => {
         receipt,
       });
 
-      expect(output).toMatchObject({ success: false, result: "INCONCLUSIVE", verification: { identityBound: false } });
+      expect(output).toMatchObject({
+        success: false,
+        result: "INCONCLUSIVE",
+        verification: { identityBound: false },
+      });
       expect(execution.exitCode).not.toBe(0);
       expect(receipt.actions).toEqual([]);
-      expect(receipt.confounds[0].observed).toContain("run artifact no longer matches current binary");
+      expect(receipt.confounds[0].observed).toContain(
+        "run artifact no longer matches current binary",
+      );
       expect(doctor.exitCode).not.toBe(0);
       expect(doctor.output.problems).toContain("run artifact no longer matches current binary");
     } finally {
-      if (originalBinary) await writeFile((await readRunManifest(runId)).binaryPath, originalBinary);
+      if (originalBinary)
+        await writeFile((await readRunManifest(runId)).binaryPath, originalBinary);
       if (created) await cleanupRun(runId);
     }
   }, 30_000);
@@ -209,7 +224,11 @@ describe("run identity binding", () => {
         result: "INCONCLUSIVE",
         controller: { state: "failed" },
         actions: [],
-        confounds: [expect.objectContaining({ observed: expect.stringContaining("run binary artifact identity unavailable") })],
+        confounds: [
+          expect.objectContaining({
+            observed: expect.stringContaining("run binary artifact identity unavailable"),
+          }),
+        ],
       });
     } finally {
       if (movedBinary) await rename(backupPath, manifest.binaryPath);
@@ -250,9 +269,13 @@ describe("run identity binding", () => {
       expect(output).toMatchObject({ success: false, result: "INCONCLUSIVE" });
       expect(execution.exitCode).not.toBe(0);
       expect(receipt.actions).toEqual([]);
-      expect(receipt.confounds[0].observed).toContain("run controller artifact no longer matches checkout");
+      expect(receipt.confounds[0].observed).toContain(
+        "run controller artifact no longer matches checkout",
+      );
       expect(doctor.exitCode).not.toBe(0);
-      expect(doctor.output.problems).toContain("run controller artifact no longer matches checkout");
+      expect(doctor.output.problems).toContain(
+        "run controller artifact no longer matches checkout",
+      );
     } finally {
       if (originalController) {
         await writeFile((await readRunManifest(runId)).controllerPath, originalController);
@@ -355,131 +378,138 @@ describe("run identity binding", () => {
     }
   }, 30_000);
 
-  it.each([
-    {
-      command: "new-run",
-      args: (runId) => ["cli", "new-run", "cli-version-help", "--run-id", runId, "--json"],
-    },
-    {
-      command: "run",
-      args: (runId) => ["run", "cli", "cli-version-help", "--run-id", runId, "--json"],
-    },
-  ].flatMap((entry) => [true, false].map((json) => ({ ...entry, json }))))("fails $command (json=$json) when source changes while the helper builds the binary", async ({ command, args, json }) => {
-    const runId = `identity-build-drift-${command}-${process.pid}-${Date.now()}`;
-    const fixturePath = join(projectRoot, `${runId}.fixture`);
-    const shimDir = join(experimentRoot, `${runId}-bin`);
-    const shimPath = join(shimDir, "bash");
-    const shimModulePath = join(experimentRoot, `${runId}-bash.mjs`);
-    const helperPath = join(import.meta.dirname, "helpers/scratch-repo.sh");
-    const before = Buffer.from("source before helper build\n");
-    const after = Buffer.from("source changed after helper build\n");
-    let created = false;
-    await writeFile(fixturePath, before);
-    try {
-      const shim = [
-        'import { writeFile } from "node:fs/promises";',
-        'import { execa } from "execa";',
-        `const helperPath = ${JSON.stringify(helperPath)};`,
-        `const fixturePath = ${JSON.stringify(fixturePath)};`,
-        'const realBash = "/bin/bash";',
-        "const args = process.argv.slice(2);",
-        "const result = await execa(realBash, args, { reject: false });",
-        "if (result.stdout) process.stdout.write(result.stdout);",
-        "if (result.stderr) process.stderr.write(result.stderr);",
-        "if (args[0] === helperPath && result.exitCode === 0) await writeFile(fixturePath, " +
-          `${JSON.stringify(after.toString())});`,
-        "process.exitCode = result.exitCode ?? 1;",
-        "",
-      ].join("\n");
-      await mkdir(experimentRoot, { recursive: true });
-      await mkdir(shimDir, { recursive: true });
-      await writeFile(shimModulePath, shim);
-      await writeFile(shimPath, `#!/bin/sh\nexec "${process.execPath}" "${shimModulePath}" "$@"\n`, {
-        mode: 0o755,
-      });
+  it.each(
+    [
+      {
+        command: "new-run",
+        args: (runId) => ["cli", "new-run", "cli-version-help", "--run-id", runId, "--json"],
+      },
+      {
+        command: "run",
+        args: (runId) => ["run", "cli", "cli-version-help", "--run-id", runId, "--json"],
+      },
+    ].flatMap((entry) => [true, false].map((json) => ({ ...entry, json }))),
+  )(
+    "fails $command (json=$json) when source changes while the helper builds the binary",
+    async ({ command, args, json }) => {
+      const runId = `identity-build-drift-${command}-${process.pid}-${Date.now()}`;
+      const fixturePath = join(projectRoot, `${runId}.fixture`);
+      const shimDir = join(experimentRoot, `${runId}-bin`);
+      const shimPath = join(shimDir, "bash");
+      const shimModulePath = join(experimentRoot, `${runId}-bash.mjs`);
+      const helperPath = join(import.meta.dirname, "helpers/scratch-repo.sh");
+      const before = Buffer.from("source before helper build\n");
+      const after = Buffer.from("source changed after helper build\n");
+      let created = false;
+      await writeFile(fixturePath, before);
+      try {
+        const shim = [
+          'import { writeFile } from "node:fs/promises";',
+          'import { execa } from "execa";',
+          `const helperPath = ${JSON.stringify(helperPath)};`,
+          `const fixturePath = ${JSON.stringify(fixturePath)};`,
+          'const realBash = "/bin/bash";',
+          "const args = process.argv.slice(2);",
+          "const result = await execa(realBash, args, { reject: false });",
+          "if (result.stdout) process.stdout.write(result.stdout);",
+          "if (result.stderr) process.stderr.write(result.stderr);",
+          "if (args[0] === helperPath && result.exitCode === 0) await writeFile(fixturePath, " +
+            `${JSON.stringify(after.toString())});`,
+          "process.exitCode = result.exitCode ?? 1;",
+          "",
+        ].join("\n");
+        await mkdir(experimentRoot, { recursive: true });
+        await mkdir(shimDir, { recursive: true });
+        await writeFile(shimModulePath, shim);
+        await writeFile(
+          shimPath,
+          `#!/bin/sh\nexec "${process.execPath}" "${shimModulePath}" "$@"\n`,
+          {
+            mode: 0o755,
+          },
+        );
 
-      const execution = await execa(
-        controller,
-        args(runId).filter((arg) => json || arg !== "--json"),
-        {
-          cwd: projectRoot,
-          reject: false,
-          env: { ...process.env, PATH: `${shimDir}${delimiter}${process.env.PATH}` },
-        },
-      );
-      const output = json ? JSON.parse(execution.stdout) : execution.stdout;
-      const receiptResult = await execa(
-        controller,
-        ["cli", "receipt", "--run", runId, "--json"],
-        { cwd: projectRoot, reject: false },
-      );
-      created = receiptResult.exitCode === 0;
-      const receipt = created ? JSON.parse(receiptResult.stdout) : null;
-      const beforeSha256 = sha256(before);
-      const afterSha256 = sha256(await readFile(fixturePath));
-      await recordExperiment(runId, {
-        case: "source-drift-during-build",
-        fixture: { path: fixturePath, beforeSha256, afterSha256 },
-        shim: { path: shimPath, modulePath: shimModulePath },
-        verifier: { exitCode: execution.exitCode, output },
-        receipt,
-      });
-
-      expect(beforeSha256).not.toBe(afterSha256);
-      expect(execution.exitCode).not.toBe(0);
-      if (json) {
-        expect(output).toMatchObject({ command, success: false, result: "INCONCLUSIVE" });
-      } else {
-        expect(output).toContain("INCONCLUSIVE:");
-        expect(output).toContain("Receipt:");
-        expect(output).toContain("Source changed or became unreadable");
-      }
-      if (json && command === "run") {
-        expect(output).toMatchObject({
-          evidence: expect.any(String),
-          receipt: expect.stringContaining("receipt.json"),
-          verification: { identityBound: false },
-          error: { expected: expect.stringContaining("source identity to remain unchanged") },
+        const execution = await execa(
+          controller,
+          args(runId).filter((arg) => json || arg !== "--json"),
+          {
+            cwd: projectRoot,
+            reject: false,
+            env: { ...process.env, PATH: `${shimDir}${delimiter}${process.env.PATH}` },
+          },
+        );
+        const output = json ? JSON.parse(execution.stdout) : execution.stdout;
+        const receiptResult = await execa(
+          controller,
+          ["cli", "receipt", "--run", runId, "--json"],
+          { cwd: projectRoot, reject: false },
+        );
+        created = receiptResult.exitCode === 0;
+        const receipt = created ? JSON.parse(receiptResult.stdout) : null;
+        const beforeSha256 = sha256(before);
+        const afterSha256 = sha256(await readFile(fixturePath));
+        await recordExperiment(runId, {
+          case: "source-drift-during-build",
+          fixture: { path: fixturePath, beforeSha256, afterSha256 },
+          shim: { path: shimPath, modulePath: shimModulePath },
+          verifier: { exitCode: execution.exitCode, output },
+          receipt,
         });
+
+        expect(beforeSha256).not.toBe(afterSha256);
+        expect(execution.exitCode).not.toBe(0);
+        if (json) {
+          expect(output).toMatchObject({ command, success: false, result: "INCONCLUSIVE" });
+        } else {
+          expect(output).toContain("INCONCLUSIVE:");
+          expect(output).toContain("Receipt:");
+          expect(output).toContain("Source changed or became unreadable");
+        }
+        if (json && command === "run") {
+          expect(output).toMatchObject({
+            evidence: expect.any(String),
+            receipt: expect.stringContaining("receipt.json"),
+            verification: { identityBound: false },
+            error: { expected: expect.stringContaining("source identity to remain unchanged") },
+          });
+        }
+        expect(receipt).toMatchObject({
+          result: "INCONCLUSIVE",
+          controller: { state: "failed" },
+          actions: [],
+          observed: expect.arrayContaining([
+            expect.objectContaining({ check: "source identity stable across build", ok: false }),
+          ]),
+        });
+      } finally {
+        if (created) await cleanupRun(runId);
+        await rm(fixturePath, { force: true });
+        await rm(shimDir, { recursive: true, force: true });
       }
-      expect(receipt).toMatchObject({
-        result: "INCONCLUSIVE",
-        controller: { state: "failed" },
-        actions: [],
-        observed: expect.arrayContaining([
-          expect.objectContaining({ check: "source identity stable across build", ok: false }),
-        ]),
-      });
-    } finally {
-      if (created) await cleanupRun(runId);
-      await rm(fixturePath, { force: true });
-      await rm(shimDir, { recursive: true, force: true });
-    }
-  }, 60_000);
+    },
+    60_000,
+  );
 });
 
 async function createRun(runId) {
-  await execa(
-    controller,
-    ["cli", "new-run", "cli-version-help", "--run-id", runId, "--json"],
-    { cwd: projectRoot },
-  );
+  await execa(controller, ["cli", "new-run", "cli-version-help", "--run-id", runId, "--json"], {
+    cwd: projectRoot,
+  });
 }
 
 async function executeRun(runId, env = process.env) {
-  return execa(
-    controller,
-    ["run", "cli", "cli-version-help", "--run", runId, "--json"],
-    { cwd: projectRoot, reject: false, env },
-  );
+  return execa(controller, ["run", "cli", "cli-version-help", "--run", runId, "--json"], {
+    cwd: projectRoot,
+    reject: false,
+    env,
+  });
 }
 
 async function doctorRun(runId) {
-  const result = await execa(
-    controller,
-    ["cli", "doctor", "--run", runId, "--json"],
-    { cwd: projectRoot, reject: false },
-  );
+  const result = await execa(controller, ["cli", "doctor", "--run", runId, "--json"], {
+    cwd: projectRoot,
+    reject: false,
+  });
   return { ...result, output: JSON.parse(result.stdout) };
 }
 

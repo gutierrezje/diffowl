@@ -109,7 +109,9 @@ describe("buildEvalReport", () => {
     expect(document.cases).toHaveLength(2);
     expect(document.aggregate.diffowl?.caseCount).toBe(2);
     expect(document.gates?.passed).toBe(true);
-    expect(parseEvalResultsDocument(parseEvalJson(JSON.stringify(document))).schema_version).toBe(1);
+    expect(parseEvalResultsDocument(parseEvalJson(JSON.stringify(document))).schema_version).toBe(
+      1,
+    );
   });
 
   it("rejects malformed nested result metrics", async () => {

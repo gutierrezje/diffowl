@@ -2,10 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { ReviewContextDepthSchema } from "../config.js";
 import type { LoadedReviewSnapshot, ReviewContext } from "./context.js";
-import {
-  ReviewContextDegradationCodeSchema,
-  type RenderedReviewContext,
-} from "./context-types.js";
+import { ReviewContextDegradationCodeSchema, type RenderedReviewContext } from "./context-types.js";
 import { ReviewOperationIdSchema, type ReviewOperationId } from "./ids.js";
 import {
   createReviewInputIdentity,

@@ -92,9 +92,9 @@ export async function updateReceipt(run, update) {
       "CREATE TABLE IF NOT EXISTS receipt_lease (id INTEGER PRIMARY KEY CHECK (id = 1), token TEXT NOT NULL)",
     );
     database.exec("BEGIN IMMEDIATE");
-    database.prepare("INSERT OR REPLACE INTO receipt_lease (id, token) VALUES (1, ?)").run(
-      randomUUID(),
-    );
+    database
+      .prepare("INSERT OR REPLACE INTO receipt_lease (id, token) VALUES (1, ?)")
+      .run(randomUUID());
     const receipt = await readReceipt(run);
     const updated = (await update(receipt)) ?? receipt;
     await writeReceipt(run, updated);
