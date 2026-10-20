@@ -263,13 +263,13 @@ describe("review readiness", () => {
     return runReviewPipeline({
       target, config: { ...config, model: "test", reasoning: { kind: "backend-default" } },
       depth: config.context.depth, verbose: false, projectRoot: directory, diffOwlDir: join(root, ".diffowl"), timings: [], persistEmptyDiff: false,
-      executor: { assignment, async execute() {
+    }, { ...defaultReviewPipelineDeps, createExecutor: () => ({ assignment, async execute() {
         return { review: { report: { summary: "Reviewed", findings }, sessionId: "test" }, timings: [],
           runtimeProvenance: { cohortId: null, reviewerId: assignment.reviewerId, role: "single", backend: "codex",
             requestedModel: "test", effectiveModel: "test", preferenceSource: { backend: "command", model: "command" },
             reasoningEffort: null, sessionId: "test", terminalOutcome: "completed" } };
-      } },
-    }, { ...defaultReviewPipelineDeps, async writeMarkdownReport(markdown) {
+      } }),
+    async writeMarkdownReport(markdown) {
       const path = join(root, ".diffowl", "review.md");
       await writeFile(path, markdown);
       return path;

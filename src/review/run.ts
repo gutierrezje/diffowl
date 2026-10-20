@@ -100,7 +100,6 @@ export interface ReviewPipelineInput {
   persistEmptyDiff: boolean;
   initialDiagnostics?: string[];
   signal?: AbortSignal;
-  executor?: AssignedReviewExecutor;
   onProgress?: (event: ReviewProgressEvent) => void;
   onDiagnostics?: (diagnostics: string[]) => void;
   onStatus?: (message: string) => void;
@@ -112,6 +111,7 @@ export interface ReviewPipelineDeps {
   loadReviewSnapshot: typeof loadReviewSnapshot;
   buildReviewContextFromDiff: typeof buildReviewContextFromDiff;
   renderReviewContextDocument: typeof renderReviewContextDocument;
+  /** Resolves the assigned executor after skip checks and before opening the execution journal. */
   createExecutor: (config: EffectiveReviewConfig) => AssignedReviewExecutor;
   filterFindingsByConfidence: typeof filterFindingsByConfidence;
   filterFindingsByChangedFiles: typeof filterFindingsByChangedFiles;
@@ -180,7 +180,7 @@ export async function runReviewPipeline(
   const checkoutBefore = snapshot.targetCommit === null ? null : await deps.readReviewCheckout(input.projectRoot);
   const executionTelemetry = createReviewExecutionTelemetry();
   executionTelemetry.record({ type: "phase", phase: "context-build" });
-  const executor = input.executor ?? deps.createExecutor(input.config);
+  const executor = deps.createExecutor(input.config);
   const executionJournal = await deps.startReviewExecutionJournal(input.diffOwlDir, {
     operation: pendingOperation,
     assignment: executor.assignment,

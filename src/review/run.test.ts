@@ -202,6 +202,36 @@ describe("runReviewSkipChecks", () => {
 });
 
 describe("runReviewPipeline", () => {
+  it.each([
+    { files: [], persistEmptyDiff: false, expected: { kind: "empty-diff" } },
+    { files: [], persistEmptyDiff: true, expected: { kind: "skipped", reason: "empty-diff" } },
+    { files: [docFile()], persistEmptyDiff: false, expected: { kind: "skipped", reason: "documentation-only" } },
+  ])("skips without constructing an executor: $expected", async ({ files, persistEmptyDiff, expected }) => {
+    const deps = makeDeps(makeSnapshot(files));
+    vi.mocked(deps.createExecutor).mockImplementation(() => {
+      throw new Error("Skipped reviews must not need a runtime");
+    });
+
+    await expect(runReviewPipeline(skipInput({ persistEmptyDiff }), deps)).resolves.toMatchObject(expected);
+
+    expect(deps.createExecutor).not.toHaveBeenCalled();
+    expect(deps.startReviewExecutionJournal).not.toHaveBeenCalled();
+    expect(deps.buildReviewContextFromDiff).not.toHaveBeenCalled();
+  });
+
+  it("preserves executor construction failures before opening a journal or building context", async () => {
+    const deps = makeDeps(makeSnapshot([codeFile()]));
+    const error = new TypeError("Invalid executor configuration");
+    vi.mocked(deps.createExecutor).mockImplementation(() => { throw error; });
+
+    await expect(runReviewPipeline(skipInput(), deps)).rejects.toBe(error);
+
+    expect(deps.createExecutor).toHaveBeenCalledExactlyOnceWith(config);
+    expect(deps.startReviewExecutionJournal).not.toHaveBeenCalled();
+    expect(deps.buildReviewContextFromDiff).not.toHaveBeenCalled();
+    expect(deps.executor.execute).not.toHaveBeenCalled();
+  });
+
   it("persists the resolved base ref and reviewed HEAD from the loaded snapshot", async () => {
     const snapshot = Object.assign(
       makeSnapshot([codeFile()], { kind: "base", ref: "origin/main" }),
@@ -356,7 +386,7 @@ describe("runReviewPipeline", () => {
     });
   });
 
-  it("uses an explicitly selected executor instead of the default dependency", async () => {
+  it("preserves the selected executor's assignment and runtime provenance", async () => {
     const deps = makeDeps(makeSnapshot([codeFile()]));
     const selectedExecutor: AssignedReviewExecutor = {
       assignment: createSingleReviewAssignment(
@@ -390,8 +420,8 @@ describe("runReviewPipeline", () => {
     };
 
     const outcome = await runReviewPipeline(
-      { ...skipInput(), executor: selectedExecutor },
-      deps,
+      skipInput(),
+      { ...deps, createExecutor: () => selectedExecutor },
     );
 
     expect(deps.executor.execute).not.toHaveBeenCalled();
@@ -401,6 +431,23 @@ describe("runReviewPipeline", () => {
       sessionId: "selected-session",
       effectiveModel: "gpt-5.4-mini",
     });
+    expect(deps.startReviewExecutionJournal).toHaveBeenCalledWith(
+      "/repo/.diffowl",
+      expect.objectContaining({ assignment: selectedExecutor.assignment }),
+    );
+    expect(deps.persistCanonicalReview).toHaveBeenCalledWith(
+      "/repo/.diffowl",
+      expect.objectContaining({
+        source: expect.objectContaining({
+          execution: expect.objectContaining({
+            backend: "codex",
+            requestedModel: "gpt-5.4-mini",
+            preferenceSource: { backend: "command", model: "command" },
+            reasoningEffort: "max",
+          }),
+        }),
+      }),
+    );
   });
 
   it("writes the exact commit comparison into report metadata", async () => {
