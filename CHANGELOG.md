@@ -7,6 +7,11 @@ increments that may include backward-compatible features and fixes.
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-10-19
+
+DiffOwl's Husky hook now reviews commits in linked worktrees that never ran
+`diffowl hook install`.
+
 ### Fixed
 
 - Husky bridges in linked worktrees without their own launcher now run the
@@ -325,6 +330,7 @@ reviewer prompt; the measurement machinery itself is internal tooling.
 
 See the Git history and release notes for versions at and before `v0.3.1`.
 
+[0.5.4]: https://github.com/gutierrezje/diffowl/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/gutierrezje/diffowl/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/gutierrezje/diffowl/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/gutierrezje/diffowl/compare/156e20d...v0.5.1
