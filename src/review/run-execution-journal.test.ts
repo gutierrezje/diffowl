@@ -41,6 +41,13 @@ describe("runReviewPipeline execution journal", () => {
     expect(vi.mocked(deps.startReviewExecutionJournal).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(deps.executor.execute).mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
     );
+    expect(deps.createExecutor).toHaveBeenCalledExactlyOnceWith(input.config);
+    expect(vi.mocked(deps.loadReviewSnapshot).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(deps.createExecutor).mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+    );
+    expect(vi.mocked(deps.createExecutor).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(deps.startReviewExecutionJournal).mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+    );
     expect(deps.journal.finish).toHaveBeenCalledWith(
       expect.objectContaining({ terminalOutcome: "completed" }),
     );
