@@ -1,6 +1,6 @@
 import { chmod, mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
 
@@ -11,7 +11,7 @@ const HUSKY_LAUNCHER_NAME = "diffowl-post-commit";
 
 type HookTarget =
   | { kind: "git"; hookPath: string }
-  | { kind: "husky"; hookPath: string; launcherPath: string };
+  | { kind: "husky"; hookPath: string; launcherPath: string; sharedLauncherPath: string };
 
 export type HookInstallResult =
   | { kind: "git"; hookPath: string }
@@ -172,31 +172,36 @@ export async function checkHookStale(): Promise<HookStatus> {
   }
 
   if (target.kind === "husky") {
-    if (!existsSync(target.launcherPath)) {
+    // Mirror the bridge: a worktree's own launcher wins over the shared one.
+    const launcherPath = existsSync(target.launcherPath)
+      ? target.launcherPath
+      : target.sharedLauncherPath;
+    if (!existsSync(launcherPath)) {
       return { installed: true, stale: true, reason: "Local DiffOwl launcher is missing" };
     }
+    // Reinstalling in a linked worktree would fork a local launcher, so point at the main checkout.
+    const describe = (problem: string) =>
+      launcherPath === target.launcherPath
+        ? `Local DiffOwl launcher ${problem}`
+        : `Shared DiffOwl launcher ${problem}; run \`diffowl hook install\` in the main checkout`;
     try {
-      const launcher = await readFile(target.launcherPath, "utf-8");
+      const launcher = await readFile(launcherPath, "utf-8");
       if (!isManagedLauncher(launcher)) {
         return {
           installed: true,
           stale: true,
-          reason: "Local DiffOwl launcher path is occupied by an unmanaged file",
+          reason: describe("path is occupied by an unmanaged file"),
         };
       }
-      const launcherInfo = await stat(target.launcherPath);
+      const launcherInfo = await stat(launcherPath);
       if (!hasExecutableMode(launcherInfo.mode)) {
-        return {
-          installed: true,
-          stale: true,
-          reason: "Local DiffOwl launcher is not executable",
-        };
+        return { installed: true, stale: true, reason: describe("is not executable") };
       }
       if (launcher.trim() !== generateHookScript(command).trim()) {
         return {
           installed: true,
           stale: true,
-          reason: "Local DiffOwl launcher differs from the current runtime",
+          reason: describe("differs from the current runtime"),
         };
       }
     } catch (err) {
@@ -204,7 +209,7 @@ export async function checkHookStale(): Promise<HookStatus> {
       return {
         installed: true,
         stale: true,
-        reason: `Cannot read local DiffOwl launcher: ${message}`,
+        reason: describe(`cannot be read: ${message}`),
       };
     }
   }
@@ -259,15 +264,17 @@ async function getHookTarget(): Promise<HookTarget> {
   if (basename(hooksDir) !== "_" || basename(dirname(hooksDir)) !== ".husky") {
     return { kind: "git", hookPath: join(hooksDir, "post-commit") };
   }
-  const { stdout } = await execa("git", ["rev-parse", "--absolute-git-dir"]);
-  const gitDir = stdout.trim();
-  if (!gitDir) {
+  const { stdout } = await execa("git", ["rev-parse", "--absolute-git-dir", "--git-common-dir"]);
+  const [gitDir, commonDir] = stdout.trim().split(/\r?\n/);
+  if (!gitDir || !commonDir) {
     throw new Error("Git returned an empty Git directory.");
   }
   return {
     kind: "husky",
     hookPath: join(dirname(hooksDir), "post-commit"),
     launcherPath: join(gitDir, "hooks", HUSKY_LAUNCHER_NAME),
+    // Git prints the common directory relative to the current directory outside linked worktrees.
+    sharedLauncherPath: resolve(commonDir, "hooks", HUSKY_LAUNCHER_NAME),
   };
 }
 
@@ -334,6 +341,11 @@ function generateHuskyManagedSection(): string {
 ${generateHookLogSetup()}
 DIFFOWL_GIT_DIR=$(git rev-parse --absolute-git-dir 2>/dev/null)
 DIFFOWL_LAUNCHER="$DIFFOWL_GIT_DIR/hooks/${HUSKY_LAUNCHER_NAME}"
+# A linked worktree without its own launcher uses the one in the shared Git directory.
+if [ ! -e "$DIFFOWL_LAUNCHER" ]; then
+  DIFFOWL_GIT_DIR=$(git rev-parse --git-common-dir 2>/dev/null)
+  DIFFOWL_LAUNCHER="$DIFFOWL_GIT_DIR/hooks/${HUSKY_LAUNCHER_NAME}"
+fi
 if [ -n "$DIFFOWL_GIT_DIR" ] && [ -x "$DIFFOWL_LAUNCHER" ]; then
   "$DIFFOWL_LAUNCHER"
 else

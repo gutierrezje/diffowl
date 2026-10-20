@@ -141,7 +141,7 @@ import {
   rejectPossibleDuplicate,
 } from "./state/possible-duplicates.js";
 import { resolveCompletedReviewExit } from "./review/gate.js";
-import { getReviewFailureExecution, runReviewPipeline } from "./review/run.js";
+import { defaultReviewPipelineDeps, getReviewFailureExecution, runReviewPipeline } from "./review/run.js";
 import { getSlowestReviewExecutionPhase } from "./review/execution-telemetry.js";
 import { createSelectedReviewExecutor } from "./review/executor.js";
 import {
@@ -376,6 +376,10 @@ program
     });
 
     try {
+      // Preserve CLI executor validation before the pipeline's skip checks.
+      const executor = createSelectedReviewExecutor(
+        createSingleReviewAssignment(selection, config.reasoning),
+      );
       const outcome = await runReviewPipeline({
         target,
         config,
@@ -387,9 +391,6 @@ program
         persistEmptyDiff: jsonMode,
         initialDiagnostics: effective.warnings,
         signal: cancelController.signal,
-        executor: createSelectedReviewExecutor(
-          createSingleReviewAssignment(selection, config.reasoning),
-        ),
         onProgress: (event) => {
           if (spinner) {
             spinner.text = formatReviewProgress(event);
@@ -419,7 +420,7 @@ program
             spinner.start(status);
           }
         },
-      });
+      }, { ...defaultReviewPipelineDeps, createExecutor: () => executor });
       if (interruptForceExit !== undefined) clearTimeout(interruptForceExit);
 
       if (outcome.kind === "empty-diff") {
