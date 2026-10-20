@@ -4,11 +4,7 @@ export function resolveGateEnabled(cliFlag: boolean, configEnabled: boolean): bo
   return cliFlag || configEnabled;
 }
 
-export function decideGateExit(
-  status: ReviewJsonStatus,
-  enabled: boolean,
-  hook: boolean,
-): 0 | 1 {
+export function decideGateExit(status: ReviewJsonStatus, enabled: boolean, hook: boolean): 0 | 1 {
   if (hook) return 0;
   switch (status) {
     case "open":

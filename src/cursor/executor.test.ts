@@ -33,17 +33,27 @@ describe("createCursorReviewExecutor", () => {
     const capture = repositoryGuard.captureRepositoryState;
     const controller = new AbortController();
     let settled = false;
-    const spy = vi.spyOn(repositoryGuard, "captureRepositoryState").mockImplementationOnce(async (...args) => {
-      const snapshot = await capture(...args);
-      controller.abort();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      settled = true;
-      return snapshot;
-    });
+    const spy = vi
+      .spyOn(repositoryGuard, "captureRepositoryState")
+      .mockImplementationOnce(async (...args) => {
+        const snapshot = await capture(...args);
+        controller.abort();
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        settled = true;
+        return snapshot;
+      });
     try {
-      await expect(createFixtureExecutor("success").execute({
-        review: { target: { kind: "staged" }, directory, config, depth: "default", signal: controller.signal },
-      })).rejects.toBeInstanceOf(ReviewCancelledError);
+      await expect(
+        createFixtureExecutor("success").execute({
+          review: {
+            target: { kind: "staged" },
+            directory,
+            config,
+            depth: "default",
+            signal: controller.signal,
+          },
+        }),
+      ).rejects.toBeInstanceOf(ReviewCancelledError);
       expect(settled).toBe(true);
     } finally {
       spy.mockRestore();
@@ -57,20 +67,30 @@ describe("createCursorReviewExecutor", () => {
     const controller = new AbortController();
     let calls = 0;
     let settled = false;
-    const spy = vi.spyOn(repositoryGuard, "captureRepositoryState").mockImplementation(async (...args) => {
-      if (++calls === 2) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        settled = true;
-      }
-      return capture(...args);
-    });
+    const spy = vi
+      .spyOn(repositoryGuard, "captureRepositoryState")
+      .mockImplementation(async (...args) => {
+        if (++calls === 2) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          settled = true;
+        }
+        return capture(...args);
+      });
     try {
-      await expect(createFixtureExecutor("timeout", undefined, { closeTimeoutMs: 50 }).execute({
-        review: {
-          target: { kind: "staged" }, directory, config, depth: "default", signal: controller.signal,
-          onProgress: (event) => { if (event.type === "session") controller.abort(); },
-        },
-      })).rejects.toBeInstanceOf(ReviewCancelledError);
+      await expect(
+        createFixtureExecutor("timeout", undefined, { closeTimeoutMs: 50 }).execute({
+          review: {
+            target: { kind: "staged" },
+            directory,
+            config,
+            depth: "default",
+            signal: controller.signal,
+            onProgress: (event) => {
+              if (event.type === "session") controller.abort();
+            },
+          },
+        }),
+      ).rejects.toBeInstanceOf(ReviewCancelledError);
       expect(settled).toBe(true);
     } finally {
       spy.mockRestore();

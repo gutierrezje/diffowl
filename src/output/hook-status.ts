@@ -2,10 +2,7 @@ import type { HookStatus, PendingReview } from "../git/hooks.js";
 
 const HOOK_STATUS_SCHEMA_VERSION = 1 as const;
 
-export function renderHookStatusJson(
-  hook: HookStatus,
-  pending: readonly PendingReview[],
-): string {
+export function renderHookStatusJson(hook: HookStatus, pending: readonly PendingReview[]): string {
   const queued = pending.filter((item) => item.state === "pending");
   const firstAttemptCount = queued.filter((item) => item.attempt === "first-attempt").length;
 
@@ -25,11 +22,12 @@ export function renderHookStatusJson(
         items: pending.map((item) => ({
           commit: item.sha,
           queued_at: item.queuedAt,
-          status: item.state === "in-progress"
-            ? "in-progress"
-            : item.attempt === "first-attempt"
-              ? "pending-first-attempt"
-              : "pending-retry",
+          status:
+            item.state === "in-progress"
+              ? "in-progress"
+              : item.attempt === "first-attempt"
+                ? "pending-first-attempt"
+                : "pending-retry",
         })),
       },
     },

@@ -97,8 +97,7 @@ function scoreRecognizeSame(
   // Later prefers its own step expected, then seed's resolved expected.
   // Do not jump to top-level expected while seed has step-specific anchors.
   const laterStepExpected = evalCase.steps[later.step]?.expected ?? [];
-  const laterExpected =
-    laterStepExpected.length > 0 ? laterStepExpected : seedExpected;
+  const laterExpected = laterStepExpected.length > 0 ? laterStepExpected : seedExpected;
   const anchorCount = Math.min(seedExpected.length, laterExpected.length);
 
   if (anchorCount === 0) {
@@ -159,9 +158,7 @@ function scoreRecognizeSame(
       expectedIndex,
       step: later.step,
       status: continuityPass ? "pass" : "fail",
-      reason: continuityPass
-        ? undefined
-        : "later finding has different durable id from seed",
+      reason: continuityPass ? undefined : "later finding has different durable id from seed",
       fingerprint: laterFingerprint,
       durableId: laterDurableId,
       classification,
@@ -242,11 +239,7 @@ function scoreKeepDistinct(
     const preDedupFindings = last.preDedupFindings ?? last.findings;
     const preDedupMatches = matchExpectedIndices(expected, preDedupFindings);
     if (preDedupMatches.size < minDistinct) {
-      return aggregateIdentityAnchors(
-        "keep-distinct",
-        anchors,
-        "insufficient detected anchors",
-      );
+      return aggregateIdentityAnchors("keep-distinct", anchors, "insufficient detected anchors");
     }
 
     // The report keeps only actionable findings, so a dismissed, deferred, or

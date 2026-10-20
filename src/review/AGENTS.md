@@ -16,9 +16,9 @@ Builds the review context from diffs, AST, and cross-references, then renders an
 | Persistent TypeScript import index         | `impact.ts`, `ast/module-bindings.ts` |
 | Hook log trimming                          | `retention.ts`                        |
 | Review data types                          | `types.ts`                            |
-| Review prompt construction                  | `prompt.ts`                           |
-| Structured output validation and retries    | `document.ts`                         |
-| Review cancellation errors                  | `errors.ts`                           |
+| Review prompt construction                 | `prompt.ts`                           |
+| Structured output validation and retries   | `document.ts`                         |
+| Review cancellation errors                 | `errors.ts`                           |
 
 ## Conventions
 

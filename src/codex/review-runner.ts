@@ -488,14 +488,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
         deadline,
         events,
         requestModelList: (params, requestDeadline, signal) =>
-          requestWithin(
-            peer,
-            "model/list",
-            params,
-            requestDeadline,
-            "model/list",
-            signal,
-          ),
+          requestWithin(peer, "model/list", params, requestDeadline, "model/list", signal),
       };
       if (input.signal !== undefined) capabilityInput.signal = input.signal;
       const capabilities = await resolveCodexModelCapabilities(capabilityInput);
@@ -922,9 +915,7 @@ async function startTurn(
     outputSchema: REVIEW_DOCUMENT_OUTPUT_SCHEMA,
   };
   const params =
-    reasoningVariant === undefined
-      ? baseParams
-      : { ...baseParams, effort: reasoningVariant };
+    reasoningVariant === undefined ? baseParams : { ...baseParams, effort: reasoningVariant };
   events.push("sent:turn/start");
   const turn = asRecord(
     await requestWithin(peer, "turn/start", params, deadline, "turn/start", input.signal),
@@ -1071,10 +1062,7 @@ function recordProviderActivity(
   onTelemetry?.({ type: "activity", activity: "provider" });
 }
 
-function recordToolActivity(
-  onTelemetry: CodexReviewInput["onTelemetry"],
-  attempt: number,
-): void {
+function recordToolActivity(onTelemetry: CodexReviewInput["onTelemetry"], attempt: number): void {
   onTelemetry?.({ type: "phase", phase: "tool-activity", attempt });
   onTelemetry?.({ type: "activity", activity: "tool" });
 }

@@ -57,7 +57,9 @@ describe("resolveReviewPrompts", () => {
     expect(prompts.system).toBe(REVIEW_AGENT_NATIVE_JSON_PROMPT);
     expect(prompts.system).toContain("supplied output schema");
     expect(prompts.system).toContain('"evidence": null');
-    expect(prompts.system).toContain("Trace each changed condition, return value, and external callback");
+    expect(prompts.system).toContain(
+      "Trace each changed condition, return value, and external callback",
+    );
     expect(prompts.system).not.toContain("FINAL_REVIEW_JSON");
   });
 });
@@ -92,7 +94,9 @@ describe("buildReviewPrompt", () => {
   });
 
   it("focuses repository exploration on evidence and completion", () => {
-    expect(REVIEW_AGENT_PROMPT).toContain("resolve a specific candidate through a directly affected");
+    expect(REVIEW_AGENT_PROMPT).toContain(
+      "resolve a specific candidate through a directly affected",
+    );
     expect(REVIEW_AGENT_PROMPT).toContain("Do not repeat a search or broaden the repository scope");
     expect(REVIEW_AGENT_PROMPT).toContain("Stop exploring when every candidate finding");
     expect(REVIEW_AGENT_PROMPT).toContain("Do not browse the web");

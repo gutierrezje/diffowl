@@ -59,7 +59,7 @@ assertions:
 2. Capture commands, output, exits, and before/after state under its evidence
    directory. Use fresh labels for every attempt. The existing helper is a
    manual fallback: `helpers/capture.sh <evidence-dir> <unique-label> <scratch>
-   -- <command> [args...]`, relative to `skills/verify-diffowl/`. It returns the
+-- <command> [args...]`, relative to `skills/verify-diffowl/`. It returns the
    command's exit status, including expected failures. A PTY transcript supplies
    equivalent evidence for interactive work.
 3. Inspect the actual outcome and retain a separate `assessment.json` beside the

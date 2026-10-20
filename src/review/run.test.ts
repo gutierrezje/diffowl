@@ -1,10 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AssignedReviewExecutor } from "./types.js";
-import {
-  ReviewExecutionIdSchema,
-  ReviewOperationIdSchema,
-  ReviewerIdSchema,
-} from "./ids.js";
+import { ReviewExecutionIdSchema, ReviewOperationIdSchema, ReviewerIdSchema } from "./ids.js";
 import { ReviewCancelledError, ReviewTimeoutError } from "./errors.js";
 import {
   createSingleReviewAssignment,
@@ -58,8 +54,9 @@ describe("resolveTargetCommit", () => {
       "def456",
     );
     expect(resolveCommit).toHaveBeenCalledWith("HEAD");
-    await expect(resolveTargetCommit({ kind: "commit", ref: "feature-base" }, resolveCommit))
-      .resolves.toBe("def456");
+    await expect(
+      resolveTargetCommit({ kind: "commit", ref: "feature-base" }, resolveCommit),
+    ).resolves.toBe("def456");
     expect(resolveCommit).toHaveBeenCalledWith("feature-base");
     await expect(resolveTargetCommit({ kind: "base", ref: "main" }, resolveCommit)).resolves.toBe(
       "def456",
@@ -289,7 +286,10 @@ describe("runReviewPipeline", () => {
       effectiveModel: "resolved-model",
       runtimeProvenance: provenance,
     });
-    vi.mocked(deps.filterFindingsByChangedFiles).mockReturnValue({ findings: [kept], suppressed: [outside] });
+    vi.mocked(deps.filterFindingsByChangedFiles).mockReturnValue({
+      findings: [kept],
+      suppressed: [outside],
+    });
     vi.mocked(deps.persistCanonicalReview).mockResolvedValue({
       ...persisted,
       execution: persistedExecution,
@@ -322,12 +322,16 @@ describe("runReviewPipeline", () => {
       }),
       suppressed: { outsideChangedFiles: 1, belowConfidence: 0 },
     });
-    expect(outcome.kind === "completed" ? outcome.report.findings[0]?.durable?.id : null).toBe("fnd_1");
+    expect(outcome.kind === "completed" ? outcome.report.findings[0]?.durable?.id : null).toBe(
+      "fnd_1",
+    );
     expect(inputTimings).toEqual([{ phase: "preflight", label: "Preflight", ms: 1 }]);
-    expect(outcome.kind === "completed" ? outcome.timings : []).toEqual(expect.arrayContaining([
-      { phase: "preflight", label: "Preflight", ms: 1 },
-      expect.objectContaining({ phase: "context-build" }),
-    ]));
+    expect(outcome.kind === "completed" ? outcome.timings : []).toEqual(
+      expect.arrayContaining([
+        { phase: "preflight", label: "Preflight", ms: 1 },
+        expect.objectContaining({ phase: "context-build" }),
+      ]),
+    );
     expect(deps.persistCanonicalReview).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({
@@ -352,7 +356,11 @@ describe("runReviewPipeline", () => {
     expect(deps.updatePersistedReview).toHaveBeenCalledWith("/repo/.diffowl", "rev_1", {
       reportPath: "/repo/.diffowl/reviews/review.md",
       diagnostics: ["excluded summary"],
-      coverage: { inputVerified: true, policySha256: expect.stringMatching(/^[0-9a-f]{64}$/), untrackedActionableCount: 1 },
+      coverage: {
+        inputVerified: true,
+        policySha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+        untrackedActionableCount: 1,
+      },
     });
   });
 
@@ -389,10 +397,7 @@ describe("runReviewPipeline", () => {
       })),
     };
 
-    const outcome = await runReviewPipeline(
-      { ...skipInput(), executor: selectedExecutor },
-      deps,
-    );
+    const outcome = await runReviewPipeline({ ...skipInput(), executor: selectedExecutor }, deps);
 
     expect(deps.executor.execute).not.toHaveBeenCalled();
     expect(selectedExecutor.execute).toHaveBeenCalledOnce();
@@ -589,9 +594,7 @@ describe("runReviewPipeline", () => {
     expect(deps.persistCanonicalReview).toHaveBeenCalledWith(
       "/repo/.diffowl",
       expect.objectContaining({
-        timings: expect.arrayContaining([
-          { phase: "executor", label: "Review runtime", ms: 11 },
-        ]),
+        timings: expect.arrayContaining([{ phase: "executor", label: "Review runtime", ms: 11 }]),
       }),
     );
   });
@@ -622,23 +625,41 @@ describe("runReviewPipeline", () => {
     });
     vi.mocked(deps.buildReviewContextFromDiff).mockResolvedValue({
       ...makeReviewContext(snapshot),
-      changedFiles: [{
-        ...makeReviewContext(snapshot).changedFiles[0]!,
-        astSymbols: [
-          { name: "A", kind: "class", startLine: 1, endLine: 20, text: "", truncated: false },
-          { name: "handle", kind: "method", startLine: 5, endLine: 15, text: "", truncated: false },
-          { name: "B", kind: "class", startLine: 21, endLine: 40, text: "", truncated: false },
-          { name: "handle", kind: "method", startLine: 25, endLine: 35, text: "", truncated: false },
-        ],
-      }],
+      changedFiles: [
+        {
+          ...makeReviewContext(snapshot).changedFiles[0]!,
+          astSymbols: [
+            { name: "A", kind: "class", startLine: 1, endLine: 20, text: "", truncated: false },
+            {
+              name: "handle",
+              kind: "method",
+              startLine: 5,
+              endLine: 15,
+              text: "",
+              truncated: false,
+            },
+            { name: "B", kind: "class", startLine: 21, endLine: 40, text: "", truncated: false },
+            {
+              name: "handle",
+              kind: "method",
+              startLine: 25,
+              endLine: 35,
+              text: "",
+              truncated: false,
+            },
+          ],
+        },
+      ],
     });
 
     await runReviewPipeline(skipInput(), deps);
 
     const persistInput = vi.mocked(deps.persistCanonicalReview).mock.calls.at(-1)?.[1];
-    expect(persistInput).toEqual(expect.objectContaining({
-      symbolKeys: ["ts-v1|class:A/method:handle", "ts-v1|class:B/method:handle"],
-    }));
+    expect(persistInput).toEqual(
+      expect.objectContaining({
+        symbolKeys: ["ts-v1|class:A/method:handle", "ts-v1|class:B/method:handle"],
+      }),
+    );
   });
 
   it("preserves repeated nested symbol segments in persistence context", async () => {
@@ -655,20 +676,38 @@ describe("runReviewPipeline", () => {
     });
     vi.mocked(deps.buildReviewContextFromDiff).mockResolvedValue({
       ...makeReviewContext(snapshot),
-      changedFiles: [{
-        ...makeReviewContext(snapshot).changedFiles[0]!,
-        astSymbols: [
-          { name: "handle", kind: "method", startLine: 1, endLine: 20, text: "", truncated: false },
-          { name: "handle", kind: "method", startLine: 5, endLine: 15, text: "", truncated: false },
-        ],
-      }],
+      changedFiles: [
+        {
+          ...makeReviewContext(snapshot).changedFiles[0]!,
+          astSymbols: [
+            {
+              name: "handle",
+              kind: "method",
+              startLine: 1,
+              endLine: 20,
+              text: "",
+              truncated: false,
+            },
+            {
+              name: "handle",
+              kind: "method",
+              startLine: 5,
+              endLine: 15,
+              text: "",
+              truncated: false,
+            },
+          ],
+        },
+      ],
     });
 
     await runReviewPipeline(skipInput(), deps);
 
     const persistInput = vi.mocked(deps.persistCanonicalReview).mock.calls.at(-1)?.[1];
-    expect(persistInput).toEqual(expect.objectContaining({
-      symbolKeys: ["ts-v1|method:handle/method:handle"],
-    }));
+    expect(persistInput).toEqual(
+      expect.objectContaining({
+        symbolKeys: ["ts-v1|method:handle/method:handle"],
+      }),
+    );
   });
 });

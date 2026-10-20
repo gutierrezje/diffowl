@@ -47,9 +47,7 @@ export type JsonValue =
   | readonly JsonValue[]
   | { readonly [key: string]: JsonValue };
 
-export type ReviewTextInspection =
-  | { kind: "open"; ifFinished: ClosedReview }
-  | ClosedReview;
+export type ReviewTextInspection = { kind: "open"; ifFinished: ClosedReview } | ClosedReview;
 
 export type ClosedReview =
   | { kind: "valid"; report: ReviewReport }
@@ -382,9 +380,9 @@ export function validateReviewDocument(
   value: JsonValue,
   mode: ReviewDocumentMode = "marker",
 ): ClosedReview {
-  const parsed = (mode === "native-json" ? NativeReviewDocumentSchema : ReviewDocumentSchema).safeParse(
-    value,
-  );
+  const parsed = (
+    mode === "native-json" ? NativeReviewDocumentSchema : ReviewDocumentSchema
+  ).safeParse(value);
   if (!parsed.success) {
     return { kind: "invalid", issues: issuesFromZod(parsed.error) };
   }

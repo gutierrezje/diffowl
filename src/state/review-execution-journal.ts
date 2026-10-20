@@ -1,28 +1,18 @@
 import type { ReviewExecutionId } from "../review/ids.js";
 import { retainFailedExecutions, type ExecutionRetention } from "./execution-retention.js";
-import type {
-  ReviewAssignment,
-  ReviewExecutionRuntimeProvenance,
-} from "../review/provenance.js";
+import type { ReviewAssignment, ReviewExecutionRuntimeProvenance } from "../review/provenance.js";
 import {
   type ReviewExecutionTelemetry,
   type ReviewExecutionTelemetryEvent,
   type ReviewExecutionTelemetryTracker,
 } from "../review/execution-telemetry.js";
 import type { CapturedReviewOperation, ReviewOperation } from "../review/operation.js";
-import {
-  closeStateDatabase,
-  runInTransaction,
-  type StateDatabase,
-} from "./db.js";
+import { closeStateDatabase, runInTransaction, type StateDatabase } from "./db.js";
 import {
   captureReviewOperationContext,
   insertReviewOperation,
 } from "./repositories/review-operations.js";
-import {
-  startProcessLease,
-  type OwnedProcessLease,
-} from "./process-lease.js";
+import { startProcessLease, type OwnedProcessLease } from "./process-lease.js";
 import {
   finalizeReviewExecution,
   insertRunningReviewExecution,
@@ -142,12 +132,9 @@ function createJournal(
         telemetry.record({ type: "phase", phase: "completion" });
       }
       telemetry.record({ type: "terminal", outcome: provenance.terminalOutcome });
-      const execution = runInTransaction(state.db, () => finalizeReviewExecution(
-        state.db,
-        executionId,
-        provenance,
-        telemetry.snapshot(),
-      ));
+      const execution = runInTransaction(state.db, () =>
+        finalizeReviewExecution(state.db, executionId, provenance, telemetry.snapshot()),
+      );
       terminal = true;
       processLease.close();
       retainFailedExecutions(state, retention);
@@ -162,8 +149,6 @@ function createJournal(
   };
 }
 
-function providerWindowKey(
-  window: ReviewExecutionTelemetry["provider"]["window"],
-): string {
+function providerWindowKey(window: ReviewExecutionTelemetry["provider"]["window"]): string {
   return window.kind === "closed" ? window.kind : `${window.kind}:${window.attempt}`;
 }

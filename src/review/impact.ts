@@ -546,10 +546,7 @@ async function readBlobFile(
   oid: BlobOid,
   parserVersion: string,
 ): Promise<ModuleBindings | undefined> {
-  const record = await readJson(
-    join(impactDir, "blobs", `${oid}.json`),
-    BlobCacheRecordSchema,
-  );
+  const record = await readJson(join(impactDir, "blobs", `${oid}.json`), BlobCacheRecordSchema);
   if (!record || record.parserVersion !== parserVersion || record.oid !== oid) return undefined;
   return { oid: record.oid, exports: record.exports, imports: record.imports };
 }

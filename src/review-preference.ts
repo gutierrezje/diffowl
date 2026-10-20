@@ -108,11 +108,7 @@ export async function saveReviewBackendModel(
   model: string,
 ): Promise<string> {
   const parsedModel = parseBackendModel(backend, model);
-  const preferences = await loadReviewPreferences();
-  const current = toCurrentPreferences(preferences);
-  if (preferences.kind === "legacy") {
-    delete current.selectedBackend;
-  }
+  const current = toCurrentPreferences(await loadReviewPreferences());
   const previous = current.models.find((selection) => selection.backend === backend);
   const nextSelection =
     previous?.model === parsedModel ? previous : { backend, model: parsedModel };
@@ -124,11 +120,7 @@ export async function saveReviewBackendModel(
 }
 
 export async function resetReviewBackendModel(backend: ReviewBackend): Promise<void> {
-  const preferences = await loadReviewPreferences();
-  const current = toCurrentPreferences(preferences);
-  if (preferences.kind === "legacy") {
-    delete current.selectedBackend;
-  }
+  const current = toCurrentPreferences(await loadReviewPreferences());
   current.models = current.models.filter((selection) => selection.backend !== backend);
   await writeReviewPreferences(current);
 }
@@ -138,11 +130,7 @@ export async function saveReviewBackendReasoning(
   variant: string,
 ): Promise<string> {
   const parsedVariant = parseReasoningVariant(variant);
-  const preferences = await loadReviewPreferences();
-  const current = toCurrentPreferences(preferences);
-  if (preferences.kind === "legacy") {
-    delete current.selectedBackend;
-  }
+  const current = toCurrentPreferences(await loadReviewPreferences());
   const selection = current.models.find((candidate) => candidate.backend === backend);
   if (selection === undefined) {
     throw new Error(
@@ -160,11 +148,7 @@ export async function saveReviewBackendReasoning(
 }
 
 export async function resetReviewBackendReasoning(backend: ReviewBackend): Promise<void> {
-  const preferences = await loadReviewPreferences();
-  const current = toCurrentPreferences(preferences);
-  if (preferences.kind === "legacy") {
-    delete current.selectedBackend;
-  }
+  const current = toCurrentPreferences(await loadReviewPreferences());
   current.models = current.models.map((candidate) => {
     if (candidate.backend !== backend) return candidate;
     const { reasoning: _reasoning, ...withoutReasoning } = candidate;
@@ -182,10 +166,7 @@ function toCurrentPreferences(preferences: ReviewPreferences): CurrentReviewPref
     case "none":
       return { models: [] };
     case "legacy":
-      return {
-        selectedBackend: preferences.selectedBackend,
-        models: [...preferences.models],
-      };
+      return { models: [...preferences.models] };
     case "current":
       const current: CurrentReviewPreferences = { models: [...preferences.models] };
       if (preferences.selectedBackend !== undefined) {

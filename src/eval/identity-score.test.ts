@@ -67,8 +67,20 @@ const unrelatedFinding: ReviewFinding = {
 type IdentityScoreCase = Pick<EvalCase, "id" | "expected" | "steps" | "tags" | "identity">;
 
 const twoStepExpected: EvalExpectedFinding[] = [
-  { file: "src/a.ts", line: 4, line_tolerance: 2, min_severity: "warning" as const, must_detect: true },
-  { file: "src/a.ts", line: 18, line_tolerance: 2, min_severity: "warning" as const, must_detect: true },
+  {
+    file: "src/a.ts",
+    line: 4,
+    line_tolerance: 2,
+    min_severity: "warning" as const,
+    must_detect: true,
+  },
+  {
+    file: "src/a.ts",
+    line: 18,
+    line_tolerance: 2,
+    min_severity: "warning" as const,
+    must_detect: true,
+  },
 ];
 
 const twoStepEvalCase: IdentityScoreCase = {
@@ -312,8 +324,20 @@ describe("scoreEvalIdentity keep-distinct", () => {
   const keepDistinctCase: IdentityScoreCase = {
     id: "synthetic-keep-distinct",
     expected: [
-      { file: "src/a.ts", line: 4, line_tolerance: 2, min_severity: "warning" as const, must_detect: true },
-      { file: "src/b.ts", line: 6, line_tolerance: 2, min_severity: "warning" as const, must_detect: true },
+      {
+        file: "src/a.ts",
+        line: 4,
+        line_tolerance: 2,
+        min_severity: "warning" as const,
+        must_detect: true,
+      },
+      {
+        file: "src/b.ts",
+        line: 6,
+        line_tolerance: 2,
+        min_severity: "warning" as const,
+        must_detect: true,
+      },
     ],
     steps: [{ patchPath: "a.patch", expected: [] }],
     tags: [],
@@ -386,10 +410,14 @@ describe("scoreEvalIdentity keep-distinct", () => {
       trial: {
         identitySteps: [
           // Both distinct anchors were reported pre-dedup; only one survived.
-          step(0, ["fp-same"], ["fnd_1"], ["new"], [baseFinding], [
-            baseFinding,
-            collidingOtherAnchor,
-          ]),
+          step(
+            0,
+            ["fp-same"],
+            ["fnd_1"],
+            ["new"],
+            [baseFinding],
+            [baseFinding, collidingOtherAnchor],
+          ),
         ],
       },
     });
@@ -417,21 +445,21 @@ describe("scoreEvalIdentity keep-distinct", () => {
       evalCase: threeAnchorCase,
       trial: {
         identitySteps: [
-          step(0, ["fp-same"], ["fnd_1"], ["new"], [baseFinding], [
-            baseFinding,
-            collidingOtherAnchor,
-          ]),
+          step(
+            0,
+            ["fp-same"],
+            ["fnd_1"],
+            ["new"],
+            [baseFinding],
+            [baseFinding, collidingOtherAnchor],
+          ),
         ],
       },
       minDistinct: 2,
     });
 
     expect(score.passed).toBe(false);
-    expect(score.detail.anchors.map((anchor) => anchor.status)).toEqual([
-      "pass",
-      "fail",
-      "na",
-    ]);
+    expect(score.detail.anchors.map((anchor) => anchor.status)).toEqual(["pass", "fail", "na"]);
     expect(score.detail.summary).toBe("1 anchor(s) failed identity check");
   });
 
@@ -475,10 +503,14 @@ describe("scoreEvalIdentity keep-distinct", () => {
       evalCase: keepDistinctCase,
       trial: {
         identitySteps: [
-          step(0, ["", ""], ["", ""], ["new", "new"], [unquotedA, unquotedB], [
-            unquotedA,
-            unquotedB,
-          ]),
+          step(
+            0,
+            ["", ""],
+            ["", ""],
+            ["new", "new"],
+            [unquotedA, unquotedB],
+            [unquotedA, unquotedB],
+          ),
         ],
       },
     });
@@ -511,10 +543,14 @@ describe("scoreEvalIdentity keep-distinct", () => {
           // The model reported anchor A twice and never reported anchor B. Dedup
           // merges the two A copies, so the anchor count still falls short — but
           // this is a detection miss on B, not two distinct anchors collapsing.
-          step(0, ["fp-a"], ["fnd_1"], ["new"], [baseFinding], [
-            baseFinding,
-            { ...baseFinding, line: 5 },
-          ]),
+          step(
+            0,
+            ["fp-a"],
+            ["fnd_1"],
+            ["new"],
+            [baseFinding],
+            [baseFinding, { ...baseFinding, line: 5 }],
+          ),
         ],
       },
     });
@@ -578,22 +614,26 @@ describe("scoreEvalIdentity keep-distinct", () => {
 describe("scoreEvalIdentity integration", () => {
   it("scores canned two-step identity runner output as recognize-same pass", async () => {
     const evalCase = await createTwoStepCase();
-    const trial = await runEvalIdentityTrial(evalCase, {}, {
-      getFindingsForStep: async (ctx) => ({
-        findings: [
-          {
-            ...repeatedFinding(),
-            file: "src/repeated.ts",
-            line: ctx.stepIndex === 0 ? 2 : 3,
-            durable: {
-              id: "fnd_two_step",
-              classification: ctx.stepIndex === 0 ? "new" : "existing",
-              status: "open",
+    const trial = await runEvalIdentityTrial(
+      evalCase,
+      {},
+      {
+        getFindingsForStep: async (ctx) => ({
+          findings: [
+            {
+              ...repeatedFinding(),
+              file: "src/repeated.ts",
+              line: ctx.stepIndex === 0 ? 2 : 3,
+              durable: {
+                id: "fnd_two_step",
+                classification: ctx.stepIndex === 0 ? "new" : "existing",
+                status: "open",
+              },
             },
-          },
-        ],
-      }),
-    });
+          ],
+        }),
+      },
+    );
 
     const score = scoreEvalIdentity({
       kind: "recognize-same",
@@ -631,18 +671,20 @@ describe("scoreEvalIdentity integration", () => {
       },
     });
 
-    const trial = await runEvalIdentityTrial(evalCase, {}, {
-      getFindingsForStep: buildDiffowlGetFindingsForStep({}, withExecutor(runReview)),
-    });
+    const trial = await runEvalIdentityTrial(
+      evalCase,
+      {},
+      {
+        getFindingsForStep: buildDiffowlGetFindingsForStep({}, withExecutor(runReview)),
+      },
+    );
 
     const score = scoreEvalIdentity({ kind, evalCase, trial });
 
     expect(trial.error).toBeUndefined();
     expect(score.passed).toBe(false);
     expect(score.naReason).toBeUndefined();
-    expect(score.detail.anchors.some((anchor) => anchor.reason?.includes("collapsed"))).toBe(
-      true,
-    );
+    expect(score.detail.anchors.some((anchor) => anchor.reason?.includes("collapsed"))).toBe(true);
   }, 30_000);
 
   it("does not turn lifecycle suppression into a keep-distinct failure", async () => {
@@ -710,26 +752,30 @@ describe("scoreEvalIdentity integration", () => {
     const evalCase = await loadEvalCase(join(corpusDir, "recognize-same-across-commits"));
     const kind = resolveEvalIdentityKind(evalCase)!;
 
-    const trial = await runEvalIdentityTrial(evalCase, {}, {
-      getFindingsForStep: async ({ stepIndex }) => ({
-        findings: [
-        {
-          severity: "warning",
-          file: "src/fetch.ts",
-          line: stepIndex === 0 ? 3 : 6,
-          confidence: "high",
-          title: "Fire-and-forget async call",
-          body: "The fetch response is discarded without awaiting.",
-          evidence: "void fetchUser(id);",
-          durable: {
-            id: "fnd_recognize_same",
-            classification: stepIndex === 0 ? "new" : "existing",
-            status: "open",
-          },
-        },
-        ],
-      }),
-    });
+    const trial = await runEvalIdentityTrial(
+      evalCase,
+      {},
+      {
+        getFindingsForStep: async ({ stepIndex }) => ({
+          findings: [
+            {
+              severity: "warning",
+              file: "src/fetch.ts",
+              line: stepIndex === 0 ? 3 : 6,
+              confidence: "high",
+              title: "Fire-and-forget async call",
+              body: "The fetch response is discarded without awaiting.",
+              evidence: "void fetchUser(id);",
+              durable: {
+                id: "fnd_recognize_same",
+                classification: stepIndex === 0 ? "new" : "existing",
+                status: "open",
+              },
+            },
+          ],
+        }),
+      },
+    );
 
     const score = scoreEvalIdentity({ kind, evalCase, trial });
 

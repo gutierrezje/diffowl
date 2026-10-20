@@ -113,12 +113,7 @@ export async function loadEffectiveReviewConfig(
   }
   if (legacyReasoningEffort !== undefined) {
     warnings.push(
-      formatLegacyReasoningWarning(
-        backend,
-        legacyReasoningEffort,
-        commandReasoning,
-        savedVariant,
-      ),
+      formatLegacyReasoningWarning(backend, legacyReasoningEffort, commandReasoning, savedVariant),
     );
   }
   if (

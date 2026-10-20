@@ -137,8 +137,7 @@ export const opencodeAdapter = {
 
     const portAfter = await inspectPort(run.manifest.reservedPort);
     const serverAfter = serverPid ? await inspectProcess(serverPid) : null;
-    const serverStopped =
-      stop?.exitCode === 0 && !serverAfter?.alive && !portAfter.listening;
+    const serverStopped = stop?.exitCode === 0 && !serverAfter?.alive && !portAfter.listening;
     if (serverPid) {
       const processRecord = {
         pid: serverPid,
@@ -235,15 +234,11 @@ export const opencodeAdapter = {
       document.review?.requested_model === options.model &&
       document.review?.target?.kind === reviewTargetKind(featureId);
     const report = document
-      ? await validateReviewReport(
-          run.manifest.scratch,
-          document.review.report_path,
-          {
-            reviewId: document.review.id,
-            sessionId: document.review.session_id,
-            targetKind: document.review.target.kind,
-          },
-        )
+      ? await validateReviewReport(run.manifest.scratch, document.review.report_path, {
+          reviewId: document.review.id,
+          sessionId: document.review.session_id,
+          targetKind: document.review.target.kind,
+        })
       : null;
     const reportPath = report?.path ?? null;
     const reportPersisted = reportPath !== null;

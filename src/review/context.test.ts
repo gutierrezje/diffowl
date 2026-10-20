@@ -160,11 +160,7 @@ describe("buildReviewContext", () => {
       kind: "commit",
       ref: mergeCommit.trim(),
     });
-    const context = await buildReviewContextFromDiff(
-      snapshot,
-      config,
-      "shallow",
-    );
+    const context = await buildReviewContextFromDiff(snapshot, config, "shallow");
     const rendered = renderReviewContext(context);
 
     expect(snapshot.baseCommit).toBe(firstParent.trim());
@@ -1016,7 +1012,9 @@ describe("buildReviewContext", () => {
 
     const context = await buildReviewContext({ kind: "staged" }, config);
     expect(context.changedFiles[0]!.content).toMatchObject({
-      status: "loaded", render: "diff-only", truncated: true,
+      status: "loaded",
+      render: "diff-only",
+      truncated: true,
     });
     expect(renderReviewContext(context)).toContain("+# Updated");
     expect(context.degradations).not.toContainEqual({ code: "changed-file-truncated", count: 1 });
@@ -1308,14 +1306,7 @@ describe("buildReviewContext", () => {
     await execa("git", ["switch", "feature"], { cwd: root });
     await execa(
       "git",
-      [
-        "-c",
-        "user.name=DiffOwl Test",
-        "-c",
-        "user.email=diffowl@example.test",
-        "rebase",
-        "base",
-      ],
+      ["-c", "user.name=DiffOwl Test", "-c", "user.email=diffowl@example.test", "rebase", "base"],
       { cwd: root },
     );
 

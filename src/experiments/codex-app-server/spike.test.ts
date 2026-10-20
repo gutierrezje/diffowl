@@ -7,8 +7,12 @@ import { describe, expect, it } from "vitest";
 import type { EffectiveReviewConfig } from "../../review/runtime-config.js";
 import { commandProvenanceFor, runCodexAppServerSpike, type SpikeInput } from "./spike.js";
 
-const codexFixture = fileURLToPath(new URL("../../codex/fixtures/mock-codex-cli.mjs", import.meta.url));
-const serverFixture = fileURLToPath(new URL("../../codex/fixtures/mock-app-server.mjs", import.meta.url));
+const codexFixture = fileURLToPath(
+  new URL("../../codex/fixtures/mock-codex-cli.mjs", import.meta.url),
+);
+const serverFixture = fileURLToPath(
+  new URL("../../codex/fixtures/mock-app-server.mjs", import.meta.url),
+);
 const expectedNodeExecutableBasename = basename(process.execPath);
 const SLOW_INTEGRATION_TEST_TIMEOUT_MS = 40_000;
 const config: EffectiveReviewConfig = {
@@ -141,94 +145,112 @@ describe("runCodexAppServerSpike", () => {
     });
   });
 
-  it("runs the real review pipeline and writes redacted evidence", async () => {
-    const root = await makeRepo();
-    try {
-      const statuses: string[] = [];
-      const outcome = await runCodexAppServerSpike({
-        ...input(root, join(root, "artifacts")),
-        onStatus: (status) => statuses.push(status),
-      });
-      expect(outcome.kind, JSON.stringify(outcome)).toBe("completed");
-      if (outcome.kind !== "completed") return;
-      expect(outcome.pipeline.reportPath).toBeTruthy();
-      expect(outcome.pipeline.sessionId).toBe("thread-1");
-      expect(outcome.pipeline.suppressed).toEqual({ outsideChangedFiles: 1, belowConfidence: 1 });
-      expect(outcome.codex?.threadId).toBe("thread-1");
-      expect(outcome.codex?.pid).toBeTypeOf("number");
-      expect(outcome.codex?.pidAliveAfterClose).toBe(false);
-      expect(outcome.codex?.promptSha256).toMatch(/^[0-9a-f]{64}$/);
-      expect(outcome.codex?.localContextSha256).toMatch(/^[0-9a-f]{64}$/);
-      expect(outcome.codex?.events).toContain("sent:initialize");
-      expect(outcome.codex?.events).toContain("received:turn/completed:completed");
-      expect(outcome.codex?.validationAttempts).toMatchObject([
-        { turnId: "turn-1", outcome: "accepted" },
-      ]);
-      expect(statuses).toEqual(["Reviewing changes..."]);
-      expect(outcome.pipeline.timings).toEqual(expect.arrayContaining([
-        expect.objectContaining({ phase: "review-run", label: "Codex review run" }),
-      ]));
-      expect(outcome.pipeline.timings.some((timing) => timing.label.includes("OpenCode"))).toBe(false);
-      expect(outcome.protocol.typesFileCount).toBe(28);
-      expect(outcome.artifactPath).toBeTruthy();
-      const artifact = await readFile(outcome.artifactPath!, "utf8");
-      expect(artifact).toContain('"legacyPersistence"');
-      expect(artifact).toContain('"requestedConfigModel":"legacy/requested-model"');
-      expect(artifact).not.toContain('"findings"');
-      expect(artifact).not.toContain("In-scope finding");
-      expect(artifact).not.toContain("A useful finding.");
-      expect(artifact).not.toContain("OPENAI_API_KEY");
-      expect(artifact).not.toContain("test@example.invalid");
-      expect(await stat(outcome.pipeline.reportPath!)).toBeTruthy();
-      expect(await stat(join(root, ".diffowl", "state.db"))).toBeTruthy();
-      if (process.platform !== "win32") {
-        expect((await stat(join(root, "artifacts"))).mode & 0o777).toBe(0o700);
-        expect((await stat(outcome.artifactPath!)).mode & 0o777).toBe(0o600);
+  it(
+    "runs the real review pipeline and writes redacted evidence",
+    async () => {
+      const root = await makeRepo();
+      try {
+        const statuses: string[] = [];
+        const outcome = await runCodexAppServerSpike({
+          ...input(root, join(root, "artifacts")),
+          onStatus: (status) => statuses.push(status),
+        });
+        expect(outcome.kind, JSON.stringify(outcome)).toBe("completed");
+        if (outcome.kind !== "completed") return;
+        expect(outcome.pipeline.reportPath).toBeTruthy();
+        expect(outcome.pipeline.sessionId).toBe("thread-1");
+        expect(outcome.pipeline.suppressed).toEqual({ outsideChangedFiles: 1, belowConfidence: 1 });
+        expect(outcome.codex?.threadId).toBe("thread-1");
+        expect(outcome.codex?.pid).toBeTypeOf("number");
+        expect(outcome.codex?.pidAliveAfterClose).toBe(false);
+        expect(outcome.codex?.promptSha256).toMatch(/^[0-9a-f]{64}$/);
+        expect(outcome.codex?.localContextSha256).toMatch(/^[0-9a-f]{64}$/);
+        expect(outcome.codex?.events).toContain("sent:initialize");
+        expect(outcome.codex?.events).toContain("received:turn/completed:completed");
+        expect(outcome.codex?.validationAttempts).toMatchObject([
+          { turnId: "turn-1", outcome: "accepted" },
+        ]);
+        expect(statuses).toEqual(["Reviewing changes..."]);
+        expect(outcome.pipeline.timings).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ phase: "review-run", label: "Codex review run" }),
+          ]),
+        );
+        expect(outcome.pipeline.timings.some((timing) => timing.label.includes("OpenCode"))).toBe(
+          false,
+        );
+        expect(outcome.protocol.typesFileCount).toBe(28);
+        expect(outcome.artifactPath).toBeTruthy();
+        const artifact = await readFile(outcome.artifactPath!, "utf8");
+        expect(artifact).toContain('"legacyPersistence"');
+        expect(artifact).toContain('"requestedConfigModel":"legacy/requested-model"');
+        expect(artifact).not.toContain('"findings"');
+        expect(artifact).not.toContain("In-scope finding");
+        expect(artifact).not.toContain("A useful finding.");
+        expect(artifact).not.toContain("OPENAI_API_KEY");
+        expect(artifact).not.toContain("test@example.invalid");
+        expect(await stat(outcome.pipeline.reportPath!)).toBeTruthy();
+        expect(await stat(join(root, ".diffowl", "state.db"))).toBeTruthy();
+        if (process.platform !== "win32") {
+          expect((await stat(join(root, "artifacts"))).mode & 0o777).toBe(0o700);
+          expect((await stat(outcome.artifactPath!)).mode & 0o777).toBe(0o600);
+        }
+      } finally {
+        await rm(root, { recursive: true, force: true });
       }
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  }, SLOW_INTEGRATION_TEST_TIMEOUT_MS);
+    },
+    SLOW_INTEGRATION_TEST_TIMEOUT_MS,
+  );
 
-  it("writes a cancellation artifact before the disposable repository is removed", async () => {
-    const root = await makeRepo();
-    const controller = new AbortController();
-    try {
-      const outcome = await runCodexAppServerSpike({
-        ...input(root, join(root, "artifacts"), process.execPath, undefined, "spike-cancel-active"),
-        signal: controller.signal,
-        onProgress: (event) => {
-          if (event.type === "output") controller.abort();
-        },
-      });
-      expect(outcome).toMatchObject({ kind: "failed", failure: { kind: "cancelled" } });
-      if (outcome.kind !== "failed") return;
-      expect(outcome.artifactPath).toMatch(/\.json$/);
-      if (outcome.artifactPath === null) return;
-      const artifact: unknown = JSON.parse(await readFile(outcome.artifactPath, "utf8"));
-      expect(artifact).toMatchObject({
-        failureEvidence: {
-          interrupt: {
-            deadlineMs: 2_000,
-            acknowledgementReceived: true,
-            acknowledgementDurationMs: expect.any(Number),
-            totalDurationMs: expect.any(Number),
-            terminalStatus: "interrupted",
+  it(
+    "writes a cancellation artifact before the disposable repository is removed",
+    async () => {
+      const root = await makeRepo();
+      const controller = new AbortController();
+      try {
+        const outcome = await runCodexAppServerSpike({
+          ...input(
+            root,
+            join(root, "artifacts"),
+            process.execPath,
+            undefined,
+            "spike-cancel-active",
+          ),
+          signal: controller.signal,
+          onProgress: (event) => {
+            if (event.type === "output") controller.abort();
           },
-          interruptAcknowledged: true,
-          terminalStatus: "interrupted",
-          close: { kind: "eof", code: 0, signal: null },
-          pid: expect.any(Number),
-          pidAliveAfterClose: false,
-          repositoryBeforeSha256: expect.any(String),
-          repositoryAfterTurnSha256: expect.any(String),
-          repositoryAfterCloseSha256: expect.any(String),
-        },
-      });
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  }, SLOW_INTEGRATION_TEST_TIMEOUT_MS);
+        });
+        expect(outcome).toMatchObject({ kind: "failed", failure: { kind: "cancelled" } });
+        if (outcome.kind !== "failed") return;
+        expect(outcome.artifactPath).toMatch(/\.json$/);
+        if (outcome.artifactPath === null) return;
+        const artifact: unknown = JSON.parse(await readFile(outcome.artifactPath, "utf8"));
+        expect(artifact).toMatchObject({
+          failureEvidence: {
+            interrupt: {
+              deadlineMs: 2_000,
+              acknowledgementReceived: true,
+              acknowledgementDurationMs: expect.any(Number),
+              totalDurationMs: expect.any(Number),
+              terminalStatus: "interrupted",
+            },
+            interruptAcknowledged: true,
+            terminalStatus: "interrupted",
+            close: { kind: "eof", code: 0, signal: null },
+            pid: expect.any(Number),
+            pidAliveAfterClose: false,
+            repositoryBeforeSha256: expect.any(String),
+            repositoryAfterTurnSha256: expect.any(String),
+            repositoryAfterCloseSha256: expect.any(String),
+          },
+        });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+    SLOW_INTEGRATION_TEST_TIMEOUT_MS,
+  );
 
   it("inspects protocol before an empty pipeline without spawning App Server", async () => {
     const root = await makeRepo(true);

@@ -94,15 +94,12 @@ const jsonFiles = {
     turnId: stringSchema,
     item: { type: "object" },
   }),
-  "v2/CommandExecutionOutputDeltaNotification.json": objectSchema(
-    "threadId turnId itemId delta",
-    {
-      threadId: stringSchema,
-      turnId: stringSchema,
-      itemId: stringSchema,
-      delta: stringSchema,
-    },
-  ),
+  "v2/CommandExecutionOutputDeltaNotification.json": objectSchema("threadId turnId itemId delta", {
+    threadId: stringSchema,
+    turnId: stringSchema,
+    itemId: stringSchema,
+    delta: stringSchema,
+  }),
   "v2/ItemCompletedNotification.json": objectSchema("threadId turnId item completedAtMs", {
     threadId: stringSchema,
     turnId: stringSchema,
