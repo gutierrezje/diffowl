@@ -34,6 +34,49 @@ describe("renderReviewContextDocument diff budget", () => {
   });
 });
 
+it("renders each reference location once with all terms, bindings, and excerpts", () => {
+  const snippet = "1: import main, { extra } from './shared.js';";
+  const context: ReviewContext = {
+    target: { kind: "commit", ref: "HEAD" },
+    depth: "default",
+    diff: { files: [], raw: "", summary: "" },
+    changedFiles: [],
+    skippedFiles: [],
+    relatedFiles: [],
+    diagnostics: [],
+    degradations: [],
+    references: [
+      {
+        term: "shared",
+        matches: [
+          { path: "consumer.ts", line: 1, text: "default main", snippet },
+          { path: "consumer.ts", line: 1, text: "named extra" },
+          { path: "consumer.ts", line: 2, text: "namespace other" },
+        ],
+      },
+      {
+        term: "extra",
+        matches: [
+          { path: "consumer.ts", line: 1, text: "named extra", snippet },
+          { path: "second.ts", line: 1, text: "named extra" },
+        ],
+      },
+    ],
+  };
+
+  const rendered = renderReviewContextDocument(context).text;
+  expect(rendered.match(/- consumer\.ts:1:/g)).toHaveLength(1);
+  expect(rendered).toContain("Terms: shared, extra");
+  expect(rendered).toContain("default main");
+  expect(rendered).toContain("named extra");
+  expect(rendered).toContain("- consumer.ts:2:");
+  expect(rendered).toContain("- second.ts:1:");
+  expect(rendered.split(snippet)).toHaveLength(2);
+  expect(renderReviewContextDocument(context, { depth: "shallow" }).text).not.toContain(
+    "### Import references",
+  );
+});
+
 async function renderCommitDiff(lineCount: number) {
   const root = await mkdtemp(join(tmpdir(), "diffowl-context-render-"));
   tempDirs.push(root);

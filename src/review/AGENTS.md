@@ -24,13 +24,13 @@ Builds the review context from diffs, AST, and cross-references, then renders an
 
 - Context respects `include`/`exclude` globs and skips lockfiles.
 - Changed file excerpts are capped at 12K chars and related files at 6K. Default depth retains the complete collected diff; shallow depth caps it at 12K. Git collection truncation still blocks complete coverage.
-- The import index stores content-addressed module bindings under `.diffowl/impact`. It retains all discovered locations for up to eight selected terms, enriching at most eight locations per term with source excerpts.
+- The import index stores content-addressed module bindings under `.diffowl/impact`. It retains all discovered locations for up to eight selected terms, enriching at most eight distinct locations per term with source excerpts. The prompt lists each file/line once with all matching terms and indexed bindings.
 - Reports written to `.diffowl/reviews/review-{ISO}-{uuid8}.md` (no `latest.md` copy).
 - Report timestamps: `ISOString().replace(/[:.]/g, "-")`.
 
 ## Anti-Patterns
 
-- `renderReviewContext` embeds full file contents. Watch truncation flags to avoid prompt bloat.
+- `renderReviewContext` retains the complete collected diff and reference inventory; file and symbol excerpts remain bounded. Do not restore location caps to reduce prompt size.
 - `buildReferenceContexts` resolves only relative TypeScript imports. It does not follow `require()`, dynamic `import()`, or `tsconfig` path aliases.
 - TypeScript parsing is best-effort. If the parser is unavailable, reviews keep diff and file context but omit import references.
 - Changing `MAX_*` limits without testing against real diffs can break prompt token budgets.
