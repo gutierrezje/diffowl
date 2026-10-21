@@ -28,10 +28,8 @@ import type {
 } from "./context-types.js";
 import type { ReviewTarget } from "./target.js";
 
-const MAX_REFERENCES_PER_TERM = 8;
+const MAX_REFERENCE_SNIPPETS_PER_TERM = 8;
 const MAX_REFERENCE_TERMS = 8;
-const MAX_REFERENCE_LINE_CHARS = 220;
-const MAX_BATCH_REFERENCE_MATCHES = 200;
 const REFERENCE_SNIPPET_RADIUS = 2;
 const MAX_REFERENCE_SNIPPET_CHARS = 1_200;
 const MAX_REFERENCE_SNIPPET_FILE_BYTES = 256 * 1024;
@@ -135,8 +133,6 @@ export async function buildReferenceContexts(
       snapshot.source,
       changedFiles,
       skippedFiles,
-      diagnostics,
-      degradations,
     );
   } catch (error) {
     addDiagnostic(
@@ -296,8 +292,6 @@ async function referencesFromGraph(
   source: ReviewContextSource,
   changedFiles: ChangedFileContext[],
   skippedFiles: DiffFile[],
-  diagnostics: string[],
-  degradations: ReviewContextDegradation[],
 ): Promise<ReferenceContext[]> {
   const ignoredPaths = new Set([
     ...changedFiles.map((file) => file.file.path),
@@ -307,38 +301,22 @@ async function referencesFromGraph(
   const inverted = invertImports(graph, overlay);
   const pending: PendingReference[] = [];
   const seen = new Set<string>();
-  const pendingByTerm = new Map<string, number>();
 
   for (const query of queries) {
     for (const hit of inverted.get(query.target) ?? []) {
       if (ignoredPaths.has(hit.importer)) continue;
       if (query.symbol && !clauseMatchesSymbol(hit.binding.clause, query.symbol)) continue;
-      const key = [query.term, hit.importer, String(hit.binding.line), hit.binding.specifier].join(
-        "\0",
-      );
+      const key = [query.term, hit.importer, JSON.stringify(hit.binding)].join("\0");
       if (seen.has(key)) continue;
       seen.add(key);
-      const termCount = pendingByTerm.get(query.term) ?? 0;
-      if (termCount >= MAX_REFERENCES_PER_TERM) continue;
-      if (pending.length >= MAX_BATCH_REFERENCE_MATCHES) continue;
-      pendingByTerm.set(query.term, termCount + 1);
       pending.push({ term: query.term, hit });
     }
-  }
-
-  if (seen.size > pending.length) {
-    addDiagnostic(
-      diagnostics,
-      `TypeScript import index found ${seen.size} matches; only ${pending.length} are included.`,
-    );
-    addDegradation(degradations, "impact-index-results-truncated", seen.size - pending.length);
   }
 
   const matches = await addReferenceSnippets(source, pending);
   const byTerm = new Map<string, ReferenceMatch[]>();
   for (const [index, reference] of pending.entries()) {
     const termMatches = byTerm.get(reference.term) ?? [];
-    if (termMatches.length >= MAX_REFERENCES_PER_TERM) continue;
     const match = matches[index];
     if (!match) continue;
     termMatches.push(match);
@@ -427,22 +405,35 @@ async function addReferenceSnippets(
   references: PendingReference[],
 ): Promise<ReferenceMatch[]> {
   const files = new Map<string, string>();
+  const excerptReferences = new Set<PendingReference>();
+  const locationsByTerm = new Map<string, Set<string>>();
+  for (const reference of references) {
+    const locations = locationsByTerm.get(reference.term) ?? new Set<string>();
+    const key = `${reference.hit.importer}\0${reference.hit.binding.line}`;
+    if (!locations.has(key) && locations.size >= MAX_REFERENCE_SNIPPETS_PER_TERM) continue;
+    locations.add(key);
+    locationsByTerm.set(reference.term, locations);
+    excerptReferences.add(reference);
+  }
 
   await Promise.all(
-    [...new Set(references.map((reference) => reference.hit.importer))].map(async (path) => {
-      try {
-        const result = await source.read(path, MAX_PARSE_FILE_BYTES);
-        if (result.status === "loaded" && !result.content.includes("\0")) {
-          files.set(path, result.content);
+    [...new Set([...excerptReferences].map((reference) => reference.hit.importer))].map(
+      async (path) => {
+        try {
+          const result = await source.read(path, MAX_PARSE_FILE_BYTES);
+          if (result.status === "loaded" && !result.content.includes("\0")) {
+            files.set(path, result.content);
+          }
+        } catch {
+          return;
         }
-      } catch {
-        return;
-      }
-    }),
+      },
+    ),
   );
 
-  return references.map(({ hit }) => {
-    const content = files.get(hit.importer);
+  return references.map((reference) => {
+    const { hit } = reference;
+    const content = excerptReferences.has(reference) ? files.get(hit.importer) : undefined;
     const lines = content?.split("\n");
     const fullText =
       lines?.[hit.binding.line - 1]?.trim() ??
@@ -450,7 +441,7 @@ async function addReferenceSnippets(
     const match: ReferenceMatch = {
       path: hit.importer,
       line: hit.binding.line,
-      text: fullText.slice(0, MAX_REFERENCE_LINE_CHARS),
+      text: describeImport(hit.binding),
       fullText,
     };
     if (
@@ -474,6 +465,27 @@ async function addReferenceSnippets(
       snippetEndLine: end,
     };
   });
+}
+
+function describeImport(binding: ImportBinding): string {
+  const specifier = JSON.stringify(binding.specifier);
+  const clause = binding.clause;
+  switch (clause.kind) {
+    case "named":
+      return `named imports { ${clause.names.join(", ")} } from ${specifier}`;
+    case "default":
+      return `default import ${clause.local} from ${specifier}`;
+    case "namespace":
+      return `namespace import ${clause.local} from ${specifier}`;
+    case "side-effect":
+      return `side-effect import ${specifier}`;
+    case "export-star":
+      return `re-export * from ${specifier}`;
+    default: {
+      const _exhaustive: never = clause;
+      return _exhaustive;
+    }
+  }
 }
 
 function truncateSnippet(snippet: string): string {
@@ -546,10 +558,7 @@ async function readBlobFile(
   oid: BlobOid,
   parserVersion: string,
 ): Promise<ModuleBindings | undefined> {
-  const record = await readJson(
-    join(impactDir, "blobs", `${oid}.json`),
-    BlobCacheRecordSchema,
-  );
+  const record = await readJson(join(impactDir, "blobs", `${oid}.json`), BlobCacheRecordSchema);
   if (!record || record.parserVersion !== parserVersion || record.oid !== oid) return undefined;
   return { oid: record.oid, exports: record.exports, imports: record.imports };
 }

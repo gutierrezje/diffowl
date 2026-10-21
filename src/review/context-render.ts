@@ -6,7 +6,6 @@ import type {
   ReviewContext,
 } from "./context-types.js";
 
-const MAX_DIFF_CHARS = 80_000;
 const MAX_AST_SYMBOL_CHARS = 8_000;
 const MAX_QUICK_DIFF_CHARS = 12_000;
 const MAX_QUICK_SYMBOL_CHARS = 4_000;
@@ -47,13 +46,13 @@ export function renderReviewContextDocument(
   }
   lines.push("");
   lines.push("### Diff");
-  const renderedDiff = truncateText(
-    filterDiffRaw(
-      context.diff.raw,
-      new Set(context.changedFiles.map((fileContext) => fileContext.file.path)),
-    ),
-    shallow ? MAX_QUICK_DIFF_CHARS : MAX_DIFF_CHARS,
+  const diff = filterDiffRaw(
+    context.diff.raw,
+    new Set(context.changedFiles.map((fileContext) => fileContext.file.path)),
   );
+  const renderedDiff = shallow
+    ? truncateText(diff, MAX_QUICK_DIFF_CHARS)
+    : { text: diff, truncated: false };
   if (renderedDiff.truncated) degradations.push({ code: "render-diff-truncated", count: 1 });
   lines.push(fence(renderedDiff.text, "diff"));
   lines.push("");
@@ -153,17 +152,47 @@ export function renderReviewContextDocument(
 
   if (!shallow && context.references.length > 0) {
     lines.push("### Import references");
-    lines.push("These snippets show TypeScript modules that import a changed file or symbol.");
-    for (const reference of context.references) {
-      lines.push(`#### Term: ${reference.term}`);
-      for (const match of reference.matches) {
-        lines.push(`- ${match.path}:${match.line}: ${match.text}`);
-        if (match.snippet) {
-          lines.push(fence(match.snippet, languageForPath(match.path)));
-        }
+    lines.push(
+      "Each location lists its indexed import bindings and matching terms. Binding summaries are not verbatim source. Selected locations include source excerpts.",
+    );
+    const locations = new Map<
+      string,
+      {
+        path: string;
+        line: number;
+        terms: Set<string>;
+        texts: Set<string>;
+        snippets: Set<string>;
       }
-      lines.push("");
+    >();
+    for (const reference of context.references) {
+      for (const match of reference.matches) {
+        const key = `${match.path}\0${match.line}`;
+        let location = locations.get(key);
+        if (!location) {
+          location = {
+            path: match.path,
+            line: match.line,
+            terms: new Set(),
+            texts: new Set(),
+            snippets: new Set(),
+          };
+          locations.set(key, location);
+        }
+        location.terms.add(reference.term);
+        location.texts.add(match.text);
+        if (match.snippet) location.snippets.add(match.snippet);
+      }
     }
+    for (const location of locations.values()) {
+      lines.push(
+        `- ${location.path}:${location.line}: ${[...location.texts].join("; ")} (Terms: ${[...location.terms].join(", ")})`,
+      );
+      for (const snippet of location.snippets) {
+        lines.push(fence(snippet, languageForPath(location.path)));
+      }
+    }
+    lines.push("");
   }
 
   return { text: lines.join("\n").trim(), degradations };
