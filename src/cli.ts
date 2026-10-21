@@ -50,6 +50,7 @@ import {
   ensureServer,
   getInstalledOpencodeVersion,
   getServerHealth,
+  isServerRunning,
   stopServer,
 } from "./opencode/server.js";
 import {
@@ -1092,12 +1093,22 @@ async function selectModelInteractively(
     process.exit(1);
   }
 
+  const port = config.server.port;
+  const startsServer = config.server.auto_start && !(await isServerRunning(port));
+  // A failed selection must not leave behind a server this query started.
+  const failSelection = async (): Promise<never> => {
+    if (startsServer) {
+      await stopServer(port).catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(chalk.yellow(`Could not stop the OpenCode server setup started: ${message}`));
+      });
+    }
+    process.exit(1);
+  };
   const spinner = ora("Querying available models from OpenCode...").start();
   let models: string[] = [];
   try {
-    models = await getAvailableModels(config.server.port, {
-      autoStart: config.server.auto_start,
-    });
+    models = await getAvailableModels(port, { autoStart: config.server.auto_start });
     spinner.stop();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1105,7 +1116,7 @@ async function selectModelInteractively(
     for (const line of getOpenCodeFailureGuidance(message)) {
       console.error(chalk.dim(line));
     }
-    process.exit(1);
+    await failSelection();
   }
 
   let selectedModel = options.currentModel ?? models[0] ?? "";
@@ -1153,7 +1164,7 @@ async function selectModelInteractively(
   } else {
     console.error(chalk.red("\nNo active/connected providers found in OpenCode."));
     console.error(chalk.dim("Run opencode to configure a provider, then retry."));
-    process.exit(1);
+    await failSelection();
   }
 
   // Only update/save if a new model was selected or config is being initialized
