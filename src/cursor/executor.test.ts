@@ -57,21 +57,37 @@ describe("createCursorReviewExecutor", () => {
     const controller = new AbortController();
     let calls = 0;
     let settled = false;
-    const spy = vi.spyOn(repositoryGuard, "captureRepositoryState").mockImplementation(async (...args) => {
-      if (++calls === 2) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        settled = true;
-      }
-      return capture(...args);
-    });
+    const snapshots: unknown[] = [];
+    const spy = vi
+      .spyOn(repositoryGuard, "captureRepositoryState")
+      .mockImplementation(async (...args) => {
+        if (++calls === 2) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          settled = true;
+        }
+        return capture(...args);
+      });
     try {
-      await expect(createFixtureExecutor("timeout", undefined, { closeTimeoutMs: 50 }).execute({
-        review: {
-          target: { kind: "staged" }, directory, config, depth: "default", signal: controller.signal,
-          onProgress: (event) => { if (event.type === "session") controller.abort(); },
-        },
-      })).rejects.toBeInstanceOf(ReviewCancelledError);
+      await expect(
+        createFixtureExecutor("timeout", undefined, { closeTimeoutMs: 50 }).execute({
+          onProvenance: (evidence) => snapshots.push(structuredClone(evidence)),
+          review: {
+            target: { kind: "staged" },
+            directory,
+            config,
+            depth: "default",
+            signal: controller.signal,
+            onProgress: (event) => {
+              if (event.type === "session") controller.abort();
+            },
+          },
+        }),
+      ).rejects.toBeInstanceOf(ReviewCancelledError);
       expect(settled).toBe(true);
+      expect(snapshots.at(-1)).toMatchObject({
+        failureCategory: "cancelled",
+        native: { sessionId: "fixture-session" },
+      });
     } finally {
       spy.mockRestore();
       await rm(directory, { recursive: true, force: true });
@@ -133,6 +149,18 @@ describe("createCursorReviewExecutor", () => {
         review: { report: { summary: "fixture", findings: [] }, sessionId: "fixture-session" },
         effectiveModel: "composer-2.5",
       });
+      expect(execution.evidence).toMatchObject({
+        runtime: { name: "cursor-sdk" },
+        authentication: "api-key",
+        native: {
+          sessionId: "fixture-session",
+          threadId: null,
+          runIds: ["fixture-run-1"],
+          requestIds: ["fixture-request-1"],
+        },
+        policy: { sandbox: null, tools: ["read", "grep", "glob", "ls"], network: null },
+        structuredOutput: { strategy: "marker", attempts: 1, acceptedAttempt: 1 },
+      });
       expect(progress).toContain("Reviewing changes with Cursor SDK...");
       expect(await readFile(evidencePath, "utf8")).toContain("finished\n");
     } finally {
@@ -148,6 +176,11 @@ describe("createCursorReviewExecutor", () => {
         review: { target: { kind: "staged" }, directory, config, depth: "default" },
       });
       expect(execution.review.report.summary).toBe("retried");
+      expect(execution.evidence?.structuredOutput).toEqual({
+        strategy: "marker",
+        attempts: 2,
+        acceptedAttempt: 2,
+      });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

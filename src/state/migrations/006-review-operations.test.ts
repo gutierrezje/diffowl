@@ -489,6 +489,7 @@ function expectCanonicalReviewExecutionColumns(
     "owner_process_id",
     "telemetry_json",
     "owner_lease_json",
+    "evidence_json",
   ]);
 }
 

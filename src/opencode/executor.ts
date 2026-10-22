@@ -1,4 +1,11 @@
 import type { DiffOwlConfig } from "../config.js";
+import packageJson from "../../package.json" with { type: "json" };
+import {
+  createUnknownReviewRuntimeEvidence,
+  type ReviewRuntimeEvidence,
+} from "../review/execution-evidence.js";
+import { SchemaValidationError } from "../review/document.js";
+import { ReviewCancelledError, ReviewTimeoutError } from "../review/errors.js";
 import type { ReviewExecutor, ReviewTiming } from "../review/types.js";
 import { runReview } from "./client.js";
 import { ensureServer, isServerRunning } from "./server.js";
@@ -21,18 +28,41 @@ export function createOpenCodeReviewExecutor(
   return {
     execute: async (options) => {
       const serverStart = performance.now();
-      options.onStatus?.("Connecting to OpenCode...");
-      await prepareReviewServer(options.review.config, dependencies);
-      const serverTiming = createTiming("server-ensure", "OpenCode server ensure", serverStart);
+      let evidence = createUnknownReviewRuntimeEvidence();
+      evidence.runtime.name = "opencode";
+      evidence.runtime.adapterVersion = packageJson.version;
+      options.onProvenance?.(evidence);
+      try {
+        options.onStatus?.("Connecting to OpenCode...");
+        await prepareReviewServer(options.review.config, dependencies);
+        const serverTiming = createTiming("server-ensure", "OpenCode server ensure", serverStart);
 
-      const reviewStart = performance.now();
-      options.onStatus?.("Reviewing changes...");
-      const result = await dependencies.runReview(options.review);
-      const reviewTiming = createTiming("review-run", "OpenCode review run", reviewStart);
-
-      return { review: result, timings: [serverTiming, reviewTiming] };
+        const reviewStart = performance.now();
+        options.onStatus?.("Reviewing changes...");
+        const result = await dependencies.runReview(options.review, (snapshot) => {
+          evidence = snapshot;
+          options.onProvenance?.(snapshot);
+        });
+        const reviewTiming = createTiming("review-run", "OpenCode review run", reviewStart);
+        const timings = [serverTiming, reviewTiming];
+        if (evidence.effectiveModel !== null) {
+          return { review: result, timings, evidence, effectiveModel: evidence.effectiveModel };
+        }
+        return { review: result, timings, evidence };
+      } catch (error) {
+        evidence.failureCategory = error instanceof Error ? classifyFailure(error) : "unknown";
+        options.onProvenance?.(evidence);
+        throw error;
+      }
     },
   };
+}
+
+function classifyFailure(error: Error): NonNullable<ReviewRuntimeEvidence["failureCategory"]> {
+  if (error instanceof ReviewCancelledError) return "cancelled";
+  if (error instanceof ReviewTimeoutError) return "timed-out";
+  if (error instanceof SchemaValidationError) return "validation";
+  return "unknown";
 }
 
 async function prepareReviewServer(

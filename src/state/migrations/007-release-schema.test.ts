@@ -11,11 +11,12 @@ import {
   openStateDatabaseForRead,
 } from "../db.js";
 import { openSqliteDatabase } from "../sqlite.js";
-import { insertTestReview, removeTempStateDir } from "../test-helpers.js";
+import { removeTempStateDir } from "../test-helpers.js";
 import { reconcileReviewFindings } from "../reconcile.js";
 import { dismissFinding } from "../lifecycle.js";
 import { CURRENT_SCHEMA_VERSION } from "../types.js";
 import { getReviewExecutionById } from "../repositories/review-executions.js";
+import { computeReviewContextManifestSha256 } from "../../review/operation.js";
 import { MIGRATION_001_INITIAL_SCHEMA } from "./001-initial-schema.js";
 import { MIGRATION_002_BASE_REVIEW_TARGET } from "./002-base-review-target.js";
 import { MIGRATION_003_POSSIBLE_DUPLICATES } from "./003-possible-duplicates.js";
@@ -35,20 +36,40 @@ describe("release schema migration", () => {
     const dir = await createTempDir();
     const old = await openSqliteDatabase(getStateDbPath(dir));
     applyMigrations(old, 7);
-    const review = insertTestReview(old, {
-      targetKind: "base", baseCommit: "a".repeat(40), mergeBaseCommit: "a".repeat(40),
-      targetCommit: "b".repeat(40), diffHash: "legacy-diff", model: "test", reasoning: null,
-      depth: "default", sessionId: "legacy", summary: "Legacy review", reportPath: "legacy.md",
-    });
-    const finding = reconcileReviewFindings(old, review.id, [{ file: "price.ts", line: 1,
+    seedPublishedSchema7Execution(old);
+    const finding = reconcileReviewFindings(old, "rev_legacy", [{ file: "price.ts", line: 1,
       severity: "warning", confidence: "high", title: "Price", body: "Unexpected price",
       evidence: "const price = 12;" }]).observations[0]!.finding;
     dismissFinding(old, finding.id, { actor: "user", reason: "Intended pricing" });
+    const historicalExecutionColumns = [
+      "id",
+      "operation_id",
+      "created_at",
+      "attempt_number",
+      "schema_version",
+      "cohort_id",
+      "reviewer_id",
+      "role",
+      "backend",
+      "requested_model",
+      "effective_model",
+      "preference_source_json",
+      "reasoning_effort",
+      "session_id",
+      "terminal_outcome",
+      "updated_at",
+      "owner_process_id",
+      "telemetry_json",
+      "owner_lease_json",
+    ].join(", ");
     const before = {
       findings: old.prepare("SELECT * FROM findings").all(),
       observations: old.prepare("SELECT * FROM finding_observations").all(),
       events: old.prepare("SELECT * FROM finding_events").all(),
       reviews: old.prepare("SELECT * FROM reviews").all(),
+      executions: old
+        .prepare(`SELECT ${historicalExecutionColumns} FROM review_executions`)
+        .all(),
     };
     closeDatabaseConnection(old);
     const state = await openStateDatabase(dir);
@@ -57,6 +78,23 @@ describe("release schema migration", () => {
       expect(state.db.prepare("SELECT * FROM finding_observations").all()).toEqual(before.observations);
       expect(state.db.prepare("SELECT * FROM finding_events").all()).toEqual(before.events);
       expect(state.db.prepare("SELECT * FROM reviews").all()).toEqual(before.reviews);
+      expect(
+        state.db
+          .prepare(`SELECT ${historicalExecutionColumns} FROM review_executions`)
+          .all(),
+      ).toEqual(before.executions);
+      expect(
+        state.db
+          .prepare("SELECT evidence_json FROM review_executions WHERE id = ?")
+          .get("exe_legacy"),
+      ).toEqual({ evidence_json: null });
+      expect(getReviewExecutionById(state.db, "exe_legacy")).toMatchObject({
+        id: "exe_legacy",
+        schemaVersion: 4,
+        terminalOutcome: "completed",
+        effectiveModel: "gpt-5.6-legacy",
+        sessionId: "session-legacy",
+      });
       expect(state.db.prepare("SELECT * FROM review_coverage").all()).toEqual([]);
       expect(state.db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     } finally { closeStateDatabase(state); }
@@ -163,6 +201,26 @@ describe("release schema migration", () => {
 
     await expect(openStateDatabase(dir)).rejects.toThrow(
       /schema version 7 was applied by a different DiffOwl build and has no migration identity/,
+    );
+  });
+
+  it("rejects a current schema 8 recorded with a different migration checksum", async () => {
+    const dir = await createTempDir();
+    const current = await openStateDatabase(dir);
+    closeStateDatabase(current);
+
+    const db = await openSqliteDatabase(getStateDbPath(dir));
+    try {
+      db.prepare("UPDATE schema_migrations SET name = ?, sha256 = ? WHERE version = 8").run(
+        "008-foreign-migration",
+        "deadbeef",
+      );
+    } finally {
+      closeDatabaseConnection(db);
+    }
+
+    await expect(openStateDatabase(dir)).rejects.toThrow(
+      /schema version 8 was applied by a different DiffOwl build.*008-foreign-migration.*008-review-coverage/,
     );
   });
 
@@ -298,6 +356,68 @@ function insertFailedExecution(
       NULL, '{}', NULL, NULL, 'failed', '2026-09-02T00:00:00.000Z', NULL, NULL, NULL
     )
   `).run(input.id, input.operationId, input.backend);
+}
+
+function seedPublishedSchema7Execution(
+  db: Awaited<ReturnType<typeof openSqliteDatabase>>,
+): void {
+  const contextManifest = {
+    schemaVersion: 1 as const,
+    depth: "default" as const,
+    renderedContextSha256: "a".repeat(64),
+    changedFileCount: 1,
+    skippedFileCount: 0,
+    relatedFileCount: 0,
+    referenceCount: 0,
+    degradationCounts: [],
+  };
+  const contextManifestJson = JSON.stringify(contextManifest);
+  const contextManifestSha256 = computeReviewContextManifestSha256(contextManifest);
+  db.prepare(`
+    INSERT INTO review_operations (
+      id, created_at, target_kind, target_ref, base_commit, merge_base_commit, head_commit,
+      diff_hash, context_depth, context_manifest_json, context_manifest_sha256
+    ) VALUES (?, ?, 'base', NULL, ?, ?, ?, ?, 'default', ?, ?)
+  `).run(
+    "op_legacy",
+    "2026-09-02T00:00:00.000Z",
+    "a",
+    "a",
+    "b",
+    "legacy-diff",
+    contextManifestJson,
+    contextManifestSha256,
+  );
+
+  db.prepare(`
+    INSERT INTO review_executions (
+      id, operation_id, created_at, attempt_number, schema_version, cohort_id, reviewer_id, role,
+      backend, requested_model, effective_model, preference_source_json, reasoning_effort,
+      session_id, terminal_outcome, updated_at, owner_process_id, telemetry_json, owner_lease_json
+    ) VALUES (?, ?, ?, 1, 4, NULL, 'single', 'single',
+      'codex', 'gpt-5.6', 'gpt-5.6-legacy', ?, 'max', 'session-legacy', 'completed',
+      ?, NULL, NULL, NULL)
+  `).run(
+    "exe_legacy",
+    "op_legacy",
+    "2026-09-02T00:00:00.000Z",
+    JSON.stringify({ backend: "local", model: "local" }),
+    "2026-09-02T00:00:00.000Z",
+  );
+
+  db.prepare(`
+    INSERT INTO reviews (
+      id, operation_id, source_execution_id, created_at, skipped_model, skipped_reasoning,
+      skipped_session_id, summary, report_path, diagnostics_json, timings_json, skipped_reason
+    ) VALUES (?, ?, ?, ?, NULL, NULL, NULL, ?, ?, '[]', '[]', NULL)
+  `).run(
+    "rev_legacy",
+    "op_legacy",
+    "exe_legacy",
+    "2026-09-02T00:00:00.000Z",
+    "Legacy review",
+    "legacy.md",
+  );
 }
 
 function seedPublishedSchema6Review(db: Awaited<ReturnType<typeof openSqliteDatabase>>): void {
