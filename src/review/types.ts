@@ -58,6 +58,8 @@ export interface ReviewOptions {
   directory: string;
   config: EffectiveReviewConfig;
   localContext?: string;
+  /** Reviewed changed paths; path-scoped rules are sent only when one matches. */
+  changedFiles?: string[];
   depth: ReviewContextDepth;
   systemPrompt?: string;
   userPrompt?: string;

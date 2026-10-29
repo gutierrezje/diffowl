@@ -129,6 +129,17 @@ describe("compareEvalResults", () => {
     );
   });
 
+  it("warns when the compared runs used a different review focus", async () => {
+    const reference = await buildV1BaselineDocument();
+    const current = cloneDocument(reference);
+    current.manifest.focus = ["security", "performance"];
+
+    expect(compareEvalResults(reference, current).warnings).toContain(
+      "Review focus differs: reference none, current security, performance.",
+    );
+    expect(compareEvalResults(reference, reference).warnings.some((warning) => warning.startsWith("Review focus"))).toBe(false);
+  });
+
   it("reports no regressions when results are unchanged", async () => {
     const reference = await buildV1BaselineDocument();
     const comparison = compareEvalResults(reference, reference);

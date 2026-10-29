@@ -217,6 +217,7 @@ function reviewExecutorOptions(model: string, effort?: "high" | "max") {
         include: ["**/*"],
         exclude: [],
         rules: [],
+        focus: [],
         skip_doc_only: false,
         verbose: false,
       },

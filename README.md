@@ -277,10 +277,23 @@ exclude:
   - "**/*.lock"
   - "**/dist/**"
 
+focus:
+  - security
+  - performance
+
 rules:
   - "Flag hardcoded secrets."
   - "Check authorization at every write boundary."
+  - paths: ["src/components/**"]
+    rules:
+      - "Check keyboard access and ARIA labels."
 ```
+
+`focus` lists risk areas for the reviewer to examine first and in more depth, in priority order: `correctness`, `compatibility`, `error-handling`, `concurrency`, `security`, `performance`, `data-loss`, `tests`, `ui`, or `accessibility`. Each name adds short built-in guidance to the prompt. Focus adds emphasis without narrowing the review, so findings outside the listed areas are still reported.
+
+A `rules` entry is either a string that applies to every review or a `paths`/`rules` pair. Path-scoped rules are sent to the reviewer only when a reviewed changed file matches one of the globs.
+
+Focus and rules are part of the review policy, so changing either one requires a new full branch review before `diffowl readiness` reports ready. Agents need no extra flags: `diffowl review` and `diffowl readiness` both read the policy from `.diffowl.yml`.
 
 Inspect or change the local backend and its model without editing project policy:
 

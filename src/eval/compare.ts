@@ -117,6 +117,11 @@ export function compareEvalResults(
       `Trial count differs: reference ${reference.manifest.trials}, current ${current.manifest.trials}.`,
     );
   }
+  if (reference.manifest.focus.join() !== current.manifest.focus.join()) {
+    warnings.push(
+      `Review focus differs: reference ${formatFocus(reference.manifest.focus)}, current ${formatFocus(current.manifest.focus)}.`,
+    );
+  }
   if (reference.manifest.diffowl_version !== current.manifest.diffowl_version) {
     warnings.push(
       `DiffOwl version differs: reference ${reference.manifest.diffowl_version}, current ${current.manifest.diffowl_version}.`,
@@ -397,4 +402,8 @@ function formatNullable(value: number | null): string {
 function formatSigned(value: number): string {
   const prefix = value > 0 ? "+" : "";
   return `${prefix}${value.toFixed(3)}`;
+}
+
+function formatFocus(focus: readonly string[]): string {
+  return focus.length > 0 ? focus.join(", ") : "none";
 }

@@ -11,9 +11,22 @@ import {
 
 export const ReviewConfidenceSchema = z.enum(["low", "medium", "high"]);
 export const ReviewContextDepthSchema = z.enum(["shallow", "default"]);
+export const ReviewFocusSchema = z.enum([
+  "correctness",
+  "compatibility",
+  "error-handling",
+  "concurrency",
+  "security",
+  "performance",
+  "data-loss",
+  "tests",
+  "ui",
+  "accessibility",
+]);
 
 export type ReviewConfidence = z.output<typeof ReviewConfidenceSchema>;
 export type ReviewContextDepth = z.output<typeof ReviewContextDepthSchema>;
+export type ReviewFocus = z.output<typeof ReviewFocusSchema>;
 
 const DEFAULT_CONFIG = {
   server: {
@@ -44,6 +57,7 @@ const DEFAULT_CONFIG = {
     "**/.git/**",
   ],
   rules: [],
+  focus: [],
   skip_doc_only: false,
   verbose: false,
 };
@@ -51,6 +65,27 @@ const DEFAULT_CONFIG = {
 const CONFIG_FILENAME = ".diffowl.yml";
 
 const stringArraySchema = z.array(z.string().trim().min(1));
+
+const ReviewRuleSchema = z.union([
+  z.string().trim().min(1),
+  z
+    .object({
+      paths: stringArraySchema.min(1),
+      rules: stringArraySchema.min(1),
+    })
+    .strict(),
+]);
+
+export const ReviewFocusListSchema = z
+  .array(ReviewFocusSchema)
+  .refine((focus) => new Set(focus).size === focus.length, "must not repeat a focus");
+
+export type ReviewRule = z.output<typeof ReviewRuleSchema>;
+export type ScopedReviewRule = Exclude<ReviewRule, string>;
+
+export function isScopedReviewRule(rule: ReviewRule): rule is ScopedReviewRule {
+  return typeof rule !== "string";
+}
 
 export const DiffOwlConfigSchema = z
   .object({
@@ -85,7 +120,8 @@ export const DiffOwlConfigSchema = z
     min_confidence: ReviewConfidenceSchema.default(DEFAULT_CONFIG.min_confidence),
     include: stringArraySchema.default(DEFAULT_CONFIG.include),
     exclude: stringArraySchema.default(DEFAULT_CONFIG.exclude),
-    rules: stringArraySchema.default(DEFAULT_CONFIG.rules),
+    rules: z.array(ReviewRuleSchema).default(DEFAULT_CONFIG.rules),
+    focus: ReviewFocusListSchema.default(DEFAULT_CONFIG.focus),
     skip_doc_only: z.boolean().default(DEFAULT_CONFIG.skip_doc_only),
     verbose: z.boolean().default(DEFAULT_CONFIG.verbose),
   })

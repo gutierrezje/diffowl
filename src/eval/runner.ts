@@ -387,6 +387,7 @@ async function runBaselineReview(
       materialized.target,
       renderBaselineDiff(snapshot, depth),
       config,
+      snapshot.diff.files.map((file) => file.path),
     ),
   };
   if (options.signal) {
@@ -453,6 +454,7 @@ export function resolveEvalRunnerConfig(
     ...base,
     model,
     min_confidence: options.minConfidence ?? base.min_confidence,
+    focus: options.focus ?? base.focus,
     context: {
       ...base.context,
       depth: options.depth ?? base.context.depth,

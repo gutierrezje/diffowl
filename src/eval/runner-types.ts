@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ReviewConfidence, ReviewContextDepth } from "../config.js";
+import type { ReviewConfidence, ReviewContextDepth, ReviewFocus } from "../config.js";
 import type { ReasoningVariant } from "../review/reasoning.js";
 import { ReviewFindingSchema, ReviewTimingSchema } from "../review/types.js";
 import { ReviewUsageSchema } from "../review/usage.js";
@@ -15,6 +15,7 @@ export interface EvalRunnerOptions {
   depth?: ReviewContextDepth;
   reasoning?: ReasoningVariant;
   minConfidence?: ReviewConfidence;
+  focus?: ReviewFocus[];
   signal?: AbortSignal;
 }
 
