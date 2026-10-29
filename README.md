@@ -7,388 +7,116 @@
 " "
 ```
 
-Review agent-written code with a second model before it ships.
+DiffOwl is an independent reviewer for agent-written code. It reviews a Git change with the model you choose, stores each finding in your repository, and remembers what you decided about it.
 
-DiffOwl is a local code review CLI. It builds focused context from a Git diff, runs a model through OpenCode, Codex, Claude Code, or the Cursor SDK, and records actionable findings in your repository.
+DiffOwl is a command-line tool. It reviews changes from any coding agent or person, works with any Git remote, and needs no DiffOwl account.
 
-It works with changes from any coding agent or human. You choose the backend and model on your machine. DiffOwl does not require a hosted DiffOwl account.
+## What DiffOwl is good for
 
-## Why DiffOwl
+### A second reviewer that the author doesn't control
 
-The agent that wrote a change should not be its only reviewer. Asking it to review its own work can repeat the same assumptions that produced the bug.
+The agent that wrote a change should not be its only reviewer. When you ask it to check its own work, it brings the same assumptions that produced the bug.
 
-DiffOwl adds an independent pass between writing code and shipping it:
+DiffOwl starts every review from a clean prompt and context that it builds itself from the diff. The review runs through a backend you already use: OpenCode, the Codex CLI, the Claude Code CLI, or the Cursor SDK. The reviewer can be the same model that wrote the code. What makes the review independent is the fresh context, not different model weights.
 
-- Review the last commit, staged changes, a specific commit, or a whole branch.
-- Review through OpenCode, the local Codex or Claude Code CLI, or the Cursor SDK.
-- Give the reviewer bounded local context instead of dumping the entire repository into a prompt.
-- Keep findings after the review ends, with stable IDs and lifecycle states.
-- Inspect and disposition durable findings after the review ends.
-- Run reviews automatically after commits without blocking them.
+### Findings that remember what you decided
 
-TypeScript reviews can include changed AST symbols, related tests, file excerpts, and bounded import references. The structured import-reference section is TypeScript-only; non-TypeScript changes still get diff-centered review with targeted repository exploration.
+A review comment is easy to lose. A DiffOwl finding is a record in `.diffowl/state.db` with a stable ID that starts with `fnd_`. DiffOwl recognizes a finding again when a later review quotes the same code in the same file. The finding stays open until someone records an outcome:
 
-## How it works
+- Dismiss a finding with a reason, and it stays dismissed when later reviews flag the same code.
+- Mark a finding fixed, and DiffOwl requires the command that verified the fix. If a later review flags the same code again, the finding reopens as `regressed`.
+- A later review that does not mention a finding leaves it open. Silence from the model is not a fix.
 
-1. DiffOwl reads the Git change you selected.
-2. It filters files and assembles relevant local context.
-3. A separate model reviews the change through your selected local backend.
-4. DiffOwl writes a Markdown report and persists findings in SQLite.
-5. You inspect the findings, record their disposition, or hand them to a coding agent for resolution.
+Repeated reviews stay readable. Each report labels a finding as new, existing, or regressed, and hides the findings you dismissed or deferred.
 
-The orchestration and state stay in your repository. Review context goes only to the backend and model you selected.
+### Proof that a branch is ready to hand off
 
-## Quick start
+`diffowl readiness` answers one question: was every commit on this branch reviewed, and was every finding fixed or dismissed? It does not start a review or change anything. Agents can query it before they declare work done, and scripts can read its exit code.
 
-You need Node.js 22.14.0 or newer. OpenCode is the default backend for existing installations.
+### No service in the middle
 
-```bash
-npm install --global opencode-ai
-opencode
-```
+The review loop and its state live in your checkout. Reports and findings are files that you and your agents read directly. DiffOwl sends the review context to the backend and model you selected, so your code goes wherever that provider runs.
 
-Connect a provider in OpenCode, then install and initialize DiffOwl:
+### What DiffOwl does not do
 
-```bash
-npm install --global diffowl
-cd your-repository
-diffowl init
-```
+- It does not post pull-request comments or replace a hosted review platform.
+- It does not change your code. The optional `diffowl-resolve` skill lets a coding agent fix findings, and that agent records each outcome.
+- It does not claim to find more bugs than the same model would find with the diff alone. DiffOwl's value is the workflow around the review.
+- TypeScript changes get extra structured context: changed symbols, related tests, and import references. Other languages get a diff-centered review, and the reviewer can explore the repository with read-only tools.
 
-`diffowl init` reports the selected runtime and the gitignored preference path. With OpenCode selected, it lists the models from your connected providers. Use `diffowl backend codex` before initialization for Codex, or `diffowl backend claude` for Claude Code, then choose a bare model ID. The committed `.diffowl.yml` contains review policy, never your backend or model choice.
+## Run your first review
 
-Codex reviews use an existing ChatGPT login from the local Codex CLI:
+This walkthrough uses OpenCode, the default backend. To use Codex, Claude Code, or Cursor instead, follow [Set up a review backend](docs/how-to.md#set-up-a-review-backend) and then continue from step 2.
 
-```bash
-codex
-diffowl backend codex
-diffowl model gpt-5-codex
-```
+You need Node.js 22.14.0 or newer and a Git repository with at least one commit.
 
-Claude Code reviews use the installed Claude CLI and its local authentication:
+1. Install OpenCode and start it:
 
-```bash
-claude auth login
-diffowl backend claude
-diffowl model sonnet
-```
+   ```bash
+   npm install --global opencode-ai
+   opencode
+   ```
 
-Claude models accept bare aliases such as `sonnet` and full model IDs. DiffOwl uses the installed CLI configuration and does not provide a separate Claude login command. See [the Claude adapter notes](src/claude/README.md) for its runtime and policy details.
+   In OpenCode, connect a model provider, then exit.
 
-Cursor reviews use the official Cursor SDK with a separate SDK sign-in:
+2. Install DiffOwl:
 
-```bash
-diffowl cursor login
-diffowl cursor models
-diffowl backend cursor
-diffowl model composer-2.5 # choose an id from your account's model list
-```
+   ```bash
+   npm install --global diffowl
+   ```
 
-SDK sign-in creates a named, expiring API key in Cursor's credential store; it
-does not reuse a Cursor CLI login. You can also provide `CURSOR_API_KEY`. Usage
-is billed to your Cursor account. `diffowl cursor status` checks the local
-authentication state without displaying credentials.
+3. Set up DiffOwl in your repository:
 
-The adapter allows read, search, glob, and directory-list tools, disables shell,
-MCP, subagents, and ambient project settings, and rejects a review if its
-repository guard observes changes. This is a tool policy, not an operating-system
-sandbox or a restriction on which files can be read. Cursor reasoning overrides
-are not supported yet; use the model's default and clear any saved override with
-`diffowl backend cursor` followed by `diffowl reasoning --reset`. If `.diffowl.yml` still contains deprecated
-`reasoning.effort`, remove that reasoning block too; resetting local preferences
-does not edit project policy.
+   ```bash
+   cd your-repository
+   diffowl init
+   ```
 
-Review the last commit:
+   DiffOwl prints the selected backend, lists the models from your connected providers, and asks you to pick one. It saves your model choice in the gitignored `.diffowl/preferences.yml`. It writes review policy to `.diffowl.yml`, which you can commit. It then offers to add DiffOwl instructions to `AGENTS.md` and to install hooks.
 
-```bash
-diffowl
-```
+4. Review the last commit:
 
-Or review work before committing:
+   ```bash
+   diffowl
+   ```
+
+   When the review finishes, DiffOwl prints a count of errors, warnings, and suggestions, and the path of the saved report. `.diffowl/reviews/latest.md` always holds the newest report. If the model finds nothing, DiffOwl prints `No issues found.` That is a valid result.
+
+5. List the open findings:
+
+   ```bash
+   diffowl findings
+   ```
+
+   If the list is empty, the review found nothing to record, and you are done.
+
+6. Record what happened to one of them. Replace `fnd_abc` with an ID, or a unique ID prefix, from the list:
+
+   ```bash
+   diffowl findings dismiss fnd_abc --reason "The caller already validates this value."
+   ```
+
+   The finding leaves the open list. If a later review flags the same code, the finding stays dismissed.
+
+When you fix a finding instead, record the fix with the command that proves it:
 
 ```bash
-git add -p
-diffowl review --staged
-```
-
-The latest report is written to `.diffowl/reviews/latest.md`.
-
-## Choose what to review
-
-| Command                         | Reviews                                           |
-| ------------------------------- | ------------------------------------------------- |
-| `diffowl`                       | The last commit                                   |
-| `diffowl review --staged`       | Staged changes                                    |
-| `diffowl review --commit <ref>` | One commit                                        |
-| `diffowl review --base`         | Committed branch changes since the default branch |
-| `diffowl review --base <ref>`   | Committed branch changes since an explicit base   |
-
-Useful review options:
-
-```bash
-# Faster review with less context
-diffowl review --staged --depth shallow
-
-# Use a different model once
-diffowl review --staged --model openai/gpt-5.6-luna
-
-# Use Codex once without changing saved preferences
-diffowl review --staged --backend codex --model gpt-5-codex
-
-# Use Claude Code once with a local model alias
-diffowl review --staged --backend claude --model sonnet
-
-# Emit a versioned JSON document for scripts
-diffowl review --base --format json
-
-# Exit 1 when actionable findings remain
-diffowl review --base --fail-on-findings
-```
-
-Commit review compares the selected commit with its first parent. For a merge commit, this means the changes the merge introduced to its first-parent branch. It is not the pull-request diff.
-
-Branch review uses the merge base through `HEAD`, matching the committed diff in a pull request. Use `--base` for pull-request coverage. Neither mode includes staged or unstaged changes.
-
-## Check readiness before handoff
-
-```bash
-diffowl readiness --base main
-diffowl readiness --base main --format json
-```
-
-Readiness checks the exact committed branch against a full review and any
-compatible, contiguous repair reviews. Dirty files and unhandled actionable
-findings block handoff. Fixed and dismissed findings are allowed; deferred and
-regressed findings still block. A later review does not silently resolve earlier
-findings.
-
-Exit codes are `0` for ready, `1` for not ready, and `2` when Git, configuration,
-database, or runtime state cannot be read reliably. JSON includes the resolved
-base and HEAD, coverage review IDs, uncovered commits, blocker counts, and a
-deterministic next action. `--depth` selects the expected context depth when it
-differs from project configuration.
-
-The query does not start a review, change repository state, or migrate a database.
-Older reviews without coverage evidence cannot prove readiness; obtain a new
-full review with this version. Older databases require an explicit state-writing
-command to upgrade. Known actionable output without durable finding identity
-remains blocking because it cannot receive a lifecycle disposition.
-
-Agents must follow the [handoff workflow](docs/agent-handoff.md) before declaring
-completion: query, follow `next_action`, re-query after changes, and attach the
-current proof or an explicit blocker. That page includes small adapters for
-Codex, Claude Code, Cursor, and generic agents. `diffowl init` installs the shared
-instructions in its managed AGENTS.md block when accepted.
-
-See the [readiness contract](docs/readiness-contract.md) for policy and limitations.
-
-## Work with findings
-
-DiffOwl stores durable findings in `.diffowl/state.db`. A finding stays open until someone records what happened to it. A later model review that fails to mention it does not silently mark it fixed.
-
-```bash
-# List unresolved findings
-diffowl findings
-
-# Inspect a finding by ID, ID prefix, or latest:N
-diffowl findings show fnd_abc
-
-# Record the outcome
 diffowl findings fix fnd_abc --note "Added a null guard." --verified-by "pnpm run test"
-diffowl findings dismiss fnd_abc --reason "The caller already validates this value."
-diffowl findings defer fnd_abc --reason "Blocked by an upstream change."
-diffowl findings reopen fnd_abc --reason "The bug returned in a new path."
 ```
 
-Use `--format json` with `findings list`, `show`, or `summary` when another tool needs the backlog.
+## Next steps
 
-Inspect a finding with `diffowl findings show`, then record its disposition with `fix`, `dismiss`, `defer`, or `reopen`. Run a new review when you need new model analysis.
+- [Review a branch before you open a pull request](docs/how-to.md#review-a-branch-before-you-open-a-pull-request)
+- [Review every commit automatically](docs/how-to.md#review-every-commit-automatically)
+- [Have a coding agent resolve findings](docs/how-to.md#have-a-coding-agent-resolve-findings)
+- [Check that a branch is ready for handoff](docs/how-to.md#check-that-a-branch-is-ready-for-handoff)
+- [Use DiffOwl in scripts and CI](docs/how-to.md#use-diffowl-in-scripts-and-ci)
+- [Command, configuration, and file reference](docs/reference.md)
+- [Agent handoff workflow](docs/agent-handoff.md) and [readiness contract](docs/readiness-contract.md)
 
-## Resolve findings with a coding agent
+## Contribute
 
-The optional `diffowl-resolve` skill lets a coding agent investigate findings instead of accepting the review at face value. It verifies each candidate against the current code, fixes confirmed problems, records dismissals or deferrals, and preserves the report history.
-
-```bash
-npx skills add gutierrezje/diffowl --skill diffowl-resolve
-```
-
-Restart or reload the agent, then ask:
-
-```text
-Resolve the latest DiffOwl review.
-```
-
-You can also ask it to investigate one finding, resolve every open review, or archive reports whose findings are fully handled.
-
-## Run reviews automatically
-
-Install the non-blocking post-commit hook:
-
-```bash
-diffowl hook install
-```
-
-The hook queues each commit, returns control to the terminal, and writes output to `.diffowl/hook.log`. Failed reviews remain pending and retry after a later commit.
-
-In a Husky repository, the first install adds a portable bridge to the tracked
-`.husky/post-commit` file. Commit that bridge if the repository should run
-DiffOwl for every contributor. Machine-specific Node and DiffOwl paths stay in
-worktree-local Git hook state, so later installs and runtime upgrades do not
-dirty the tracked Husky hook or interfere with another linked worktree. A linked
-worktree without its own launcher uses the one installed in the main checkout,
-so one install covers new worktrees. Uninstalling in a linked worktree removes
-only that worktree's launcher.
-
-```bash
-diffowl hook status
-diffowl hook uninstall
-```
-
-Claude Code users can also show the current finding summary when a session starts:
-
-```bash
-diffowl agent-hook install --client claude
-```
-
-## Configuration
-
-Project review policy lives in `.diffowl.yml`. Backend, model, and model-specific reasoning choices stay in the shared, gitignored `.diffowl/preferences.yml`. Linked worktrees use the same preference file.
-
-```yaml
-context:
-  depth: default
-
-retention:
-  failed_execution_days: 14
-  failed_execution_limit: 200
-
-gate:
-  fail_on_findings: false
-
-timeout: 300
-min_confidence: medium
-skip_doc_only: false
-
-include:
-  - "src/**/*"
-
-exclude:
-  - "**/*.test.*"
-  - "**/*.lock"
-  - "**/dist/**"
-
-rules:
-  - "Flag hardcoded secrets."
-  - "Check authorization at every write boundary."
-```
-
-Inspect or change the local backend and its model without editing project policy:
-
-```bash
-diffowl backend
-diffowl backend opencode
-diffowl backend codex
-diffowl backend cursor
-diffowl backend claude
-diffowl backend --reset
-
-diffowl model
-diffowl model provider/model
-diffowl model --reset
-
-diffowl reasoning
-diffowl reasoning thinking
-diffowl reasoning --reset
-```
-
-Reasoning names are backend-native identifiers, not a shared DiffOwl scale. A model might advertise `low` and `high`, `thinking`, only one value, or no selectable value. An absent preference means the backend default; DiffOwl never translates one backend's names into another's. Changing a model clears its old reasoning preference so a stale value cannot carry over. Use `diffowl review --reasoning <variant>` for a one-review override.
-
-When an explicit `max` selection is paired with a timeout of 300 seconds or less, DiffOwl warns before starting provider work. It does not lower the reasoning effort or extend the deadline automatically. Increase `timeout` in `.diffowl.yml` when a quality-first review should be allowed to run longer.
-
-When model metadata rejects a variant, DiffOwl uses the backend default and
-prints the model's advertised choices. If the model advertises no selectable
-variants, the warning says so explicitly.
-
-Each backend keeps its own model choice. Switching backends does not erase the other model. A legacy preference containing only `model: provider/model` still selects OpenCode. Legacy `.diffowl.yml` `reasoning.effort` values remain readable for migration and produce an exact cleanup warning; DiffOwl no longer writes them to project config.
-
-Configuration is deep-merged with defaults, so the file only needs the settings your repository changes.
-
-Failed execution retention applies per repository database after an attempt is
-persisted. By default, it removes unreferenced `failed`, `cancelled`, and
-`timed-out` executions whose terminal update is older than 14 days, then keeps
-at most the 200 most recently updated eligible executions. Equal timestamps
-are ordered by insertion order. Set either limit to `0` to disable that limit;
-setting both to `0` disables cleanup.
-
-Completed, running, and interrupted executions are excluded. Executions referenced
-by canonical reviews or other database foreign keys (including future verification
-records) are protected and do not count toward the limit. Cleanup removes operations
-only when they have no executions and no review. Reviews, findings, observations,
-and lifecycle events are never trimmed, and cleanup does not compact the database.
-
-Cleanup runs in its own transaction after the attempt commits. A cleanup failure
-rolls back cleanup without losing the attempt; the next persisted attempt retries
-cleanup. The optional Node diagnostics channel `diffowl.state.retention` publishes
-`{ kind: "cleanup", databasePath, deletedExecutions, deletedOperations }` when rows
-are removed, or `{ kind: "cleanup-failed", databasePath, message }` on failure.
-These diagnostics do not change CLI stdout or the JSON review contract.
-
-## Files DiffOwl creates
-
-```text
-.diffowl.yml                                  # Committed project policy
-.diffowl/preferences.yml                      # Gitignored backend, model, and reasoning choices
-.diffowl/state.db                             # Authoritative findings backlog
-.diffowl/reviews/review-<timestamp>.md        # Immutable review snapshot
-.diffowl/reviews/latest.md                    # Copy of the newest report
-.diffowl/reviews/resolved/                    # Reports archived by the resolution skill
-```
-
-Linked Git worktrees share the durable backlog and review reports from the primary checkout. Runtime files such as hook logs and server state remain checkout-specific.
-
-## Command reference
-
-| Command              | Purpose                                     |
-| -------------------- | ------------------------------------------- |
-| `diffowl init`       | Configure DiffOwl in the current repository |
-| `diffowl review`     | Run a review                                |
-| `diffowl backend`    | Inspect or change the local review backend  |
-| `diffowl model`      | View or change the selected model           |
-| `diffowl reasoning`  | View or change model-specific reasoning     |
-| `diffowl findings`   | Inspect and update durable findings         |
-| `diffowl hook`       | Manage the post-commit hook                 |
-| `diffowl agent-hook` | Manage supported agent client hooks         |
-| `diffowl server`     | Manage the local OpenCode server            |
-
-Run `diffowl <command> --help` for every option.
-
-## Troubleshooting
-
-- No models found: run `opencode`, connect or re-authenticate a provider, then rerun `diffowl init`.
-- Codex runtime missing: install the Codex CLI and make sure `codex` is on `PATH`.
-- Codex authentication missing: run `codex` and sign in with ChatGPT.
-- Review timed out: retry with `diffowl review --depth shallow`.
-- Hook review failed: run the retry command shown by the next foreground DiffOwl command, or inspect `.diffowl/hook.log`.
-- Agent did not load `diffowl-resolve`: verify it with `npx skills list`, then restart or reload the agent.
-
-## Develop locally
-
-```bash
-git clone https://github.com/gutierrezje/diffowl.git
-cd diffowl
-pnpm install
-pnpm run build
-pnpm link --global
-```
-
-Run the checks:
-
-```bash
-pnpm run lint
-pnpm run test
-```
-
-After changing `src/**`, rebuild before testing the globally linked `diffowl` command.
+See [CONTRIBUTING.md](CONTRIBUTING.md) to set up a development checkout and open a pull request.
 
 ## License
 

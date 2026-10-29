@@ -3,6 +3,26 @@
 GitHub Issues are the canonical tracker for non-trivial DiffOwl work. Linear is
 historical and should not receive new issues.
 
+## Set up a development checkout
+
+```bash
+git clone https://github.com/gutierrezje/diffowl.git
+cd diffowl
+pnpm install
+pnpm run build
+pnpm link --global
+```
+
+Run the checks:
+
+```bash
+pnpm run lint
+pnpm run test
+```
+
+After you change `src/**`, rebuild before you test the globally linked `diffowl`
+command.
+
 ## From idea to merge
 
 1. Create or claim one GitHub issue with an outcome, reason, acceptance criteria,
