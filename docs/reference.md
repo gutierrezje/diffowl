@@ -206,9 +206,10 @@ The optional Node diagnostics channel `diffowl.state.retention` publishes `{ kin
 .diffowl/preferences.yml                      # Gitignored backend, model, and reasoning choices
 .diffowl/state.db                             # Authoritative findings backlog
 .diffowl/reviews/review-<timestamp>-<id>.md   # Immutable review snapshot
-.diffowl/reviews/latest.md                    # Copy of the newest report
 .diffowl/reviews/resolved/                    # Reports archived by the resolution skill
 .diffowl/hook.log                             # Post-commit hook output
 ```
+
+Each review writes a new report file. DiffOwl does not keep a `latest.md` copy.
 
 Linked Git worktrees share the findings backlog and review reports of the primary checkout. Runtime files, such as hook logs and server state, belong to each checkout.
