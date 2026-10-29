@@ -210,6 +210,6 @@ The optional Node diagnostics channel `diffowl.state.retention` publishes `{ kin
 .diffowl/hook.log                             # Post-commit hook output
 ```
 
-Each review writes a new report file. DiffOwl does not keep a `latest.md` copy.
+Each completed review writes a new report file. A review with an empty diff writes no report. DiffOwl does not keep a `latest.md` copy.
 
 Linked Git worktrees share the findings backlog and review reports of the primary checkout. Runtime files, such as hook logs and server state, belong to each checkout.
