@@ -80,7 +80,9 @@ You need Node.js 22.14.0 or newer and a Git repository with at least one commit.
    diffowl
    ```
 
-   When the review finishes, DiffOwl prints a count of errors, warnings, and suggestions, and the path of the saved report. Each completed review writes a new report file, such as `.diffowl/reviews/review-<timestamp>-<id>.md`. If the model finds nothing, DiffOwl prints `No issues found.` That is a valid result.
+   When the review finishes, DiffOwl prints a count of errors, warnings, and suggestions, and the path of the new report file, such as `.diffowl/reviews/review-<timestamp>-<id>.md`. If the model finds nothing, DiffOwl prints `No issues found.` That is a valid result.
+
+   If the commit changes only files that `.diffowl.yml` excludes, DiffOwl prints `No changes to review` and writes no report. Make a commit that changes a source file, then run `diffowl` again.
 
 5. List the open findings:
 
