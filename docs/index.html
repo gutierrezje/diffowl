@@ -6,7 +6,7 @@
     <title>DiffOwl: a second reviewer for agent-written code</title>
     <meta
       name="description"
-      content="DiffOwl reviews a Git change with the model you choose, stores each finding in your repo, and remembers what you decided about it. A command-line tool with no DiffOwl account."
+      content="DiffOwl reviews a Git change with the model you choose, stores findings in your repo, and remembers what you decided about it. A command-line tool with no DiffOwl account."
     />
     <meta name="theme-color" content="#f8fafc" />
     <link rel="canonical" href="https://gutierrezje.github.io/diffowl/" />
@@ -15,7 +15,7 @@
     <meta property="og:title" content="DiffOwl: a second reviewer for agent-written code" />
     <meta
       property="og:description"
-      content="The agent that wrote a change should not be its only reviewer. DiffOwl reviews it from a fresh context and keeps every finding until you fix or dismiss it."
+      content="The agent that wrote a change should not be its only reviewer. DiffOwl reviews it from a fresh context and keeps its findings until you fix or dismiss them."
     />
     <meta property="og:url" content="https://gutierrezje.github.io/diffowl/" />
     <!-- TODO: add docs/og-image.png (1200x630) then uncomment:
@@ -24,7 +24,7 @@
     <meta name="twitter:title" content="DiffOwl: a second reviewer for agent-written code" />
     <meta
       name="twitter:description"
-      content="The agent that wrote a change should not be its only reviewer. DiffOwl reviews it from a fresh context and keeps every finding until you fix or dismiss it."
+      content="The agent that wrote a change should not be its only reviewer. DiffOwl reviews it from a fresh context and keeps its findings until you fix or dismiss them."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -947,7 +947,7 @@
           </h1>
           <p class="sub">
             When an agent reviews its own patch, it brings the same assumptions that produced the
-            bug. DiffOwl reviews the change from a <b>fresh context</b> and stores each finding in
+            bug. DiffOwl reviews the change from a <b>fresh context</b> and stores its findings in
             your repo. A finding stays open until you fix it or dismiss it with a reason.
           </p>
           <div class="cta-row">
@@ -1001,7 +1001,7 @@
               <div class="n">02</div>
               <h3>A record of what you decided</h3>
               <p>
-                Each finding is a record in <code>.diffowl/state.db</code> with a stable ID. Dismiss
+                A finding is a record in <code>.diffowl/state.db</code> with a stable ID. Dismiss
                 it, and it stays dismissed when a later review flags the same code. Mark it fixed,
                 and DiffOwl requires the command that verified the fix. If a later review flags that
                 code again, the finding reopens as <code>regressed</code>.
@@ -1039,9 +1039,9 @@
             A review comment is easy to lose. A DiffOwl finding <strong>has an outcome.</strong>
           </div>
           <p class="lede">
-            Every finding gets a stable <code>fnd_</code> ID. DiffOwl recognizes the finding again
-            when a later review quotes the same code in the same file, so a dismissal holds and a
-            regression reopens the finding.
+            A finding that quotes code gets a stable <code>fnd_</code> ID. DiffOwl recognizes the
+            finding again when a later review quotes the same code in the same file, so a dismissal
+            holds and a regression reopens the finding.
           </p>
           <div class="loop">
             <div class="step">
