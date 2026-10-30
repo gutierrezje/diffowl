@@ -1620,6 +1620,56 @@ describe("diffowl CLI", () => {
   });
 });
 
+// A fake `opencode` on PATH records each launch; `serve` stays alive without listening,
+// so DiffOwl's managed-server startup times out the way a broken install does.
+// util-linux `script` provides the terminal; its BSD variant takes different arguments.
+describe.skipIf(process.platform !== "linux" || !hasUtilLinuxScript())(
+  "interactive OpenCode setup cleanup",
+  () => {
+    let serverPidFile: string | undefined;
+
+    afterEach(async () => {
+      // Reap the fake server even when a regression leaves it running.
+      const pid = Number(await readFile(serverPidFile ?? "", "utf8").catch(() => ""));
+      if (pid > 0) {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {}
+      }
+      serverPidFile = undefined;
+    });
+
+    it("stops the OpenCode server that a failed interactive setup started", async () => {
+      const setup = await createFakeOpencodeRepo("diffowl-cli-setup-opencode-cleanup-");
+      serverPidFile = setup.serverPid;
+      // A private port keeps the test away from any developer server on the default 4096.
+      const port = await findFreePort();
+      await writeFile(
+        join(setup.repo, ".diffowl.yml"),
+        `server:\n  port: ${port}\n  auto_start: true\n`,
+        "utf8",
+      );
+
+      // Without a window size, ora's cursor redraws can spin on some sandboxed ptys.
+      const result = await execa(
+        "script",
+        [
+          "-qec",
+          `stty cols 120 rows 40; ${shellQuote(process.execPath)} ${shellQuote(cliPath)} init`,
+          "/dev/null",
+        ],
+        { cwd: setup.repo, env: setup.env, reject: false, stdin: "ignore" },
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain("Failed to query models");
+      await expect(readFile(setup.calls, "utf8")).resolves.toContain(`serve --port ${port}`);
+      await expect(access(join(setup.repo, ".diffowl/server.pid"))).rejects.toThrow();
+      await waitForPath(setup.terminated);
+    }, 30_000);
+  },
+);
+
 describe("diffowl findings summary", () => {
   it("surfaces a reachable open finding, then nothing once it is resolved", async () => {
     const repo = await createRepo("diffowl-cli-findings-summary-");
@@ -2409,6 +2459,63 @@ async function createRepo(
     await writeFile(join(repo, ".diffowl", "preferences.yml"), "model: provider/model\n", "utf8");
   }
   return repo;
+}
+
+async function createFakeOpencodeRepo(prefix: string): Promise<{
+  repo: string;
+  env: Record<string, string>;
+  calls: string;
+  terminated: string;
+  serverPid: string;
+}> {
+  const repo = await mkdtemp(join(tmpdir(), prefix));
+  const bin = await mkdtemp(join(tmpdir(), `${prefix}bin-`));
+  tempDirs.push(repo, bin);
+  await execa("git", ["init", "--initial-branch=main"], { cwd: repo });
+  const calls = join(bin, "calls");
+  const terminated = join(bin, "terminated");
+  const serverPid = join(bin, "server-pid");
+  await writeFile(
+    join(bin, "opencode"),
+    [
+      `#!${process.execPath}`,
+      'const fs = require("node:fs");',
+      `fs.appendFileSync(${JSON.stringify(calls)}, process.argv.slice(2).join(" ") + "\\n");`,
+      'if (process.argv[2] === "serve") {',
+      `  fs.writeFileSync(${JSON.stringify(serverPid)}, String(process.pid));`,
+      "  process.on(\"SIGTERM\", () => {",
+      `    fs.writeFileSync(${JSON.stringify(terminated)}, "terminated");`,
+      "    process.exit(0);",
+      "  });",
+      "  setInterval(() => {}, 1000);",
+      "}",
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  return {
+    repo,
+    env: { PATH: `${bin}:${process.env["PATH"] ?? ""}` },
+    calls,
+    terminated,
+    serverPid,
+  };
+}
+
+function hasUtilLinuxScript(): boolean {
+  return ["/usr/bin/script", "/bin/script"].some((path) => existsSync(path));
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+async function findFreePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = z.object({ port: z.number() }).parse(server.address()).port;
+  await new Promise((resolve) => server.close(resolve));
+  return port;
 }
 
 async function createMockCodexExecutable(
