@@ -224,6 +224,55 @@ describe("config", () => {
     expect((await loadConfig()).context.depth).toBe("shallow");
   });
 
+  it("loads review focus and path-scoped rules", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
+    tempDirs.push(root);
+    await writeFile(
+      join(root, ".diffowl.yml"),
+      [
+        "focus: [security, accessibility]",
+        "rules:",
+        "  - Flag hardcoded secrets.",
+        "  - paths: ['src/components/**']",
+        "    rules: ['Check ARIA labels.']",
+      ].join("\n"),
+      "utf-8",
+    );
+    process.chdir(root);
+
+    const config = await loadConfig();
+    expect(config.focus).toEqual(["security", "accessibility"]);
+    expect(config.rules).toEqual([
+      "Flag hardcoded secrets.",
+      { paths: ["src/components/**"], rules: ["Check ARIA labels."] },
+    ]);
+    await saveConfig(config);
+    expect(await loadConfig()).toEqual(config);
+  });
+
+  it("defaults review focus to none", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
+    tempDirs.push(root);
+    process.chdir(root);
+
+    expect((await loadConfig()).focus).toEqual([]);
+  });
+
+  it.each([
+    ["focus.0", "focus: [style]"],
+    ["focus", "focus: [security, security]"],
+    ["rules.0.paths", "rules:\n  - paths: []\n    rules: ['Check it.']"],
+    ["rules.0.rules", "rules:\n  - paths: ['src/**']\n    rules: []"],
+    ["rules.0", "rules:\n  - paths: ['src/**']\n    rules: ['Check it.']\n    severity: high"],
+  ])("rejects invalid %s", async (field, yaml) => {
+    const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
+    tempDirs.push(root);
+    await writeFile(join(root, ".diffowl.yml"), yaml, "utf-8");
+    process.chdir(root);
+
+    await expect(loadConfig()).rejects.toThrow(field);
+  });
+
   it("fails fast for empty explicit values", async () => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-config-"));
     tempDirs.push(root);

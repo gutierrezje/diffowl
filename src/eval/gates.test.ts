@@ -25,6 +25,7 @@ function makeDocument(overrides: Partial<EvalResultsDocumentV1> = {}): EvalResul
       reasoning: "auto",
       depth: "default",
       min_confidence: "medium",
+      focus: [],
       trials: 1,
       mode: "diffowl",
       diffowl_version: "0.3.1",

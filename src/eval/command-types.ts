@@ -1,5 +1,5 @@
 import { isAbsolute, join } from "node:path";
-import type { ReviewConfidence, ReviewContextDepth } from "../config.js";
+import type { ReviewConfidence, ReviewContextDepth, ReviewFocus } from "../config.js";
 import type { ReasoningVariant } from "../review/reasoning.js";
 import type { EvalReportMode } from "./manifest-types.js";
 
@@ -14,6 +14,7 @@ export interface RawEvalCliOptions {
   depth?: string;
   reasoning?: string;
   minConfidence?: string;
+  focus?: string[];
   out?: string;
   gate?: string;
   compare?: string;
@@ -30,6 +31,7 @@ export interface ParsedEvalCliOptions {
   depth?: ReviewContextDepth;
   reasoning?: ReasoningVariant;
   minConfidence?: ReviewConfidence;
+  focus?: ReviewFocus[];
   out?: string;
   gatePath?: string;
   comparePath?: string;

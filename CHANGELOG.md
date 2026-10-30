@@ -7,6 +7,13 @@ increments that may include backward-compatible features and fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `.diffowl.yml` `focus` lists risk areas, such as `security` or `accessibility`,
+  for the reviewer to examine first without narrowing the review.
+- `rules` entries can be scoped to path globs and are sent only when a reviewed
+  file matches. `diffowl eval --focus` measures a focus against a baseline.
+
 ## [0.5.4] - 2026-10-19
 
 DiffOwl's Husky hook now reviews commits in linked worktrees that never ran
