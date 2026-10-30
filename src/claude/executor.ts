@@ -441,6 +441,9 @@ function claudeEnvironment(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv
     "ANTHROPIC_AUTH_TOKEN",
     "CLAUDE_CODE_OAUTH_TOKEN",
     "ANTHROPIC_BASE_URL",
+    // Cloud sessions authenticate through this pair instead of a stored login.
+    "CLAUDE_SESSION_INGRESS_TOKEN_FILE",
+    "CLAUDE_CODE_REMOTE",
     "MOCK_CLAUDE_MODE",
     "MOCK_CLAUDE_EVIDENCE",
     "SystemRoot",

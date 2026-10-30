@@ -74,6 +74,25 @@ describe("Claude review executor", () => {
     }
   });
 
+  it("inherits only the cloud-session authentication variables into the Claude child environment", async () => {
+    const directory = await repository();
+    const evidence = join(dirname(directory), `${basename(directory)}-cloud-env.json`);
+    vi.stubEnv("CLAUDE_SESSION_INGRESS_TOKEN_FILE", "/run/session/ingress-token");
+    vi.stubEnv("CLAUDE_CODE_REMOTE", "true");
+    vi.stubEnv("CLAUDE_CODE_REMOTE_SESSION_ID", "session_fixture");
+    try {
+      await execute(directory, "success", { MOCK_CLAUDE_EVIDENCE: evidence });
+      const request = JSON.parse(await readFile(evidence, "utf8"));
+      expect(request.cloudEnvironment).toEqual({
+        CLAUDE_SESSION_INGRESS_TOKEN_FILE: "/run/session/ingress-token",
+        CLAUDE_CODE_REMOTE: "true",
+      });
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(evidence, { force: true });
+    }
+  });
+
   it.each([
     ["windows-missing-runtime", "Claude Code executable was not found"],
     ["invalid", "after 3 attempts"],

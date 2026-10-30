@@ -7,6 +7,12 @@ increments that may include backward-compatible features and fixes.
 
 ## [Unreleased]
 
+### Fixed
+
+- The Claude Code backend now authenticates in Claude Code cloud sessions, which
+  previously failed with `Not logged in` because the adapter dropped the session's
+  authentication variables.
+
 ## [0.5.4] - 2026-10-19
 
 DiffOwl's Husky hook now reviews commits in linked worktrees that never ran
