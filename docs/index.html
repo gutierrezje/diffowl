@@ -15,7 +15,7 @@
     <meta property="og:title" content="DiffOwl: a second reviewer for agent-written code" />
     <meta
       property="og:description"
-      content="The agent that wrote a change should not be its only reviewer. DiffOwl reviews it from a fresh context and keeps its findings until you fix or dismiss them."
+      content="The agent that wrote a change should not be its only reviewer. DiffOwl reviews it from a fresh context and records what you decide about each finding."
     />
     <meta property="og:url" content="https://gutierrezje.github.io/diffowl/" />
     <!-- TODO: add docs/og-image.png (1200x630) then uncomment:
@@ -24,7 +24,7 @@
     <meta name="twitter:title" content="DiffOwl: a second reviewer for agent-written code" />
     <meta
       name="twitter:description"
-      content="The agent that wrote a change should not be its only reviewer. DiffOwl reviews it from a fresh context and keeps its findings until you fix or dismiss them."
+      content="The agent that wrote a change should not be its only reviewer. DiffOwl reviews it from a fresh context and records what you decide about each finding."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -948,7 +948,7 @@
           <p class="sub">
             When an agent reviews its own patch, it brings the same assumptions that produced the
             bug. DiffOwl reviews the change from a <b>fresh context</b> and stores its findings in
-            your repo. A finding stays open until you fix it or dismiss it with a reason.
+            your repo. A finding stays open until you record an outcome.
           </p>
           <div class="cta-row">
             <a class="btn btn-p" href="#start">npm install -g diffowl</a>
