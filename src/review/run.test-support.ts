@@ -39,6 +39,7 @@ export const config: EffectiveReviewConfig = {
   include: ["**/*"],
   exclude: [],
   rules: [],
+  focus: [],
   skip_doc_only: true,
   verbose: false,
 };

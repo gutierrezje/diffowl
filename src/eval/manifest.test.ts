@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { DiffOwlConfig } from "../config.js";
 import { loadEvalCase, loadEvalCorpus } from "./corpus.js";
 import { buildEvalManifest } from "./manifest.js";
+import { EvalRunManifestSchema } from "./manifest-types.js";
 
 const corpusDir = join(import.meta.dirname, "../../eval/corpus");
 
@@ -18,6 +19,7 @@ const baseConfig: DiffOwlConfig = {
   include: ["**/*"],
   exclude: [],
   rules: [],
+  focus: [],
   skip_doc_only: false,
   verbose: false,
 };
@@ -38,7 +40,7 @@ describe("buildEvalManifest", () => {
       corpus,
       cases: [evalCase],
       config: baseConfig,
-      options: { model: "override/model", trials: 3, minConfidence: "high" },
+      options: { model: "override/model", trials: 3, minConfidence: "high", focus: ["performance"] },
       mode: "both",
       trials: 3,
       startedAt: "2026-06-29T00:00:00.000Z",
@@ -65,9 +67,17 @@ describe("buildEvalManifest", () => {
     expect(manifest.reasoning).toBeNull();
     expect(explicitBackendDefaultVariant.reasoning).toBe("backend-default");
     expect(manifest.min_confidence).toBe("high");
+    expect(manifest.focus).toEqual(["performance"]);
     expect(manifest.trials).toBe(3);
     expect(manifest.mode).toBe("both");
     expect(manifest.diffowl_version).toBe("0.3.1");
     expect(manifest.opencode_version).toBe("1.2.3");
+  });
+
+  it("reads checked-in baselines recorded before review focus existed", async () => {
+    const raw = JSON.parse(await readFile(join(import.meta.dirname, "../../eval/baselines/v3/eval-results.json"), "utf8")).manifest;
+
+    expect(raw).not.toHaveProperty("focus");
+    expect(EvalRunManifestSchema.parse(raw).focus).toEqual([]);
   });
 });

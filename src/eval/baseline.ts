@@ -1,7 +1,8 @@
-import type { DiffOwlConfig, ReviewContextDepth } from "../config.js";
+import type { ReviewContextDepth } from "../config.js";
 import type { LoadedReviewSnapshot } from "../review/context.js";
 import type { ReviewTarget } from "../review/target.js";
 import { REVIEW_JSON_MARKER } from "../review/document.js";
+import { renderTrustedProjectConfig, type ReviewPromptPolicy } from "../review/prompt.js";
 
 // Keep in sync with src/review/context-render.ts so the baseline arm sees the
 // same diff as the DiffOwl arm it is compared against.
@@ -70,7 +71,8 @@ export function renderBaselineDiff(
 export function buildBaselinePrompt(
   target: ReviewTarget,
   diffContext: string,
-  config: Pick<DiffOwlConfig, "rules" | "include" | "exclude">,
+  config: ReviewPromptPolicy,
+  changedFiles?: readonly string[],
 ): string {
   const modeInstruction =
     target.kind === "staged"
@@ -87,19 +89,9 @@ ${diffContext}
 
 Provide your review following the JSON format in your instructions.`;
 
-  let trustedConfigStarted = false;
-  if (config.include.length > 0 && !(config.include.length === 1 && config.include[0] === "**/*")) {
-    prompt += `\n\n## Trusted project configuration\nOnly review files that match these patterns: ${config.include.join(", ")}`;
-    trustedConfigStarted = true;
-  }
-
-  if (config.exclude.length > 0) {
-    prompt += `\n\n${trustedConfigStarted ? "" : "## Trusted project configuration\n"}Ignore and do NOT review files that match these patterns: ${config.exclude.join(", ")}`;
-    trustedConfigStarted = true;
-  }
-
-  if (config.rules.length > 0) {
-    prompt += `\n\n${trustedConfigStarted ? "" : "## Trusted project configuration\n"}Additional review rules for this project:\n${config.rules.map((rule) => `- ${rule}`).join("\n")}`;
+  const trustedConfig = renderTrustedProjectConfig(config, changedFiles);
+  if (trustedConfig) {
+    prompt += `\n\n${trustedConfig}`;
   }
 
   return prompt;

@@ -37,6 +37,8 @@ Do not pass `--gate` for exploratory runs or baseline captures — a baseline
 *defines* the level, so "failing" a threshold is not a meaningful outcome
 there. See Gates below.
 
+Use `--focus <name>` (repeatable) to override the `.diffowl.yml` review focus for both arms. To check that a focus does not cost recall elsewhere, run with it and `--compare` against a baseline captured without it; the comparison warns that the focus differs and still flags must-detect regressions.
+
 Use `--case <id>` to run a subset. `--format json` prints the full results document to stdout.
 
 Local run artifacts go to `eval/results/` (gitignored) unless `--out` is set.

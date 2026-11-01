@@ -62,6 +62,7 @@ describe("buildBaselinePrompt", () => {
       include: ["**/*"],
       exclude: [],
       rules: ["Reject empty ids."],
+      focus: [],
     });
 
     expect(prompt).toContain("Review the selected commit.");
@@ -69,6 +70,27 @@ describe("buildBaselinePrompt", () => {
     expect(prompt).toContain("Reject empty ids.");
     expect(prompt).not.toContain("DiffOwl has already collected");
     expect(prompt).not.toContain("Local Review Context");
+  });
+
+  it("gives the baseline arm the same focus and scoped rules as DiffOwl", () => {
+    const prompt = buildBaselinePrompt(
+      { kind: "commit", ref: "HEAD" },
+      renderBaselineDiff(makeSnapshot()),
+      {
+        include: ["**/*"],
+        exclude: [],
+        rules: [
+          { paths: ["src/**"], rules: ["Reject empty ids."] },
+          { paths: ["db/**"], rules: ["Check rollback safety."] },
+        ],
+        focus: ["security"],
+      },
+      ["src/user.ts"],
+    );
+
+    expect(prompt).toContain("- security:");
+    expect(prompt).toContain("- For files matching src/**: Reject empty ids.");
+    expect(prompt).not.toContain("Check rollback safety.");
   });
 });
 

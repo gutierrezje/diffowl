@@ -33,6 +33,7 @@ const baseConfig: DiffOwlConfig = {
   include: ["**/*"],
   exclude: [],
   rules: [],
+  focus: [],
   skip_doc_only: false,
   verbose: false,
 };
@@ -60,11 +61,13 @@ describe("resolveEvalRunnerConfig", () => {
         minConfidence: "high",
         depth: "shallow",
         reasoning: "low",
+        focus: ["security"],
       }),
     ).toEqual({
       ...baseConfig,
       model: "override/model",
       min_confidence: "high",
+      focus: ["security"],
       context: { depth: "shallow" },
       reasoning: { kind: "variant", value: "low" },
     });

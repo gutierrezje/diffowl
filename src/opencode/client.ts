@@ -243,7 +243,7 @@ function normalizeAssistantMessage(
  * Creates a session, sends the review prompt, and returns a structured report.
  */
 export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
-  const { target, directory, config, localContext, depth, onProgress, signal } = options;
+  const { directory, config, depth, onProgress, signal } = options;
   if (signal?.aborted) {
     throw new ReviewCancelledError("Review cancelled by user.");
   }
@@ -281,11 +281,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
 
   // Build the review prompt
   const promptStart = performance.now();
-  const promptOptions: Parameters<typeof resolveReviewPrompts>[0] = { target, config, depth };
-  if (localContext !== undefined) promptOptions.localContext = localContext;
-  if (options.systemPrompt !== undefined) promptOptions.systemPrompt = options.systemPrompt;
-  if (options.userPrompt !== undefined) promptOptions.userPrompt = options.userPrompt;
-  const { system, user: prompt } = resolveReviewPrompts(promptOptions);
+  const { system, user: prompt } = resolveReviewPrompts(options);
   recordTiming(timings, onProgress, "prompt-build", "Review prompt build", promptStart);
 
   // Parse the model string (e.g. "anthropic/claude-sonnet-4-20250514")

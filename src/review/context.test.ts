@@ -46,6 +46,7 @@ const config: DiffOwlConfig = {
   include: ["**/*"],
   exclude: [],
   rules: [],
+  focus: [],
   skip_doc_only: false,
   verbose: false,
 };

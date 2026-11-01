@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   ReviewConfidenceSchema,
   ReviewContextDepthSchema,
+  ReviewFocusSchema,
 } from "../config.js";
 import { ReasoningVariantSchema } from "../review/reasoning.js";
 
@@ -20,6 +21,8 @@ export const EvalRunManifestSchema = z.object({
   reasoning: ReasoningVariantSchema.nullable(),
   depth: ReviewContextDepthSchema,
   min_confidence: ReviewConfidenceSchema,
+  // Results captured before review focus existed ran without one.
+  focus: z.array(ReviewFocusSchema).default([]),
   trials: z.number().int().positive(),
   mode: EvalReportModeSchema,
   diffowl_version: z.string(),

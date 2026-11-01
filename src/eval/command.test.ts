@@ -36,6 +36,7 @@ const baseConfig: DiffOwlConfig = {
   include: ["**/*"],
   exclude: [],
   rules: [],
+  focus: [],
   skip_doc_only: false,
   verbose: false,
 };
@@ -91,6 +92,13 @@ describe("eval command parsing", () => {
     expect(options.mode).toBe("diffowl");
     expect(options.format).toBe("text");
     expect(options.caseIds).toEqual([]);
+    expect(options).not.toHaveProperty("focus");
+  });
+
+  it("parses repeated review focus overrides", () => {
+    expect(parseEvalCliOptions("/repo", { focus: ["security", "ui"] }).focus).toEqual(["security", "ui"]);
+    expect(() => parseEvalCliOptions("/repo", { focus: ["style"] })).toThrow();
+    expect(() => parseEvalCliOptions("/repo", { focus: ["security", "security"] })).toThrow("must not repeat a focus");
   });
 
   it("resolves corpus and output directories", () => {

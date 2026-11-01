@@ -1365,6 +1365,7 @@ program
   .option("--depth <depth>", "Review context depth: shallow or default")
   .option("--reasoning <effort>", "Reasoning effort override")
   .option("--min-confidence <level>", "Minimum finding confidence: low, medium, or high")
+  .option("--focus <name>", "Review focus to emphasize (repeatable); overrides .diffowl.yml focus", collectValues, Array<string>())
   .option("--out <dir>", "Output directory for eval results")
   .option("--gate <path>", "Gate thresholds JSON file")
   .option("--compare <path>", "Compare results against a baseline eval-results.json")

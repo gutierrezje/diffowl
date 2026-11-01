@@ -6,6 +6,7 @@ import {
   loadConfigFromRoot,
   parseReviewContextDepth,
   ReviewConfidenceSchema,
+  ReviewFocusListSchema,
 } from "../config.js";
 import { parseReasoningVariant } from "../review/reasoning.js";
 import { getInstalledOpencodeVersion } from "../opencode/server.js";
@@ -120,6 +121,9 @@ export function parseEvalCliOptions(cwd: string, raw: RawEvalCliOptions): Parsed
   if (raw.minConfidence) {
     options.minConfidence = ReviewConfidenceSchema.parse(raw.minConfidence);
   }
+  if (raw.focus && raw.focus.length > 0) {
+    options.focus = ReviewFocusListSchema.parse(raw.focus);
+  }
   if (raw.out) {
     options.out = raw.out;
   }
@@ -184,6 +188,9 @@ export async function runEvalCommand(
     }
     if (options.minConfidence) {
       runnerOptions.minConfidence = options.minConfidence;
+    }
+    if (options.focus) {
+      runnerOptions.focus = options.focus;
     }
 
     const bundles = await runEvalCases(cases, options, runnerOptions, deps, spinner);

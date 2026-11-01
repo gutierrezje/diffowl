@@ -222,6 +222,7 @@ export async function runReviewPipeline(
       directory: input.projectRoot,
       config: input.config,
       localContext,
+      changedFiles: reviewContext.changedFiles.map((file) => file.file.path),
       depth: input.depth,
     },
     onTelemetry: (event) => executionJournal.record(event),

@@ -54,6 +54,7 @@ export async function buildEvalManifest(input: BuildEvalManifestInput): Promise<
     reasoning: reasoningVariant(effectiveConfig.reasoning) ?? null,
     depth: effectiveConfig.context.depth,
     min_confidence: effectiveConfig.min_confidence,
+    focus: effectiveConfig.focus,
     trials: input.trials,
     mode: input.mode,
     diffowl_version: input.versions.diffowlVersion,

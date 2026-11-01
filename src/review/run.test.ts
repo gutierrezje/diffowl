@@ -490,6 +490,18 @@ describe("runReviewPipeline", () => {
     );
   });
 
+  it("passes the reviewed changed files, not the raw diff, to its executor", async () => {
+    const deps = makeDeps(makeSnapshot([docFile(), codeFile()]));
+
+    await runReviewPipeline(skipInput(), deps);
+
+    expect(deps.executor.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        review: expect.objectContaining({ changedFiles: ["src/app.ts"] }),
+      }),
+    );
+  });
+
   it.each([
     [new ReviewCancelledError("cancelled"), "cancelled"],
     [new ReviewTimeoutError("timed out"), "timed-out"],

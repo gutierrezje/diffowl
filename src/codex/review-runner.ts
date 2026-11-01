@@ -310,16 +310,7 @@ export async function executeCodexReview(input: CodexReviewInput): Promise<Codex
   const deadline = performance.now() + input.timeoutMs;
   const directory = await withDeadline(realpath(input.directory), deadline, "repository-directory");
   const executionInput = { ...input, directory } satisfies CodexReviewInput;
-  const promptOptions: Parameters<typeof resolveReviewPrompts>[0] = {
-    target: input.target,
-    config: input.config,
-    depth: input.depth,
-    documentMode: "native-json",
-  };
-  if (input.localContext !== undefined) promptOptions.localContext = input.localContext;
-  if (input.systemPrompt !== undefined) promptOptions.systemPrompt = input.systemPrompt;
-  if (input.userPrompt !== undefined) promptOptions.userPrompt = input.userPrompt;
-  const prompts = resolveReviewPrompts(promptOptions);
+  const prompts = resolveReviewPrompts({ ...input, documentMode: "native-json" });
   const developerInstructions = prompts.system;
   const peerEnv = buildCodexEnvironment(input.env);
   const peerOptions: Parameters<typeof startAppServerPeer>[0] = {

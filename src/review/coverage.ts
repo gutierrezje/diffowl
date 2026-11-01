@@ -39,5 +39,7 @@ export function reviewPolicySha256(config: DiffOwlConfig, depth: ReviewContextDe
     rules: config.rules,
     minConfidence: config.min_confidence,
     skipDocOnly: config.skip_doc_only,
+    // JSON.stringify drops undefined, so checkpoints recorded before review focus existed stay valid.
+    focus: config.focus.length > 0 ? config.focus : undefined,
   })).digest("hex");
 }

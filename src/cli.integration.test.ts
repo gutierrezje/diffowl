@@ -901,6 +901,45 @@ describe("diffowl CLI", () => {
   );
 
   it.skipIf(process.platform === "win32")(
+    "sends configured focus and only the matching path-scoped rules to the reviewer",
+    async () => {
+      const repo = await createRepo("diffowl-cli-review-focus-");
+      await writeFile(join(repo, ".gitignore"), ".diffowl/\n", "utf8");
+      await writeFile(join(repo, ".diffowl.yml"), [
+        "focus: [accessibility, security]",
+        "rules:",
+        "  - Flag hardcoded secrets.",
+        "  - paths: ['src/components/**']",
+        "    rules: ['Check keyboard access and ARIA labels.']",
+        "  - paths: ['db/**']",
+        "    rules: ['Check migration rollback safety.']",
+        "",
+      ].join("\n"), "utf8");
+      await mkdir(join(repo, "src/components"), { recursive: true });
+      await writeFile(join(repo, "src/components/button.ts"), "export const label = 'Save';\n", "utf8");
+      await commitAll(repo, "initial");
+      await writeFile(join(repo, "src/components/button.ts"), "export const label = 'Submit';\n", "utf8");
+      await commitAll(repo, "change");
+      const executable = await createMockClaudeExecutable();
+      const evidence = join(dirname(executable), "request.json");
+
+      await execa(process.execPath, [cliPath, "review", "--backend", "claude", "--model", "sonnet", "--format", "json"], {
+        cwd: repo,
+        env: { DIFFOWL_CLAUDE_EXECUTABLE: executable, MOCK_CLAUDE_EVIDENCE: evidence },
+      });
+      const { prompt } = JSON.parse(await readFile(evidence, "utf8"));
+
+      expect(prompt).toContain("## Trusted project configuration");
+      expect(prompt.indexOf("- accessibility:")).toBeGreaterThan(-1);
+      expect(prompt.indexOf("- security:")).toBeGreaterThan(prompt.indexOf("- accessibility:"));
+      expect(prompt).toContain("- Flag hardcoded secrets.");
+      expect(prompt).toContain("- For files matching src/components/**: Check keyboard access and ARIA labels.");
+      expect(prompt).not.toContain("Check migration rollback safety.");
+    },
+    30_000,
+  );
+
+  it.skipIf(process.platform === "win32")(
     "runs the selected Claude CLI adapter and persists its review provenance",
     async () => {
       const repo = await createRepo("diffowl-cli-review-claude-");
