@@ -552,3 +552,98 @@ describe("stopServer", () => {
     expect(mocks.unlink).toHaveBeenCalled();
   });
 });
+
+describe("Windows listener discovery", () => {
+  const realPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+
+  function windowsTable(rows: string[]): string {
+    const header = [
+      "Active Connections",
+      "",
+      "  Proto  Local Address          Foreign Address        State           PID",
+    ];
+    return [...header, ...rows].join("\r\n") + "\r\n";
+  }
+
+  /** Answers netstat with `table` on the first call and an empty table afterwards (port freed). */
+  function stubWindowsNetstat(table: string): void {
+    let netstatCalls = 0;
+    mocks.execa.mockImplementation((command: string) => {
+      if (command === "netstat") {
+        netstatCalls += 1;
+        return Promise.resolve({ stdout: netstatCalls === 1 ? table : "" });
+      }
+      if (command === "powershell" || command === "wmic" || command === "tasklist") {
+        return Promise.resolve({ stdout: "opencode serve --port 4096" });
+      }
+      return Promise.resolve({ stdout: "" });
+    });
+  }
+
+  beforeEach(() => {
+    // findListenerPids branches on process.platform, so the netstat parser is otherwise
+    // only reachable on Windows hosts.
+    Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+    mocks.execa.mockReset();
+    mocks.existsSync.mockReset();
+    mocks.getDiffOwlDir.mockReset();
+    mocks.kill.mockReset();
+    mocks.getDiffOwlDir.mockReturnValue("/tmp/diffowl");
+    mocks.existsSync.mockReturnValue(false);
+    mocks.kill.mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    if (realPlatform) Object.defineProperty(process, "platform", realPlatform);
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    ["IPv4 wildcard", "0.0.0.0:4096", "0.0.0.0:0"],
+    ["IPv4 loopback", "127.0.0.1:4096", "0.0.0.0:0"],
+    ["IPv6 wildcard", "[::]:4096", "[::]:0"],
+    ["IPv6 loopback", "[::1]:4096", "[::]:0"],
+  ])("stops the listener on a %s endpoint", async (_name, local, foreign) => {
+    stubWindowsNetstat(
+      windowsTable([`  TCP    ${local}           ${foreign}              LISTENING       7001`]),
+    );
+
+    await expect(stopServer(4096, dependencies)).resolves.toBe(true);
+    expect(mocks.kill).toHaveBeenCalledTimes(1);
+    expect(mocks.kill).toHaveBeenCalledWith(7001, "SIGTERM");
+  });
+
+  it("ignores prefix-colliding ports, foreign-endpoint matches, and non-listening rows", async () => {
+    stubWindowsNetstat(
+      windowsTable([
+        "  TCP    0.0.0.0:40960          0.0.0.0:0              LISTENING       1001",
+        "  TCP    [::]:40960             [::]:0                 LISTENING       1002",
+        "  TCP    0.0.0.0:14096          0.0.0.0:0              LISTENING       1003",
+        "  TCP    [::1]:14096            [::]:0                 LISTENING       1004",
+        "  TCP    0.0.0.0:8080           127.0.0.1:4096         LISTENING       1005",
+        "  TCP    127.0.0.1:50000        127.0.0.1:4096         ESTABLISHED     1006",
+        "  TCP    127.0.0.1:4096         127.0.0.1:50001        ESTABLISHED     1007",
+        "  TCP    127.0.0.1:4096         127.0.0.1:50002        TIME_WAIT       0",
+        "  UDP    0.0.0.0:4096           *:*                                    1008",
+      ]),
+    );
+
+    await expect(stopServer(4096, dependencies)).resolves.toBe(false);
+    expect(mocks.kill).not.toHaveBeenCalled();
+  });
+
+  it("selects only the exact-port listener from a mixed table", async () => {
+    stubWindowsNetstat(
+      windowsTable([
+        "  TCP    0.0.0.0:40960          0.0.0.0:0              LISTENING       1001",
+        "  TCP    0.0.0.0:8080           127.0.0.1:4096         LISTENING       1005",
+        "  TCP    127.0.0.1:4096         127.0.0.1:50001        ESTABLISHED     1007",
+        "  TCP    [::1]:4096             [::]:0                 LISTENING       7002",
+      ]),
+    );
+
+    await expect(stopServer(4096, dependencies)).resolves.toBe(true);
+    expect(mocks.kill).toHaveBeenCalledTimes(1);
+    expect(mocks.kill).toHaveBeenCalledWith(7002, "SIGTERM");
+  });
+});
