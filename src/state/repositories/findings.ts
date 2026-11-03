@@ -4,6 +4,17 @@ import { StateDatabaseError } from "../db.js";
 import type { FindingRecord, FindingStatus, InsertFindingInput } from "../types.js";
 import { createFindingId } from "../types.js";
 
+const FINDING_COLUMNS = `
+  id,
+  fingerprint,
+  status,
+  first_review_id AS firstReviewId,
+  last_review_id AS lastReviewId,
+  created_at AS createdAt,
+  updated_at AS updatedAt,
+  archived_at AS archivedAt
+`;
+
 const insertFindingStatement = (db: SqliteDatabase) =>
   db.prepare(`
     INSERT INTO findings (
@@ -27,30 +38,16 @@ const insertFindingStatement = (db: SqliteDatabase) =>
 
 const getFindingByIdStatement = (db: SqliteDatabase) =>
   db.prepare(`
-    SELECT
-      id,
-      fingerprint,
-      status,
-      first_review_id AS firstReviewId,
-      last_review_id AS lastReviewId,
-      created_at AS createdAt,
-      updated_at AS updatedAt
+    SELECT ${FINDING_COLUMNS}
     FROM findings
     WHERE id = ?
   `);
 
 const getFindingByFingerprintStatement = (db: SqliteDatabase) =>
   db.prepare(`
-    SELECT
-      id,
-      fingerprint,
-      status,
-      first_review_id AS firstReviewId,
-      last_review_id AS lastReviewId,
-      created_at AS createdAt,
-      updated_at AS updatedAt
+    SELECT ${FINDING_COLUMNS}
     FROM findings
-    WHERE fingerprint = ?
+    WHERE fingerprint = ? AND archived_at IS NULL
   `);
 
 const FindingRowSchema = z.object({
@@ -61,6 +58,7 @@ const FindingRowSchema = z.object({
   lastReviewId: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  archivedAt: z.string().nullable(),
 });
 
 export function insertFinding(db: SqliteDatabase, input: InsertFindingInput): FindingRecord {
@@ -73,6 +71,7 @@ export function insertFinding(db: SqliteDatabase, input: InsertFindingInput): Fi
     lastReviewId: input.lastReviewId,
     createdAt: timestamp,
     updatedAt: input.updatedAt ?? timestamp,
+    archivedAt: null,
   };
 
   insertFindingStatement(db).run({
@@ -112,14 +111,7 @@ export function listFindingsByStatuses(
   const placeholders = statuses.map(() => "?").join(", ");
   return db
     .prepare(`
-      SELECT
-        id,
-        fingerprint,
-        status,
-        first_review_id AS firstReviewId,
-        last_review_id AS lastReviewId,
-        created_at AS createdAt,
-        updated_at AS updatedAt
+      SELECT ${FINDING_COLUMNS}
       FROM findings
       WHERE status IN (${placeholders})
       ORDER BY updated_at DESC, id ASC
@@ -128,17 +120,23 @@ export function listFindingsByStatuses(
     .map((row) => FindingRowSchema.parse(row));
 }
 
+export function listArchivedFindings(db: SqliteDatabase): FindingRecord[] {
+  return db
+    .prepare(`
+      SELECT ${FINDING_COLUMNS}
+      FROM findings
+      WHERE archived_at IS NOT NULL
+      ORDER BY archived_at DESC, id ASC
+    `)
+    .all()
+    .map((row) => FindingRowSchema.parse(row));
+}
+
+/** Every finding, archived included, so locators can address archived records by id. */
 export function listAllFindings(db: SqliteDatabase): FindingRecord[] {
   return db
     .prepare(`
-      SELECT
-        id,
-        fingerprint,
-        status,
-        first_review_id AS firstReviewId,
-        last_review_id AS lastReviewId,
-        created_at AS createdAt,
-        updated_at AS updatedAt
+      SELECT ${FINDING_COLUMNS}
       FROM findings
       ORDER BY updated_at DESC, id ASC
     `)

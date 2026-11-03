@@ -81,6 +81,7 @@ const MatchRowSchema = z.object({
   lastReviewId: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  archivedAt: z.string().nullable(),
   observationId: z.number(),
   observationReviewId: z.string(),
   observationFindingId: z.string(),
@@ -219,7 +220,7 @@ export function listPossibleDuplicateMatches(
     .prepare(`
       SELECT f.id, f.fingerprint, f.status,
         f.first_review_id AS firstReviewId, f.last_review_id AS lastReviewId,
-        f.created_at AS createdAt, f.updated_at AS updatedAt,
+        f.created_at AS createdAt, f.updated_at AS updatedAt, f.archived_at AS archivedAt,
         o.id AS observationId, o.review_id AS observationReviewId,
         o.finding_id AS observationFindingId, o.file AS observationFile,
         o.line AS observationLine, o.severity AS observationSeverity,
@@ -245,6 +246,7 @@ export function listPossibleDuplicateMatches(
       )
       WHERE f.id <> @candidateFindingId
         AND f.status IN ('dismissed', 'deferred')
+        AND f.archived_at IS NULL
         AND (
           LOWER(TRIM(o.file)) = @candidateFile
           OR TRIM(o.file) = @candidateFileRaw
@@ -299,6 +301,7 @@ export function listPossibleDuplicateMatches(
       lastReviewId: row.lastReviewId,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
+      archivedAt: row.archivedAt,
     },
     observation: {
       id: row.observationId,

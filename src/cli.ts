@@ -111,11 +111,13 @@ import {
   deferFindingByLocator,
   dismissFindingByLocator,
   fixFindingByLocator,
+  listArchivedFindingItems,
   listUnresolvedFindings,
   LocatorAmbiguousError,
   LocatorNotFoundError,
   reopenFindingByLocator,
   requireFindingDetail,
+  unarchiveFindingByLocator,
   withFindingDatabase,
   withFindingDatabaseForRead,
 } from "./state/findings-query.js";
@@ -1439,19 +1441,24 @@ findingsCmd
   .command("list", { isDefault: true })
   .description("List unresolved findings")
   .option("--format <format>", "Output format: text or json", "text")
-  .action(async (options: { format?: string }) => {
+  .option("--archived", "List findings archived past the recurrence window instead")
+  .action(async (options: { format?: string; archived?: boolean }) => {
     await loadConfigOrExit();
     const format = resolveReviewOutputFormat(options.format);
-    const items = await withFindingDatabase(await getSharedDiffOwlDir(), listUnresolvedFindings);
+    const archived = options.archived === true;
+    const items = await withFindingDatabase(
+      await getSharedDiffOwlDir(),
+      archived ? listArchivedFindingItems : listUnresolvedFindings,
+    );
     if (format === "json") {
       process.stdout.write(renderFindingListJson(items));
       return;
     }
     if (items.length === 0) {
-      console.log(chalk.green("No unresolved findings."));
+      console.log(chalk.green(archived ? "No archived findings." : "No unresolved findings."));
       return;
     }
-    console.log(formatFindingList(items));
+    console.log(formatFindingList(items, { archived }));
   });
 
 findingsCmd
@@ -1750,6 +1757,15 @@ findingsCmd
         reason: options.reason,
       }),
     );
+  });
+
+findingsCmd
+  .command("unarchive")
+  .description("Restore an archived finding to tracking and restart its recurrence window")
+  .argument("<locator>", "Finding id or id prefix")
+  .option("--format <format>", "Output format: text or json", "json")
+  .action(async (locator: string, options: { format?: string }) => {
+    await runFindingMutation(locator, options.format, (db) => unarchiveFindingByLocator(db, locator));
   });
 
 program.parse();

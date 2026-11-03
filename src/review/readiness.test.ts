@@ -15,6 +15,7 @@ import { openStateDatabase, closeStateDatabase, applyMigrations, closeDatabaseCo
 import { openSqliteDatabase } from "../state/sqlite.js";
 import { listObservationsForReview } from "../state/repositories/observations.js";
 import { deferFinding, dismissFinding, fixFinding } from "../state/lifecycle.js";
+import { archiveStaleFindings } from "../state/finding-archive.js";
 import { startReviewExecutionJournal } from "../state/review-execution-journal.js";
 import { getReviewById } from "../state/repositories/reviews.js";
 import { getReviewOperationById } from "../state/repositories/review-operations.js";
@@ -596,7 +597,7 @@ describe("review readiness", () => {
     expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({ result: "error", diagnostic: expect.stringContaining("older than supported") });
     expect(await readFile(path)).toEqual(oldBytes);
     const migrated = await openStateDatabase(join(root, ".diffowl"));
-    migrated.db.prepare("INSERT INTO schema_migrations (version, applied_at, name, sha256) VALUES (9, 'future', 'future', 'future')").run();
+    migrated.db.prepare("INSERT INTO schema_migrations (version, applied_at, name, sha256) VALUES (10, 'future', 'future', 'future')").run();
     closeStateDatabase(migrated);
     const futureBytes = await readFile(path);
     expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({ result: "error", diagnostic: expect.stringContaining("newer than supported") });
@@ -618,5 +619,61 @@ describe("review readiness", () => {
     expect(listObservationsForReview(repeated.db, repeatedId)[0]!.findingId).toBe(durableId);
     closeStateDatabase(repeated);
     expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({ reason: "finding-blocked", blockers: { regressed: 1 } });
+  });
+  describe("finding recurrence window", () => {
+    const finding: ReviewFinding = { file: "price.ts", line: 1, severity: "warning", confidence: "high", title: "Price", body: "Unexpected", evidence: "export const price = 12;" };
+    const longAfter = new Date(Date.now() + 400 * 86_400_000);
+
+    async function archiveSweep(): Promise<number> {
+      const state = await openStateDatabase(join(root, ".diffowl"));
+      try { return archiveStaleFindings(state.db, 14, longAfter); } finally { closeStateDatabase(state); }
+    }
+
+    async function dispose(reviewId: string, apply: (db: Parameters<typeof fixFinding>[0], findingId: string) => void) {
+      const state = await openStateDatabase(join(root, ".diffowl"));
+      try { apply(state.db, listObservationsForReview(state.db, reviewId)[0]!.findingId); } finally { closeStateDatabase(state); }
+    }
+
+    it("keeps an idle branch blocked by an open finding older than the window", async () => {
+      await reviewBranch([finding]);
+      const blocked = await getReadiness({ projectRoot: root, base: "main" });
+      expect(blocked).toMatchObject({ reason: "finding-blocked", blockers: { open: 1 } });
+
+      expect(await archiveSweep()).toBe(0);
+
+      expect(await getReadiness({ projectRoot: root, base: "main" })).toEqual(blocked);
+    });
+
+    it("keeps an idle branch blocked by a deferred finding older than the window", async () => {
+      const id = await reviewBranch([finding]);
+      await dispose(id, (db, findingId) => deferFinding(db, findingId, { actor: "user", reason: "Later" }));
+      const blocked = await getReadiness({ projectRoot: root, base: "main" });
+      expect(blocked).toMatchObject({ reason: "finding-blocked" });
+
+      expect(await archiveSweep()).toBe(0);
+
+      expect(await getReadiness({ projectRoot: root, base: "main" })).toEqual(blocked);
+    });
+
+    it("leaves readiness and its coverage unchanged when resolved findings are archived", async () => {
+      const id = await reviewBranch([finding]);
+      await dispose(id, (db, findingId) => fixFinding(db, findingId, { actor: "user", note: "Verified fix", verifiedBy: ["fixture assertion"], commitRef: head }));
+      const ready = await getReadiness({ projectRoot: root, base: "main" });
+      expect(ready).toMatchObject({ result: "ready", coverage: { checkpoint_review_id: id } });
+
+      expect(await archiveSweep()).toBe(1);
+
+      expect(await getReadiness({ projectRoot: root, base: "main" })).toEqual(ready);
+    });
+
+    it("blocks a branch whose archived fix is re-detected after the window", async () => {
+      const id = await reviewBranch([finding]);
+      await dispose(id, (db, findingId) => fixFinding(db, findingId, { actor: "user", note: "Verified fix", verifiedBy: ["fixture assertion"], commitRef: head }));
+      await archiveSweep();
+
+      await reviewBranch([finding]);
+
+      expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({ reason: "finding-blocked", blockers: { open: 1 } });
+    });
   });
 });

@@ -14,6 +14,7 @@ import {
   type ReviewInputIdentity,
 } from "../review/provenance.js";
 import type { ReviewFinding, ReviewTiming } from "../review/types.js";
+import type { FindingRetention } from "./finding-archive.js";
 import {
   persistCanonicalReview,
   persistSkippedReview,
@@ -84,6 +85,7 @@ interface LegacyTestPersistReviewInput extends Omit<
 export type TestPersistReviewInput = (TestReviewInput | LegacyTestPersistReviewInput) & {
   findings: ReviewFinding[];
   symbolKeys?: Array<string | null>;
+  retention?: FindingRetention;
 };
 
 export function insertTestReview(db: SqliteDatabase, input: TestReviewInput): ReviewRecord {
@@ -158,6 +160,7 @@ export async function persistTestReview(
     findings: input.findings,
   };
   if (input.symbolKeys !== undefined) canonicalInput.symbolKeys = input.symbolKeys;
+  if (input.retention !== undefined) canonicalInput.retention = input.retention;
   return persistCanonicalReview(diffOwlDir, canonicalInput);
 }
 

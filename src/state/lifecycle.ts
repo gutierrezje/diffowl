@@ -204,6 +204,11 @@ function requireFinding(db: SqliteDatabase, findingId: string): FindingRecord {
   if (!finding) {
     throw new InvalidFindingTransitionError(`Finding ${findingId} was not found.`);
   }
+  if (finding.archivedAt !== null) {
+    throw new InvalidFindingTransitionError(
+      `Finding ${findingId} is archived; run diffowl findings unarchive before changing it.`,
+    );
+  }
   return finding;
 }
 

@@ -15,6 +15,8 @@ const MAX_LOCATION_SHARE = 0.4;
 export interface FormatFindingListOptions {
   columns?: number;
   color?: boolean;
+  /** Lists findings archived past the recurrence window instead of the open backlog. */
+  archived?: boolean;
 }
 
 export function shortenFindingId(id: string): string {
@@ -37,14 +39,17 @@ export function formatFindingList(
   const layout = computeListLayout(columns);
   const lines: string[] = [];
 
-  lines.push(
-    color ? chalk.bold(`Open findings: ${items.length}`) : `Open findings: ${items.length}`,
-  );
-  lines.push(
-    color
-      ? chalk.dim("Durable backlog; absence from later reviews does not auto-fix findings.")
-      : "Durable backlog; absence from later reviews does not auto-fix findings.",
-  );
+  const heading = options.archived
+    ? `Archived findings: ${items.length}`
+    : `Open findings: ${items.length}`;
+  const subheading = options.archived
+    ? "Past the recurrence window; kept for lookup and no longer matched against new reviews."
+    : "Durable backlog; absence from later reviews does not auto-fix findings.";
+  const footer = options.archived
+    ? "Restore tracking: diffowl findings unarchive <id>"
+    : "Mark resolved: diffowl findings fix <id> --note <text> --verified-by <command>";
+  lines.push(color ? chalk.bold(heading) : heading);
+  lines.push(color ? chalk.dim(subheading) : subheading);
   lines.push("");
   lines.push(
     color
@@ -73,11 +78,7 @@ export function formatFindingList(
   }
 
   lines.push("");
-  lines.push(
-    color
-      ? chalk.dim("Mark resolved: diffowl findings fix <id> --note <text> --verified-by <command>")
-      : "Mark resolved: diffowl findings fix <id> --note <text> --verified-by <command>",
-  );
+  lines.push(color ? chalk.dim(footer) : footer);
 
   return lines.join("\n");
 }
@@ -91,6 +92,9 @@ export function formatFindingDetail(detail: FindingDetail): string {
     `Created: ${detail.finding.createdAt}`,
     `Updated: ${detail.finding.updatedAt}`,
   ];
+  if (detail.finding.archivedAt !== null) {
+    lines.push(`Archived: ${detail.finding.archivedAt}`);
+  }
 
   if (detail.observation) {
     lines.push(

@@ -15,7 +15,8 @@ import {
   getStateDbPath,
   openStateDatabase,
 } from "./state/db.js";
-import { dismissFinding } from "./state/lifecycle.js";
+import { archiveStaleFindings } from "./state/finding-archive.js";
+import { dismissFinding, fixFinding } from "./state/lifecycle.js";
 import { MIGRATION_001_INITIAL_SCHEMA } from "./state/migrations/001-initial-schema.js";
 import { MIGRATION_002_BASE_REVIEW_TARGET } from "./state/migrations/002-base-review-target.js";
 import { suggestPossibleDuplicates } from "./state/possible-duplicates.js";
@@ -1617,6 +1618,39 @@ describe("diffowl CLI", () => {
     expect(document.review.report_path).toBeNull();
     expect(document.findings).toEqual([]);
     await expect(access(join(repo, ".diffowl/state.db"))).resolves.toBeUndefined();
+  });
+});
+
+describe("diffowl findings archive", () => {
+  it("hides archived findings from the backlog, lists them on request, and restores them", async () => {
+    const repo = await createRepo("diffowl-cli-findings-archive-");
+    await writeFile(join(repo, "README.md"), "hello\n", "utf8");
+    await commitAll(repo, "initial");
+    const { stdout: headCommit } = await execa("git", ["rev-parse", "HEAD"], { cwd: repo });
+    const { findingId } = await seedOpenFinding(repo, headCommit.trim());
+    const state = await openStateDatabase(join(repo, ".diffowl"));
+    try {
+      fixFinding(state.db, findingId, { actor: "user", note: "Patched.", verifiedBy: ["fixture"] });
+      expect(archiveStaleFindings(state.db, 14, new Date(Date.now() + 15 * 86_400_000))).toBe(1);
+    } finally {
+      closeStateDatabase(state);
+    }
+    const run = (...args: string[]) => execa(process.execPath, [cliPath, ...args], { cwd: repo, reject: false });
+
+    const backlog = JSON.parse((await run("findings", "list", "--format", "json")).stdout);
+    expect(backlog.findings).toEqual([]);
+    const archived = JSON.parse((await run("findings", "list", "--archived", "--format", "json")).stdout);
+    expect(archived.findings.map((item: { finding: { id: string } }) => item.finding.id)).toEqual([findingId]);
+    expect((await run("findings", "list", "--archived")).stdout).toContain("Archived findings: 1");
+    const shown = await run("findings", "show", findingId);
+    expect(shown.stdout).toMatch(/Archived: \d{4}-/);
+    const refused = await run("findings", "reopen", findingId, "--reason", "Regression");
+    expect(refused.exitCode).toBe(1);
+    expect(refused.stdout + refused.stderr).toContain("archived");
+
+    const restored = JSON.parse((await run("findings", "unarchive", findingId)).stdout);
+    expect(restored.finding.archivedAt).toBeNull();
+    expect((await run("findings", "list", "--archived")).stdout).toContain("No archived findings.");
   });
 });
 

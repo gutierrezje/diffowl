@@ -15,9 +15,11 @@ import { openStateDatabaseForWrite } from "./write-database.js";
 import { deferFinding, dismissFinding, fixFinding, reopenFinding } from "./lifecycle.js";
 import { countObservationsByFindingIds } from "./repositories/observations.js";
 import { listFindingEvents } from "./repositories/events.js";
+import { unarchiveFinding } from "./finding-archive.js";
 import {
   getFindingById,
   listAllFindings,
+  listArchivedFindings,
   listFindingsByStatuses,
 } from "./repositories/findings.js";
 import {
@@ -75,6 +77,11 @@ export function listUnresolvedFindings(db: SqliteDatabase): FindingListItem[] {
   return listFindingsByStatuses(db, ["open", "regressed"]).map((finding) =>
     toFindingListItem(db, finding),
   );
+}
+
+/** Findings aged past the recurrence window: kept for lookup, outside matching and the backlog. */
+export function listArchivedFindingItems(db: SqliteDatabase): FindingListItem[] {
+  return listArchivedFindings(db).map((finding) => toFindingListItem(db, finding));
 }
 
 export function getFindingDetail(db: SqliteDatabase, findingId: string): FindingDetail | undefined {
@@ -154,6 +161,10 @@ export function reopenFindingByLocator(
   input: { actor: FindingActor; reason: string },
 ): FindingDetail {
   return mutateFinding(db, locator, (findingId) => reopenFinding(db, findingId, input));
+}
+
+export function unarchiveFindingByLocator(db: SqliteDatabase, locator: string): FindingDetail {
+  return mutateFinding(db, locator, (findingId) => unarchiveFinding(db, findingId));
 }
 
 export function isUnresolvedFinding(status: FindingRecord["status"]): boolean {

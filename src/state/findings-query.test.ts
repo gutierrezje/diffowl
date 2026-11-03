@@ -3,15 +3,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { InvalidFindingTransitionError } from "./db.js";
+import { archiveStaleFindings } from "./finding-archive.js";
 import {
   deferFindingByLocator,
   dismissFindingByLocator,
   fixFindingByLocator,
+  listArchivedFindingItems,
   listUnresolvedFindings,
   LocatorAmbiguousError,
   LocatorNotFoundError,
   reopenFindingByLocator,
   requireFindingDetail,
+  unarchiveFindingByLocator,
   withFindingDatabase,
 } from "./findings-query.js";
 import { reconcileReviewFindings } from "./reconcile.js";
@@ -138,6 +141,105 @@ describe("findings query", () => {
       expect(() => requireFindingDetail(db, "fnd_")).toThrow(LocatorAmbiguousError);
       expect(() => requireFindingDetail(db, "latest:9")).toThrow(LocatorNotFoundError);
       expect(listUnresolvedFindings(db)).toHaveLength(2);
+    });
+  });
+
+  describe("archived findings", () => {
+    const later = new Date(Date.now() + 15 * 86_400_000);
+
+    it("keeps archived findings out of the backlog but lists them on request", async () => {
+      const dir = await createTempDir();
+      await withFindingDatabase(dir, (db) => {
+        const review = insertReview(db, baseReview());
+        const [fixedCandidate, openCandidate] = [
+          { ...candidate, file: "src/fixed.ts", evidence: "fixed();" },
+          { ...candidate, file: "src/open.ts", evidence: "open();" },
+        ];
+        const fixed = reconcileReviewFindings(db, review.id, [fixedCandidate, openCandidate])
+          .observations[0]!.finding;
+        fixFindingByLocator(db, fixed.id, {
+          actor: "user",
+          note: "Patched.",
+          verifiedBy: ["pnpm run test"],
+        });
+        archiveStaleFindings(db, 14, later);
+
+        expect(listUnresolvedFindings(db).map((item) => item.finding.fingerprint)).toHaveLength(1);
+        const archived = listArchivedFindingItems(db);
+        expect(archived).toHaveLength(1);
+        expect(archived[0]?.finding.id).toBe(fixed.id);
+        expect(archived[0]?.finding.archivedAt).toBe(later.toISOString());
+        expect(archived[0]?.observation?.file).toBe("src/fixed.ts");
+      });
+    });
+
+    it("resolves archived findings by id and shows when they were archived", async () => {
+      const dir = await createTempDir();
+      await withFindingDatabase(dir, (db) => {
+        const review = insertReview(db, baseReview());
+        const finding = reconcileReviewFindings(db, review.id, [candidate]).observations[0]!.finding;
+        dismissFindingByLocator(db, finding.id, { actor: "user", reason: "Intended." });
+        archiveStaleFindings(db, 14, later);
+
+        const detail = requireFindingDetail(db, finding.id.slice(0, 12));
+        expect(detail.finding.archivedAt).toBe(later.toISOString());
+        expect(detail.events.map((event) => event.eventType)).toContain("dismissed");
+      });
+    });
+
+    it("refuses lifecycle changes to an archived finding", async () => {
+      const dir = await createTempDir();
+      await withFindingDatabase(dir, (db) => {
+        const review = insertReview(db, baseReview());
+        const finding = reconcileReviewFindings(db, review.id, [candidate]).observations[0]!.finding;
+        fixFindingByLocator(db, finding.id, {
+          actor: "user",
+          note: "Patched.",
+          verifiedBy: ["pnpm run test"],
+        });
+        archiveStaleFindings(db, 14, later);
+
+        expect(() =>
+          reopenFindingByLocator(db, finding.id, { actor: "user", reason: "Regression." }),
+        ).toThrow(/archived/);
+        expect(requireFindingDetail(db, finding.id).finding.status).toBe("fixed");
+      });
+    });
+
+    it("unarchives a finding back into tracking, restarting its window", async () => {
+      const dir = await createTempDir();
+      await withFindingDatabase(dir, (db) => {
+        const review = insertReview(db, baseReview());
+        const finding = reconcileReviewFindings(db, review.id, [candidate]).observations[0]!.finding;
+        dismissFindingByLocator(db, finding.id, { actor: "user", reason: "Intended." });
+        archiveStaleFindings(db, 14, later);
+
+        const restored = unarchiveFindingByLocator(db, finding.id);
+        expect(restored.finding.archivedAt).toBeNull();
+        expect(restored.finding.status).toBe("dismissed");
+        expect(listArchivedFindingItems(db)).toHaveLength(0);
+        // The window restarts at restoration, so the next sweep leaves it alone.
+        expect(archiveStaleFindings(db, 14, new Date())).toBe(0);
+
+        const second = insertReview(db, { ...baseReview(), diffHash: "second" });
+        const again = reconcileReviewFindings(db, second.id, [candidate]).observations[0]!;
+        expect(again.finding.id).toBe(finding.id);
+        expect(again.suppressed).toBe(true);
+      });
+    });
+
+    it("refuses to unarchive over a fresh active finding with the same fingerprint", async () => {
+      const dir = await createTempDir();
+      await withFindingDatabase(dir, (db) => {
+        const review = insertReview(db, baseReview());
+        const original = reconcileReviewFindings(db, review.id, [candidate]).observations[0]!.finding;
+        dismissFindingByLocator(db, original.id, { actor: "user", reason: "Intended." });
+        archiveStaleFindings(db, 14, later);
+        const successor = reconcileReviewFindings(db, review.id, [candidate]).observations[0]!.finding;
+
+        expect(() => unarchiveFindingByLocator(db, original.id)).toThrow(successor.id);
+        expect(requireFindingDetail(db, original.id).finding.archivedAt).not.toBeNull();
+      });
     });
   });
 });
