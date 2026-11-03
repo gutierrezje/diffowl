@@ -42,6 +42,8 @@ export function archiveStaleFindings(
  * Call inside the review's persistence transaction, before findings are reconciled: matching must
  * already honor the window, or a stale finding would still match on the first review after a long
  * gap. The sweep runs in a savepoint, so a failure rolls back only the sweep, never the review.
+ * Only failure is published: a success message would precede the enclosing commit and could be
+ * retracted by a later rollback.
  */
 export function archiveStaleFindingsSafely(
   state: StateDatabase,
@@ -49,12 +51,9 @@ export function archiveStaleFindingsSafely(
   now: Date = new Date(),
 ): void {
   try {
-    const archived = runInTransaction(state.db, () =>
+    runInTransaction(state.db, () =>
       archiveStaleFindings(state.db, retention.finding_recurrence_days, now),
     );
-    if (archived > 0) {
-      diagnostics.publish({ kind: "findings-archived", databasePath: state.path, archived });
-    }
   } catch (error) {
     diagnostics.publish({
       kind: "findings-archive-failed",

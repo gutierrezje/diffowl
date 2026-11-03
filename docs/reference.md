@@ -210,7 +210,7 @@ An archived finding stays in the database. `diffowl findings show <id>` still pr
 
 Age counts from the last sighting or disposition, whichever is later, not from the first sighting. DiffOwl never archives `open`, `regressed`, or `deferred` findings, however old, because they block readiness. Archiving does not change reviews, observations, events, or coverage, so it cannot change a readiness result. Set `retention.finding_recurrence_days` to `0` to turn archiving off.
 
-DiffOwl archives eligible findings inside the transaction that saves a canonical review, just before it matches the review's findings, so the review already matches against the current window. If archiving fails, DiffOwl rolls back only the archiving, saves the review, and matches as it would without a window. `unarchive` is not recorded as a finding event. The `diffowl.state.retention` diagnostics channel publishes `{ kind: "findings-archived", databasePath, archived }` or `{ kind: "findings-archive-failed", databasePath, message }`.
+DiffOwl archives eligible findings inside the transaction that saves a canonical review, just before it matches the review's findings, so the review already matches against the current window. If archiving fails, DiffOwl rolls back only the archiving, saves the review, and matches as it would without a window. `unarchive` is not recorded as a finding event. The `diffowl.state.retention` diagnostics channel publishes `{ kind: "findings-archive-failed", databasePath, message }` when archiving fails.
 
 ## Files DiffOwl creates
 
