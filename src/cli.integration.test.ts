@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { access, chmod, mkdir, mkdtemp, readFile, readdir, realpath, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -1667,6 +1667,41 @@ describe.skipIf(process.platform !== "linux" || !hasUtilLinuxScript())(
       await expect(access(join(setup.repo, ".diffowl/server.pid"))).rejects.toThrow();
       await waitForPath(setup.terminated);
     }, 30_000);
+
+    it("leaves a running OpenCode server alone when setup finds no connected providers", async () => {
+      const setup = await createFakeOpencodeRepo("diffowl-cli-setup-opencode-existing-");
+      serverPidFile = setup.serverPid;
+      const port = await findFreePort();
+      await writeFile(
+        join(setup.repo, ".diffowl.yml"),
+        `server:\n  port: ${port}\n  auto_start: true\n`,
+        "utf8",
+      );
+      // A server the developer already runs: healthy, with no provider connected.
+      void execa(setup.opencode, ["serve", "--port", String(port)], {
+        env: { FAKE_OPENCODE_LISTEN: "1" },
+        reject: false,
+      });
+      await waitForHealthy(port);
+
+      const result = await execa(
+        "script",
+        [
+          "-qec",
+          `stty cols 120 rows 40; ${shellQuote(process.execPath)} ${shellQuote(cliPath)} init`,
+          "/dev/null",
+        ],
+        { cwd: setup.repo, env: setup.env, reject: false, stdin: "ignore" },
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain("No active/connected providers");
+      // Only the developer's own launch is recorded; setup neither started nor stopped a server.
+      const launches = (await readFile(setup.calls, "utf8")).trim().split("\n");
+      expect(launches).toEqual([`serve --port ${port}`]);
+      await expect(access(setup.terminated)).rejects.toThrow();
+      expect(() => process.kill(Number(readFileSync(setup.serverPid, "utf8")), 0)).not.toThrow();
+    }, 30_000);
   },
 );
 
@@ -2464,6 +2499,7 @@ async function createRepo(
 async function createFakeOpencodeRepo(prefix: string): Promise<{
   repo: string;
   env: Record<string, string>;
+  opencode: string;
   calls: string;
   terminated: string;
   serverPid: string;
@@ -2487,6 +2523,13 @@ async function createFakeOpencodeRepo(prefix: string): Promise<{
       `    fs.writeFileSync(${JSON.stringify(terminated)}, "terminated");`,
       "    process.exit(0);",
       "  });",
+      "  if (process.env.FAKE_OPENCODE_LISTEN) {",
+      '    const port = Number(process.argv[process.argv.indexOf("--port") + 1]);',
+      '    require("node:http").createServer((req, res) => {',
+      '      res.setHeader("content-type", "application/json");',
+      '      res.end(JSON.stringify(req.url === "/global/health" ? { healthy: true } : { all: [], connected: [], default: {} }));',
+      '    }).listen(port, "127.0.0.1");',
+      "  }",
       "  setInterval(() => {}, 1000);",
       "}",
       "",
@@ -2496,6 +2539,7 @@ async function createFakeOpencodeRepo(prefix: string): Promise<{
   return {
     repo,
     env: { PATH: `${bin}:${process.env["PATH"] ?? ""}` },
+    opencode: join(bin, "opencode"),
     calls,
     terminated,
     serverPid,
@@ -2581,6 +2625,19 @@ async function commitAll(repo: string, message: string): Promise<void> {
     ],
     { cwd: repo },
   );
+}
+
+async function waitForHealthy(port: number): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const healthy = await fetch(`http://127.0.0.1:${port}/global/health`).then(
+      (res) => res.ok,
+      () => false,
+    );
+    if (healthy) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`Timed out waiting for a server on port ${port}`);
 }
 
 async function waitForPath(path: string): Promise<void> {
