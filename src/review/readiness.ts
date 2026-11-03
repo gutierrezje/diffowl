@@ -7,6 +7,8 @@ import { type CoverageReview, readReadinessEvidence } from "../state/readiness-e
 import { blockingContextDegradations, readReviewCheckout, reviewPolicySha256 } from "./coverage.js";
 import { readReadinessQueue } from "./readiness-runtime.js";
 import { isProcessLeaseAlive } from "../state/process-lease.js";
+import { isPolicyChangeAcknowledged } from "../state/policy-acknowledgements.js";
+import { comparePolicyToBase } from "./policy-change.js";
 
 export interface ReadinessOptions {
   projectRoot: string;
@@ -15,13 +17,14 @@ export interface ReadinessOptions {
 }
 export type ReadinessReason = "ready" | "missing-review" | "incomplete-coverage" |
   "incompatible-lineage" | "incompatible-policy" | "stale-coverage" | "review-pending" |
-  "review-failed" | "dirty-worktree" | "finding-blocked" | "operational-error";
+  "review-failed" | "dirty-worktree" | "finding-blocked" | "policy-changed-on-branch" | "operational-error";
 const NEXT_ACTION = {
   ready: "handoff", "missing-review": "review-branch", "incomplete-coverage": "review-branch",
   "incompatible-lineage": "review-branch", "incompatible-policy": "review-branch",
   "stale-coverage": "review-uncovered-change", "review-pending": "wait",
   "review-failed": "inspect-failure", "dirty-worktree": "commit-or-restore",
-  "finding-blocked": "disposition-findings", "operational-error": "repair-dependency",
+  "finding-blocked": "disposition-findings",
+  "policy-changed-on-branch": "acknowledge-policy-change", "operational-error": "repair-dependency",
 } as const satisfies Record<ReadinessReason, string>;
 export interface ReadinessResult {
   schema_version: 1;
@@ -31,6 +34,8 @@ export interface ReadinessResult {
   next_action: typeof NEXT_ACTION[ReadinessReason];
   target: { base_commit: string; merge_base_commit: string; head_commit: string } | null;
   policy_sha256: string | null;
+  /** Present when the branch's effective review policy differs from the base commit's. */
+  policy_change: { base_policy_sha256: string; branch_policy_sha256: string; acknowledged: boolean } | null;
   worktree_clean: boolean | null;
   coverage: { checkpoint_review_id: string | null; repair_review_ids: string[]; uncovered_commits: string[] };
   blockers: { open: number; regressed: number; deferred: number; untracked: number };
@@ -40,7 +45,7 @@ export interface ReadinessResult {
 export async function getReadiness(options: ReadinessOptions): Promise<ReadinessResult> {
   const result: ReadinessResult = {
     schema_version: 1, result: "not-ready", reason: "missing-review", exit_code: 1,
-    next_action: "review-branch", target: null, policy_sha256: null, worktree_clean: null,
+    next_action: "review-branch", target: null, policy_sha256: null, policy_change: null, worktree_clean: null,
     coverage: { checkpoint_review_id: null, repair_review_ids: [], uncovered_commits: [] },
     blockers: { open: 0, regressed: 0, deferred: 0, untracked: 0 }, diagnostic: null,
   };
@@ -68,6 +73,14 @@ export async function getReadiness(options: ReadinessOptions): Promise<Readiness
       cursor = parent;
     }
     const stateDir = await resolveSharedDiffOwlDir(options.projectRoot);
+    const policyChange = await comparePolicyToBase(options.projectRoot, base, config, options.depth);
+    if (policyChange !== null) {
+      result.policy_change = {
+        base_policy_sha256: policyChange.base_policy_sha256,
+        branch_policy_sha256: policyChange.branch_policy_sha256,
+        acknowledged: await isPolicyChangeAcknowledged(stateDir, policyChange),
+      };
+    }
     const evidence = await readStateSnapshot(stateDir, readReadinessEvidence);
     const reviews = evidence?.reviews ?? [];
     const selected = selectCoverage(reviews, policy, result.target, parents);
@@ -137,7 +150,13 @@ export async function getReadiness(options: ReadinessOptions): Promise<Readiness
     if (reviewPolicySha256(configAfter, options.depth ?? configAfter.context.depth) !== policy) {
       throw new Error("Review policy changed during the readiness query. Query again.");
     }
+    // Only gates an otherwise-ready result: other reasons already block handoff, and the
+    // policy_change field keeps the difference visible while they are repaired.
     result.diagnostic = reason === "incomplete-coverage" ? coverageDiagnostic ?? selected.diagnostic : null;
+    if (reason === "ready" && result.policy_change !== null && !result.policy_change.acknowledged) {
+      reason = "policy-changed-on-branch";
+      result.diagnostic = describePolicyChange(result.policy_change);
+    }
     return withReason(result, reason);
   } catch (error) {
     result.diagnostic = (error instanceof Error ? error.message : String(error)).slice(0, 1000);
@@ -189,6 +208,11 @@ function selectCoverage(
     if (reason === "ready") break;
   }
   return { coverage, reason, valid, diagnostic };
+}
+
+function describePolicyChange(change: NonNullable<ReadinessResult["policy_change"]>): string {
+  return `The branch's review policy (${change.branch_policy_sha256}) differs from the base commit's (${change.base_policy_sha256}). ` +
+    "A person must review the change and run `diffowl policy accept` (with the same --depth, if any) in a terminal; an agent must not acknowledge it.";
 }
 
 function isIncompleteCoverage(review: CoverageReview, policy: string): boolean {

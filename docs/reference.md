@@ -9,6 +9,7 @@ This page lists DiffOwl's commands, review options, finding states, configuratio
 | `diffowl init`       | Configure DiffOwl in the current repository               |
 | `diffowl review`     | Run a review. The default command when none is given      |
 | `diffowl readiness`  | Check branch review coverage and findings without changes |
+| `diffowl policy accept` | Acknowledge a review policy change made on the branch (terminal only) |
 | `diffowl findings`   | Inspect and update durable findings                       |
 | `diffowl backend`    | View or change the local review backend                   |
 | `diffowl model`      | View or change the model for the selected backend         |
@@ -99,6 +100,8 @@ When a review reports a `dismissed` or `deferred` finding again, the finding kee
 | `2`       | Git, configuration, database, or runtime state cannot be read |
 
 Dirty files and unhandled actionable findings block readiness. A later review does not resolve earlier findings. Reviews from versions without coverage evidence cannot prove readiness, so run a new full branch review. An older database needs a command that writes state before readiness can read it. Actionable output without a durable finding identity blocks readiness, because it cannot receive a disposition.
+
+If the branch's `.diffowl.yml` produces a different review policy than the base commit's, an otherwise ready branch reports `policy-changed-on-branch` until a person runs `diffowl policy accept` in a terminal. The command shows what changed and asks for confirmation; it refuses when stdin or stdout is not a terminal. Any further policy edit, or a different base commit, needs a new acknowledgement.
 
 The JSON output includes the resolved base and `HEAD`, the review IDs that provide coverage, uncovered commits, blocker counts, and a `next_action`. `--depth` sets the expected context depth when it differs from project configuration. The [readiness contract](readiness-contract.md) defines the full policy.
 

@@ -60,6 +60,74 @@ Replacement evidence includes compatible publications outside the selected
 coverage chain. A manual retry can supersede a hook failure, but a remaining
 hook marker still represents queued work and prevents handoff.
 
+## Branch policy changes
+
+Status: accepted on 2026-11-02. Tracks #215.
+
+Readiness evaluates coverage against the review policy read from the working
+tree. A branch controls that file, so an agent could add `exclude` globs, drop
+`rules`, or lower `min_confidence`, run one full review under the looser policy,
+and obtain `ready`. Policy identity alone cannot catch this, because the review
+and the query agree with each other.
+
+Readiness therefore also computes the policy hash from `.diffowl.yml` at
+`target.base_commit` (`git show <base>:./.diffowl.yml`; a base without the file means
+the defaults) with the same `reviewPolicySha256` used for coverage, over the whole
+effective policy, so new policy knobs are covered when they enter that hash. The base
+side uses the depth its own config selects; the branch side uses the `--depth` value or
+its configured depth, so choosing a shallower depth by flag is also a policy change. From
+a subdirectory project root, the base config is the nearest `.diffowl.yml` walking up to
+the repository root, matching how the project root is discovered. When the two hashes
+differ, the proof is `not-ready` with reason `policy-changed-on-branch` and next action
+`acknowledge-policy-change`, until a matching acknowledgement exists. The gate applies
+to an otherwise ready result; higher-priority reasons still report first, and
+`policy_change` stays visible while they are repaired. Legitimate policy changes are
+not forbidden: they need a person's decision. Edits that do not alter the effective
+policy (comments, `timeout`, `server`) do not trigger it.
+
+An unparseable `.diffowl.yml` at the base is an operational error, never an
+assumption of default policy. That includes a config the current schema no longer
+accepts (for example a key removed by a later DiffOwl version): readiness fails
+closed against that base until the base is updated.
+
+### Why non-ready with a terminal acknowledgement
+
+A ready result plus a `policy_changed_on_branch` diagnostic was rejected. Agents are
+told to hand off when exit 0 and `ready` hold, and a diagnostic on a ready result is
+exactly the field an automation or an agent summarizing its work drops. The failure
+mode is silent: the loosened gate looks identical to a passing one. A non-ready
+reason fails closed for every consumer that follows `next_action`, including older
+clients that do not know the new value.
+
+Making it non-ready needs a way out, otherwise legitimate policy changes could never
+be handed off. The acknowledgement is bound to the exact tuple (base commit, base
+policy hash, branch policy hash), so it approves one decision and any further edit,
+rebase onto a different base, or tuple change invalidates it. `diffowl policy accept`
+prints the differing policy fields and requires the user to type `accept`. Pass the same
+`--base` and `--depth` as the readiness query; the acknowledgement is keyed to that tuple. It refuses
+unless both stdin and stdout are a terminal, which stops the ordinary agent path of
+running a shell command with piped I/O.
+
+Limits, stated plainly: this is friction against an agent that follows its
+instructions, not a security boundary. The acknowledgement is stored as
+`policy-acknowledgements.json` in the shared DiffOwl state directory (the same
+directory as the state database, outside the committed tree), and a process with
+write access to that directory or a pseudo-terminal could forge or satisfy it. The
+managed AGENTS.md block and the handoff workflow tell agents not to. Forge-side
+protection (for example reading policy from a protected default branch in CI) remains
+the stronger control and is outside this local contract. Replacing the working-tree
+policy with the base policy remains out of scope.
+
+### Contract and schema
+
+`schema_version` stays 1. The change is additive: a new `policy_change` field (`null`
+when policies match, otherwise `base_policy_sha256`, `branch_policy_sha256` and
+`acknowledged`), plus a new reason and next action. Consumers are already required to
+treat an unknown action or version as no proof, so an older client fails closed
+instead of reading the new state as ready. The meaning of `ready` is unchanged and a
+ready result continues to carry every earlier field. When not acknowledged, the
+diagnostic names both hashes.
+
 ## Finding and worktree policy
 
 Actionable means warning or error after the review's confidence policy. Relevant
@@ -98,6 +166,7 @@ successful result.
 | Only staged or commit reviews | incomplete-coverage | full branch review | 1 |
 | Disconnected checkpoint or moved base | incompatible-lineage | full branch review | 1 |
 | Policy differs or historical evidence insufficient | incompatible-policy | full branch review | 1 |
+| Branch policy differs from the base commit's and is not acknowledged | policy-changed-on-branch | ask the user to run `diffowl policy accept` | 1 |
 | HEAD advanced with an uncovered repair | stale-coverage | review uncovered change | 1 |
 | Review queued or running for relevant work | review-pending | wait and query again | 1 |
 | Relevant attempt failed without a later successful replacement | review-failed | inspect failure and retry | 1 |
@@ -114,7 +183,7 @@ when another condition supplies the primary reason. Pending work takes priority
 over starting duplicate reviews. Dirty work precedes reviewing a new snapshot.
 
 The versioned JSON includes result, reason, next action, resolved base/merge-base/
-head, coverage checkpoint and ordered repair review IDs, policy identity, and
+head, coverage checkpoint and ordered repair review IDs, policy identity, any branch policy change, and
 blocking finding counts, worktree cleanliness, and uncovered commit IDs. An operational error includes a bounded diagnostic and
 any identity already resolved; it contains no reassuring `ready` state.
 

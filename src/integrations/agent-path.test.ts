@@ -119,6 +119,8 @@ describe("enableAgentPath", () => {
     expect(markdown).toContain(AGENT_PATH_INSTRUCTION_START);
     expect(markdown).toContain("`diffowl readiness --base <base-ref> --format json`");
     expect(markdown).toContain("`diffowl findings`");
+    expect(markdown).toContain("`acknowledge-policy-change`");
+    expect(markdown).toContain("Never change or loosen review policy");
     expect(markdown).toContain(AGENT_PATH_INSTRUCTION_END);
     await expect(
       readFile(join(projectRoot, ".claude", "settings.json"), "utf-8"),
