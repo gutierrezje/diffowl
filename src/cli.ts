@@ -50,7 +50,7 @@ import {
   ensureServer,
   getInstalledOpencodeVersion,
   getServerHealth,
-  isServerRunning,
+  readManagedServerPid,
   stopServer,
 } from "./opencode/server.js";
 import {
@@ -1094,10 +1094,11 @@ async function selectModelInteractively(
   }
 
   const port = config.server.port;
-  const startsServer = config.server.auto_start && !(await isServerRunning(port));
-  // A failed selection must not leave behind a server this query started.
+  const serverPidBefore = await readManagedServerPid();
+  // A failed selection must not leave behind a server this query started. Only a spawn by this
+  // invocation rewrites the PID file, so a server that already ran (or came up meanwhile) is spared.
   const failSelection = async (): Promise<never> => {
-    if (startsServer) {
+    if ((await readManagedServerPid()) !== serverPidBefore) {
       await stopServer(port).catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
         console.error(chalk.yellow(`Could not stop the OpenCode server setup started: ${message}`));
