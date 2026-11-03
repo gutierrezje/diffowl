@@ -30,6 +30,8 @@ export async function readReviewCheckout(projectRoot: string): Promise<{ head: s
   return { head, status };
 }
 
+export type ReviewPolicyInput = ReturnType<typeof reviewPolicyInput>;
+
 /** The effective review policy. Anything that changes review scope or judgment belongs here. */
 export function reviewPolicyInput(config: DiffOwlConfig, depth: ReviewContextDepth) {
   return {

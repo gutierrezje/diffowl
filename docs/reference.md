@@ -101,7 +101,7 @@ When a review reports a `dismissed` or `deferred` finding again, the finding kee
 
 Dirty files and unhandled actionable findings block readiness. A later review does not resolve earlier findings. Reviews from versions without coverage evidence cannot prove readiness, so run a new full branch review. An older database needs a command that writes state before readiness can read it. Actionable output without a durable finding identity blocks readiness, because it cannot receive a disposition.
 
-If the branch's `.diffowl.yml` produces a different review policy than the base commit's, an otherwise ready branch reports `policy-changed-on-branch` until a person runs `diffowl policy accept` in a terminal. The command shows what changed and asks for confirmation; it refuses when stdin or stdout is not a terminal. Any further policy edit, or a different base commit, needs a new acknowledgement.
+If the branch's `.diffowl.yml` produces a different review policy than the base commit's, an otherwise ready branch reports `policy-changed-on-branch` until a person runs `diffowl policy accept` in a terminal. The command shows what changed and asks for confirmation; it refuses when stdin or stdout is not a terminal. Any further policy edit needs a new acknowledgement. The readiness diagnostic prints the exact command, including `--base` and, when used, `--depth`.
 
 The JSON output includes the resolved base and `HEAD`, the review IDs that provide coverage, uncovered commits, blocker counts, and a `next_action`. `--depth` sets the expected context depth when it differs from project configuration. The [readiness contract](readiness-contract.md) defines the full policy.
 

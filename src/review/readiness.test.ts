@@ -557,7 +557,7 @@ describe("review readiness", () => {
 
   describe("branch policy changes", () => {
     const person = (answer: boolean): PolicyConfirmationIo => ({
-      interactive: true, confirm: async () => answer, now: () => new Date("2026-11-02T00:00:00Z"),
+      interactive: true, confirm: async () => answer,
     });
     const acknowledge = () => acceptPolicyChange({ projectRoot: root, base: "main" }, person(true));
     async function commitPolicy(yaml: string, message = "change review policy") {
@@ -574,12 +574,18 @@ describe("review readiness", () => {
       expect(result).toMatchObject({
         result: "not-ready", reason: "policy-changed-on-branch", exit_code: 1,
         next_action: "acknowledge-policy-change",
-        policy_change: { acknowledged: false, branch_policy_sha256: result.policy_sha256 },
+        policy_change: { acknowledged: false },
       });
+      expect(Object.keys(result.policy_change!).sort()).toEqual(["acknowledged", "base_policy_sha256"]);
       expect(result.policy_change?.base_policy_sha256).toMatch(/^[0-9a-f]{64}$/);
       expect(result.policy_change?.base_policy_sha256).not.toBe(result.policy_sha256);
       expect(result.diagnostic).toContain(result.policy_change!.base_policy_sha256);
       expect(result.diagnostic).toContain(result.policy_sha256);
+      expect(result.diagnostic).toContain(`diffowl policy accept --base ${base}.`);
+      const withDepth = await getReadiness({ projectRoot: root, base: "main", depth: "default" });
+      expect(withDepth.policy_change).not.toBeNull();
+      expect(withDepth.policy_change!.base_policy_sha256).toBe(result.policy_change!.base_policy_sha256);
+      expect(withDepth.diagnostic).toContain(`diffowl policy accept --base ${base} --depth default.`);
       expect(await readdir(join(root, ".diffowl"))).not.toContain("policy-acknowledgements.json");
     });
 
@@ -641,17 +647,85 @@ describe("review readiness", () => {
       expect(await acknowledge()).toEqual({ kind: "unchanged" });
     });
 
-    it("fails with an operational error when the base policy cannot be parsed", async () => {
+    it("treats an unparseable base policy as a distinct policy that a person can acknowledge", async () => {
       await git("checkout", "main");
       await writeFile(join(root, ".diffowl.yml"), "min_confidence: sometimes\n");
       await git("add", ".diffowl.yml");
       await git("commit", "-m", "broken base policy");
       await git("checkout", "feature");
       await git("rebase", "main");
+      base = await git("rev-parse", "main");
       await commitPolicy("min_confidence: low\n");
+      await reviewBranch();
+      const result = await getReadiness({ projectRoot: root, base: "main" });
+      expect(result).toMatchObject({
+        result: "not-ready", reason: "policy-changed-on-branch",
+        policy_change: { base_policy_sha256: expect.stringMatching(/^invalid:[0-9a-f]{64}$/), acknowledged: false },
+      });
+      expect(await acknowledge()).toMatchObject({ kind: "accepted" });
+      expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({ result: "ready" });
+    });
+
+    it("compares against the config the invocation directory would use at the base, not the project root's", async () => {
+      await git("checkout", "main");
+      await mkdir(join(root, "pkg"));
+      await writeFile(join(root, ".diffowl.yml"), "min_confidence: low\n");
+      await writeFile(join(root, "pkg", ".diffowl.yml"), "min_confidence: high\n");
+      await writeFile(join(root, "pkg", "keep.txt"), "x\n");
+      await git("add", ".");
+      await git("commit", "-m", "loose root, strict package");
+      await git("checkout", "feature");
+      await git("rebase", "main");
+      await git("rm", "pkg/.diffowl.yml");
+      await git("commit", "-m", "drop the strict package policy");
+      // Running from pkg now resolves the project root to the repository root.
+      const result = await getReadiness({ projectRoot: root, cwd: join(root, "pkg"), base: "main" });
+      expect(result).toMatchObject({ policy_change: { acknowledged: false } });
+      expect(result.policy_change?.base_policy_sha256).not.toBe(result.policy_sha256);
+    });
+
+    it("matches directory names literally when reading the base config", async () => {
+      await git("checkout", "main");
+      await mkdir(join(root, "pkg1"));
+      await writeFile(join(root, "pkg1", ".diffowl.yml"), "min_confidence: high\n");
+      await git("add", ".");
+      await git("commit", "-m", "sibling package policy");
+      await git("checkout", "feature");
+      await git("rebase", "main");
+      await mkdir(join(root, "pkg[1]"));
+      await writeFile(join(root, "pkg[1]", ".diffowl.yml"), "timeout: 300\n");
+      await git("add", ".");
+      await git("commit", "-m", "new package with unrelated glob-like name");
+      expect(await getReadiness({ projectRoot: join(root, "pkg[1]"), base: "main" })).toMatchObject({ policy_change: null });
+    });
+
+    it("shows a person only the changed fields, named as in .diffowl.yml", async () => {
+      await commitPolicy("min_confidence: low\nskip_doc_only: true\n");
+      let shown: unknown;
+      await acceptPolicyChange({ projectRoot: root, base: "main" }, {
+        interactive: true, confirm: async change => { shown = change.differences; return false; },
+      });
+      expect(shown).toEqual([
+        { field: "min_confidence", base: "medium", branch: "low" },
+        { field: "skip_doc_only", base: false, branch: true },
+      ]);
+    });
+
+    it("keeps an acknowledgement when the base commit moves but both policies are unchanged", async () => {
+      await commitPolicy("min_confidence: low\n");
+      await reviewBranch();
+      await acknowledge();
+      await git("checkout", "main");
+      await writeFile(join(root, "other.txt"), "unrelated\n");
+      await git("add", "other.txt");
+      await git("commit", "-m", "unrelated base movement");
+      await git("checkout", "feature");
+      await git("rebase", "main");
+      base = await git("rev-parse", "main");
+      head = await git("rev-parse", "HEAD");
+      await reviewBranch();
       expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({
-        result: "error", reason: "operational-error",
-        diagnostic: expect.stringContaining(".diffowl.yml at"),
+        result: "ready", policy_change: { acknowledged: true },
       });
     });
 

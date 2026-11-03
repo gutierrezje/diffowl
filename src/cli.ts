@@ -151,7 +151,7 @@ import { inspectReviewRuntimes } from "./review/runtime.js";
 import { getReviewBackendFailureGuidance } from "./review/guidance.js";
 import { getReadiness, type ReadinessOptions } from "./review/readiness.js";
 import { renderReadiness } from "./output/readiness.js";
-import { acceptPolicyChange } from "./review/policy-change.js";
+import { acceptPolicyChange, type AcceptPolicyChangeOptions } from "./review/policy-change.js";
 
 import { execa } from "execa";
 import { z } from "zod";
@@ -195,7 +195,7 @@ program
   .option("--format <format>", "Output format: text or json", "text")
   .action(async (options: { base?: string; depth?: string; format: string }) => {
     const format = resolveReviewOutputFormat(options.format);
-    const request: ReadinessOptions = { projectRoot: getProjectRoot() };
+    const request: ReadinessOptions = { projectRoot: getProjectRoot(), cwd: process.cwd() };
     if (options.base !== undefined) request.base = options.base;
     if (options.depth !== undefined) request.depth = parseReviewContextDepth(options.depth);
     const result = await getReadiness(request);
@@ -211,13 +211,12 @@ policyCmd
   .option("--base <ref>", "Base ref; defaults to the locally detected default branch")
   .option("--depth <depth>", "Expected review context depth: shallow or default")
   .action(async (options: { base?: string; depth?: string }) => {
-    const request: Parameters<typeof acceptPolicyChange>[0] = { projectRoot: getProjectRoot() };
+    const request: AcceptPolicyChangeOptions = { projectRoot: getProjectRoot(), cwd: process.cwd() };
     if (options.base !== undefined) request.base = options.base;
     if (options.depth !== undefined) request.depth = parseReviewContextDepth(options.depth);
     const result = await acceptPolicyChange(request, {
       // Acknowledgement is a human decision: refuse unless a person is at a terminal.
       interactive: process.stdin.isTTY === true && process.stdout.isTTY === true,
-      now: () => new Date(),
       async confirm(change) {
         console.log(chalk.bold("This branch changes the review policy relative to its base commit:"));
         for (const difference of change.differences) {
@@ -248,7 +247,7 @@ policyCmd
         process.exitCode = 1;
         return;
       case "accepted":
-        console.log(chalk.green("✓ Policy change accepted for this base commit and policy pair. Any further policy edit requires a new acknowledgement."));
+        console.log(chalk.green("✓ Policy change accepted for this base and branch policy pair. Any further policy edit requires a new acknowledgement."));
         return;
     }
   });

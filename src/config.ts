@@ -48,7 +48,7 @@ const DEFAULT_CONFIG = {
   verbose: false,
 };
 
-const CONFIG_FILENAME = ".diffowl.yml";
+export const CONFIG_FILENAME = ".diffowl.yml";
 
 const stringArraySchema = z.array(z.string().trim().min(1));
 

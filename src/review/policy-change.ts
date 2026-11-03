@@ -1,58 +1,67 @@
+import { createHash } from "node:crypto";
 import { execa } from "execa";
-import { loadConfigFromRoot, parseProjectConfig, type DiffOwlConfig, type ReviewContextDepth } from "../config.js";
+import {
+  CONFIG_FILENAME, loadConfigFromRoot, parseProjectConfig, type DiffOwlConfig, type ReviewContextDepth,
+} from "../config.js";
 import { resolveCommitRef, resolveDefaultBranchRef } from "../git/diff.js";
 import { resolveSharedDiffOwlDir } from "../git/state-root.js";
 import { recordPolicyAcknowledgement, type PolicyChangeTuple } from "../state/policy-acknowledgements.js";
-import { reviewPolicyInput, reviewPolicySha256 } from "./coverage.js";
+import { reviewPolicyInput, reviewPolicySha256, type ReviewPolicyInput } from "./coverage.js";
 
-export interface PolicyChange extends PolicyChangeTuple {
-  /** Effective policy fields that differ, so a human can see what the branch changed. */
-  differences: { field: string; base: unknown; branch: unknown }[];
-}
-
-/**
- * Compares the branch's effective review policy with the policy `.diffowl.yml` defines at the
- * base commit, or null when they match. Both sides go through `reviewPolicyInput`, so every
- * field that affects review coverage is covered without listing knobs here. A base without the
- * file means the defaults. `depth` is the branch's effective depth; the base uses its own
- * configured depth, so selecting a shallower depth by flag is a policy change too.
- */
-export async function comparePolicyToBase(
-  projectRoot: string, baseCommit: string, branchConfig: DiffOwlConfig, depth?: ReviewContextDepth,
-): Promise<PolicyChange | null> {
-  const baseConfig = await loadConfigAtCommit(projectRoot, baseCommit);
-  const baseInput = reviewPolicyInput(baseConfig, baseConfig.context.depth);
-  const branchInput = reviewPolicyInput(branchConfig, depth ?? branchConfig.context.depth);
-  const baseSha = reviewPolicySha256(baseConfig, baseInput.depth);
-  const branchSha = reviewPolicySha256(branchConfig, branchInput.depth);
-  if (baseSha === branchSha) return null;
-  const baseFields = new Map(Object.entries(baseInput));
-  const differences = Object.entries(branchInput)
-    .map(([field, branch]) => ({ field, base: baseFields.get(field), branch }))
-    .filter(({ base, branch }) => JSON.stringify(base) !== JSON.stringify(branch));
-  return { base_commit: baseCommit, base_policy_sha256: baseSha, branch_policy_sha256: branchSha, differences };
-}
+/** The review policy `.diffowl.yml` defines at a commit. An unparseable file gets its own identity. */
+export type BasePolicy =
+  | { kind: "valid"; sha256: string; config: DiffOwlConfig }
+  | { kind: "invalid"; sha256: string; problem: string };
 
 /**
- * Finds the config the working tree would use at `commit`: the nearest `.diffowl.yml` walking up
- * from the project root to the repository root, matching how the project root is discovered.
+ * Reads the policy the invocation directory would use at `commit`: the nearest `.diffowl.yml`
+ * walking up from `cwd` to the repository root, the same start point and rule the working tree
+ * uses to discover its project root. A base without the file means the defaults. An unparseable
+ * file is identified by `invalid:` plus the hash of its bytes, so a person can acknowledge it
+ * but it can never equal a real policy.
  */
-async function loadConfigAtCommit(projectRoot: string, commit: string): Promise<DiffOwlConfig> {
-  const { stdout: top } = await execa("git", ["rev-parse", "--show-toplevel"], { cwd: projectRoot });
-  const { stdout: prefix } = await execa("git", ["rev-parse", "--show-prefix"], { cwd: projectRoot });
+export async function readBasePolicy(cwd: string, commit: string): Promise<BasePolicy> {
+  const { stdout } = await execa("git", ["rev-parse", "--show-toplevel", "--show-prefix"], { cwd });
+  const [top = "", prefix = ""] = stdout.split("\n");
   const directories = prefix.split("/").filter(Boolean);
   for (let depth = directories.length; depth >= 0; depth--) {
-    const path = [...directories.slice(0, depth), ".diffowl.yml"].join("/");
-    const { stdout: listed } = await execa("git", ["ls-tree", "--name-only", commit, "--", path], { cwd: top });
+    const path = [...directories.slice(0, depth), CONFIG_FILENAME].join("/");
+    const { stdout: listed } = await execa("git", ["--literal-pathspecs", "ls-tree", "--name-only", commit, "--", path], { cwd: top });
     if (listed === "") continue;
     const { stdout: raw } = await execa("git", ["show", `${commit}:${path}`], { cwd: top, stripFinalNewline: false });
-    return parseProjectConfig(raw, `${path} at ${commit}`).config;
+    try {
+      const config = parseProjectConfig(raw, `${path} at ${commit}`).config;
+      return { kind: "valid", sha256: reviewPolicySha256(config, config.context.depth), config };
+    } catch (error) {
+      const sha256 = `invalid:${createHash("sha256").update(raw).digest("hex")}`;
+      return { kind: "invalid", sha256, problem: error instanceof Error ? error.message : String(error) };
+    }
   }
-  return parseProjectConfig(null, `.diffowl.yml at ${commit}`).config;
+  const config = parseProjectConfig(null, `${CONFIG_FILENAME} at ${commit}`).config;
+  return { kind: "valid", sha256: reviewPolicySha256(config, config.context.depth), config };
+}
+
+/** The command a person runs to acknowledge the change; it must match what readiness was asked. */
+export function policyAcceptCommand(baseCommit: string, depth?: ReviewContextDepth): string {
+  return `diffowl policy accept --base ${baseCommit}${depth === undefined ? "" : ` --depth ${depth}`}`;
+}
+
+// Exhaustive on purpose: a new policy knob must be given the name users see in `.diffowl.yml`.
+const POLICY_KEYS = {
+  depth: "context.depth", include: "include", exclude: "exclude", rules: "rules",
+  minConfidence: "min_confidence", skipDocOnly: "skip_doc_only",
+} satisfies Record<Exclude<keyof ReviewPolicyInput, "version">, string>;
+
+export interface PolicyChange extends PolicyChangeTuple {
+  base_commit: string;
+  /** What the branch changed, named as in `.diffowl.yml`, so a person can judge the change. */
+  differences: { field: string; base: unknown; branch: unknown }[];
 }
 
 export interface AcceptPolicyChangeOptions {
   projectRoot: string;
+  /** Directory the command was invoked from; defaults to `projectRoot`. */
+  cwd?: string;
   base?: string;
   depth?: ReviewContextDepth;
 }
@@ -61,7 +70,6 @@ export interface PolicyConfirmationIo {
   /** Both stdin and stdout are a terminal; the only thing that distinguishes a person at the keyboard. */
   interactive: boolean;
   confirm(change: PolicyChange): Promise<boolean>;
-  now(): Date;
 }
 
 export type AcceptPolicyChangeResult =
@@ -75,10 +83,28 @@ export async function acceptPolicyChange(
 ): Promise<AcceptPolicyChangeResult> {
   // Checked before any repository work so a non-interactive caller learns the rule immediately.
   if (!io.interactive) return { kind: "not-interactive" };
-  const base = await resolveCommitRef(options.base ?? await resolveDefaultBranchRef(options.projectRoot), options.projectRoot);
-  const change = await comparePolicyToBase(options.projectRoot, base, await loadConfigFromRoot(options.projectRoot), options.depth);
-  if (change === null) return { kind: "unchanged" };
+  const baseCommit = await resolveCommitRef(options.base ?? await resolveDefaultBranchRef(options.projectRoot), options.projectRoot);
+  const branchConfig = await loadConfigFromRoot(options.projectRoot);
+  const branchInput = reviewPolicyInput(branchConfig, options.depth ?? branchConfig.context.depth);
+  const branchSha = reviewPolicySha256(branchConfig, branchInput.depth);
+  const base = await readBasePolicy(options.cwd ?? options.projectRoot, baseCommit);
+  if (base.sha256 === branchSha) return { kind: "unchanged" };
+  const change: PolicyChange = {
+    base_commit: baseCommit, base_policy_sha256: base.sha256, branch_policy_sha256: branchSha,
+    differences: describeDifferences(base, branchInput),
+  };
   if (!await io.confirm(change)) return { kind: "declined", change };
-  await recordPolicyAcknowledgement(await resolveSharedDiffOwlDir(options.projectRoot), change, io.now().toISOString());
+  await recordPolicyAcknowledgement(await resolveSharedDiffOwlDir(options.projectRoot), change);
   return { kind: "accepted", change };
+}
+
+function describeDifferences(base: BasePolicy, branchInput: ReviewPolicyInput): PolicyChange["differences"] {
+  if (base.kind === "invalid") {
+    return [{ field: CONFIG_FILENAME, base: `unparseable at the base commit: ${base.problem}`, branch: "parses" }];
+  }
+  const baseFields = new Map(Object.entries(reviewPolicyInput(base.config, base.config.context.depth)));
+  const branchFields = new Map(Object.entries(branchInput));
+  return Object.entries(POLICY_KEYS)
+    .map(([field, key]) => ({ field: key, base: baseFields.get(field), branch: branchFields.get(field) }))
+    .filter(({ base: before, branch }) => JSON.stringify(before) !== JSON.stringify(branch));
 }

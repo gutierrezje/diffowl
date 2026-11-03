@@ -8,10 +8,12 @@ import { blockingContextDegradations, readReviewCheckout, reviewPolicySha256 } f
 import { readReadinessQueue } from "./readiness-runtime.js";
 import { isProcessLeaseAlive } from "../state/process-lease.js";
 import { isPolicyChangeAcknowledged } from "../state/policy-acknowledgements.js";
-import { comparePolicyToBase } from "./policy-change.js";
+import { policyAcceptCommand, readBasePolicy } from "./policy-change.js";
 
 export interface ReadinessOptions {
   projectRoot: string;
+  /** Directory the query was invoked from; defaults to `projectRoot`. */
+  cwd?: string;
   base?: string;
   depth?: ReviewContextDepth;
 }
@@ -34,8 +36,8 @@ export interface ReadinessResult {
   next_action: typeof NEXT_ACTION[ReadinessReason];
   target: { base_commit: string; merge_base_commit: string; head_commit: string } | null;
   policy_sha256: string | null;
-  /** Present when the branch's effective review policy differs from the base commit's. */
-  policy_change: { base_policy_sha256: string; branch_policy_sha256: string; acknowledged: boolean } | null;
+  /** Present when the branch's effective policy (`policy_sha256`) differs from the base commit's. */
+  policy_change: { base_policy_sha256: string; acknowledged: boolean } | null;
   worktree_clean: boolean | null;
   coverage: { checkpoint_review_id: string | null; repair_review_ids: string[]; uncovered_commits: string[] };
   blockers: { open: number; regressed: number; deferred: number; untracked: number };
@@ -73,12 +75,11 @@ export async function getReadiness(options: ReadinessOptions): Promise<Readiness
       cursor = parent;
     }
     const stateDir = await resolveSharedDiffOwlDir(options.projectRoot);
-    const policyChange = await comparePolicyToBase(options.projectRoot, base, config, options.depth);
-    if (policyChange !== null) {
+    const basePolicy = await readBasePolicy(options.cwd ?? options.projectRoot, base);
+    if (basePolicy.sha256 !== policy) {
       result.policy_change = {
-        base_policy_sha256: policyChange.base_policy_sha256,
-        branch_policy_sha256: policyChange.branch_policy_sha256,
-        acknowledged: await isPolicyChangeAcknowledged(stateDir, policyChange),
+        base_policy_sha256: basePolicy.sha256,
+        acknowledged: await isPolicyChangeAcknowledged(stateDir, { base_policy_sha256: basePolicy.sha256, branch_policy_sha256: policy }),
       };
     }
     const evidence = await readStateSnapshot(stateDir, readReadinessEvidence);
@@ -155,7 +156,7 @@ export async function getReadiness(options: ReadinessOptions): Promise<Readiness
     result.diagnostic = reason === "incomplete-coverage" ? coverageDiagnostic ?? selected.diagnostic : null;
     if (reason === "ready" && result.policy_change !== null && !result.policy_change.acknowledged) {
       reason = "policy-changed-on-branch";
-      result.diagnostic = describePolicyChange(result.policy_change);
+      result.diagnostic = describePolicyChange(result.policy_change.base_policy_sha256, policy, policyAcceptCommand(base, options.depth));
     }
     return withReason(result, reason);
   } catch (error) {
@@ -210,9 +211,9 @@ function selectCoverage(
   return { coverage, reason, valid, diagnostic };
 }
 
-function describePolicyChange(change: NonNullable<ReadinessResult["policy_change"]>): string {
-  return `The branch's review policy (${change.branch_policy_sha256}) differs from the base commit's (${change.base_policy_sha256}). ` +
-    "A person must review the change and run `diffowl policy accept` (with the same --depth, if any) in a terminal; an agent must not acknowledge it.";
+function describePolicyChange(basePolicy: string, branchPolicy: string, command: string): string {
+  return `The branch's review policy (${branchPolicy}) differs from the base commit's (${basePolicy}). ` +
+    `A person must review the change and run this in a terminal: ${command}. An agent must not acknowledge it.`;
 }
 
 function isIncompleteCoverage(review: CoverageReview, policy: string): boolean {

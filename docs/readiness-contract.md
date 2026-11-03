@@ -71,13 +71,13 @@ and obtain `ready`. Policy identity alone cannot catch this, because the review
 and the query agree with each other.
 
 Readiness therefore also computes the policy hash from `.diffowl.yml` at
-`target.base_commit` (`git show <base>:./.diffowl.yml`; a base without the file means
-the defaults) with the same `reviewPolicySha256` used for coverage, over the whole
+`target.base_commit` (a base without the file means the defaults) with the same `reviewPolicySha256` used for coverage, over the whole
 effective policy, so new policy knobs are covered when they enter that hash. The base
 side uses the depth its own config selects; the branch side uses the `--depth` value or
-its configured depth, so choosing a shallower depth by flag is also a policy change. From
-a subdirectory project root, the base config is the nearest `.diffowl.yml` walking up to
-the repository root, matching how the project root is discovered. When the two hashes
+its configured depth, so choosing a shallower depth by flag is also a policy change. The
+base config is the nearest `.diffowl.yml` walking up from the directory the command was
+invoked from (not from the discovered project root) to the repository root, the same
+start point the working tree uses to discover its project root. When the two hashes
 differ, the proof is `not-ready` with reason `policy-changed-on-branch` and next action
 `acknowledge-policy-change`, until a matching acknowledgement exists. The gate applies
 to an otherwise ready result; higher-priority reasons still report first, and
@@ -85,10 +85,11 @@ to an otherwise ready result; higher-priority reasons still report first, and
 not forbidden: they need a person's decision. Edits that do not alter the effective
 policy (comments, `timeout`, `server`) do not trigger it.
 
-An unparseable `.diffowl.yml` at the base is an operational error, never an
-assumption of default policy. That includes a config the current schema no longer
-accepts (for example a key removed by a later DiffOwl version): readiness fails
-closed against that base until the base is updated.
+An unparseable `.diffowl.yml` at the base (including one the current schema no longer
+accepts, such as a key removed by a later DiffOwl version) is never read as the default
+policy and does not make readiness an error, which would deadlock a branch that repairs
+it. Its identity is `invalid:` followed by the SHA-256 of the file's bytes, so it always
+differs from a real policy and requires the same acknowledgement.
 
 ### Why non-ready with a terminal acknowledgement
 
@@ -100,11 +101,13 @@ reason fails closed for every consumer that follows `next_action`, including old
 clients that do not know the new value.
 
 Making it non-ready needs a way out, otherwise legitimate policy changes could never
-be handed off. The acknowledgement is bound to the exact tuple (base commit, base
-policy hash, branch policy hash), so it approves one decision and any further edit,
-rebase onto a different base, or tuple change invalidates it. `diffowl policy accept`
-prints the differing policy fields and requires the user to type `accept`. Pass the same
-`--base` and `--depth` as the readiness query; the acknowledgement is keyed to that tuple. It refuses
+be handed off. The acknowledgement is keyed on the pair (base policy hash, branch policy
+hash), so it approves one decision and any further policy edit invalidates it. The base
+commit is deliberately not part of the key: a fetch that moves the base without changing
+either policy keeps the decision. `diffowl policy accept` prints the differing policy
+fields, named as in `.diffowl.yml`, and requires the user to type `accept`. The
+readiness diagnostic prints the exact command, `diffowl policy accept --base <OID>` from
+`target.base_commit`, plus `--depth <depth>` when the query used `--depth`. It refuses
 unless both stdin and stdout are a terminal, which stops the ordinary agent path of
 running a shell command with piped I/O.
 
@@ -121,12 +124,13 @@ policy with the base policy remains out of scope.
 ### Contract and schema
 
 `schema_version` stays 1. The change is additive: a new `policy_change` field (`null`
-when policies match, otherwise `base_policy_sha256`, `branch_policy_sha256` and
-`acknowledged`), plus a new reason and next action. Consumers are already required to
+when the base policy equals `policy_sha256`, otherwise `{ "base_policy_sha256": string,
+"acknowledged": boolean }`; the branch side is `policy_sha256`), plus a new reason and next
+action. Consumers are already required to
 treat an unknown action or version as no proof, so an older client fails closed
 instead of reading the new state as ready. The meaning of `ready` is unchanged and a
 ready result continues to carry every earlier field. When not acknowledged, the
-diagnostic names both hashes.
+diagnostic names both hashes and the exact acknowledgement command.
 
 ## Finding and worktree policy
 

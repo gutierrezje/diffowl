@@ -17,7 +17,7 @@ export function renderReadiness(result: ReadinessResult): string {
     "inspect-failure": "Inspect the failed review execution, retry its target, then query again.",
     "commit-or-restore": "Commit or restore local changes, then query readiness again.",
     "disposition-findings": "Inspect findings and record an explicit fix or dismissal.",
-    "acknowledge-policy-change": "Ask the user to review the policy change and run diffowl policy accept in a terminal. Do not change or accept the policy yourself.",
+    "acknowledge-policy-change": "Ask the user to review the policy change and run the exact diffowl policy accept command above in a terminal. Do not change or accept the policy yourself.",
     "repair-dependency": "Correct the reported read failure, then query readiness again.",
   } satisfies Record<ReadinessResult["next_action"], string>;
   lines.push(`Next: ${next[result.next_action]}`);
