@@ -56,4 +56,7 @@ review can trigger the guard.
 
 The SDK browser-login command uses the account's credential store outside any
 disposable verification repository. Run it only when sign-in is intended. Offline
-tests use a synthetic worker; they do not make paid SDK calls.
+tests make no paid SDK calls: `executor.test.ts` uses a synthetic worker for the
+process contract, and `worker.test.ts` bundles the real `worker.ts` with
+`@cursor/sdk` aliased to `fixtures/scripted-sdk.ts` to exercise retry, cancellation,
+tool policy, and disposal.
