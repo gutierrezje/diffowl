@@ -387,7 +387,8 @@ async function findListenerPidsWindows(
       // Columns: Proto, Local Address, Foreign Address, State, PID. Only the local endpoint's
       // complete port may match, so 4096 never selects 40960 or a foreign endpoint on 4096.
       const parts = line.trim().split(/\s+/);
-      if (parts.length < 5 || parts[0]?.toUpperCase() !== "TCP") {
+      // `netstat -p tcpv6` labels IPv6 rows TCPv6; plain `-ano` rows are TCP with `[::]` endpoints.
+      if (parts.length < 5 || !/^TCP(v6)?$/i.test(parts[0] ?? "")) {
         continue;
       }
       const localEndpoint = parts[1] ?? "";

@@ -613,6 +613,19 @@ describe("Windows listener discovery", () => {
     expect(mocks.kill).toHaveBeenCalledWith(7001, "SIGTERM");
   });
 
+  it("accepts TCPv6-labelled rows such as those from `netstat -p tcpv6`", async () => {
+    stubWindowsNetstat(
+      windowsTable([
+        "  TCPv6  [::]:40960             [::]:0                 LISTENING       1001",
+        "  TCPv6  [::1]:4096             [::]:0                 LISTENING       7003",
+      ]),
+    );
+
+    await expect(stopServer(4096, dependencies)).resolves.toBe(true);
+    expect(mocks.kill).toHaveBeenCalledTimes(1);
+    expect(mocks.kill).toHaveBeenCalledWith(7003, "SIGTERM");
+  });
+
   it("ignores prefix-colliding ports, foreign-endpoint matches, and non-listening rows", async () => {
     stubWindowsNetstat(
       windowsTable([
