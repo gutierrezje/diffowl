@@ -9,7 +9,7 @@ Treat DiffOwl findings as candidates, not facts. Verify each finding against the
 
 ## Prerequisite
 
-Run this skill from a repository where DiffOwl has produced `.diffowl/reviews/latest.md` or durable findings are available through `diffowl findings`. If neither exists, explain that the user must first run `diffowl review` or install the post-commit hook with `diffowl hook install`; do not create an empty resolution report.
+Run this skill from a repository where DiffOwl has produced a `review-*.md` report under `.diffowl/reviews/` or durable findings are available through `diffowl findings`. In a linked worktree, that directory is in the main checkout. If neither exists, explain that the user must first run `diffowl review` or install the post-commit hook with `diffowl hook install`; do not create an empty resolution report.
 
 ## Two Workflows
 
@@ -24,7 +24,7 @@ Markdown reports from 0.3+ are **immutable snapshots**. Lifecycle commands updat
 
 Resolve only the scope the user requested:
 
-- **latest** or no qualifier: the canonical timestamped report matching `latest.md`.
+- **latest** or no qualifier: the newest `review-*.md` report, by the timestamp in its filename.
 - **latest N**: the `N` newest unresolved canonical reports, newest first.
 - **all**: every unresolved canonical report under `.diffowl/reviews/`.
 - **filename or path**: only that report.
@@ -41,7 +41,7 @@ For **durable** findings, use `diffowl findings` as the unresolved backlog. A fi
 1. Read repository instructions and determine the exact scope above.
 2. Run `diffowl findings`. If unresolved durable findings exist, follow the **Durable Findings Workflow** below and do not edit markdown reports.
 3. Otherwise follow the **Legacy Report Workflow** below.
-4. Resolve `latest.md` to its canonical `review-*.md` by matching `diffowl.session_id`; if unavailable, match the generated review body. Never edit or archive `latest.md`.
+4. Select reports only by their timestamped `review-*.md` filenames. DiffOwl no longer writes `latest.md`, but older repositories may still contain a stale copy. Never select, edit, or archive it.
 5. Process only entries under `### Issues Found`. Diagnostics and suppressed candidates are not findings unless the user explicitly asks to investigate them.
 6. Investigate each finding against the current worktree, surrounding code, tests, and relevant history.
 7. Classify each finding:
@@ -54,7 +54,7 @@ For **durable** findings, use `diffowl findings` as the unresolved backlog. A fi
 8. Fix confirmed findings using the repository's normal workflow and run verification appropriate to the changed surface.
 9. Commit code fixes when the repository workflow expects commits and permissions allow it. Commit hashes belong in resolution notes only after the commits exist.
 
-Post-commit hooks may replace `latest.md` while resolving. Continue with the scope selected at the start; do not switch to a new latest report.
+Post-commit hooks may add newer reports while resolving. Continue with the scope selected at the start; do not switch to a new latest report.
 
 ## Durable Findings Workflow (0.3+)
 

@@ -10,7 +10,7 @@ export interface ReviewCoverageEvidence {
 }
 
 /** Increment when review scope, prompt contract, or input interpretation changes. */
-const REVIEW_POLICY_VERSION = 2;
+const REVIEW_POLICY_VERSION = 3;
 
 const BOUNDED_CONTEXT_EXCERPTS = new Set<ReviewContextDegradation["code"]>([
   "changed-file-truncated", "ast-symbol-truncated", "related-file-truncated",

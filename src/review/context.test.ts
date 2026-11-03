@@ -160,11 +160,7 @@ describe("buildReviewContext", () => {
       kind: "commit",
       ref: mergeCommit.trim(),
     });
-    const context = await buildReviewContextFromDiff(
-      snapshot,
-      config,
-      "shallow",
-    );
+    const context = await buildReviewContextFromDiff(snapshot, config, "shallow");
     const rendered = renderReviewContext(context);
 
     expect(snapshot.baseCommit).toBe(firstParent.trim());
@@ -410,7 +406,7 @@ describe("buildReviewContext", () => {
     expect(rendered).toContain("src/consumer.ts");
     expect(context.changedFiles[0]!.file.path).toBe("src/example.ts");
     expect(rendered).toContain("### Import references");
-    expect(rendered).toContain("Term: calculateTotal");
+    expect(rendered).toContain("Terms: example, calculateTotal");
     expect(rendered).toContain("console.log(calculateTotal(1));");
     expect(rendered).toContain("return value + 2");
   });
@@ -620,15 +616,69 @@ describe("buildReviewContext", () => {
     await execa("git", ["add", "src/popular.ts", "src/rare.ts"], { cwd: root });
 
     process.chdir(root);
-    const context = await buildReviewContext({ kind: "staged" }, config);
+    const snapshot = await loadReviewSnapshot(root, { kind: "staged" });
+    const reads = vi.spyOn(snapshot.source, "read");
+    const context = await buildReviewContextFromDiff(snapshot, config);
 
     expect(
       context.references.find((reference) => reference.term === "rare")?.matches,
     ).toContainEqual(expect.objectContaining({ path: "src/rare-consumer.ts" }));
-    expect(
-      context.references.find((reference) => reference.term === "popular")?.matches.length,
-    ).toBeGreaterThan(0);
+    const popular = context.references.find((reference) => reference.term === "popular");
+    expect(popular?.matches).toHaveLength(201);
+    expect(popular?.matches.filter((match) => match.snippet)).toHaveLength(8);
+    expect(context.degradations).not.toContainEqual(
+      expect.objectContaining({ code: "impact-index-results-truncated" }),
+    );
+    expect(renderReviewContext(context)).toContain("src/importers/c200.ts:1:");
+    const importerReads = reads.mock.calls.filter(([path]) => path.startsWith("src/importers/"));
+    expect(importerReads).toHaveLength(8);
+    reads.mockRestore();
   }, 20_000);
+
+  it("retains every indexed binding beyond the excerpt budget at deduplicated locations", async () => {
+    const root = await createGitRepository();
+    await mkdir(join(root, "src"));
+    const before =
+      "export function popularFn() { return 1; }\nexport const extraUnqueried = 1;\nexport default 1;\n";
+    await writeFile(join(root, "src/popular.ts"), before);
+    await Promise.all(
+      Array.from({ length: 10 }, (_, index) =>
+        writeFile(
+          join(root, `src/c${String(index).padStart(2, "0")}.ts`),
+          "import localOnly, { popularFn, extraUnqueried } from './popular.js'; import * as allExports from './popular.js';\nimport './popular.js';\nexport * from './popular.js';\n",
+        ),
+      ),
+    );
+    await commitAll(root, "initial");
+    await writeFile(join(root, "src/popular.ts"), before.replace("return 1", "return 2"));
+    await execa("git", ["add", "src/popular.ts"], { cwd: root });
+    process.chdir(root);
+
+    const context = await buildReviewContext({ kind: "staged" }, config);
+    const rendered = renderReviewContext(context);
+    const excerptLocations = new Set(
+      context.references
+        .find((reference) => reference.term === "popular")
+        ?.matches.filter((match) => match.snippet)
+        .map((match) => `${match.path}:${match.line}`),
+    );
+    expect(excerptLocations.size).toBe(8);
+    const lastLocation = rendered.split("\n").find((line) => line.startsWith("- src/c09.ts:1:"));
+    expect(lastLocation).toContain("localOnly");
+    expect(lastLocation).toContain("popularFn");
+    expect(lastLocation).toContain("extraUnqueried");
+    expect(lastLocation).toContain("allExports");
+    expect(lastLocation).toContain("Terms: popular, popularFn");
+    expect(rendered.match(/^- src\/c\d+\.ts:\d+:/gm)).toHaveLength(30);
+    expect(rendered).toContain('src/c09.ts:2: side-effect import "./popular.js"');
+    expect(rendered).toContain('src/c09.ts:3: re-export * from "./popular.js"');
+    expect(
+      context.references
+        .flatMap((reference) => reference.matches)
+        .filter((match) => match.path === "src/c09.ts")
+        .every((match) => !match.snippet),
+    ).toBe(true);
+  });
 
   it("keeps import references when one module fails to parse", async () => {
     const root = await createGitRepository();
@@ -850,7 +900,7 @@ describe("buildReviewContext", () => {
     const rendered = renderReviewContext(context);
 
     expect(rendered).toContain(
-      "src/large-consumer.ts:1: import { calculateTotal } from './example.js';",
+      'src/large-consumer.ts:1: named imports { calculateTotal } from "./example.js"',
     );
     expect(rendered).not.toContain("// before large reference");
     expect(rendered).not.toContain("// after large reference");
@@ -1308,14 +1358,7 @@ describe("buildReviewContext", () => {
     await execa("git", ["switch", "feature"], { cwd: root });
     await execa(
       "git",
-      [
-        "-c",
-        "user.name=DiffOwl Test",
-        "-c",
-        "user.email=diffowl@example.test",
-        "rebase",
-        "base",
-      ],
+      ["-c", "user.name=DiffOwl Test", "-c", "user.email=diffowl@example.test", "rebase", "base"],
       { cwd: root },
     );
 

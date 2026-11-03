@@ -375,7 +375,25 @@ describe("review readiness", () => {
     expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({ result: "ready", reason: "ready" });
   });
 
-  it("does not turn a successful review with a genuinely truncated changed diff into complete coverage", async () => {
+  it("accepts a complete default diff beyond the former rendering limit", async () => {
+    const changedLines = Array.from({ length: 8_000 }, (_, index) => `line ${index} ${"x".repeat(16)}`);
+    await writeFile(join(root, "README.md"), `${changedLines.join("\n")}\n`);
+    await git("add", "README.md");
+    await git("commit", "-m", "large changed diff");
+    head = await git("rev-parse", "HEAD");
+    const pipeline = await pipelineReview();
+    expect(pipeline.kind).toBe("completed");
+    if (pipeline.kind !== "completed") throw new Error("Pipeline review did not complete.");
+    expect((await readManifest(pipeline.persisted.reviewId))?.degradationCounts).not.toContainEqual(
+      { code: "render-diff-truncated", count: 1 },
+    );
+    const result = await getReadiness({ projectRoot: root, base: "main" });
+    expect(result).toMatchObject({ result: "ready", reason: "ready" });
+  });
+
+  it("does not turn a successful review with a truncated shallow diff into complete coverage", async () => {
+    await writeFile(join(root, ".diffowl.yml"), "context:\n  depth: shallow\n");
+    await git("add", ".diffowl.yml");
     const changedLines = Array.from({ length: 8_000 }, (_, index) => `line ${index} ${"x".repeat(16)}`);
     await writeFile(join(root, "README.md"), `${changedLines.join("\n")}\n`);
     await git("add", "README.md");
@@ -391,6 +409,45 @@ describe("review readiness", () => {
     expect(result).toMatchObject({ result: "not-ready", reason: "incomplete-coverage" });
     expect(result.diagnostic).toEqual(expect.stringContaining("render-diff-truncated"));
     expect(result.diagnostic).toEqual(expect.stringContaining(pipeline.persisted.reviewId));
+  });
+
+  it("does not turn a successful review with a collection-truncated diff into complete coverage", async () => {
+    const changedLines = Array.from({ length: 80_000 }, (_, index) => `line ${index} ${"x".repeat(32)}`);
+    await writeFile(join(root, "README.md"), `${changedLines.join("\n")}\n`);
+    await git("add", "README.md");
+    await git("commit", "-m", "large changed diff");
+    head = await git("rev-parse", "HEAD");
+    const pipeline = await pipelineReview();
+    expect(pipeline.kind).toBe("completed");
+    if (pipeline.kind !== "completed") throw new Error("Pipeline review did not complete.");
+    expect((await readManifest(pipeline.persisted.reviewId))?.degradationCounts).toEqual(
+      expect.arrayContaining([{ code: "diff-output-truncated", count: 1 }]),
+    );
+    const result = await getReadiness({ projectRoot: root, base: "main" });
+    expect(result).toMatchObject({ result: "not-ready", reason: "incomplete-coverage" });
+    expect(result.diagnostic).toEqual(expect.stringContaining("diff-output-truncated"));
+    expect(result.diagnostic).toEqual(expect.stringContaining(pipeline.persisted.reviewId));
+  });
+
+  it("accepts a complete reference inventory beyond the excerpt budget", async () => {
+    await writeFile(join(root, "popular.ts"), "export const popularValue = 1;\n");
+    await Promise.all(Array.from({ length: 12 }, (_, index) =>
+      writeFile(join(root, `consumer-${index}.ts`), "import { popularValue } from './popular.js';\nexport const value = popularValue;\n"),
+    ));
+    await git("add", ".");
+    await git("commit", "-m", "add importers");
+    await git("branch", "-f", "main", "HEAD");
+    await writeFile(join(root, "popular.ts"), "export const popularValue = 2;\n");
+    await git("add", "popular.ts");
+    await git("commit", "-m", "change popular export");
+    head = await git("rev-parse", "HEAD");
+
+    const pipeline = await pipelineReview();
+    if (pipeline.kind !== "completed") throw new Error("Pipeline review did not complete.");
+    expect((await readManifest(pipeline.persisted.reviewId))?.degradationCounts).not.toContainEqual(
+      expect.objectContaining({ code: "impact-index-results-truncated" }),
+    );
+    expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({ result: "ready", reason: "ready" });
   });
 
   it("accepts a long changed symbol when only bounded AST excerpts are truncated", async () => {
@@ -472,6 +529,8 @@ describe("review readiness", () => {
   });
 
   it("reports current-policy truncated input even when an older incompatible publication exists", async () => {
+    await writeFile(join(root, ".diffowl.yml"), "context:\n  depth: shallow\n");
+    await git("add", ".diffowl.yml");
     const changedLines = Array.from({ length: 8_000 }, (_, index) => `line ${index} ${"x".repeat(16)}`);
     await writeFile(join(root, "README.md"), `${changedLines.join("\n")}\n`);
     await git("add", "README.md");
