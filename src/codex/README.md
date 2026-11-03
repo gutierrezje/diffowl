@@ -37,8 +37,10 @@ adapter accepts ChatGPT authentication only.
 
 ## Compatibility
 
-Codex CLI 0.147.0 is the version proven by the #103 human-gated run. This is not
-a claim that every later Codex CLI version is compatible. The executor checks
+Codex CLI 0.147.0 is the version proven by the #103 human-gated run. Codex CLI
+0.165.0 also completed a live review in the
+[2026-10-28 cross-client check](../../docs/verification/cross-client-2026-10-28.md).
+Neither run claims that every later Codex CLI version is compatible. The executor checks
 fresh generated TypeScript and JSON schemas before every App Server review and
 fails before a paid turn when the required protocol subset changes.
 
