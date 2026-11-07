@@ -129,6 +129,23 @@ describe("finding archive migration", () => {
     }
   });
 
+  it("keeps the event id high-water mark when the event table is empty at upgrade", async () => {
+    const dir = await createTempDir();
+    const old = await openSqliteDatabase(getStateDbPath(dir));
+    applyMigrations(old, 8);
+    old.prepare("INSERT INTO sqlite_sequence (name, seq) VALUES ('finding_events', 100)").run();
+    closeDatabaseConnection(old);
+
+    const state = await openStateDatabase(dir);
+    try {
+      expect(
+        state.db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'finding_events'").all(),
+      ).toEqual([{ seq: 100 }]);
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
   it("accepts archived finding events in a fresh database and keeps events bound to findings", async () => {
     const dir = await createTempDir();
     const state = await openStateDatabase(dir);
