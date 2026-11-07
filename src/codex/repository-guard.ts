@@ -38,7 +38,8 @@ export async function captureRepositoryState(
 ): Promise<RepositoryState> {
   options.signal?.throwIfAborted();
   const headOptions = { cwd: directory, reject: false };
-  if (options.signal) Object.assign(headOptions, { cancelSignal: options.signal, forceKillAfterDelay: 100 });
+  if (options.signal)
+    Object.assign(headOptions, { cancelSignal: options.signal, forceKillAfterDelay: 100 });
   const statusArgs = ["status", "--porcelain=v1", "-z", "--untracked-files=all"];
   const [statusOutput, ignoredOutput, stagedDiff, unstagedDiff, headSha] = await settleOperations([
     runGit(directory, statusArgs, options.signal),
@@ -59,7 +60,9 @@ export async function captureRepositoryState(
       ["diff", "--cached", "--binary", "--no-ext-diff", "--no-textconv", "--no-color", "--"],
       options.signal,
     ),
-    execa("git", ["rev-parse", "HEAD"], headOptions).then((result) => (result.exitCode === 0 ? result.stdout.trim() : "<NO_HEAD>")),
+    execa("git", ["rev-parse", "HEAD"], headOptions).then((result) =>
+      result.exitCode === 0 ? result.stdout.trim() : "<NO_HEAD>",
+    ),
   ]);
   options.signal?.throwIfAborted();
   const statuses = parseStatus(statusOutput);

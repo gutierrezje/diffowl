@@ -122,7 +122,9 @@ describe("review operation schema migration", () => {
       expectMigrationVersions(state.db);
       expectTriggerNames(state.db);
       expectCanonicalReviewExecutionColumns(state.db);
-      expect(state.db.prepare("SELECT id, summary FROM reviews WHERE id = ?").get("rev_historical")).toEqual({
+      expect(
+        state.db.prepare("SELECT id, summary FROM reviews WHERE id = ?").get("rev_historical"),
+      ).toEqual({
         id: "rev_historical",
         summary: "Historical review",
       });
@@ -138,7 +140,9 @@ describe("review operation schema migration", () => {
       });
       expect(
         state.db
-          .prepare("SELECT review_id, finding_id, title FROM finding_observations WHERE finding_id = ?")
+          .prepare(
+            "SELECT review_id, finding_id, title FROM finding_observations WHERE finding_id = ?",
+          )
           .get("fnd_historical"),
       ).toEqual({
         review_id: "rev_historical",
@@ -207,7 +211,9 @@ describe("review operation schema migration", () => {
     try {
       expectMigrationVersions(state.db);
       expectTriggerNames(state.db);
-      expect(state.db.prepare("SELECT id, summary FROM reviews WHERE id = ?").get("rev_v040")).toEqual({
+      expect(
+        state.db.prepare("SELECT id, summary FROM reviews WHERE id = ?").get("rev_v040"),
+      ).toEqual({
         id: "rev_v040",
         summary: "Published 0.4.0 review",
       });
@@ -396,11 +402,7 @@ function seedHistoricalState(db: Awaited<ReturnType<typeof openSqliteDatabase>>)
   );
 }
 
-async function persistCompletedReview(
-  dir: string,
-  backend: "opencode" | "codex",
-  seed: string,
-) {
+async function persistCompletedReview(dir: string, backend: "opencode" | "codex", seed: string) {
   const model = backend === "codex" ? "gpt-5.6-luna" : "provider/model";
   const reviewInput = {
     targetKind: "staged" as const,

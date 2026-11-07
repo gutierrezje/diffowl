@@ -216,7 +216,9 @@ describe("validateEvalCaseSemantics", () => {
       steps: [{ patchPath: "step-0.patch" }, { patchPath: "step-1.patch" }],
     });
 
-    expect(() => validateEvalCaseSemantics(caseJson)).toThrow(/must not declare identity expectation/);
+    expect(() => validateEvalCaseSemantics(caseJson)).toThrow(
+      /must not declare identity expectation/,
+    );
   });
 
   it("rejects conflicting identity tags even when the first matches", () => {
@@ -251,13 +253,25 @@ describe("collectEvalCaseExpected", () => {
     expect(
       collectEvalCaseExpected({
         expected: [
-          { file: "src/a.ts", line: 1, line_tolerance: 2, min_severity: "warning", must_detect: true },
+          {
+            file: "src/a.ts",
+            line: 1,
+            line_tolerance: 2,
+            min_severity: "warning",
+            must_detect: true,
+          },
         ],
         steps: [
           {
             patchPath: "a.patch",
             expected: [
-              { file: "src/b.ts", line: 2, line_tolerance: 2, min_severity: "warning", must_detect: true },
+              {
+                file: "src/b.ts",
+                line: 2,
+                line_tolerance: 2,
+                min_severity: "warning",
+                must_detect: true,
+              },
             ],
           },
         ],
@@ -275,13 +289,25 @@ describe("collectEvalCaseExpected", () => {
           {
             patchPath: "a.patch",
             expected: [
-              { file: "src/a.ts", line: 1, line_tolerance: 2, min_severity: "warning", must_detect: true },
+              {
+                file: "src/a.ts",
+                line: 1,
+                line_tolerance: 2,
+                min_severity: "warning",
+                must_detect: true,
+              },
             ],
           },
           {
             patchPath: "b.patch",
             expected: [
-              { file: "src/b.ts", line: 2, line_tolerance: 2, min_severity: "warning", must_detect: true },
+              {
+                file: "src/b.ts",
+                line: 2,
+                line_tolerance: 2,
+                min_severity: "warning",
+                must_detect: true,
+              },
             ],
           },
         ],

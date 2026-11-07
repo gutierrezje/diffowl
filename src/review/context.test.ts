@@ -1066,7 +1066,9 @@ describe("buildReviewContext", () => {
 
     const context = await buildReviewContext({ kind: "staged" }, config);
     expect(context.changedFiles[0]!.content).toMatchObject({
-      status: "loaded", render: "diff-only", truncated: true,
+      status: "loaded",
+      render: "diff-only",
+      truncated: true,
     });
     expect(renderReviewContext(context)).toContain("+# Updated");
     expect(context.degradations).not.toContainEqual({ code: "changed-file-truncated", count: 1 });

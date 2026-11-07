@@ -38,9 +38,7 @@ function makeDocument(overrides: Partial<EvalResultsDocumentV1> = {}): EvalResul
         id: "bug-case",
         category: "bug",
         tags: [],
-        expected: [
-          makeExpected({ file: "src/a.ts", line: 1, must_detect: true }),
-        ],
+        expected: [makeExpected({ file: "src/a.ts", line: 1, must_detect: true })],
         case_json_hash: "a",
         patch_hash: "b",
         diffowl: {

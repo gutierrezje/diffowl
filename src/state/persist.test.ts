@@ -145,16 +145,26 @@ describe("review output persistence", () => {
 
   it("commits the review when possible duplicate scanning fails", async () => {
     const dir = await createTempDir();
-    const historicalA = await persistReviewRun(dir, basePersistInput([{
-      ...sampleFinding,
-      file: "src/a.ts",
-      evidence: "if (!payload) return;",
-    }]));
-    const historicalB = await persistReviewRun(dir, basePersistInput([{
-      ...sampleFinding,
-      file: "src/b.ts",
-      evidence: "if (!request) return;",
-    }]));
+    const historicalA = await persistReviewRun(
+      dir,
+      basePersistInput([
+        {
+          ...sampleFinding,
+          file: "src/a.ts",
+          evidence: "if (!payload) return;",
+        },
+      ]),
+    );
+    const historicalB = await persistReviewRun(
+      dir,
+      basePersistInput([
+        {
+          ...sampleFinding,
+          file: "src/b.ts",
+          evidence: "if (!request) return;",
+        },
+      ]),
+    );
     const historicalAId = historicalA.reconcile.observations[0]!.finding.id;
     const historicalBId = historicalB.reconcile.observations[0]!.finding.id;
 
@@ -209,7 +219,9 @@ describe("review output persistence", () => {
     try {
       expect(getReviewById(after.db, result.reviewId)).toBeDefined();
       expect(listAllFindings(after.db)).toHaveLength(4);
-      expect(after.db.prepare("SELECT COUNT(*) AS count FROM finding_possible_duplicates").get()).toEqual({
+      expect(
+        after.db.prepare("SELECT COUNT(*) AS count FROM finding_possible_duplicates").get(),
+      ).toEqual({
         count: 0,
       });
     } finally {
@@ -263,14 +275,16 @@ describe("review output persistence", () => {
 
     const state = await openStateDatabase(dir);
     try {
-      state.db.prepare(`
+      state.db
+        .prepare(`
         UPDATE review_executions
         SET schema_version = 1,
             backend = NULL,
             preference_source_json = NULL,
             reasoning_effort = NULL
         WHERE id = ?
-      `).run(result.execution.id);
+      `)
+        .run(result.execution.id);
       expect(listReviewExecutionsByReviewId(state.db, result.reviewId)).toEqual([
         expect.objectContaining({
           backend: null,

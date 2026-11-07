@@ -8,9 +8,17 @@ export const ReviewCoverageEvidenceSchema = z.object({
   untrackedActionableCount: z.number().int().nonnegative(),
 });
 
-export function insertReviewCoverage(db: SqliteDatabase, reviewId: string, evidence: ReviewCoverageEvidence): void {
+export function insertReviewCoverage(
+  db: SqliteDatabase,
+  reviewId: string,
+  evidence: ReviewCoverageEvidence,
+): void {
   const proof = ReviewCoverageEvidenceSchema.parse(evidence);
   db.prepare(`INSERT INTO review_coverage (review_id, policy_sha256, input_verified, untracked_actionable_count)
-    VALUES (?, ?, ?, ?)`)
-    .run(reviewId, proof.policySha256, Number(proof.inputVerified), proof.untrackedActionableCount);
+    VALUES (?, ?, ?, ?)`).run(
+    reviewId,
+    proof.policySha256,
+    Number(proof.inputVerified),
+    proof.untrackedActionableCount,
+  );
 }

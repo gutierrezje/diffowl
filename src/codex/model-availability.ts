@@ -41,7 +41,9 @@ export async function findCodexModel(
 }
 
 /** Check the current account's model catalog without starting a model turn. */
-export async function inspectCodexModelAvailability(model: string): Promise<CodexModelAvailability> {
+export async function inspectCodexModelAvailability(
+  model: string,
+): Promise<CodexModelAvailability> {
   let peer: AppServerPeer | undefined;
   try {
     peer = startAppServerPeer({

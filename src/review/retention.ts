@@ -20,10 +20,7 @@ export async function trimHookLog(logFile: string, maxBytes: number): Promise<vo
       start--;
     }
 
-    const temporaryFile = join(
-      dirname(logFile),
-      `.${basename(logFile)}.${randomUUID()}.tmp`,
-    );
+    const temporaryFile = join(dirname(logFile), `.${basename(logFile)}.${randomUUID()}.tmp`);
     try {
       await writeFile(temporaryFile, characters.slice(start).join(""), "utf-8");
       await rename(temporaryFile, logFile);

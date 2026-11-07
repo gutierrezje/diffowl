@@ -1,8 +1,5 @@
 import { z } from "zod";
-import {
-  ReviewConfidenceSchema,
-  ReviewContextDepthSchema,
-} from "../config.js";
+import { ReviewConfidenceSchema, ReviewContextDepthSchema } from "../config.js";
 import { ReasoningVariantSchema } from "../review/reasoning.js";
 
 export const EvalReportModeSchema = z.enum(["diffowl", "baseline", "both"]);

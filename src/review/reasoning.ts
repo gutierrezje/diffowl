@@ -27,7 +27,9 @@ export function formatReasoningVariantGuidance(variants: Iterable<string>): stri
   }
   return `Advertised variants: ${advertised
     .map((candidate) => JSON.stringify(candidate))
-    .join(", ")}. Use one of those values, remove the one-review \`--reasoning\` override, or run \`diffowl reasoning --reset\` to clear the saved preference.`;
+    .join(
+      ", ",
+    )}. Use one of those values, remove the one-review \`--reasoning\` override, or run \`diffowl reasoning --reset\` to clear the saved preference.`;
 }
 
 export function reasoningVariant(selection: ReasoningSelection): ReasoningVariant | undefined {

@@ -5,7 +5,9 @@ import { join } from "node:path";
 
 const corpusDir = join(import.meta.dirname, "../../eval/corpus");
 
-describe.skipIf(!process.env["DIFFOWL_EVAL_MODEL"]?.trim())("eval runner integration", () => {
+describe.skipIf(
+  process.env["DIFFOWL_EVAL_INTEGRATION"] !== "1" || !process.env["DIFFOWL_EVAL_MODEL"]?.trim(),
+)("eval runner integration", () => {
   it("reviews a single corpus case against a real model", async () => {
     const evalCase = await loadEvalCase(join(corpusDir, "harmless-trim"));
     const result = await runEvalCaseTrial(evalCase);
