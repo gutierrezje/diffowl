@@ -1,0 +1,1593 @@
+{
+  "auditDate": "2026-10-03",
+  "mainSha": "a18615724f14eb2bf385bafb216d2d2f7973d2f6",
+  "localEnvironment": {
+    "os": "macOS",
+    "node": "22.14.0",
+    "testGitConfig": {
+      "commit.gpgsign": false
+    }
+  },
+  "baseline": {
+    "numTotalTests": 1118,
+    "numPassedTests": 1111,
+    "numFailedTests": 0,
+    "numPendingTests": 7,
+    "success": true
+  },
+  "baselineWallSeconds": 60.67,
+  "files": [
+    {
+      "path": "package.test.ts",
+      "counts": {
+        "passed": 2
+      },
+      "durationMs": 9.82
+    },
+    {
+      "path": "src/anti-slop.integration.test.ts",
+      "counts": {
+        "passed": 3
+      },
+      "durationMs": 1270.36
+    },
+    {
+      "path": "src/cli.integration.test.ts",
+      "counts": {
+        "passed": 67
+      },
+      "durationMs": 58871.41
+    },
+    {
+      "path": "src/config.test.ts",
+      "counts": {
+        "passed": 22
+      },
+      "durationMs": 272.12
+    },
+    {
+      "path": "src/effective-config.test.ts",
+      "counts": {
+        "passed": 14
+      },
+      "durationMs": 635.86
+    },
+    {
+      "path": "src/review-preference.test.ts",
+      "counts": {
+        "passed": 9
+      },
+      "durationMs": 808.34
+    },
+    {
+      "path": "src/cursor/executor.test.ts",
+      "counts": {
+        "passed": 17
+      },
+      "durationMs": 3510.48
+    },
+    {
+      "path": "src/codex/app-server-peer.test.ts",
+      "counts": {
+        "passed": 17
+      },
+      "durationMs": 1582.57
+    },
+    {
+      "path": "src/codex/environment.test.ts",
+      "counts": {
+        "passed": 1
+      },
+      "durationMs": 17.73
+    },
+    {
+      "path": "src/codex/executor.test.ts",
+      "counts": {
+        "passed": 5
+      },
+      "durationMs": 5976.31
+    },
+    {
+      "path": "src/codex/protocol-evidence.test.ts",
+      "counts": {
+        "passed": 14,
+        "skipped": 1
+      },
+      "durationMs": 16922.93
+    },
+    {
+      "path": "src/codex/repository-guard.test.ts",
+      "counts": {
+        "passed": 13
+      },
+      "durationMs": 2911.05
+    },
+    {
+      "path": "src/codex/review-runner.test.ts",
+      "counts": {
+        "passed": 48
+      },
+      "durationMs": 24923.0
+    },
+    {
+      "path": "src/codex/runtime.test.ts",
+      "counts": {
+        "passed": 2
+      },
+      "durationMs": 2.31
+    },
+    {
+      "path": "src/eval/baseline.test.ts",
+      "counts": {
+        "passed": 3
+      },
+      "durationMs": 1.24
+    },
+    {
+      "path": "src/eval/case-types.test.ts",
+      "counts": {
+        "passed": 16
+      },
+      "durationMs": 7.15
+    },
+    {
+      "path": "src/eval/command.test.ts",
+      "counts": {
+        "passed": 10
+      },
+      "durationMs": 583.71
+    },
+    {
+      "path": "src/eval/compare.test.ts",
+      "counts": {
+        "passed": 8
+      },
+      "durationMs": 1912.72
+    },
+    {
+      "path": "src/eval/corpus.test.ts",
+      "counts": {
+        "passed": 20
+      },
+      "durationMs": 2090.06
+    },
+    {
+      "path": "src/eval/delta.test.ts",
+      "counts": {
+        "passed": 5
+      },
+      "durationMs": 2.24
+    },
+    {
+      "path": "src/eval/gates.test.ts",
+      "counts": {
+        "passed": 3
+      },
+      "durationMs": 2.23
+    },
+    {
+      "path": "src/eval/identity-runner.test.ts",
+      "counts": {
+        "passed": 5
+      },
+      "durationMs": 5089.68
+    },
+    {
+      "path": "src/eval/identity-score.test.ts",
+      "counts": {
+        "passed": 29
+      },
+      "durationMs": 3381.14
+    },
+    {
+      "path": "src/eval/json-types.test.ts",
+      "counts": {
+        "passed": 3
+      },
+      "durationMs": 6.59
+    },
+    {
+      "path": "src/eval/manifest.test.ts",
+      "counts": {
+        "passed": 1
+      },
+      "durationMs": 142.41
+    },
+    {
+      "path": "src/eval/metrics.test.ts",
+      "counts": {
+        "passed": 9
+      },
+      "durationMs": 2.32
+    },
+    {
+      "path": "src/eval/repo.test.ts",
+      "counts": {
+        "passed": 6
+      },
+      "durationMs": 1251.44
+    },
+    {
+      "path": "src/eval/report.test.ts",
+      "counts": {
+        "passed": 5
+      },
+      "durationMs": 855.09
+    },
+    {
+      "path": "src/eval/runner.integration.test.ts",
+      "counts": {
+        "skipped": 1
+      },
+      "durationMs": 0
+    },
+    {
+      "path": "src/eval/runner.test.ts",
+      "counts": {
+        "passed": 14
+      },
+      "durationMs": 9153.85
+    },
+    {
+      "path": "src/eval/score.test.ts",
+      "counts": {
+        "passed": 15
+      },
+      "durationMs": 6.12
+    },
+    {
+      "path": "src/git/diff.test.ts",
+      "counts": {
+        "passed": 41
+      },
+      "durationMs": 4172.05
+    },
+    {
+      "path": "src/git/hooks-queue.test.ts",
+      "counts": {
+        "passed": 7
+      },
+      "durationMs": 667.03
+    },
+    {
+      "path": "src/git/hooks.test.ts",
+      "counts": {
+        "passed": 45
+      },
+      "durationMs": 5207.03
+    },
+    {
+      "path": "src/git/reachability.test.ts",
+      "counts": {
+        "passed": 8
+      },
+      "durationMs": 6253.76
+    },
+    {
+      "path": "src/git/state-root.test.ts",
+      "counts": {
+        "passed": 16
+      },
+      "durationMs": 3219.67
+    },
+    {
+      "path": "src/output/findings.test.ts",
+      "counts": {
+        "passed": 12
+      },
+      "durationMs": 3.11
+    },
+    {
+      "path": "src/output/json.test.ts",
+      "counts": {
+        "passed": 28
+      },
+      "durationMs": 9.52
+    },
+    {
+      "path": "src/output/locator.test.ts",
+      "counts": {
+        "passed": 9
+      },
+      "durationMs": 2.2
+    },
+    {
+      "path": "src/integrations/agent-path.test.ts",
+      "counts": {
+        "passed": 17
+      },
+      "durationMs": 66.73
+    },
+    {
+      "path": "src/integrations/claude-code.test.ts",
+      "counts": {
+        "passed": 14
+      },
+      "durationMs": 665.7
+    },
+    {
+      "path": "src/opencode/client-models.test.ts",
+      "counts": {
+        "passed": 7
+      },
+      "durationMs": 12.79
+    },
+    {
+      "path": "src/opencode/client.test.ts",
+      "counts": {
+        "passed": 27
+      },
+      "durationMs": 24.24
+    },
+    {
+      "path": "src/opencode/executor.test.ts",
+      "counts": {
+        "passed": 4
+      },
+      "durationMs": 5.17
+    },
+    {
+      "path": "src/opencode/guidance.test.ts",
+      "counts": {
+        "passed": 7
+      },
+      "durationMs": 2.27
+    },
+    {
+      "path": "src/opencode/model-selection.test.ts",
+      "counts": {
+        "passed": 6
+      },
+      "durationMs": 2.15
+    },
+    {
+      "path": "src/opencode/models.integration.test.ts",
+      "counts": {
+        "skipped": 1
+      },
+      "durationMs": 0
+    },
+    {
+      "path": "src/opencode/provider-contract.test.ts",
+      "counts": {
+        "passed": 2
+      },
+      "durationMs": 7.29
+    },
+    {
+      "path": "src/opencode/quota.test.ts",
+      "counts": {
+        "passed": 9
+      },
+      "durationMs": 2.16
+    },
+    {
+      "path": "src/opencode/server.test.ts",
+      "counts": {
+        "passed": 12
+      },
+      "durationMs": 18.27
+    },
+    {
+      "path": "src/opencode/settlement.test.ts",
+      "counts": {
+        "passed": 22
+      },
+      "durationMs": 18.39
+    },
+    {
+      "path": "src/state/db.test.ts",
+      "counts": {
+        "passed": 22
+      },
+      "durationMs": 566.12
+    },
+    {
+      "path": "src/state/durable-flow.test.ts",
+      "counts": {
+        "passed": 7
+      },
+      "durationMs": 612.02
+    },
+    {
+      "path": "src/state/findings-query.test.ts",
+      "counts": {
+        "passed": 4
+      },
+      "durationMs": 155.6
+    },
+    {
+      "path": "src/state/findings-summary.test.ts",
+      "counts": {
+        "passed": 36
+      },
+      "durationMs": 10818.5
+    },
+    {
+      "path": "src/state/fingerprint.test.ts",
+      "counts": {
+        "passed": 5
+      },
+      "durationMs": 14.4
+    },
+    {
+      "path": "src/state/lifecycle.test.ts",
+      "counts": {
+        "passed": 2
+      },
+      "durationMs": 114.34
+    },
+    {
+      "path": "src/state/persist.test.ts",
+      "counts": {
+        "passed": 21
+      },
+      "durationMs": 504.84
+    },
+    {
+      "path": "src/state/possible-duplicates.test.ts",
+      "counts": {
+        "passed": 32
+      },
+      "durationMs": 2502.84
+    },
+    {
+      "path": "src/state/reconcile.test.ts",
+      "counts": {
+        "passed": 5
+      },
+      "durationMs": 239.31
+    },
+    {
+      "path": "src/state/repositories.test.ts",
+      "counts": {
+        "passed": 7
+      },
+      "durationMs": 237.51
+    },
+    {
+      "path": "src/state/review-execution-journal.test.ts",
+      "counts": {
+        "passed": 13
+      },
+      "durationMs": 621.49
+    },
+    {
+      "path": "src/state/review-operation-flow.test.ts",
+      "counts": {
+        "passed": 15
+      },
+      "durationMs": 684.83
+    },
+    {
+      "path": "src/review/backend-selection.test.ts",
+      "counts": {
+        "passed": 1
+      },
+      "durationMs": 2.63
+    },
+    {
+      "path": "src/review/context-source.test.ts",
+      "counts": {
+        "passed": 4
+      },
+      "durationMs": 775.72
+    },
+    {
+      "path": "src/review/context.test.ts",
+      "counts": {
+        "passed": 42
+      },
+      "durationMs": 12812.87
+    },
+    {
+      "path": "src/review/document-retry.test.ts",
+      "counts": {
+        "passed": 6
+      },
+      "durationMs": 5.86
+    },
+    {
+      "path": "src/review/document.test.ts",
+      "counts": {
+        "passed": 27
+      },
+      "durationMs": 56.39
+    },
+    {
+      "path": "src/review/execution-telemetry.test.ts",
+      "counts": {
+        "passed": 5
+      },
+      "durationMs": 19.28
+    },
+    {
+      "path": "src/review/executor.test.ts",
+      "counts": {
+        "passed": 5
+      },
+      "durationMs": 5.3
+    },
+    {
+      "path": "src/review/filters.test.ts",
+      "counts": {
+        "passed": 2
+      },
+      "durationMs": 1.2
+    },
+    {
+      "path": "src/review/formatter.test.ts",
+      "counts": {
+        "passed": 18
+      },
+      "durationMs": 653.47
+    },
+    {
+      "path": "src/review/gate.test.ts",
+      "counts": {
+        "passed": 26
+      },
+      "durationMs": 3.04
+    },
+    {
+      "path": "src/review/guidance.test.ts",
+      "counts": {
+        "passed": 7
+      },
+      "durationMs": 2.87
+    },
+    {
+      "path": "src/review/operation.test.ts",
+      "counts": {
+        "passed": 4
+      },
+      "durationMs": 13.0
+    },
+    {
+      "path": "src/review/prompt.test.ts",
+      "counts": {
+        "passed": 12
+      },
+      "durationMs": 3.18
+    },
+    {
+      "path": "src/review/readiness.test.ts",
+      "counts": {
+        "passed": 28
+      },
+      "durationMs": 22643.37
+    },
+    {
+      "path": "src/review/retention.test.ts",
+      "counts": {
+        "passed": 3
+      },
+      "durationMs": 22.14
+    },
+    {
+      "path": "src/review/run-execution-journal.test.ts",
+      "counts": {
+        "passed": 2
+      },
+      "durationMs": 10.85
+    },
+    {
+      "path": "src/review/run.test.ts",
+      "counts": {
+        "passed": 23
+      },
+      "durationMs": 50.54
+    },
+    {
+      "path": "src/review/runtime.test.ts",
+      "counts": {
+        "passed": 1
+      },
+      "durationMs": 1.89
+    },
+    {
+      "path": "src/review/usage.test.ts",
+      "counts": {
+        "passed": 7
+      },
+      "durationMs": 3.14
+    },
+    {
+      "path": "src/review/verification.test.ts",
+      "counts": {
+        "passed": 12
+      },
+      "durationMs": 8.25
+    },
+    {
+      "path": "src/experiments/codex-app-server/live-helpers.test.ts",
+      "counts": {
+        "passed": 3
+      },
+      "durationMs": 1.78
+    },
+    {
+      "path": "src/experiments/codex-app-server/live.integration.test.ts",
+      "counts": {
+        "skipped": 3
+      },
+      "durationMs": 0
+    },
+    {
+      "path": "src/experiments/codex-app-server/matched.integration.test.ts",
+      "counts": {
+        "skipped": 1
+      },
+      "durationMs": 0
+    },
+    {
+      "path": "src/experiments/codex-app-server/spike.test.ts",
+      "counts": {
+        "passed": 8
+      },
+      "durationMs": 13813.35
+    },
+    {
+      "path": "src/state/migrations/006-review-operations.test.ts",
+      "counts": {
+        "passed": 3
+      },
+      "durationMs": 151.94
+    },
+    {
+      "path": "src/state/migrations/007-release-schema.test.ts",
+      "counts": {
+        "passed": 7
+      },
+      "durationMs": 229.82
+    },
+    {
+      "path": "src/state/migrations/released-migrations.test.ts",
+      "counts": {
+        "passed": 2
+      },
+      "durationMs": 1.96
+    },
+    {
+      "path": "src/review/ast/module-bindings.test.ts",
+      "counts": {
+        "passed": 5
+      },
+      "durationMs": 185.09
+    }
+  ],
+  "separateVerification": {
+    "numTotalTests": 12,
+    "numPassedTests": 11,
+    "numFailedTests": 1,
+    "numPendingTests": 0,
+    "success": false
+  },
+  "verificationReproduction": {
+    "cleanExitCode": 1,
+    "dirtyMarkerExitCode": 0,
+    "sourceEdits": false
+  },
+  "mutations": [
+    {
+      "name": "reversed-confidence",
+      "test": "src/review/filters.test.ts",
+      "exitCode": 0,
+      "passed": 2,
+      "failed": 0
+    },
+    {
+      "name": "missing-case-normalization",
+      "test": "src/state/fingerprint.test.ts",
+      "exitCode": 0,
+      "passed": 5,
+      "failed": 0
+    }
+  ],
+  "protocolComparison": [
+    {
+      "round": 0,
+      "fixture": "original",
+      "durationMs": 252.104958,
+      "types": 644,
+      "json": 287
+    },
+    {
+      "round": 0,
+      "fixture": "minimal",
+      "durationMs": 75.569458,
+      "types": 28,
+      "json": 19
+    },
+    {
+      "round": 1,
+      "fixture": "minimal",
+      "durationMs": 76.472958,
+      "types": 28,
+      "json": 19
+    },
+    {
+      "round": 1,
+      "fixture": "original",
+      "durationMs": 242.32262500000002,
+      "types": 644,
+      "json": 287
+    },
+    {
+      "round": 2,
+      "fixture": "original",
+      "durationMs": 233.93791699999997,
+      "types": 644,
+      "json": 287
+    },
+    {
+      "round": 2,
+      "fixture": "minimal",
+      "durationMs": 77.08754199999987,
+      "types": 28,
+      "json": 19
+    },
+    {
+      "round": 3,
+      "fixture": "minimal",
+      "durationMs": 76.99937499999987,
+      "types": 28,
+      "json": 19
+    },
+    {
+      "round": 3,
+      "fixture": "original",
+      "durationMs": 235.51150000000007,
+      "types": 644,
+      "json": 287
+    },
+    {
+      "round": 4,
+      "fixture": "original",
+      "durationMs": 252.03324999999995,
+      "types": 644,
+      "json": 287
+    },
+    {
+      "round": 4,
+      "fixture": "minimal",
+      "durationMs": 85.12062500000002,
+      "types": 28,
+      "json": 19
+    },
+    {
+      "round": 5,
+      "fixture": "minimal",
+      "durationMs": 98.24145799999997,
+      "types": 28,
+      "json": 19
+    },
+    {
+      "round": 5,
+      "fixture": "original",
+      "durationMs": 374.1873750000002,
+      "types": 644,
+      "json": 287
+    }
+  ],
+  "closeComparison": [
+    {
+      "budgetMs": 3,
+      "attempts": 96,
+      "failures": 0
+    },
+    {
+      "budgetMs": 300,
+      "attempts": 96,
+      "failures": 0
+    }
+  ],
+  "ciHistory": [
+    {
+      "conclusion": "success",
+      "createdAt": "2026-10-03T22:28:25Z",
+      "databaseId": 37158560115,
+      "headBranch": "feature/claude-adapter",
+      "headSha": "44a0a00da154a89f3a6a56c6858b9f9f1feb2983",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/37158560115"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-10-03T20:42:38Z",
+      "databaseId": 37152512529,
+      "headBranch": "feature/claude-adapter",
+      "headSha": "a20003663529ecd5543e6c10acb2291865f31872",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/37152512529"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-27T06:26:46Z",
+      "databaseId": 36300110807,
+      "headBranch": "codex/model-compat-warning",
+      "headSha": "9efa6b45f6d7d6bffbf0caae396b359fe3cbf706",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/36300110807"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-25T01:25:05Z",
+      "databaseId": 36081915769,
+      "headBranch": "feature/106-review-provenance",
+      "headSha": "7c6870578742fd2fb35c327d4eca8f7071e1fef0",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/36081915769"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-20T03:31:10Z",
+      "databaseId": 35486781676,
+      "headBranch": "main",
+      "headSha": "a18615724f14eb2bf385bafb216d2d2f7973d2f6",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/35486781676"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-20T03:14:41Z",
+      "databaseId": 35486068024,
+      "headBranch": "feature/82-readiness-handoff",
+      "headSha": "821089abaaf9d85b1ce16e3a66bb2d7d0f7aa3f9",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/35486068024"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-20T01:35:24Z",
+      "databaseId": 35481781951,
+      "headBranch": "feature/82-readiness-handoff",
+      "headSha": "7fc6f6b9a64147ebaff93f243209d649c9e4bebe",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/35481781951"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-20T01:09:16Z",
+      "databaseId": 35480643907,
+      "headBranch": "feature/82-readiness-handoff",
+      "headSha": "8bb901237ccb4f5dd1b6c3a55cfec7d9f3add529",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/35480643907"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-20T00:41:30Z",
+      "databaseId": 35479430494,
+      "headBranch": "feature/82-readiness-handoff",
+      "headSha": "7efeb18d4b150c9818c9eb5354959a360cf77903",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/35479430494"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-19T23:51:35Z",
+      "databaseId": 35477242213,
+      "headBranch": "main",
+      "headSha": "f3ed191b9007c8ec5513e40d54699f6b2fa5376e",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/35477242213"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-19T22:23:00Z",
+      "databaseId": 35473172411,
+      "headBranch": "feature/90-readiness",
+      "headSha": "43af0365578b5f35517c6e050a827c380bac1fad",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/35473172411"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-09-19T22:15:51Z",
+      "databaseId": 35472820982,
+      "headBranch": "feature/90-readiness",
+      "headSha": "e229be19fff341e534e98f16fad3e600e8a1b124",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/35472820982"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-09-19T21:20:31Z",
+      "databaseId": 35470118239,
+      "headBranch": "feature/90-readiness",
+      "headSha": "b7a6351c6b1eabadef24b471b748e047e9ba6b64",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/35470118239"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-09-19T05:19:52Z",
+      "databaseId": 35423661291,
+      "headBranch": "main",
+      "headSha": "6c0a6858eb66496474c4d01245cb31838237fd54",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/35423661291"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-19T04:26:36Z",
+      "databaseId": 35421295213,
+      "headBranch": "feature/162-cursor-sdk",
+      "headSha": "5f9d76abb1dbaa09b692579ba7968ad5d6e168a9",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/35421295213"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-19T04:09:37Z",
+      "databaseId": 35420533887,
+      "headBranch": "feature/162-cursor-sdk",
+      "headSha": "0d848e740d7ec0ceab102208587de9647c973669",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/35420533887"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-19T03:55:51Z",
+      "databaseId": 35419921197,
+      "headBranch": "main",
+      "headSha": "e9429b6819185a9d3553438f91432c3e6a02dd10",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/35419921197"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-09-19T02:57:47Z",
+      "databaseId": 35417181482,
+      "headBranch": "feature/162-cursor-sdk",
+      "headSha": "d9599f968c964df0b79a6dcce10eb7d54b667bdc",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/35417181482"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-09-08T01:39:28Z",
+      "databaseId": 34177380054,
+      "headBranch": "main",
+      "headSha": "3d821e56d145d5a507ac65d8ab9dc6803d93f85b",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/34177380054"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-06T03:30:19Z",
+      "databaseId": 34009155053,
+      "headBranch": "feature/failed-execution-retention",
+      "headSha": "6d90317012f3c26e4a716df139cc5dd9fcd6b38c",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/34009155053"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-02T23:32:22Z",
+      "databaseId": 33695537758,
+      "headBranch": "main",
+      "headSha": "a4b7614d6c55013c6a55c85b8c2cfc998bf0a698",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33695537758"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-02T23:23:37Z",
+      "databaseId": 33694873108,
+      "headBranch": "bugfix/husky-local-launcher",
+      "headSha": "aae3045ec98bd2b4b56ff54f7ba67948c152ed29",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33694873108"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-09-02T23:18:07Z",
+      "databaseId": 33694450046,
+      "headBranch": "bugfix/husky-local-launcher",
+      "headSha": "3e1b8fcd98ea651bfff589e53ee767f298fcdfe3",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33694450046"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-09-02T22:40:26Z",
+      "databaseId": 33691517894,
+      "headBranch": "bugfix/husky-local-launcher",
+      "headSha": "f0f9631d26452c76e3102d0907d1521cf8e15656",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33691517894"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-02T22:15:58Z",
+      "databaseId": 33689508462,
+      "headBranch": "main",
+      "headSha": "9d9ada450aa81aecd35b3e383a18ca889e3bbb8a",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33689508462"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-02T22:11:53Z",
+      "databaseId": 33689149217,
+      "headBranch": "main",
+      "headSha": "199e93b9e596986bcd2822a3b8dfc8ec511313e8",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33689149217"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-02T21:23:14Z",
+      "databaseId": 33684852313,
+      "headBranch": "feature/control-diffowl-verifier",
+      "headSha": "ff35e1fc5bc44fe89ef93a8e20293fa6b5eabe29",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33684852313"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-02T21:02:42Z",
+      "databaseId": 33682867149,
+      "headBranch": "main",
+      "headSha": "36edd19a60ca8540e513d526b43a641c59a8251b",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33682867149"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-02T20:58:36Z",
+      "databaseId": 33682463192,
+      "headBranch": "main",
+      "headSha": "919bdd34a7a8f2df6b64e3c865fe5da6c900ce44",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33682463192"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-02T20:47:31Z",
+      "databaseId": 33681375827,
+      "headBranch": "bugfix/migration-ledger-identity",
+      "headSha": "5658ac6472a789f39415e0b40caba232fc40e220",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33681375827"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-02T20:36:35Z",
+      "databaseId": 33680305482,
+      "headBranch": "feature/control-diffowl-verifier",
+      "headSha": "85f79cd88671c3d2f2c94f7211f763c18e70048c",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33680305482"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-02T20:31:43Z",
+      "databaseId": 33679808379,
+      "headBranch": "bugfix/migration-ledger-identity",
+      "headSha": "37cd152ae35f97ae8dc18a744d724f95e4f1cde3",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33679808379"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-02T19:52:52Z",
+      "databaseId": 33675945796,
+      "headBranch": "main",
+      "headSha": "1aa92cf62bd275daef6ba7562628454ec817fed8",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33675945796"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-02T07:48:56Z",
+      "databaseId": 33605467422,
+      "headBranch": "feature/168-latency-eval",
+      "headSha": "feac8e6fa03f06befac95ead7077527e6ce57bef",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33605467422"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-02T07:24:36Z",
+      "databaseId": 33603421268,
+      "headBranch": "feature/168-latency-eval",
+      "headSha": "d279b7fa6e37c2108a946ec78ea80a2ec2cb6e2c",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33603421268"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-02T05:44:45Z",
+      "databaseId": 33595921170,
+      "headBranch": "feature/168-latency-eval",
+      "headSha": "07a538730005f99fec9cdddcff2e66a5646ee253",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33595921170"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-02T04:43:55Z",
+      "databaseId": 33591924558,
+      "headBranch": "feature/168-latency-eval",
+      "headSha": "50a1cfdf3f9692efe519e25166965c5f55b7735c",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33591924558"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-02T02:44:02Z",
+      "databaseId": 33584315519,
+      "headBranch": "feature/168-latency-eval",
+      "headSha": "36965f87e99344bc3f26948931cd13c6049eb03b",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33584315519"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-02T02:03:03Z",
+      "databaseId": 33581743200,
+      "headBranch": "feature/168-latency-eval",
+      "headSha": "ad83ceba3f6181453e5d6551c8a06ae740091c04",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33581743200"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-09-02T01:56:45Z",
+      "databaseId": 33581338731,
+      "headBranch": "feature/168-latency-eval",
+      "headSha": "a3494822294985e28fac33e0935a45ae9558ea44",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33581338731"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-09-02T01:48:27Z",
+      "databaseId": 33580818912,
+      "headBranch": "feature/168-latency-eval",
+      "headSha": "7c4dd07260dc3c542e1afcd69baa84f8f0211215",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33580818912"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-09-02T01:33:06Z",
+      "databaseId": 33579843522,
+      "headBranch": "feature/168-latency-eval",
+      "headSha": "679c8f9f5bd0522f8fbf8134a1878570212bba37",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33579843522"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-09-02T01:30:59Z",
+      "databaseId": 33579699656,
+      "headBranch": "feature/168-latency-eval",
+      "headSha": "d8db41ab5549230779d9e593d3fc0820e2553f81",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33579699656"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-01T23:50:45Z",
+      "databaseId": 33572800078,
+      "headBranch": "main",
+      "headSha": "4e17502ba5e1c9b8a655ce35a588a512bd10d454",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33572800078"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-01T23:02:18Z",
+      "databaseId": 33569141790,
+      "headBranch": "feature/167-review-execution-telemetry",
+      "headSha": "890534bcbb805cb13a394fdd1920d30f9965307a",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33569141790"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-01T22:11:45Z",
+      "databaseId": 33565053751,
+      "headBranch": "feature/167-review-execution-telemetry",
+      "headSha": "7e13a47660caf6ff35ba2d0dae7b21bb2795bfbc",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33565053751"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-01T21:17:49Z",
+      "databaseId": 33560274824,
+      "headBranch": "feature/167-review-execution-telemetry",
+      "headSha": "6cea63ccdb0fc446b752268520714171ac56427d",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33560274824"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-01T19:42:21Z",
+      "databaseId": 33551058240,
+      "headBranch": "main",
+      "headSha": "0ba909602e58b514f122d4a0773151421b09008c",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33551058240"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-01T06:38:12Z",
+      "databaseId": 33478454361,
+      "headBranch": "bugfix/hook-prioritize-new-commits",
+      "headSha": "cb43fe4a9a216562ac0b276be11804094f0c4677",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33478454361"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-01T05:37:37Z",
+      "databaseId": 33474322582,
+      "headBranch": "main",
+      "headSha": "c3b950c385edef9da9015b55f79d21f5fdce8693",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33474322582"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-01T05:19:30Z",
+      "databaseId": 33473157990,
+      "headBranch": "bugfix/review-merge-commit-scope",
+      "headSha": "f43e355633a9c1eaacf9e20370d4096031f63e49",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33473157990"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-09-01T05:11:17Z",
+      "databaseId": 33472624232,
+      "headBranch": "bugfix/review-merge-commit-scope",
+      "headSha": "69c85a3ddc2fc7062cd48abd6e6634a20c2bcfd1",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33472624232"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-09-01T04:53:05Z",
+      "databaseId": 33471503253,
+      "headBranch": "bugfix/review-merge-commit-scope",
+      "headSha": "ed80a12489eef348a13d7fe33c8f8ed8f9240f52",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33471503253"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-09-01T04:28:29Z",
+      "databaseId": 33469971944,
+      "headBranch": "bugfix/review-merge-commit-scope",
+      "headSha": "ec62c22fbc2acdec165b9b17417150d3899fc5aa",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33469971944"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-09-01T01:45:04Z",
+      "databaseId": 33459935602,
+      "headBranch": "feature/107-claim-verification",
+      "headSha": "0b7faddbc5893b8e604e8a5240ef4952cb58ae5d",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33459935602"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-08-30T05:01:07Z",
+      "databaseId": 33293751268,
+      "headBranch": "feature/162-cursor-backend",
+      "headSha": "91d016931832f8f3c9863f23f79a18e6e1a5bac5",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33293751268"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-30T04:42:16Z",
+      "databaseId": 33293082824,
+      "headBranch": "feature/107-claim-verification",
+      "headSha": "ffa8f434fccc0f778e5b2bb5e022ebaebc32de38",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33293082824"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-27T21:15:28Z",
+      "databaseId": 33117291317,
+      "headBranch": "main",
+      "headSha": "5c9b2b2bd2c3ca9ae1d6cf6686ae4a596c6f6d73",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33117291317"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-27T20:56:53Z",
+      "databaseId": 33115791527,
+      "headBranch": "main",
+      "headSha": "7b21268ed09213721bac44a7c874ae6a6948bd6f",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33115791527"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-27T20:36:55Z",
+      "databaseId": 33114183851,
+      "headBranch": "feature/reasoning-preferences",
+      "headSha": "d66348a72ca152bc83012d18e0676bb8dfb7406c",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33114183851"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-08-27T19:56:00Z",
+      "databaseId": 33110832982,
+      "headBranch": "main",
+      "headSha": "74a5efb914a999d8ada49428ad1d41df22999e1e",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33110832982"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-27T19:47:35Z",
+      "databaseId": 33110150245,
+      "headBranch": "feature/reasoning-preferences",
+      "headSha": "5d6097a613486fc6f15bfc04b7be7b7e61ae24e5",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33110150245"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-27T19:07:03Z",
+      "databaseId": 33106871522,
+      "headBranch": "feature/reasoning-preferences",
+      "headSha": "e37473de42e1537c51c507c5c1fcbea0361d6fc6",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33106871522"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-27T17:33:28Z",
+      "databaseId": 33099009746,
+      "headBranch": "feature/review-operation-foundation",
+      "headSha": "052a9e8c42e3183c283615a4c27948f64d6030b7",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33099009746"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-27T17:29:24Z",
+      "databaseId": 33098658099,
+      "headBranch": "feature/reasoning-preferences",
+      "headSha": "9870b010140242f053a61e87c878482e7b4b93e9",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33098658099"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-27T09:19:22Z",
+      "databaseId": 33058029385,
+      "headBranch": "feature/reasoning-preferences",
+      "headSha": "b7c10a2dcc28cc11f502a5b3dd4eef22f6d8e4f8",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33058029385"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-08-27T08:45:11Z",
+      "databaseId": 33055422711,
+      "headBranch": "main",
+      "headSha": "de06d6393591c9e1c38720d2601beaf3fba1884a",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33055422711"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-27T08:34:45Z",
+      "databaseId": 33054652569,
+      "headBranch": "feature/review-operation-foundation",
+      "headSha": "19ea3454e07e4e6f323a925d9bccac3d6c81122a",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33054652569"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-25T16:21:31Z",
+      "databaseId": 32871476703,
+      "headBranch": "feature/review-operation-foundation",
+      "headSha": "af0f43e66a732037869d1ffa416879656894fb1a",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32871476703"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-25T03:19:58Z",
+      "databaseId": 32804765169,
+      "headBranch": "feature/review-operation-foundation",
+      "headSha": "2c928a1606831ec03c3577f7de2f57ffabfbee39",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32804765169"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-25T02:46:17Z",
+      "databaseId": 32802659096,
+      "headBranch": "main",
+      "headSha": "902208a5086eb388b658fce6aa2441809ce11adf",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32802659096"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-25T02:40:41Z",
+      "databaseId": 32802310369,
+      "headBranch": "bugfix/migration-history-integrity",
+      "headSha": "6df8163121ce96ba3fd1d31e0f694ef055f1c0e1",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32802310369"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-25T02:28:46Z",
+      "databaseId": 32801546471,
+      "headBranch": "main",
+      "headSha": "4b076022d9edafb0b37414e359a8d7dfaefcee18",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32801546471"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-25T00:07:48Z",
+      "databaseId": 32792348895,
+      "headBranch": "bugfix/stale-schema-v5-triggers",
+      "headSha": "d9b9bdd97848f16b6ed9cc6552a5f8e1dc44db63",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32792348895"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-24T23:51:41Z",
+      "databaseId": 32791197668,
+      "headBranch": "bugfix/stale-schema-v5-triggers",
+      "headSha": "edf9b28ddcde76eac0576fea3055c5d0f6fe013e",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32791197668"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-24T23:34:49Z",
+      "databaseId": 32789974384,
+      "headBranch": "bugfix/stale-schema-v5-triggers",
+      "headSha": "b3650889f12cc0d2157a7ac3225cfef05d57d177",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32789974384"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-22T22:53:09Z",
+      "databaseId": 32603693235,
+      "headBranch": "main",
+      "headSha": "156e20dd2c409748eb4cdd212c3b6c237f839485",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32603693235"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-22T22:49:29Z",
+      "databaseId": 32603518927,
+      "headBranch": "docs/landing-restyle",
+      "headSha": "f6b22567cbc4d542ce1cfa179fc9cb63eea6989a",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32603518927"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-22T22:43:55Z",
+      "databaseId": 32603261679,
+      "headBranch": "main",
+      "headSha": "ac30967abb7cfab4dfaa2834df6a9aff3c5dac1f",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32603261679"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-22T22:41:22Z",
+      "databaseId": 32603139928,
+      "headBranch": "docs/landing-restyle",
+      "headSha": "0056458754453b3aad9ef8dcd3af0a7287b7cf78",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32603139928"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-22T22:20:47Z",
+      "databaseId": 32602173380,
+      "headBranch": "main",
+      "headSha": "d0a909c42e8109d9c573ba3b99a8d20823016206",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32602173380"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-22T22:10:57Z",
+      "databaseId": 32601716921,
+      "headBranch": "chore/remove-review-chat",
+      "headSha": "f7c1225c0519f99be89abae1ee0a3ce38032799a",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32601716921"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-22T21:59:23Z",
+      "databaseId": 32601166273,
+      "headBranch": "main",
+      "headSha": "327e97428b9af0bf07cd4d2f49da6ce3f2431606",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32601166273"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-22T21:55:33Z",
+      "databaseId": 32600989209,
+      "headBranch": "refactor/cli-anti-slop",
+      "headSha": "2375b7cfd5e3ae073908fe2271caf6c7861ed6a2",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32600989209"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-22T20:49:28Z",
+      "databaseId": 32597797802,
+      "headBranch": "refactor/cli-anti-slop",
+      "headSha": "09092cd3d6f5c8dca2ea631c87e073cc25d26a8f",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32597797802"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-22T20:32:29Z",
+      "databaseId": 32596977436,
+      "headBranch": "main",
+      "headSha": "dc55be48e7aa3588ea7c3a3d1f9bbfa8c38460a2",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32596977436"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-22T20:29:18Z",
+      "databaseId": 32596815308,
+      "headBranch": "refactor/integrations-anti-slop",
+      "headSha": "ba2039a46ce40f83c0f2a292dcb39b05568c3d66",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32596815308"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-22T20:28:09Z",
+      "databaseId": 32596760580,
+      "headBranch": "main",
+      "headSha": "50a68ace788a0ff716f28ef525c274b25ccb6514",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32596760580"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-22T20:24:33Z",
+      "databaseId": 32596589547,
+      "headBranch": "refactor/output-anti-slop",
+      "headSha": "b722203edbbd0f5e8e224926edf33ecdaab6217d",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32596589547"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-22T20:23:06Z",
+      "databaseId": 32596518770,
+      "headBranch": "main",
+      "headSha": "e5c5e67f70a9014640f336d97a0f233c63c5c14e",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32596518770"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-22T20:04:05Z",
+      "databaseId": 32595585176,
+      "headBranch": "refactor/config-runtime-anti-slop",
+      "headSha": "1ac38764c0810c73c7bdfc7fc858501ba372d592",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32595585176"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-22T20:03:11Z",
+      "databaseId": 32595540458,
+      "headBranch": "refactor/integrations-anti-slop",
+      "headSha": "bb033f6c5a1875c263cef3a8dff59c2c7814247b",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32595540458"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-22T20:01:46Z",
+      "databaseId": 32595469931,
+      "headBranch": "refactor/output-anti-slop",
+      "headSha": "4eec19fe5f560fd654d6352f5530b3747aa1f18b",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32595469931"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-08-22T19:58:02Z",
+      "databaseId": 32595277456,
+      "headBranch": "refactor/config-runtime-anti-slop",
+      "headSha": "365eb349f63329287baa786c46d80d1451b52303",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32595277456"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-22T18:48:50Z",
+      "databaseId": 32591850659,
+      "headBranch": "main",
+      "headSha": "911d51fd73371cdd722ebfbe244fa365deabad25",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32591850659"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-22T18:45:34Z",
+      "databaseId": 32591686969,
+      "headBranch": "refactor/git-anti-slop",
+      "headSha": "628ddaafee3cc1879da5dc9eae39c4eb07f48d76",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32591686969"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-22T18:43:57Z",
+      "databaseId": 32591604444,
+      "headBranch": "main",
+      "headSha": "988128288c0b5ff500ef331bf873a6e6546d219b",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32591604444"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-22T18:40:23Z",
+      "databaseId": 32591428243,
+      "headBranch": "refactor/eval-anti-slop",
+      "headSha": "9d9df1dae2bad7a7d9ab0f0c66b86235e3c08950",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32591428243"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-08-22T18:38:05Z",
+      "databaseId": 32591313845,
+      "headBranch": "main",
+      "headSha": "92bf5c4665352dda8d08b743b4949805b1515512",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32591313845"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-22T18:28:06Z",
+      "databaseId": 32590823200,
+      "headBranch": "refactor/git-anti-slop",
+      "headSha": "70464715cb330ff463d83e8fe984c929290aceae",
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32590823200"
+    }
+  ],
+  "limits": [
+    "Latest outcomes of 100 distinct workflow runs; not a flake rate.",
+    "Local timing is not a hosted Windows benchmark.",
+    "Dedicated-suite mutations only, not full mutation coverage.",
+    "No live provider tests enabled."
+  ]
+}
