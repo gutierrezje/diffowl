@@ -125,6 +125,41 @@ describe("recurrence window during review persistence", () => {
     expect(second.reviewId).toMatch(/^rev_/);
   });
 
+  it("rolls back the sweep and its events, but keeps the review, when an archive event cannot be written", async () => {
+    const dir = await createTempDir();
+    const first = await review(dir, "first");
+    const findingId = first.reconcile.observations[0]!.finding.id;
+    await markFixed(dir, findingId);
+    const setup = await openStateDatabase(dir);
+    try {
+      setup.db.exec(`CREATE TRIGGER fail_archive_event BEFORE INSERT ON finding_events
+        WHEN NEW.event_type = 'archived' BEGIN SELECT RAISE(ABORT, 'event unavailable'); END`);
+    } finally {
+      closeStateDatabase(setup);
+    }
+
+    vi.setSystemTime(new Date(START.getTime() + 15 * DAY_MS));
+    const second = await review(dir, "second");
+
+    expect(second.reconcile.observations[0]?.observation.classification).toBe("regressed");
+    const state = await openStateDatabase(dir);
+    try {
+      expect(state.db.prepare("SELECT id FROM reviews WHERE id = ?").get(second.reviewId)).toEqual({
+        id: second.reviewId,
+      });
+      expect(
+        state.db.prepare("SELECT archived_at FROM findings WHERE id = ?").get(findingId),
+      ).toEqual({ archived_at: null });
+      expect(
+        state.db
+          .prepare("SELECT count(*) AS count FROM finding_events WHERE event_type = 'archived'")
+          .get(),
+      ).toEqual({ count: 0 });
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
   it("keeps an idle open finding open and matched however old it is", async () => {
     const dir = await createTempDir();
     const first = await review(dir, "first");

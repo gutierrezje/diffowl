@@ -332,7 +332,7 @@ async function persistReviewOutput(
 
       // Findings past the recurrence window must already be archived when this review reconciles.
       // Skipped reviews carry no findings and no configured window, so only canonical ones sweep.
-      if (input.kind === "canonical") archiveStaleFindingsSafely(state, input.retention, new Date(), review.id);
+      if (input.kind === "canonical") archiveStaleFindingsSafely(state, review, input.retention);
       const uniqueIdentifiable = deduplicateReviewFindings(identifiable);
       const mergeCount = identifiable.length - uniqueIdentifiable.length;
       const reconcile = reconcileReviewFindings(

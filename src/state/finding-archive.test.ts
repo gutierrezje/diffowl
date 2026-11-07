@@ -127,18 +127,9 @@ describe("archive events", () => {
   it("records one archived event per archived finding, attributed to the triggering review", () => {
     const fixed = observe("fixed");
     fixFinding(state.db, fixed.id, { actor: "user", note: "Done.", verifiedBy: ["pnpm test"] });
-    const trigger = insertTestReview(state.db, {
-      targetKind: "staged",
-      diffHash: "trigger",
-      model: "provider/model",
-      reasoning: null,
-      depth: "default",
-      sessionId: "session",
-      summary: "Summary.",
-    });
-
     const archivedAt = daysAfterStart(15);
-    archiveStaleFindingsSafely(state, { finding_recurrence_days: 14 }, archivedAt, trigger.id);
+    const trigger = sweepingReview(archivedAt);
+    archiveStaleFindingsSafely(state, trigger, { finding_recurrence_days: 14 });
 
     const archived = listFindingEvents(state.db, fixed.id).filter(
       (event) => event.eventType === "archived",
@@ -183,7 +174,7 @@ describe("archiveStaleFindingsSafely", () => {
     const fixed = observe("fixed");
     fixFinding(state.db, fixed.id, { actor: "user", note: "Done.", verifiedBy: ["pnpm test"] });
 
-    archiveStaleFindingsSafely(state, undefined, daysAfterStart(15));
+    archiveStaleFindingsSafely(state, sweepingReview(daysAfterStart(15)));
 
     expect(find(fixed.id).archivedAt).not.toBeNull();
   });
@@ -192,10 +183,25 @@ describe("archiveStaleFindingsSafely", () => {
     state.db.exec("ALTER TABLE findings RENAME TO findings_gone");
 
     expect(() =>
-      archiveStaleFindingsSafely(state, { finding_recurrence_days: 14 }, daysAfterStart(15)),
+      archiveStaleFindingsSafely(state, sweepingReview(daysAfterStart(15)), {
+        finding_recurrence_days: 14,
+      }),
     ).not.toThrow();
   });
 });
+
+function sweepingReview(at: Date) {
+  return insertTestReview(state.db, {
+    targetKind: "staged",
+    diffHash: `sweep-${at.toISOString()}`,
+    model: "provider/model",
+    reasoning: null,
+    depth: "default",
+    sessionId: "session",
+    summary: "Summary.",
+    createdAt: at.toISOString(),
+  });
+}
 
 function observe(name: string): FindingRecord {
   const candidate: FindingCandidate = {

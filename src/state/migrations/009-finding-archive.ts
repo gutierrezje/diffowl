@@ -49,6 +49,11 @@ INSERT INTO finding_events_with_archive (
 SELECT id, finding_id, review_id, event_type, actor, reason, commit_ref, verification_json, created_at
 FROM finding_events;
 
+-- Keep the AUTOINCREMENT high-water mark; copying rows alone would reset it to max(id).
+UPDATE sqlite_sequence
+SET seq = max(seq, coalesce((SELECT seq FROM sqlite_sequence WHERE name = 'finding_events'), 0))
+WHERE name = 'finding_events_with_archive';
+
 DROP TABLE finding_events;
 
 ALTER TABLE finding_events_with_archive RENAME TO finding_events;

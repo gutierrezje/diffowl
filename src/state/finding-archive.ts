@@ -4,6 +4,7 @@ import { DiffOwlConfigSchema, type DiffOwlConfig } from "../config.js";
 import { runInTransaction, type StateDatabase } from "./db.js";
 import { insertFindingEvent } from "./repositories/events.js";
 import type { SqliteDatabase } from "./sqlite.js";
+import type { ReviewRecord } from "./types.js";
 
 export type FindingRetention = Pick<DiffOwlConfig["retention"], "finding_recurrence_days">;
 
@@ -19,7 +20,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * findings block readiness and are never archived; the schema CHECK enforces the same rule.
  * `days === 0` disables archiving. Each archived finding gets an `archived` event (actor `agent`,
  * attributed to `reviewId` when a review triggered the sweep). Returns the number newly archived.
- * Call inside a transaction so the updates and their events commit together.
+ * The updates and their events share one transaction (a savepoint when nested), so they commit or
+ * roll back together.
  */
 export function archiveStaleFindings(
   db: SqliteDatabase,
@@ -28,7 +30,15 @@ export function archiveStaleFindings(
   reviewId: string | null = null,
 ): number {
   if (days === 0) return 0;
+  return runInTransaction(db, () => archiveInTransaction(db, days, now, reviewId));
+}
 
+function archiveInTransaction(
+  db: SqliteDatabase,
+  days: number,
+  now: Date,
+  reviewId: string | null,
+): number {
   const archivedAt = now.toISOString();
   const stale = db
     .prepare(`
@@ -56,19 +66,23 @@ export function archiveStaleFindings(
 /**
  * Call inside the review's persistence transaction, before findings are reconciled: matching must
  * already honor the window, or a stale finding would still match on the first review after a long
- * gap. The sweep runs in a savepoint, so a failure rolls back only the sweep, never the review.
+ * gap. The review's own timestamp is the archive clock, so the sweep is attributed to and dated by
+ * the review that ran it. The sweep runs in a savepoint, so a statement failure rolls back only the
+ * sweep and its events, never the review.
  * Only failure is published: a success message would precede the enclosing commit and could be
  * retracted by a later rollback.
  */
 export function archiveStaleFindingsSafely(
   state: StateDatabase,
+  review: Pick<ReviewRecord, "id" | "createdAt">,
   retention: FindingRetention = defaults,
-  now: Date = new Date(),
-  reviewId: string | null = null,
 ): void {
   try {
-    runInTransaction(state.db, () =>
-      archiveStaleFindings(state.db, retention.finding_recurrence_days, now, reviewId),
+    archiveStaleFindings(
+      state.db,
+      retention.finding_recurrence_days,
+      new Date(review.createdAt),
+      review.id,
     );
   } catch (error) {
     diagnostics.publish({

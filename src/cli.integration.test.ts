@@ -1650,7 +1650,7 @@ describe("diffowl findings archive", () => {
 
     expect(shown.stdout).toMatch(/\d{4}-\S+ archived \(agent\)/);
 
-    // Restoring is not a user-facing command yet.
+    // DiffOwl has no command that restores an archived finding.
     const unarchive = await run("findings", "unarchive", findingId);
     expect(unarchive.exitCode).toBe(1);
     expect(unarchive.stdout).toBe("");

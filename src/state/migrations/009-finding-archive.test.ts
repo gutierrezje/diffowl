@@ -62,6 +62,8 @@ describe("finding archive migration", () => {
         actor: "agent",
       });
     }
+    // Event ids are AUTOINCREMENT: the rebuild must keep the high-water mark, not reset it to max(id).
+    old.prepare("UPDATE sqlite_sequence SET seq = 100 WHERE name = 'finding_events'").run();
     const before = {
       findings: old.prepare("SELECT * FROM findings ORDER BY id").all(),
       observations: old.prepare("SELECT * FROM finding_observations ORDER BY id").all(),
@@ -109,6 +111,19 @@ describe("finding archive migration", () => {
           )
           .all(),
       ).toEqual([{ name: "idx_findings_active_fingerprint" }, { name: "idx_findings_status" }]);
+      expect(
+        state.db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'finding_events' AND name LIKE 'idx_%' ORDER BY name",
+          )
+          .all(),
+      ).toEqual([
+        { name: "idx_finding_events_finding_id" },
+        { name: "idx_finding_events_id_finding_id_type" },
+      ]);
+      expect(
+        state.db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'finding_events'").get(),
+      ).toEqual({ seq: 100 });
     } finally {
       closeStateDatabase(state);
     }
