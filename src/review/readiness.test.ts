@@ -749,6 +749,16 @@ describe("review readiness", () => {
       });
     });
 
+    it("fails visibly on both paths when the base shares no history with the branch", async () => {
+      await commitPolicy("min_confidence: low\n");
+      await git("checkout", "--orphan", "unrelated");
+      await git("commit", "-m", "unrelated root");
+      await git("checkout", "feature");
+      expect(await getReadiness({ projectRoot: root, base: "unrelated" })).toMatchObject({ reason: "operational-error" });
+      await expect(acceptPolicyChange({ projectRoot: root, base: "unrelated" }, person(true))).rejects.toThrow(/merge-base/);
+      expect(await readdir(join(root, ".diffowl")).catch(() => [])).not.toContain("policy-acknowledgements.json");
+    });
+
     it("keeps an acknowledgement when the base commit moves but both policies are unchanged", async () => {
       await commitPolicy("min_confidence: low\n");
       await reviewBranch();

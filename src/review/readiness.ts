@@ -8,7 +8,7 @@ import { blockingContextDegradations, readReviewCheckout, reviewPolicySha256 } f
 import { readReadinessQueue } from "./readiness-runtime.js";
 import { isProcessLeaseAlive } from "../state/process-lease.js";
 import { isPolicyChangeAcknowledged } from "../state/policy-acknowledgements.js";
-import { policyAcceptCommand, readBasePolicy } from "./policy-change.js";
+import { policyAcceptCommand, readMergeBasePolicy } from "./policy-change.js";
 
 export interface ReadinessOptions {
   projectRoot: string;
@@ -75,9 +75,7 @@ export async function getReadiness(options: ReadinessOptions): Promise<Readiness
       cursor = parent;
     }
     const stateDir = await resolveSharedDiffOwlDir(options.projectRoot);
-    // Compare with the merge base, not the base tip, so a policy edit made only on the base
-    // branch is not reported as this branch's change.
-    const basePolicy = await readBasePolicy(options.cwd ?? options.projectRoot, mergeBase);
+    const { policy: basePolicy } = await readMergeBasePolicy(options.projectRoot, options.cwd ?? options.projectRoot, base, head);
     if (basePolicy.sha256 !== policy) {
       result.policy_change = {
         base_policy_sha256: basePolicy.sha256,

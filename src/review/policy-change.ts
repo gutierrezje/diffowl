@@ -41,6 +41,19 @@ export async function readBasePolicy(cwd: string, commit: string): Promise<BaseP
   return { kind: "valid", sha256: reviewPolicySha256(config, config.context.depth), config };
 }
 
+/**
+ * The policy on the base side of the branch policy check: the one at the merge base of `baseCommit`
+ * and `head`. Readiness and `policy accept` both read it here, so an acknowledgement recorded by one
+ * always describes the comparison the other makes. Comparing with the merge base rather than the
+ * base tip keeps a policy edit made only on the base branch from counting as this branch's change.
+ */
+export async function readMergeBasePolicy(
+  projectRoot: string, cwd: string, baseCommit: string, head: string,
+): Promise<{ mergeBase: string; policy: BasePolicy }> {
+  const { stdout: mergeBase } = await execa("git", ["merge-base", baseCommit, head], { cwd: projectRoot });
+  return { mergeBase, policy: await readBasePolicy(cwd, mergeBase) };
+}
+
 /** The command a person runs to acknowledge the change; it must match what readiness was asked. */
 export function policyAcceptCommand(baseCommit: string, depth?: ReviewContextDepth): string {
   return `diffowl policy accept --base ${baseCommit}${depth === undefined ? "" : ` --depth ${depth}`}`;
@@ -88,8 +101,8 @@ export async function acceptPolicyChange(
   const branchConfig = await loadConfigFromRoot(options.projectRoot);
   const branchInput = reviewPolicyInput(branchConfig, options.depth ?? branchConfig.context.depth);
   const branchSha = reviewPolicySha256(branchConfig, branchInput.depth);
-  const { stdout: mergeBase } = await execa("git", ["merge-base", baseCommit, "HEAD"], { cwd: options.projectRoot });
-  const base = await readBasePolicy(options.cwd ?? options.projectRoot, mergeBase);
+  const { mergeBase, policy: base } = await readMergeBasePolicy(
+    options.projectRoot, options.cwd ?? options.projectRoot, baseCommit, "HEAD");
   if (base.sha256 === branchSha) return { kind: "unchanged" };
   const change: PolicyChange = {
     merge_base_commit: mergeBase, base_policy_sha256: base.sha256, branch_policy_sha256: branchSha,
@@ -102,7 +115,7 @@ export async function acceptPolicyChange(
 
 function describeDifferences(base: BasePolicy, branchInput: ReviewPolicyInput): PolicyChange["differences"] {
   if (base.kind === "invalid") {
-    return [{ field: CONFIG_FILENAME, base: `unparseable at the base commit: ${base.problem}`, branch: "parses" }];
+    return [{ field: CONFIG_FILENAME, base: `unparseable at the merge base: ${base.problem}`, branch: "parses" }];
   }
   const baseFields = new Map(Object.entries(reviewPolicyInput(base.config, base.config.context.depth)));
   const branchFields = new Map(Object.entries(branchInput));

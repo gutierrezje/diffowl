@@ -15,8 +15,8 @@ const FileSchema = z.object({
 }).strict();
 
 /**
- * The decision a human accepted: the base's policy and the branch's different policy. The base
- * commit is deliberately not part of the key, so fetches that move the base keep the decision.
+ * The decision a human accepted: the policy at the merge base and the branch's different policy.
+ * No commit is part of the key, so fetches that move the base keep the decision.
  */
 export type PolicyChangeTuple = z.output<typeof PolicyChangeSchema>;
 
