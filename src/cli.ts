@@ -117,7 +117,6 @@ import {
   LocatorNotFoundError,
   reopenFindingByLocator,
   requireFindingDetail,
-  unarchiveFindingByLocator,
   withFindingDatabase,
   withFindingDatabaseForRead,
 } from "./state/findings-query.js";
@@ -1757,15 +1756,6 @@ findingsCmd
         reason: options.reason,
       }),
     );
-  });
-
-findingsCmd
-  .command("unarchive")
-  .description("Restore an archived finding to tracking and restart its recurrence window")
-  .argument("<locator>", "Finding id or id prefix")
-  .option("--format <format>", "Output format: text or json", "json")
-  .action(async (locator: string, options: { format?: string }) => {
-    await runFindingMutation(locator, options.format, (db) => unarchiveFindingByLocator(db, locator));
   });
 
 program.parse();

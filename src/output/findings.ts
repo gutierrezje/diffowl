@@ -46,7 +46,7 @@ export function formatFindingList(
     ? "Past the recurrence window; kept for lookup and no longer matched against new reviews."
     : "Durable backlog; absence from later reviews does not auto-fix findings.";
   const footer = options.archived
-    ? "Restore tracking: diffowl findings unarchive <id>"
+    ? "Details: diffowl findings show <id>"
     : "Mark resolved: diffowl findings fix <id> --note <text> --verified-by <command>";
   lines.push(color ? chalk.bold(heading) : heading);
   lines.push(color ? chalk.dim(subheading) : subheading);

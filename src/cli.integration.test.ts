@@ -1622,7 +1622,7 @@ describe("diffowl CLI", () => {
 });
 
 describe("diffowl findings archive", () => {
-  it("hides archived findings from the backlog, lists them on request, and restores them", async () => {
+  it("hides archived findings from the backlog and lists them on request", async () => {
     const repo = await createRepo("diffowl-cli-findings-archive-");
     await writeFile(join(repo, "README.md"), "hello\n", "utf8");
     await commitAll(repo, "initial");
@@ -1648,9 +1648,13 @@ describe("diffowl findings archive", () => {
     expect(refused.exitCode).toBe(1);
     expect(refused.stdout + refused.stderr).toContain("archived");
 
-    const restored = JSON.parse((await run("findings", "unarchive", findingId)).stdout);
-    expect(restored.finding.archivedAt).toBeNull();
-    expect((await run("findings", "list", "--archived")).stdout).toContain("No archived findings.");
+    expect(shown.stdout).toMatch(/\d{4}-\S+ archived \(agent\)/);
+
+    // Restoring is not a user-facing command yet.
+    const unarchive = await run("findings", "unarchive", findingId);
+    expect(unarchive.exitCode).toBe(1);
+    expect(unarchive.stdout).toBe("");
+    expect(unarchive.stderr).toContain("error:");
   });
 });
 

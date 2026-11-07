@@ -6,6 +6,7 @@ import type { ReviewFinding } from "../review/types.js";
 import { closeStateDatabase, openStateDatabase } from "./db.js";
 import { fixFinding } from "./lifecycle.js";
 import { computeDiffHash } from "./persist.js";
+import { listFindingEvents } from "./repositories/events.js";
 import { listAllFindings } from "./repositories/findings.js";
 import { persistTestReview, removeTempStateDir } from "./test-helpers.js";
 
@@ -56,6 +57,27 @@ describe("recurrence window during review persistence", () => {
         ["fixed", true],
         ["open", false],
       ]);
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
+  it("records the archive event against the review whose persistence swept it", async () => {
+    const dir = await createTempDir();
+    const first = await review(dir, "first");
+    const staleId = first.reconcile.observations[0]!.finding.id;
+    await markFixed(dir, staleId);
+
+    vi.setSystemTime(new Date(START.getTime() + 15 * DAY_MS));
+    const second = await review(dir, "second");
+
+    const state = await openStateDatabase(dir);
+    try {
+      const archived = listFindingEvents(state.db, staleId).filter(
+        (event) => event.eventType === "archived",
+      );
+      expect(archived).toHaveLength(1);
+      expect(archived[0]?.reviewId).toBe(second.reviewId);
     } finally {
       closeStateDatabase(state);
     }

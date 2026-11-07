@@ -86,7 +86,7 @@ When a review reports a `dismissed` or `deferred` finding again, the finding kee
 | `diffowl findings defer <id> --reason <text>`                     | `deferred`  |
 | `diffowl findings reopen <id> --reason <text>`                    | `open`      |
 
-`diffowl findings list --archived` lists archived findings, and `diffowl findings unarchive <id>` restores one. See [Finding recurrence window](#finding-recurrence-window).
+`diffowl findings list --archived` lists archived findings. See [Finding recurrence window](#finding-recurrence-window).
 
 `--verified-by` can repeat. `fix` also accepts `--commit <ref>`. Every disposition command accepts `--actor user` or `--actor agent`, and prints JSON by default.
 
@@ -206,11 +206,11 @@ The optional Node diagnostics channel `diffowl.state.retention` publishes `{ kin
 
 DiffOwl remembers a `fixed` or `dismissed` finding for a recurrence window, so a later review that reports the same code is suppressed or marked `regressed`. After `retention.finding_recurrence_days` days without a sighting or a disposition (default `14`), DiffOwl archives the finding. This default is a starting point that has not been validated against real usage.
 
-An archived finding stays in the database. `diffowl findings show <id>` still prints it, with an `Archived` timestamp, and `diffowl findings list --archived` lists it. It no longer takes part in matching and is no longer suggested as a possible duplicate. If a later review reports the same code, DiffOwl creates a new `open` finding and leaves the archived record unchanged, so a dismissal stops suppressing the finding and a fix no longer produces `regressed`. Archived findings reject disposition commands until `diffowl findings unarchive <id>` restores them and restarts their window. Restoring fails when another active finding has the same fingerprint. A possible-duplicate suggestion cannot be confirmed once its matched finding is archived.
+An archived finding stays in the database. `diffowl findings show <id>` still prints it, with an `Archived` timestamp, and `diffowl findings list --archived` lists it. It no longer takes part in matching and is no longer suggested as a possible duplicate. If a later review reports the same code, DiffOwl creates a new `open` finding and leaves the archived record unchanged, so a dismissal stops suppressing the finding and a fix no longer produces `regressed`. Archived findings reject disposition commands, and DiffOwl has no command that restores one. Archiving appends an `archived` event (actor `agent`, attributed to the review that triggered it) to the finding's history, shown by `diffowl findings show <id>`. A possible-duplicate suggestion cannot be confirmed once its matched finding is archived.
 
-Age counts from the last sighting or disposition, whichever is later, not from the first sighting. DiffOwl never archives `open`, `regressed`, or `deferred` findings, however old, because they block readiness. Archiving does not change reviews, observations, events, or coverage, so it cannot change a readiness result. Set `retention.finding_recurrence_days` to `0` to turn archiving off.
+Age counts from the last sighting or disposition, whichever is later, not from the first sighting. DiffOwl never archives `open`, `regressed`, or `deferred` findings, however old, because they block readiness. Archiving does not change reviews, observations, or coverage, so it cannot change a readiness result. Set `retention.finding_recurrence_days` to `0` to turn archiving off.
 
-DiffOwl archives eligible findings inside the transaction that saves a canonical review, just before it matches the review's findings, so the review already matches against the current window. If archiving fails, DiffOwl rolls back only the archiving, saves the review, and matches as it would without a window. `unarchive` is not recorded as a finding event. The `diffowl.state.retention` diagnostics channel publishes `{ kind: "findings-archive-failed", databasePath, message }` when archiving fails.
+DiffOwl archives eligible findings inside the transaction that saves a canonical review, just before it matches the review's findings, so the review already matches against the current window. If archiving fails, DiffOwl rolls back only the archiving, saves the review, and matches as it would without a window. The `diffowl.state.retention` diagnostics channel publishes `{ kind: "findings-archive-failed", databasePath, message }` when archiving fails.
 
 ## Files DiffOwl creates
 

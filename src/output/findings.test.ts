@@ -168,7 +168,7 @@ describe("formatFindingList", () => {
 describe("archived findings output", () => {
   const archivedAt = "2026-02-01T00:00:00.000Z";
 
-  it("labels an archived list and points at unarchive instead of fix", () => {
+  it("labels an archived list and points at show instead of fix", () => {
     const output = formatFindingList(
       [listItem({ finding: { status: "fixed", archivedAt } })],
       { columns: 100, color: false, archived: true },
@@ -176,7 +176,8 @@ describe("archived findings output", () => {
 
     expect(output).toContain("Archived findings: 1");
     expect(output).toContain("no longer matched against new reviews");
-    expect(output).toContain("diffowl findings unarchive <id>");
+    expect(output).toContain("diffowl findings show <id>");
+    expect(output).not.toContain("unarchive");
     expect(output).not.toContain("findings fix");
   });
 

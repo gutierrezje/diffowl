@@ -15,7 +15,6 @@ import { openStateDatabaseForWrite } from "./write-database.js";
 import { deferFinding, dismissFinding, fixFinding, reopenFinding } from "./lifecycle.js";
 import { countObservationsByFindingIds } from "./repositories/observations.js";
 import { listFindingEvents } from "./repositories/events.js";
-import { unarchiveFinding } from "./finding-archive.js";
 import {
   getFindingById,
   listAllFindings,
@@ -161,10 +160,6 @@ export function reopenFindingByLocator(
   input: { actor: FindingActor; reason: string },
 ): FindingDetail {
   return mutateFinding(db, locator, (findingId) => reopenFinding(db, findingId, input));
-}
-
-export function unarchiveFindingByLocator(db: SqliteDatabase, locator: string): FindingDetail {
-  return mutateFinding(db, locator, (findingId) => unarchiveFinding(db, findingId));
 }
 
 export function isUnresolvedFinding(status: FindingRecord["status"]): boolean {

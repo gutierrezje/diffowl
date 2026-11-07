@@ -7,6 +7,7 @@ import { closeStateDatabase, openStateDatabase, type StateDatabase } from "./db.
 import { archiveStaleFindings, archiveStaleFindingsSafely } from "./finding-archive.js";
 import { deferFinding, dismissFinding, fixFinding } from "./lifecycle.js";
 import { reconcileReviewFindings } from "./reconcile.js";
+import { listFindingEvents } from "./repositories/events.js";
 import { getFindingById } from "./repositories/findings.js";
 import { insertTestReview, removeTempStateDir } from "./test-helpers.js";
 import type { FindingCandidate, FindingRecord } from "./types.js";
@@ -107,16 +108,73 @@ describe("archiveStaleFindings", () => {
     expect(archiveStaleFindings(state.db, 7, daysAfterStart(20))).toBe(1);
   });
 
-  it("leaves review rows and observations untouched", () => {
+  it("leaves review rows and observations untouched (events are covered separately)", () => {
     const fixed = observe("fixed");
     fixFinding(state.db, fixed.id, { actor: "user", note: "Done.", verifiedBy: ["pnpm test"] });
     const count = (table: string) =>
-      z.object({ n: z.number() }).parse(state.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get());
-    const before = ["reviews", "review_operations", "finding_observations", "finding_events"].map(count);
+      z
+        .object({ n: z.number() })
+        .parse(state.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get());
+    const before = ["reviews", "review_operations", "finding_observations"].map(count);
 
     archiveStaleFindings(state.db, 14, daysAfterStart(100));
 
-    expect(["reviews", "review_operations", "finding_observations", "finding_events"].map(count)).toEqual(before);
+    expect(["reviews", "review_operations", "finding_observations"].map(count)).toEqual(before);
+  });
+});
+
+describe("archive events", () => {
+  it("records one archived event per archived finding, attributed to the triggering review", () => {
+    const fixed = observe("fixed");
+    fixFinding(state.db, fixed.id, { actor: "user", note: "Done.", verifiedBy: ["pnpm test"] });
+    const trigger = insertTestReview(state.db, {
+      targetKind: "staged",
+      diffHash: "trigger",
+      model: "provider/model",
+      reasoning: null,
+      depth: "default",
+      sessionId: "session",
+      summary: "Summary.",
+    });
+
+    const archivedAt = daysAfterStart(15);
+    archiveStaleFindingsSafely(state, { finding_recurrence_days: 14 }, archivedAt, trigger.id);
+
+    const archived = listFindingEvents(state.db, fixed.id).filter(
+      (event) => event.eventType === "archived",
+    );
+    expect(archived).toHaveLength(1);
+    expect(archived[0]).toMatchObject({
+      actor: "agent",
+      reviewId: trigger.id,
+      createdAt: archivedAt.toISOString(),
+    });
+    expect(archived[0]?.reason).toContain("14");
+  });
+
+  it("records an event without a review when the sweep has no triggering review", () => {
+    const dismissed = observe("dismissed");
+    dismissFinding(state.db, dismissed.id, { actor: "user", reason: "Intended." });
+
+    archiveStaleFindings(state.db, 14, daysAfterStart(15));
+
+    expect(listFindingEvents(state.db, dismissed.id).at(-1)).toMatchObject({
+      eventType: "archived",
+      reviewId: null,
+    });
+  });
+
+  it("records no event for findings that stay active, and none on a repeat sweep", () => {
+    const open = observe("open");
+    const fixed = observe("fixed");
+    fixFinding(state.db, fixed.id, { actor: "user", note: "Done.", verifiedBy: ["pnpm test"] });
+
+    archiveStaleFindings(state.db, 14, daysAfterStart(15));
+    archiveStaleFindings(state.db, 14, daysAfterStart(30));
+
+    const types = (id: string) => listFindingEvents(state.db, id).map((event) => event.eventType);
+    expect(types(open.id)).not.toContain("archived");
+    expect(types(fixed.id).filter((type) => type === "archived")).toHaveLength(1);
   });
 });
 

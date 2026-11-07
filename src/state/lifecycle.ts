@@ -206,7 +206,7 @@ function requireFinding(db: SqliteDatabase, findingId: string): FindingRecord {
   }
   if (finding.archivedAt !== null) {
     throw new InvalidFindingTransitionError(
-      `Finding ${findingId} is archived; run diffowl findings unarchive before changing it.`,
+      `Finding ${findingId} is archived and no longer tracked; it cannot be changed.`,
     );
   }
   return finding;

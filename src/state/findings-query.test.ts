@@ -14,7 +14,6 @@ import {
   LocatorNotFoundError,
   reopenFindingByLocator,
   requireFindingDetail,
-  unarchiveFindingByLocator,
   withFindingDatabase,
 } from "./findings-query.js";
 import { reconcileReviewFindings } from "./reconcile.js";
@@ -206,7 +205,7 @@ describe("findings query", () => {
       });
     });
 
-    it("unarchives a finding back into tracking, restarting its window", async () => {
+    it("shows the archive event in the finding's history", async () => {
       const dir = await createTempDir();
       await withFindingDatabase(dir, (db) => {
         const review = insertReview(db, baseReview());
@@ -214,31 +213,11 @@ describe("findings query", () => {
         dismissFindingByLocator(db, finding.id, { actor: "user", reason: "Intended." });
         archiveStaleFindings(db, 14, later);
 
-        const restored = unarchiveFindingByLocator(db, finding.id);
-        expect(restored.finding.archivedAt).toBeNull();
-        expect(restored.finding.status).toBe("dismissed");
-        expect(listArchivedFindingItems(db)).toHaveLength(0);
-        // The window restarts at restoration, so the next sweep leaves it alone.
-        expect(archiveStaleFindings(db, 14, new Date())).toBe(0);
-
-        const second = insertReview(db, { ...baseReview(), diffHash: "second" });
-        const again = reconcileReviewFindings(db, second.id, [candidate]).observations[0]!;
-        expect(again.finding.id).toBe(finding.id);
-        expect(again.suppressed).toBe(true);
-      });
-    });
-
-    it("refuses to unarchive over a fresh active finding with the same fingerprint", async () => {
-      const dir = await createTempDir();
-      await withFindingDatabase(dir, (db) => {
-        const review = insertReview(db, baseReview());
-        const original = reconcileReviewFindings(db, review.id, [candidate]).observations[0]!.finding;
-        dismissFindingByLocator(db, original.id, { actor: "user", reason: "Intended." });
-        archiveStaleFindings(db, 14, later);
-        const successor = reconcileReviewFindings(db, review.id, [candidate]).observations[0]!.finding;
-
-        expect(() => unarchiveFindingByLocator(db, original.id)).toThrow(successor.id);
-        expect(requireFindingDetail(db, original.id).finding.archivedAt).not.toBeNull();
+        expect(requireFindingDetail(db, finding.id).events.map((event) => event.eventType)).toEqual([
+          "observed",
+          "dismissed",
+          "archived",
+        ]);
       });
     });
   });

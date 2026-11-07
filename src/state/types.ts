@@ -32,7 +32,8 @@ export type FindingEventType =
   | "deferred"
   | "fixed"
   | "reopened"
-  | "regressed";
+  | "regressed"
+  | "archived";
 export type FindingActor = "user" | "agent";
 export type ReviewSeverity = "error" | "warning" | "info";
 export type ReviewConfidence = "low" | "medium" | "high";
