@@ -5,7 +5,6 @@ import { REVIEW_JSON_MARKER } from "../review/document.js";
 
 // Keep in sync with src/review/context-render.ts so the baseline arm sees the
 // same diff as the DiffOwl arm it is compared against.
-const MAX_DIFF_CHARS = 80_000;
 const MAX_QUICK_DIFF_CHARS = 12_000;
 
 interface TruncatedText {
@@ -54,13 +53,16 @@ export function renderBaselineDiff(
   snapshot: LoadedReviewSnapshot,
   depth: ReviewContextDepth = "default",
 ): string {
-  const maxChars = depth === "shallow" ? MAX_QUICK_DIFF_CHARS : MAX_DIFF_CHARS;
+  const diff =
+    depth === "shallow"
+      ? truncateText(snapshot.diff.raw, MAX_QUICK_DIFF_CHARS).text
+      : snapshot.diff.raw;
   const lines: string[] = [];
 
   lines.push("## Diff");
   lines.push(snapshot.diff.summary || "No changed files detected.");
   lines.push("");
-  lines.push(fence(truncateText(snapshot.diff.raw, maxChars).text, "diff"));
+  lines.push(fence(diff, "diff"));
 
   return lines.join("\n").trim();
 }

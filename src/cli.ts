@@ -141,7 +141,11 @@ import {
   rejectPossibleDuplicate,
 } from "./state/possible-duplicates.js";
 import { resolveCompletedReviewExit } from "./review/gate.js";
-import { getReviewFailureExecution, runReviewPipeline } from "./review/run.js";
+import {
+  defaultReviewPipelineDeps,
+  getReviewFailureExecution,
+  runReviewPipeline,
+} from "./review/run.js";
 import { getSlowestReviewExecutionPhase } from "./review/execution-telemetry.js";
 import { createSelectedReviewExecutor } from "./review/executor.js";
 import { createSingleReviewAssignment } from "./review/provenance.js";
@@ -371,50 +375,54 @@ program
     });
 
     try {
-      const outcome = await runReviewPipeline({
-        target,
-        config,
-        depth,
-        verbose,
-        projectRoot,
-        diffOwlDir,
-        timings,
-        persistEmptyDiff: jsonMode,
-        initialDiagnostics: effective.warnings,
-        signal: cancelController.signal,
-        executor: createSelectedReviewExecutor(
-          createSingleReviewAssignment(selection, config.reasoning),
-        ),
-        onProgress: (event) => {
-          if (spinner) {
-            spinner.text = formatReviewProgress(event);
-          }
+      // Preserve CLI executor validation before the pipeline's skip checks.
+      const executor = createSelectedReviewExecutor(
+        createSingleReviewAssignment(selection, config.reasoning),
+      );
+      const outcome = await runReviewPipeline(
+        {
+          target,
+          config,
+          depth,
+          verbose,
+          projectRoot,
+          diffOwlDir,
+          timings,
+          persistEmptyDiff: jsonMode,
+          initialDiagnostics: effective.warnings,
+          signal: cancelController.signal,
+          onProgress: (event) => {
+            if (spinner) {
+              spinner.text = formatReviewProgress(event);
+            }
+          },
+          onDiagnostics: (diagnostics) => {
+            if (!spinner) {
+              return;
+            }
+            spinner.warn("Local review context built with warnings.");
+            for (const diagnostic of diagnostics) {
+              console.log(chalk.yellow(`  - ${diagnostic}`));
+            }
+            console.log();
+            spinner.start(`Connecting to ${formatReviewBackend(selection.backend)}...`);
+          },
+          onStatus: (message) => {
+            if (spinner) {
+              spinner.text = message;
+            }
+          },
+          onWarning: (message) => {
+            reviewWarnings.push(message);
+            if (spinner) {
+              const status = spinner.text;
+              spinner.warn(message);
+              spinner.start(status);
+            }
+          },
         },
-        onDiagnostics: (diagnostics) => {
-          if (!spinner) {
-            return;
-          }
-          spinner.warn("Local review context built with warnings.");
-          for (const diagnostic of diagnostics) {
-            console.log(chalk.yellow(`  - ${diagnostic}`));
-          }
-          console.log();
-          spinner.start(`Connecting to ${formatReviewBackend(selection.backend)}...`);
-        },
-        onStatus: (message) => {
-          if (spinner) {
-            spinner.text = message;
-          }
-        },
-        onWarning: (message) => {
-          reviewWarnings.push(message);
-          if (spinner) {
-            const status = spinner.text;
-            spinner.warn(message);
-            spinner.start(status);
-          }
-        },
-      });
+        { ...defaultReviewPipelineDeps, createExecutor: () => executor },
+      );
       if (interruptForceExit !== undefined) clearTimeout(interruptForceExit);
 
       if (outcome.kind === "empty-diff") {

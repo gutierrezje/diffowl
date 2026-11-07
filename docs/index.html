@@ -3,28 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DiffOwl — an independent reviewer for agent-written code</title>
+    <title>DiffOwl: a second reviewer for agent-written code</title>
     <meta
       name="description"
-      content="DiffOwl reviews every commit from your terminal, on the model provider you already pay for. Findings live in SQLite in your repo with IDs that survive re-review. No account, no dashboard."
+      content="DiffOwl reviews a Git change with the model you choose, stores findings in your repo, and remembers what you decided about it. A command-line tool with no DiffOwl account."
     />
     <meta name="theme-color" content="#f8fafc" />
     <link rel="canonical" href="https://gutierrezje.github.io/diffowl/" />
     <!-- Open Graph / social -->
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="DiffOwl — an independent reviewer for agent-written code" />
+    <meta property="og:title" content="DiffOwl: a second reviewer for agent-written code" />
     <meta
       property="og:description"
-      content="Coding agents approve their own work. DiffOwl is the second reviewer: every commit, from your terminal, on the model you already pay for. No account, no dashboard."
+      content="The agent that wrote a change should not be its only reviewer. DiffOwl reviews it from a fresh context and records what you decide about each finding."
     />
     <meta property="og:url" content="https://gutierrezje.github.io/diffowl/" />
     <!-- TODO: add docs/og-image.png (1200x630) then uncomment:
 <meta property="og:image" content="https://gutierrezje.github.io/diffowl/og-image.png"> -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="DiffOwl — an independent reviewer for agent-written code" />
+    <meta name="twitter:title" content="DiffOwl: a second reviewer for agent-written code" />
     <meta
       name="twitter:description"
-      content="Coding agents approve their own work. DiffOwl is the second reviewer: every commit, from your terminal, on the model you already pay for."
+      content="The agent that wrote a change should not be its only reviewer. DiffOwl reviews it from a fresh context and records what you decide about each finding."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -623,6 +623,12 @@
       tbody tr:last-child td {
         border-bottom: none;
       }
+      .lede code,
+      .pillar code,
+      .final p code {
+        font-family: var(--mono);
+        font-size: 0.9em;
+      }
       .cmp-note {
         margin-top: 14px;
         font-size: 12.5px;
@@ -918,7 +924,7 @@
           >
           <div class="navlinks">
             <a href="#why">Why</a><a href="#loop">How</a><a href="#start">Start</a
-            ><a href="#compare">Compare</a><a href="#features">Features</a>
+            ><a href="#features">Features</a><a href="#compare">Compare</a>
           </div>
           <a class="nav-cta" href="https://github.com/gutierrezje/diffowl">GitHub ↗</a>
         </div>
@@ -934,20 +940,19 @@
   -"-"-</pre>
           </div>
           <br />
-          <span class="tag">independent · provider-neutral · open source</span>
+          <span class="tag">second reviewer · findings in your repo · open source</span>
           <h1>
             <span class="l">Your agent wrote it.</span>
             <span class="l"><strong>DiffOwl reviews it.</strong></span>
           </h1>
           <p class="sub">
-            An agent that reviews its own patch will approve it. DiffOwl is the
-            <b>second reviewer</b>: it checks every commit from your terminal, on the model
-            subscription you already pay for, and keeps its findings in your repo. No account, no
-            dashboard, no per-seat bill.
+            When an agent reviews its own patch, it brings the same assumptions that produced the
+            bug. DiffOwl reviews the change from a <b>fresh context</b> and stores its findings in
+            your repo. A finding stays open until you record an outcome.
           </p>
           <div class="cta-row">
-            <a class="btn btn-p" href="#start">npm i -g diffowl</a>
-            <a class="btn btn-g" href="#why">See how it works</a>
+            <a class="btn btn-p" href="#start">npm install -g diffowl</a>
+            <a class="btn btn-g" href="#loop">How it works</a>
           </div>
 
           <div class="term">
@@ -956,16 +961,21 @@
               ><span class="t">~/your-repo</span>
             </div>
             <div class="term-body">
-              <div>
-                <span class="p">$</span> <span class="c">git commit -m "feat: agent patch"</span>
+              <div><span class="p">$</span> <span class="c">diffowl</span></div>
+              <div class="o">Found 1 error, 1 warning</div>
+              <div class="o">
+                Report saved: .diffowl/reviews/review-&lt;timestamp&gt;-&lt;id&gt;.md
               </div>
-              <div class="o ok">commit complete — review started</div>
-              <div><span class="p">$</span> <span class="c">diffowl review</span></div>
+              <div><span class="p">$</span> <span class="c">diffowl findings</span></div>
+              <div class="o">Open findings: 2</div>
               <div class="o wa">
-                <span class="fid">fnd_a91c</span> swallowed error hides corrupt config
+                <span class="fid">fnd_7c2e9a4b</span> open error src/config.ts:41 Swallowed error
+                hides a corrupt config
               </div>
-              <div class="o wa"><span class="fid">fnd_4f02</span> unbounded directory walk</div>
-              <div class="o ok">2 findings stored — .diffowl/state.db<span class="cur"></span></div>
+              <div class="o wa">
+                <span class="fid">fnd_0b61d3f8</span> open warning src/walk.ts:17 Unbounded
+                directory walk<span class="cur"></span>
+              </div>
             </div>
           </div>
         </div>
@@ -976,38 +986,45 @@
         <div class="wrap reveal">
           <div class="eyebrow">Why</div>
           <div class="h2">The author shouldn't be the <strong>only reviewer.</strong></div>
-          <p class="lede">Everything below works today. Nothing here is a roadmap item.</p>
+          <p class="lede">Everything here works today. Nothing on this page is a roadmap item.</p>
           <div class="pillars">
             <div class="pillar">
               <div class="n">01</div>
-              <h3>Independent eyes</h3>
+              <h3>A fresh context</h3>
               <p>
-                The model that wrote the patch never gets the final word on it. DiffOwl runs as a
-                separate reviewer, so implementer and reviewer stay distinct roles.
+                DiffOwl starts every review from a clean prompt and context that it builds itself.
+                The reviewer can be the same model that wrote the code. The fresh context is what
+                makes the review independent.
               </p>
             </div>
             <div class="pillar">
               <div class="n">02</div>
-              <h3>Nothing to sign up for</h3>
+              <h3>A record of what you decided</h3>
               <p>
-                No account, no dashboard, no third party between you and the review. The CLI runs on
-                your machine and talks straight to the model provider you already use.
+                A finding is a record in <code>.diffowl/state.db</code> with a stable ID. Dismiss
+                it, and it stays dismissed when a later review flags the same code. Mark it fixed,
+                and DiffOwl requires the command that verified the fix. If a later review flags that
+                code again, the finding reopens as <code>regressed</code>.
               </p>
             </div>
             <div class="pillar">
               <div class="n">03</div>
-              <h3>Use the backend you already have</h3>
+              <h3>A check that a branch was reviewed</h3>
               <p>
-                Review through your existing OpenCode providers or the signed-in Codex CLI. You pick
-                the backend and model, so you decide what a review costs.
+                <code>diffowl readiness</code> answers one question: was every commit on this branch
+                reviewed, and was every finding fixed or dismissed? It starts no review and changes
+                nothing. An agent can ask before it says the work is done, and a script can read the
+                exit code.
               </p>
             </div>
             <div class="pillar">
               <div class="n">04</div>
-              <h3>Quality you can measure</h3>
+              <h3>No service in the middle</h3>
               <p>
-                DiffOwl ships with a replayable eval suite that scores its own reviews on precision,
-                recall, and cost. You don't have to take the review quality on faith.
+                Reports and findings are files in your checkout, and there is no DiffOwl account.
+                DiffOwl sends the diff and its context to the backend you pick: OpenCode, the Codex
+                CLI, the Claude Code CLI, or the Cursor SDK. Your code goes wherever that provider
+                runs.
               </p>
             </div>
           </div>
@@ -1019,39 +1036,44 @@
         <div class="wrap reveal">
           <div class="eyebrow">How it works</div>
           <div class="h2">
-            Most tools leave a comment. DiffOwl <strong>remembers the outcome.</strong>
+            A review comment is easy to lose. A DiffOwl finding <strong>has an outcome.</strong>
           </div>
           <p class="lede">
-            Every finding gets a stable
-            <code style="font-family: var(--mono); font-size: 14px">fnd_*</code>
-            ID in SQLite, deduped across commits and tracked from first sighting to fix, dismissal,
-            or regression.
+            A finding that quotes code gets a stable <code>fnd_</code> ID. DiffOwl recognizes the
+            finding again when a later review quotes the same code in the same file, so a dismissal
+            holds and a regression reopens the finding.
           </p>
           <div class="loop">
             <div class="step">
               <div class="si">01</div>
-              <h4>Agent writes</h4>
-              <p>A person or any coding agent produces a patch and commits.</p>
+              <h4>You commit</h4>
+              <p>You or a coding agent commits a change.</p>
               <span class="ar">→</span>
             </div>
             <div class="step">
               <div class="si">02</div>
               <h4>DiffOwl reviews</h4>
-              <p>Bounded local context, structured findings with confidence.</p>
+              <p>
+                It reviews the diff from a fresh context. Each finding has a severity and a
+                confidence.
+              </p>
               <span class="ar">→</span>
             </div>
             <div class="step">
               <div class="si">03</div>
-              <h4>Agent resolves</h4>
-              <p>Fixes record the command that verified them; dismissals carry a reason.</p>
+              <h4>You decide</h4>
+              <p>
+                Fix a finding and record the command that verified it. Dismiss or defer it with a
+                reason. An agent can do this for you.
+              </p>
               <span class="ar">→</span>
             </div>
             <div class="step v">
               <div class="si">04</div>
               <h4>DiffOwl remembers</h4>
               <p>
-                Dismissed findings stay quiet on re-review; regressions reopen the original finding
-                automatically.
+                A dismissed finding stays dismissed. A fixed finding that returns is marked
+                regressed. A finding that the next review skips stays open.
               </p>
             </div>
           </div>
@@ -1063,7 +1085,10 @@
         <div class="wrap reveal">
           <div class="eyebrow">Quickstart</div>
           <div class="h2">Install. Init. <strong>Review.</strong></div>
-          <p class="lede">From npm install to your first review report in about sixty seconds.</p>
+          <p class="lede">
+            You need Node.js 22.14.0 or newer, a Git repository with at least one commit, and one
+            review backend that is installed and signed in.
+          </p>
           <div class="qs">
             <div class="term">
               <div class="term-bar">
@@ -1071,37 +1096,43 @@
                 ><span class="t">bash</span>
               </div>
               <div class="term-body">
-                <div class="o"># install globally</div>
+                <div class="o"># install DiffOwl</div>
                 <div><span class="p">$</span> <span class="c">npm install -g diffowl</span></div>
-                <div class="o"># pick a model, write config</div>
+                <div class="o"># in your repo, pick a model</div>
                 <div><span class="p">$</span> <span class="c">diffowl init</span></div>
-                <div class="o ok">.diffowl.yml created</div>
-                <div class="o"># review the latest change</div>
-                <div><span class="p">$</span> <span class="c">diffowl review</span></div>
-                <div class="o ok">report → .diffowl/reviews/review-*.md</div>
+                <div class="o"># review the last commit</div>
+                <div><span class="p">$</span> <span class="c">diffowl</span></div>
+                <div class="o">Found 1 error, 1 warning</div>
+                <div class="o"># list the open findings</div>
+                <div><span class="p">$</span> <span class="c">diffowl findings</span></div>
               </div>
             </div>
             <ol class="qs-list">
               <li>
-                <h4>Use your existing setup</h4>
+                <h4>Pick a backend you already use</h4>
                 <p>
-                  Choose OpenCode with its connected providers or your signed-in Codex CLI. DiffOwl
-                  keeps that choice local to your machine.
+                  OpenCode is the default. To use another backend, run
+                  <code>diffowl backend codex</code>, <code>claude</code>, or
+                  <code>cursor</code> before <code>diffowl init</code>.
                 </p>
               </li>
               <li>
-                <h4>Hook it into git</h4>
+                <h4>Review every commit</h4>
                 <p>
-                  Reviews fire automatically on every commit and stay out of your way. Read the
-                  report whenever you're ready.
+                  Run <code>diffowl hook install</code>. The hook reviews each commit in the
+                  background and gives your terminal back at once.
                 </p>
               </li>
               <li>
-                <h4>Hand off to an agent</h4>
+                <h4>Hand findings to an agent</h4>
                 <p>
-                  Install the portable <code>diffowl-resolve</code> skill, then say "Resolve the
-                  latest DiffOwl review."
+                  Run <code>npx skills add gutierrezje/diffowl --skill diffowl-resolve</code>, then
+                  tell your agent: "Resolve the latest DiffOwl review."
                 </p>
+              </li>
+              <li>
+                <h4>Check the branch</h4>
+                <p>Before you hand off a branch, run <code>diffowl readiness --base main</code>.</p>
               </li>
             </ol>
           </div>
@@ -1115,41 +1146,57 @@
           <div class="h2">What's in the box <strong>today.</strong></div>
           <ul class="feats">
             <li>
-              <span><b>Reviews on every commit</b> via a git hook that stays out of your way</span>
-            </li>
-            <li>
-              <span><b>Branch review</b> with <code>--base</code> to cover a whole PR at once</span>
-            </li>
-            <li>
               <span
-                ><b>Markdown reports</b> in <code>.diffowl/reviews/</code>, readable whenever you
-                are</span
+                ><b>Review the last commit</b>, the staged changes, or a whole branch with
+                <code>--base</code></span
               >
             </li>
             <li>
-              <span><b>Durable findings</b> in SQLite, deduped across commits</span>
+              <span><b>Reviews on every commit</b> after <code>diffowl hook install</code></span>
             </li>
             <li>
               <span
-                ><b>A full lifecycle</b>: fix, dismiss, defer, reopen — a fix isn't recorded without
-                the command that verified it</span
+                ><b>Markdown reports</b> in <code>.diffowl/reviews/</code>, one file per
+                review</span
               >
             </li>
             <li>
               <span
-                ><b>No nitpicks by design</b>: style gripes get suppressed, so reports stay
-                small</span
+                ><b>Findings in SQLite</b> with stable <code>fnd_</code> IDs, matched by the quoted
+                code</span
               >
             </li>
             <li>
               <span
-                ><b>JSON output</b> and <code>--fail-on-findings</code> for scripting and CI</span
+                ><b>Fix, dismiss, defer, reopen</b>: a fix needs the command that verified it</span
               >
             </li>
             <li>
               <span
-                ><b>Agent handoff</b>: the <code>diffowl-resolve</code> skill fixes what the owl
-                finds</span
+                ><b>Readiness check</b>: <code>diffowl readiness</code> reports whether every commit
+                was reviewed and every finding was fixed or dismissed, with an exit code for
+                scripts</span
+              >
+            </li>
+            <li>
+              <span
+                ><b>No style nitpicks</b>: the review prompt tells the reviewer to skip formatting,
+                naming, and cosmetic preferences</span
+              >
+            </li>
+            <li>
+              <span><b>JSON output</b> and <code>--fail-on-findings</code> for scripts and CI</span>
+            </li>
+            <li>
+              <span
+                ><b>Four backends</b>: OpenCode, the Codex CLI, the Claude Code CLI, and the Cursor
+                SDK</span
+              >
+            </li>
+            <li>
+              <span
+                ><b>Agent handoff</b>: the <code>diffowl-resolve</code> skill lets an agent fix
+                findings and record each outcome</span
               >
             </li>
           </ul>
@@ -1173,53 +1220,54 @@
               </thead>
               <tbody>
                 <tr>
-                  <td>No SaaS sign-up required</td>
+                  <td>Reviewer context</td>
+                  <td class="us" data-label="DiffOwl">Fresh, built from the diff</td>
+                  <td data-label="Hosted bots">Fresh</td>
+                  <td data-label="Agent self-review">The session that wrote the change</td>
+                </tr>
+                <tr>
+                  <td>Who picks the model</td>
+                  <td class="us" data-label="DiffOwl">You</td>
+                  <td data-label="Hosted bots">Usually the vendor</td>
+                  <td data-label="Agent self-review">The agent's model</td>
+                </tr>
+                <tr>
+                  <td>Account</td>
+                  <td class="us" data-label="DiffOwl">No DiffOwl account</td>
+                  <td data-label="Hosted bots">An account with the vendor</td>
+                  <td data-label="Agent self-review">None</td>
+                </tr>
+                <tr>
+                  <td>Where findings live</td>
+                  <td class="us" data-label="DiffOwl">Files in your repo</td>
+                  <td data-label="Hosted bots">The vendor's service and the pull request</td>
+                  <td data-label="Agent self-review">The chat</td>
+                </tr>
+                <tr>
+                  <td>Dismissals remembered on re-review</td>
                   <td class="us" data-label="DiffOwl"><span class="y"></span>Yes</td>
-                  <td data-label="Hosted bots"><span class="n"></span>No (Their platform)</td>
+                  <td data-label="Hosted bots">Depends on the vendor</td>
+                  <td data-label="Agent self-review"><span class="n"></span>No</td>
+                </tr>
+                <tr>
+                  <td>Works with any Git remote</td>
+                  <td class="us" data-label="DiffOwl"><span class="y"></span>Yes</td>
+                  <td data-label="Hosted bots">Supported hosts</td>
                   <td data-label="Agent self-review"><span class="y"></span>Yes</td>
                 </tr>
                 <tr>
-                  <td>Choose your review model</td>
-                  <td class="us" data-label="DiffOwl"><span class="y"></span>Yes</td>
-                  <td data-label="Hosted bots"><span class="n"></span>Vendor-locked</td>
-                  <td data-label="Agent self-review"><span class="n"></span>Same model</td>
-                </tr>
-                <tr>
-                  <td>Independent of author</td>
-                  <td class="us" data-label="DiffOwl"><span class="y"></span>Yes</td>
+                  <td>Posts pull-request comments</td>
+                  <td class="us" data-label="DiffOwl"><span class="n"></span>No</td>
                   <td data-label="Hosted bots"><span class="y"></span>Yes</td>
                   <td data-label="Agent self-review"><span class="n"></span>No</td>
-                </tr>
-                <tr>
-                  <td>Persistent findings</td>
-                  <td class="us" data-label="DiffOwl"><span class="y"></span>Yes</td>
-                  <td data-label="Hosted bots">Partial</td>
-                  <td data-label="Agent self-review"><span class="n"></span>No</td>
-                </tr>
-                <tr>
-                  <td>DiffOwl account required</td>
-                  <td class="us" data-label="DiffOwl"><span class="y"></span>No</td>
-                  <td data-label="Hosted bots"><span class="n"></span>Yes</td>
-                  <td data-label="Agent self-review"><span class="y"></span>No</td>
-                </tr>
-                <tr>
-                  <td>Rate limits</td>
-                  <td class="us" data-label="DiffOwl">Your provider's</td>
-                  <td data-label="Hosted bots"><span class="n"></span>Free tier capped</td>
-                  <td data-label="Agent self-review">Your provider's</td>
-                </tr>
-                <tr>
-                  <td>Review subscription</td>
-                  <td class="us" data-label="DiffOwl">Your existing provider</td>
-                  <td data-label="Hosted bots">Per-seat SaaS</td>
-                  <td data-label="Agent self-review">Your agent plan</td>
                 </tr>
               </tbody>
             </table>
           </div>
           <p class="cmp-note">
-            Hosted bots give you a dashboard. DiffOwl gives you the review itself: run from your
-            machine, on a model you chose, with findings you can still trace weeks later.
+            A hosted bot comments on your pull request. DiffOwl does not, and it does not change
+            your code. It writes reports and findings to files in your checkout. TypeScript changes
+            get extra structured context. Other languages get a review centered on the diff.
           </p>
         </div>
       </section>
@@ -1227,10 +1275,10 @@
       <!-- FINAL -->
       <div class="final">
         <div class="wrap reveal">
-          <div class="big">Stop merging code <strong>nobody reviewed.</strong></div>
+          <div class="big">Know what was reviewed <strong>before you merge.</strong></div>
           <p>
-            One install gets you an independent reviewer on every commit. Your model, your machine,
-            nothing to sign up for.
+            Install DiffOwl and review your next commit. Findings stay in your repo, and
+            <code>diffowl readiness</code> tells you whether a branch is ready to hand off.
           </p>
           <div class="pill">
             <span class="p">$</span> <span id="cmd">npm install -g diffowl</span>
@@ -1253,9 +1301,9 @@
             >diffowl</a
           >
           <div class="d">
-            An independent, provider-neutral reviewer for agent-written code. MIT licensed. Runs
-            through OpenCode or the Codex CLI, with no service of its own in the loop and no DiffOwl
-            account required.
+            A second reviewer for agent-written code. MIT licensed. Reviews run through OpenCode,
+            the Codex CLI, the Claude Code CLI, or the Cursor SDK, with no DiffOwl service in the
+            loop and no DiffOwl account.
           </div>
           <div style="font-family: var(--mono); font-size: 12.5px; color: var(--mut)">
             © 2026 ·
@@ -1270,11 +1318,12 @@
       const phrases = [
         "hoot hoot",
         "whooo",
-        "LGTM!",
         "who wrote this?",
-        "independent eyes",
-        "analyzing diff...",
-        "found a bug!",
+        "fresh context",
+        "reading the diff...",
+        "found something",
+        "fixed? prove it",
+        "still open",
         "hoot!",
       ];
       const bubble = document.getElementById("owl-bubble");

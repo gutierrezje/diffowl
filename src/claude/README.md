@@ -19,6 +19,12 @@ uses that same executable's `--version`.
 
 Authentication remains in Claude Code. The adapter preserves its normal home,
 `CLAUDE_CONFIG_DIR`, and explicit Anthropic authentication environment variables.
+In a [cloud session](https://code.claude.com/docs/en/claude-code-on-the-web), it
+also preserves [`CLAUDE_CODE_REMOTE`](https://code.claude.com/docs/en/env-vars) and
+`CLAUDE_SESSION_INGRESS_TOKEN_FILE`, which the CLI needs to authenticate there
+because no stored login exists. The second variable is not in Claude Code's public
+documentation, so a future CLI release could change it. Other session variables
+stay out of the review runtime.
 It does not read credential files or implement a sign-in flow. DiffOwl uses your
 existing Claude Code authentication, subject to your plan and administrator
 policies. Anthropic explicitly supports subscription limits for `claude -p` and

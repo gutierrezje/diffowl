@@ -16,6 +16,11 @@ if (process.env.MOCK_CLAUDE_EVIDENCE) {
         SystemRoot: process.env.SystemRoot,
         WINDIR: process.env.WINDIR,
       },
+      cloudEnvironment: {
+        CLAUDE_SESSION_INGRESS_TOKEN_FILE: process.env.CLAUDE_SESSION_INGRESS_TOKEN_FILE,
+        CLAUDE_CODE_REMOTE: process.env.CLAUDE_CODE_REMOTE,
+        CLAUDE_CODE_REMOTE_SESSION_ID: process.env.CLAUDE_CODE_REMOTE_SESSION_ID,
+      },
     }),
   );
 }

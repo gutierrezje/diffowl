@@ -42,11 +42,15 @@ describe("renderBaselineDiff", () => {
     expect(rendered).not.toContain("AST");
   });
 
-  it("matches the review renderer's diff budgets", () => {
+  it("keeps the complete default diff and bounds only shallow reviews", () => {
     const raw = `diff --git a/big.txt b/big.txt\n${"+x\n".repeat(20_000)}`;
 
     expect(renderBaselineDiff(makeSnapshot({ raw }))).not.toContain("[truncated ");
-    expect(renderBaselineDiff(makeSnapshot({ raw: raw.repeat(2) }))).toContain("[truncated ");
+    const largeRaw = `${raw.repeat(2)}+TAIL_SENTINEL\n`;
+    const rendered = renderBaselineDiff(makeSnapshot({ raw: largeRaw }));
+    expect(largeRaw.length).toBeGreaterThan(80_000);
+    expect(rendered).toContain(largeRaw);
+    expect(rendered).not.toContain("[truncated ");
     expect(renderBaselineDiff(makeSnapshot({ raw }), "shallow")).toContain("[truncated ");
   });
 });
