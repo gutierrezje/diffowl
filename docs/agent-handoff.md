@@ -40,6 +40,7 @@ by the caller's execution policy.
 | `wait` | Wait on the existing runner or hook queue, then re-query. Do not start another review. If the runner cannot be observed or never settles, report pending work as the blocker. |
 | `review-branch` | Inspect any input-coverage diagnostic first; fix the collection problem before retrying, and report a blocker if it cannot be repaired. Do not repeat an unchanged review that cannot establish coverage. Confirm the checkout is clean and HEAD still equals `target.head_commit`. Run one `diffowl review --base <target.base_commit>` with the expected policy/depth. This supplies the missing complete branch checkpoint, including after a moved base or rewritten history. |
 | `review-uncovered-change` | Preserve the checkpoint and repair IDs. Review only `coverage.uncovered_commits`, in order, using `diffowl review --commit <sha>` from a clean checkout at each exact SHA. Use a disposable detached linked worktree for historical gaps, preserving the handoff checkout. Re-query in the original handoff checkout between reviews; do not repeat covered commits. |
+| `acknowledge-policy-change` | The branch's `.diffowl.yml` yields a different review policy than the merge base's; `policy_change.base_policy_sha256` and `policy_sha256` are the two sides. Stop and ask the user. Do not change review policy to reach readiness, and do not edit, script, or fake the acknowledgement: the user reviews the change and runs, in a terminal, the exact command in `diagnostic`: `diffowl policy accept --base <target.base_commit>` plus `--depth <depth>` when readiness was queried with `--depth`. If the change was not requested, revert it. Re-query afterwards. |
 | `disposition-findings` | Inspect the durable candidates and record each decision through the lifecycle below. Re-query after every mutation. |
 | `commit-or-restore` | Commit the coherent verified changes when authorized, or restore only explicitly disposable/authorized edits. Preserve unrelated work. If neither action is authorized, report the dirty checkout as blocked. |
 | `inspect-failure` | Inspect the failed execution/runner output or `diffowl hook status --format json` for a hook failure. Repair its cause within scope, re-query, then explicitly retry the failed target if still required. Stop with the failure evidence if it persists; do not retry indefinitely. |
@@ -51,6 +52,21 @@ checkpoint. Readiness decides whether existing checkpoint plus repair coverage
 is sufficient; clients do not implement their own freshness or coverage policy.
 Keep the handoff checkout until the final query even if a review runner cleans
 up its own temporary worktree.
+
+## Review policy changes
+
+Never loosen or otherwise change review policy (`include`, `exclude`, `rules`,
+`min_confidence`, context depth including `--depth`, `skip_doc_only`) to reach readiness without the
+user's approval. Readiness compares the effective policy in the working tree with
+the policy `.diffowl.yml` defines at `target.merge_base_commit`. A mismatch yields
+`policy-changed-on-branch` with `acknowledge-policy-change` even when coverage is
+complete. Surface it to the user, with `policy_change.base_policy_sha256` and
+`policy_sha256` and the command from `diagnostic`, and wait. Only that command
+(`diffowl policy accept --base <target.base_commit>`, plus `--depth <depth>` when the
+query used `--depth`), run by a person in an interactive terminal, clears it; it refuses
+non-interactive callers, so an agent that reaches it should stop rather than look for a
+workaround. The acknowledgement covers exactly one (base policy, branch policy) pair, so
+any further policy edit needs a new one; a moved base with unchanged policies does not.
 
 ## Finding dispositions
 
@@ -88,7 +104,7 @@ a review that omits it does not clear it.
 Attach the final CLI JSON unchanged, preferably as a compact JSON block. It
 already contains the machine-verifiable receipt: `schema_version`, exact
 `target.base_commit`, `target.merge_base_commit`, `target.head_commit`,
-`policy_sha256`, `worktree_clean`, `coverage.checkpoint_review_id`, ordered
+`policy_sha256`, `policy_change`, `worktree_clean`, `coverage.checkpoint_review_id`, ordered
 `coverage.repair_review_ids`, `coverage.uncovered_commits`, `blockers`, `result`,
 `reason`, `next_action`, `exit_code`, and `diagnostic`. Add the total blocker
 count (`open + regressed + deferred + untracked`) in the accompanying sentence.
