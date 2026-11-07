@@ -295,6 +295,7 @@ export async function runReviewPipeline(
     timings: [...timings, ...(report.timings ?? [])],
     findings: report.findings,
     symbolKeys: report.findings.map((finding) => findEnclosingSymbolKey(reviewContext, finding)),
+    retention: input.config.retention,
   } satisfies PersistCanonicalReviewInput;
   let persisted: PersistReviewRunResult;
   try {
