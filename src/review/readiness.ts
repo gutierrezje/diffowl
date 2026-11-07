@@ -36,7 +36,7 @@ export interface ReadinessResult {
   next_action: typeof NEXT_ACTION[ReadinessReason];
   target: { base_commit: string; merge_base_commit: string; head_commit: string } | null;
   policy_sha256: string | null;
-  /** Present when the branch's effective policy (`policy_sha256`) differs from the base commit's. */
+  /** Present when the branch's effective policy (`policy_sha256`) differs from the merge base's. */
   policy_change: { base_policy_sha256: string; acknowledged: boolean } | null;
   worktree_clean: boolean | null;
   coverage: { checkpoint_review_id: string | null; repair_review_ids: string[]; uncovered_commits: string[] };
@@ -75,7 +75,9 @@ export async function getReadiness(options: ReadinessOptions): Promise<Readiness
       cursor = parent;
     }
     const stateDir = await resolveSharedDiffOwlDir(options.projectRoot);
-    const basePolicy = await readBasePolicy(options.cwd ?? options.projectRoot, base);
+    // Compare with the merge base, not the base tip, so a policy edit made only on the base
+    // branch is not reported as this branch's change.
+    const basePolicy = await readBasePolicy(options.cwd ?? options.projectRoot, mergeBase);
     if (basePolicy.sha256 !== policy) {
       result.policy_change = {
         base_policy_sha256: basePolicy.sha256,
@@ -212,7 +214,7 @@ function selectCoverage(
 }
 
 function describePolicyChange(basePolicy: string, branchPolicy: string, command: string): string {
-  return `The branch's review policy (${branchPolicy}) differs from the base commit's (${basePolicy}). ` +
+  return `The branch's review policy (${branchPolicy}) differs from the merge base's (${basePolicy}). ` +
     `A person must review the change and run this in a terminal: ${command}. An agent must not acknowledge it.`;
 }
 

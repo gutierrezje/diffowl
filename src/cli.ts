@@ -218,7 +218,7 @@ policyCmd
       // Acknowledgement is a human decision: refuse unless a person is at a terminal.
       interactive: process.stdin.isTTY === true && process.stdout.isTTY === true,
       async confirm(change) {
-        console.log(chalk.bold("This branch changes the review policy relative to its base commit:"));
+        console.log(chalk.bold("This branch changes the review policy relative to where it split from the base:"));
         for (const difference of change.differences) {
           console.log(`  ${chalk.cyan(difference.field)}`);
           console.log(`    base:   ${JSON.stringify(difference.base)}`);
@@ -226,7 +226,7 @@ policyCmd
         }
         console.log(chalk.dim(`  base policy   ${change.base_policy_sha256}`));
         console.log(chalk.dim(`  branch policy ${change.branch_policy_sha256}`));
-        console.log(chalk.dim(`  base commit   ${change.base_commit}`));
+        console.log(chalk.dim(`  merge base    ${change.merge_base_commit}`));
         const rl = createInterface({ input: process.stdin, output: process.stdout });
         try {
           return (await rl.question(chalk.yellow("Type 'accept' to allow reviews under this policy: "))).trim() === "accept";

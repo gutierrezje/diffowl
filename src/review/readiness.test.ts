@@ -56,7 +56,7 @@ describe("review readiness", () => {
     const snapshot = await getBranchDiff("main", root);
     const effectivePolicySha256 = policySha256 ?? reviewPolicySha256(await loadConfigFromRoot(root), "default");
     const persisted = await persistTestReview(join(root, ".diffowl"), {
-      targetKind: "base", targetRef: "main", baseCommit: base, mergeBaseCommit: base,
+      targetKind: "base", targetRef: "main", baseCommit: base, mergeBaseCommit: await git("merge-base", base, head),
       targetCommit: head, diffHash: computeDiffHash(snapshot.diff.raw), model: "test/model",
       reasoning: null, depth: "default", sessionId: "test", summary: "Reviewed", findings,
     });
@@ -709,6 +709,44 @@ describe("review readiness", () => {
         { field: "min_confidence", base: "medium", branch: "low" },
         { field: "skip_doc_only", base: false, branch: true },
       ]);
+    });
+
+    async function mainChangesPolicy(yaml: string) {
+      await git("checkout", "main");
+      await writeFile(join(root, ".diffowl.yml"), yaml);
+      await git("add", ".diffowl.yml");
+      await git("commit", "-m", "main changes review policy");
+      await git("checkout", "feature");
+      base = await git("rev-parse", "main");
+    }
+
+    it("does not flag an un-rebased branch when only main changed policy after the split", async () => {
+      const splitPoint = base;
+      await mainChangesPolicy("min_confidence: high\n");
+      await reviewBranch();
+      const result = await getReadiness({ projectRoot: root, base: "main" });
+      expect(result.target).toMatchObject({ base_commit: base, merge_base_commit: splitPoint });
+      expect(result).toMatchObject({ result: "ready", policy_change: null });
+      expect(await acknowledge()).toEqual({ kind: "unchanged" });
+    });
+
+    it("flags a branch policy edit against the merge base, and accepting it there makes the branch ready", async () => {
+      const splitPoint = base;
+      await mainChangesPolicy("min_confidence: high\n");
+      await commitPolicy("min_confidence: low\n");
+      await reviewBranch();
+      const result = await getReadiness({ projectRoot: root, base: "main" });
+      expect(result).toMatchObject({ reason: "policy-changed-on-branch", policy_change: { acknowledged: false } });
+      expect(result.diagnostic).toContain("merge base");
+      expect(result.diagnostic).toContain(`diffowl policy accept --base ${base}.`);
+      const accepted = await acknowledge();
+      expect(accepted).toMatchObject({
+        kind: "accepted",
+        change: { merge_base_commit: splitPoint, differences: [{ field: "min_confidence", base: "medium", branch: "low" }] },
+      });
+      expect(await getReadiness({ projectRoot: root, base: "main" })).toMatchObject({
+        result: "ready", policy_change: { acknowledged: true },
+      });
     });
 
     it("keeps an acknowledgement when the base commit moves but both policies are unchanged", async () => {

@@ -53,7 +53,8 @@ const POLICY_KEYS = {
 } satisfies Record<Exclude<keyof ReviewPolicyInput, "version">, string>;
 
 export interface PolicyChange extends PolicyChangeTuple {
-  base_commit: string;
+  /** Where the branch split from the base: only edits made on the branch count as its policy change. */
+  merge_base_commit: string;
   /** What the branch changed, named as in `.diffowl.yml`, so a person can judge the change. */
   differences: { field: string; base: unknown; branch: unknown }[];
 }
@@ -87,10 +88,11 @@ export async function acceptPolicyChange(
   const branchConfig = await loadConfigFromRoot(options.projectRoot);
   const branchInput = reviewPolicyInput(branchConfig, options.depth ?? branchConfig.context.depth);
   const branchSha = reviewPolicySha256(branchConfig, branchInput.depth);
-  const base = await readBasePolicy(options.cwd ?? options.projectRoot, baseCommit);
+  const { stdout: mergeBase } = await execa("git", ["merge-base", baseCommit, "HEAD"], { cwd: options.projectRoot });
+  const base = await readBasePolicy(options.cwd ?? options.projectRoot, mergeBase);
   if (base.sha256 === branchSha) return { kind: "unchanged" };
   const change: PolicyChange = {
-    base_commit: baseCommit, base_policy_sha256: base.sha256, branch_policy_sha256: branchSha,
+    merge_base_commit: mergeBase, base_policy_sha256: base.sha256, branch_policy_sha256: branchSha,
     differences: describeDifferences(base, branchInput),
   };
   if (!await io.confirm(change)) return { kind: "declined", change };

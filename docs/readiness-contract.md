@@ -71,7 +71,7 @@ and obtain `ready`. Policy identity alone cannot catch this, because the review
 and the query agree with each other.
 
 Readiness therefore also computes the policy hash from `.diffowl.yml` at
-`target.base_commit` (a base without the file means the defaults) with the same `reviewPolicySha256` used for coverage, over the whole
+`target.merge_base_commit` (a base without the file means the defaults) with the same `reviewPolicySha256` used for coverage, over the whole
 effective policy, so new policy knobs are covered when they enter that hash. The base
 side uses the depth its own config selects; the branch side uses the `--depth` value or
 its configured depth, so choosing a shallower depth by flag is also a policy change. The
@@ -170,7 +170,7 @@ successful result.
 | Only staged or commit reviews | incomplete-coverage | full branch review | 1 |
 | Disconnected checkpoint or moved base | incompatible-lineage | full branch review | 1 |
 | Policy differs or historical evidence insufficient | incompatible-policy | full branch review | 1 |
-| Branch policy differs from the base commit's and is not acknowledged | policy-changed-on-branch | ask the user to run `diffowl policy accept` | 1 |
+| Branch policy differs from the merge base's and is not acknowledged | policy-changed-on-branch | ask the user to run `diffowl policy accept` | 1 |
 | HEAD advanced with an uncovered repair | stale-coverage | review uncovered change | 1 |
 | Review queued or running for relevant work | review-pending | wait and query again | 1 |
 | Relevant attempt failed without a later successful replacement | review-failed | inspect failure and retry | 1 |
