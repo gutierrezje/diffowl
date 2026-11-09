@@ -2,7 +2,7 @@
 
 Most of the tests protect useful behavior. The main opportunities are smaller fixtures, reliable process synchronization, and stronger assertions. Broad deletion would remove valuable Git, database, cancellation, and migration coverage while saving little time in the cheap suites.
 
-The last 100 CI workflow runs contain 20 failures, of which 16 involved Windows. This is a history of different changes and their latest run outcomes, **not a measured flake rate**. Several failures were test defects already corrected on main. Others caught real product bugs and should remain covered.
+The last 100 CI workflow runs contain 20 failures, of which 16 had a failing `windows-2022` job (failed job names per run are recorded in the evidence file's `ciHistory[].failedJobs`, retrieved from the GitHub Actions jobs API on 2026-11-09). This is a history of different changes and their latest run outcomes, **not a measured flake rate**. Several failures were test defects already corrected on main. Others caught real product bugs and should remain covered.
 
 ## Scope and evidence
 
