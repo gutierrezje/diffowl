@@ -5,10 +5,7 @@ import type {
   CompletedReviewExecutionProvenance,
   ReviewExecutionRuntimeProvenance,
 } from "../review/provenance.js";
-import type {
-  CapturedReviewOperation,
-  ReviewOperation,
-} from "../review/operation.js";
+import type { CapturedReviewOperation, ReviewOperation } from "../review/operation.js";
 import type { ReviewExecutionId } from "../review/ids.js";
 import type { ReviewExecutionTelemetry } from "../review/execution-telemetry.js";
 import type { ReasoningVariant } from "../review/reasoning.js";
@@ -279,11 +276,7 @@ async function persistReviewOutput(
       let review: ReviewRecord;
       switch (input.kind) {
         case "canonical":
-          execution = resolveCanonicalSourceExecution(
-            state.db,
-            input.operation,
-            input.source,
-          );
+          execution = resolveCanonicalSourceExecution(state.db, input.operation, input.source);
           review = insertReview(state.db, {
             kind: input.kind,
             operation: input.operation,
@@ -394,12 +387,7 @@ function resolveCanonicalSourceExecution(
     case "persisted-execution":
       return getCompletedSourceExecution(db, operation, source.executionId);
     case "running-execution":
-      return finalizeReviewExecution(
-        db,
-        source.executionId,
-        source.execution,
-        source.telemetry,
-      );
+      return finalizeReviewExecution(db, source.executionId, source.execution, source.telemetry);
     default: {
       const _exhaustive: never = source;
       return _exhaustive;

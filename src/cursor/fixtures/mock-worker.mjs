@@ -3,7 +3,7 @@ import { execa } from "execa";
 
 const scenario = process.argv[2] ?? "success";
 // The parent appends the bundled worker path; argv[3] is the explicit evidence slot.
-const evidencePath = process.argv.length >= 5 ? process.argv[3] ?? "" : "";
+const evidencePath = process.argv.length >= 5 ? (process.argv[3] ?? "") : "";
 let started = false;
 let finished = false;
 
@@ -35,12 +35,15 @@ async function handleStart(message) {
     await writeFile(evidencePath, `${message.storeDirectory}\n`);
   }
   if (scenario === "env" && evidencePath) {
-    await writeFile(evidencePath, `${JSON.stringify({
-      nodeOptions: process.env.NODE_OPTIONS ?? null,
-      nodePath: process.env.NODE_PATH ?? null,
-      testSentinel: process.env.TEST_CURSOR_SENTINEL ?? null,
-      apiKey: process.env.CURSOR_API_KEY ?? null,
-    })}\n`);
+    await writeFile(
+      evidencePath,
+      `${JSON.stringify({
+        nodeOptions: process.env.NODE_OPTIONS ?? null,
+        nodePath: process.env.NODE_PATH ?? null,
+        testSentinel: process.env.TEST_CURSOR_SENTINEL ?? null,
+        apiKey: process.env.CURSOR_API_KEY ?? null,
+      })}\n`,
+    );
   }
 
   if (scenario === "mutate" && evidencePath) {
@@ -54,18 +57,36 @@ async function handleStart(message) {
     await send({ kind: "validation", outcome: "retry", attempt: 1 });
   }
   if (scenario === "malformed") {
-    await send({ kind: "result", text: "FINAL_REVIEW_JSON\n{\"summary\":", sessionId: "fixture-session", effectiveModel: "composer-2.5", usage: null });
+    await send({
+      kind: "result",
+      text: 'FINAL_REVIEW_JSON\n{"summary":',
+      sessionId: "fixture-session",
+      effectiveModel: "composer-2.5",
+      usage: null,
+    });
     await finish();
     return;
   }
   if (scenario === "after-result-nonzero") {
-    await send({ kind: "result", text: validReview("after-result"), sessionId: "fixture-session", effectiveModel: "composer-2.5", usage: null });
+    await send({
+      kind: "result",
+      text: validReview("after-result"),
+      sessionId: "fixture-session",
+      effectiveModel: "composer-2.5",
+      usage: null,
+    });
     process.disconnect?.();
     process.exitCode = 7;
     return;
   }
   if (scenario === "after-result") {
-    await send({ kind: "result", text: validReview("after-result"), sessionId: "fixture-session", effectiveModel: "composer-2.5", usage: null });
+    await send({
+      kind: "result",
+      text: validReview("after-result"),
+      sessionId: "fixture-session",
+      effectiveModel: "composer-2.5",
+      usage: null,
+    });
     await send({ kind: "activity" });
     await finish();
     return;
@@ -82,7 +103,13 @@ async function handleStart(message) {
     await writeFile(evidencePath, `${child.pid ?? ""}\n`);
   }
   if (scenario === "teardown") {
-    await send({ kind: "result", text: validReview("teardown"), sessionId: "fixture-session", effectiveModel: "composer-2.5", usage: null });
+    await send({
+      kind: "result",
+      text: validReview("teardown"),
+      sessionId: "fixture-session",
+      effectiveModel: "composer-2.5",
+      usage: null,
+    });
     return;
   }
   if (scenario === "timeout") return;
@@ -101,7 +128,11 @@ async function handleStart(message) {
 async function handleCancel() {
   if (finished) return;
   finished = true;
-  await send({ kind: "error", category: "protocol", message: "fixture cancellation acknowledged" }).catch(() => undefined);
+  await send({
+    kind: "error",
+    category: "protocol",
+    message: "fixture cancellation acknowledged",
+  }).catch(() => undefined);
   await finish();
 }
 

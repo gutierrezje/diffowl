@@ -17,7 +17,11 @@ import type {
   EvalResultsAggregateV1,
 } from "./report-types.js";
 import { EVAL_RESULTS_SCHEMA_VERSION, formatStatSummary } from "./report-types.js";
-import type { EvalCaseRunResult, EvalDualCaseRunResult, EvalRunnerOptions } from "./runner-types.js";
+import type {
+  EvalCaseRunResult,
+  EvalDualCaseRunResult,
+  EvalRunnerOptions,
+} from "./runner-types.js";
 import { scoreEvalCase } from "./score.js";
 import { tryScoreEvalIdentity } from "./identity-score.js";
 import type { EvalScoreOptions } from "./score-types.js";
@@ -140,12 +144,7 @@ export async function buildEvalReport(input: BuildEvalReportInput): Promise<Eval
 
   for (const bundle of input.caseRuns) {
     cases.push(
-      await buildEvalCaseResult(
-        bundle,
-        input.mode,
-        input.scoreOptions,
-        input.metricsOptions,
-      ),
+      await buildEvalCaseResult(bundle, input.mode, input.scoreOptions, input.metricsOptions),
     );
   }
 
@@ -167,9 +166,7 @@ export async function buildEvalReport(input: BuildEvalReportInput): Promise<Eval
   }
   if (aggregate.diffowl && aggregate.baseline) {
     aggregate.delta = computeCorpusModeDelta(
-      cases
-        .filter((entry) => entry.delta)
-        .map((entry) => entry.delta!),
+      cases.filter((entry) => entry.delta).map((entry) => entry.delta!),
     );
   }
 
@@ -209,11 +206,15 @@ export function renderEvalSummary(document: EvalResultsDocumentV1): string {
   lines.push("");
   lines.push(`- Model: ${manifest.model}`);
   lines.push(`- Corpus: \`${manifest.corpus_version}\``);
-  lines.push(`- Scope: ${document.cases.length} cases, ${manifest.trials} trial${manifest.trials === 1 ? "" : "s"}, ${manifest.mode} mode`);
+  lines.push(
+    `- Scope: ${document.cases.length} cases, ${manifest.trials} trial${manifest.trials === 1 ? "" : "s"}, ${manifest.mode} mode`,
+  );
   if (aggregate.diffowl) {
     lines.push(`- DiffOwl precision: ${formatStatSummary(aggregate.diffowl.precision)}`);
     lines.push(`- DiffOwl recall: ${formatStatSummary(aggregate.diffowl.recall)}`);
-    lines.push(`- Repeated false-positive rate: ${formatNullableNumber(aggregate.diffowl.repeatedFpRate)}`);
+    lines.push(
+      `- Repeated false-positive rate: ${formatNullableNumber(aggregate.diffowl.repeatedFpRate)}`,
+    );
   }
   if (aggregate.delta) {
     lines.push(`- F-beta delta vs baseline: ${formatDelta(aggregate.delta.fBeta.delta)}`);

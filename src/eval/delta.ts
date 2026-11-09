@@ -68,9 +68,7 @@ export function computeCaseModeDelta(
 }
 
 export function computeCorpusModeDelta(caseDeltas: EvalCaseModeDelta[]): EvalCorpusModeDelta {
-  const averagePairs = (
-    values: EvalModeDeltaMetric[],
-  ): EvalModeDeltaPair => {
+  const averagePairs = (values: EvalModeDeltaMetric[]): EvalModeDeltaPair => {
     const present = values.filter(
       (value): value is { diffowl: number; baseline: number; delta: number | null } =>
         value.diffowl !== null && value.baseline !== null,

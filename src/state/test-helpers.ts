@@ -123,9 +123,8 @@ export async function persistTestReview(
   input: TestPersistReviewInput,
 ): Promise<PersistReviewRunResult> {
   const normalized = normalizeTestPersistInput(input);
-  const operation = "operation" in input && input.operation
-    ? input.operation
-    : testReviewOperation(normalized);
+  const operation =
+    "operation" in input && input.operation ? input.operation : testReviewOperation(normalized);
   if (normalized.skippedReason) {
     const skippedInput: PersistSkippedReviewInput = {
       operation,
@@ -143,9 +142,7 @@ export async function persistTestReview(
   }
 
   const execution =
-    "execution" in input && input.execution
-      ? input.execution
-      : completedTestExecution(normalized);
+    "execution" in input && input.execution ? input.execution : completedTestExecution(normalized);
   if (execution.terminalOutcome !== "completed") {
     throw new Error("A persisted test review requires a completed execution.");
   }
@@ -233,7 +230,10 @@ function normalizeTestPersistInput(input: TestPersistReviewInput): TestReviewInp
 
 function testInsertMetadata(
   input: TestReviewInput,
-): Pick<InsertReviewInput, "id" | "createdAt" | "summary" | "reportPath" | "diagnostics" | "timings"> {
+): Pick<
+  InsertReviewInput,
+  "id" | "createdAt" | "summary" | "reportPath" | "diagnostics" | "timings"
+> {
   const metadata: Pick<
     InsertReviewInput,
     "id" | "createdAt" | "summary" | "reportPath" | "diagnostics" | "timings"

@@ -32,7 +32,9 @@ describe("effective config", () => {
     expect(legacy.warnings.join(" ")).toContain("diffowl backend cursor");
     expect(legacy.warnings.join(" ")).not.toContain("diffowl reasoning high");
     await writeFile(join(root, ".diffowl.yml"), "{}\n");
-    expect((await loadEffectiveReviewConfig(selection, {})).config.reasoning).toEqual({ kind: "backend-default" });
+    expect((await loadEffectiveReviewConfig(selection, {})).config.reasoning).toEqual({
+      kind: "backend-default",
+    });
   });
 
   it("applies command, environment, and local model precedence", async () => {
@@ -308,10 +310,7 @@ describe("effective config", () => {
     ]);
 
     await expect(
-      loadEffectiveReviewConfig(
-        { backend: "opencode" },
-        { DIFFOWL_MODEL: "provider/environment" },
-      ),
+      loadEffectiveReviewConfig({ backend: "opencode" }, { DIFFOWL_MODEL: "provider/environment" }),
     ).resolves.toMatchObject({
       config: {
         model: "provider/environment",

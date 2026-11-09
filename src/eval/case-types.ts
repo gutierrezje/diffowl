@@ -139,16 +139,12 @@ function validateEvalCaseIdentity(caseJson: EvalCaseJson): void {
 
   const steps = caseJson.steps ?? [];
   if (steps.length < 2) {
-    throw new Error(
-      `Case "${caseJson.id}" with identity expectation requires at least two steps.`,
-    );
+    throw new Error(`Case "${caseJson.id}" with identity expectation requires at least two steps.`);
   }
 
   const tagKinds = [...new Set(collectIdentityKindsFromTags(caseJson.tags))];
   if (tagKinds.length > 1) {
-    throw new Error(
-      `Case "${caseJson.id}" has conflicting identity tags: ${tagKinds.join(", ")}.`,
-    );
+    throw new Error(`Case "${caseJson.id}" has conflicting identity tags: ${tagKinds.join(", ")}.`);
   }
   const tagKind = tagKinds[0];
   if (tagKind && tagKind !== caseJson.identity.kind) {
@@ -162,9 +158,7 @@ function validateEvalCaseIdentity(caseJson: EvalCaseJson): void {
     caseJson.identity.min_distinct !== undefined &&
     caseJson.identity.min_distinct < 2
   ) {
-    throw new Error(
-      `Case "${caseJson.id}" identity.min_distinct must be at least 2 when present.`,
-    );
+    throw new Error(`Case "${caseJson.id}" identity.min_distinct must be at least 2 when present.`);
   }
 
   const stepExpectedCounts = steps.map((step) => step.expected?.length ?? 0);
@@ -201,7 +195,9 @@ export function validateEvalCaseSemantics(caseJson: EvalCaseJson): void {
 
   const stepHasExpected = (caseJson.steps ?? []).some((step) => (step.expected?.length ?? 0) > 0);
   if (caseJson.expected.length === 0 && !stepHasExpected) {
-    throw new Error(`Case "${caseJson.id}" with category "${caseJson.category}" requires expected findings.`);
+    throw new Error(
+      `Case "${caseJson.id}" with category "${caseJson.category}" requires expected findings.`,
+    );
   }
 
   validateEvalCaseIdentity(caseJson);

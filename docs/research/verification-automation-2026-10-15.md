@@ -59,14 +59,14 @@ invoked without a preceding `doctor`; a later doctor result was retained only as
 secondary evidence. Independent file hashes established that each mutation
 actually occurred.
 
-| Case | Baseline | First candidate |
-| --- | --- | --- |
-| Unchanged checkout during the run | VERIFIED | VERIFIED |
-| Unchanged extra source fixture present before creation | VERIFIED | VERIFIED |
-| Source fixture changed after creation | VERIFIED | INCONCLUSIVE |
-| Harmless binary comment added after creation | VERIFIED | INCONCLUSIVE |
-| Controller wrapper comment added after creation | VERIFIED | INCONCLUSIVE |
-| Source fixture changed after the real CLI help command | VERIFIED | INCONCLUSIVE |
+| Case                                                   | Baseline | First candidate |
+| ------------------------------------------------------ | -------- | --------------- |
+| Unchanged checkout during the run                      | VERIFIED | VERIFIED        |
+| Unchanged extra source fixture present before creation | VERIFIED | VERIFIED        |
+| Source fixture changed after creation                  | VERIFIED | INCONCLUSIVE    |
+| Harmless binary comment added after creation           | VERIFIED | INCONCLUSIVE    |
+| Controller wrapper comment added after creation        | VERIFIED | INCONCLUSIVE    |
+| Source fixture changed after the real CLI help command | VERIFIED | INCONCLUSIVE    |
 
 The baseline falsely accepted 4/4 stale-evidence cases. The candidate accepted
 0/4 and preserved 2/2 successful controls. Preflight rejection executed no feature

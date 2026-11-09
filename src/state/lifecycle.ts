@@ -177,7 +177,10 @@ function transitionFinding(
     reason: options.reason,
   });
 
-  if (options.expireSuggestedDuplicates && (options.to === "dismissed" || options.to === "deferred")) {
+  if (
+    options.expireSuggestedDuplicates &&
+    (options.to === "dismissed" || options.to === "deferred")
+  ) {
     expireSuggestedDuplicates(db, findingId, options.to, options.reason);
   }
 

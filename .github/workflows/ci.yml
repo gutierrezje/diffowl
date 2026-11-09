@@ -45,6 +45,10 @@ jobs:
       - name: Run linter & static typecheck
         run: pnpm run lint
 
+      - name: Check formatting
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '22.14.0'
+        run: pnpm run format:check
+
       - name: Run unit tests
         run: pnpm run test --testTimeout=${{ matrix.test_timeout_ms }} ${{ matrix.os == 'windows-2022' && '--maxWorkers=2' || '' }}
 
@@ -61,5 +65,5 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Build project
-        run: pnpm run build
+      - name: Verify packed npm package
+        run: pnpm run verify:package

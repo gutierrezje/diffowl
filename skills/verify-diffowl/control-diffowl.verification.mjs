@@ -5,10 +5,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { execa } from "execa";
 import { describe, expect, it } from "vitest";
-import {
-  resolveOwnedArtifact,
-  validateReviewReport,
-} from "./controller/provider-state.mjs";
+import { resolveOwnedArtifact, validateReviewReport } from "./controller/provider-state.mjs";
 import { captureSourceIdentity } from "./controller/source-identity.mjs";
 
 const projectRoot = join(import.meta.dirname, "../..");
@@ -243,11 +240,10 @@ describe("control-diffowl", () => {
         observedTarget: { scratch },
       });
 
-      const doctorExecution = await execa(
-        controller,
-        ["cli", "doctor", "--run", runId, "--json"],
-        { cwd: projectRoot, reject: false },
-      );
+      const doctorExecution = await execa(controller, ["cli", "doctor", "--run", runId, "--json"], {
+        cwd: projectRoot,
+        reject: false,
+      });
       const doctor = JSON.parse(doctorExecution.stdout);
       expect(doctorExecution.exitCode).toBe(0);
       expect(doctor).toMatchObject({
@@ -695,15 +691,7 @@ describe("control-diffowl", () => {
     };
     await execa(
       controller,
-      [
-        "codex",
-        "new-run",
-        "codex-review-staged",
-        "--run-id",
-        runId,
-        "--model",
-        "gpt-5-codex",
-      ],
+      ["codex", "new-run", "codex-review-staged", "--run-id", runId, "--model", "gpt-5-codex"],
       { cwd: projectRoot, env },
     );
     const info = JSON.parse(
@@ -718,20 +706,13 @@ describe("control-diffowl", () => {
     try {
       running = execa(
         controller,
-        [
-          "run",
-          "codex",
-          "codex-review-staged",
-          "--run",
-          runId,
-          "--model",
-          "gpt-5-codex",
-          "--json",
-        ],
+        ["run", "codex", "codex-review-staged", "--run", runId, "--model", "gpt-5-codex", "--json"],
         { cwd: projectRoot, env, reject: false, timeout: 20_000 },
       );
       await waitFor(async () => {
-        const receipt = JSON.parse(await readReceipt(join(info.observedTarget.evidence, "receipt.json")));
+        const receipt = JSON.parse(
+          await readReceipt(join(info.observedTarget.evidence, "receipt.json")),
+        );
         return receipt.actions.some(({ state }) => state === "running");
       });
       const consoleOutput = await execa(controller, ["codex", "console", "--run", runId], {

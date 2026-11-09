@@ -12,7 +12,10 @@ const ESM_EXTENSION_REWRITES = new Map<string, readonly string[]>([
   [".cjs", [".cts"]],
 ]);
 
-export const BlobOidSchema = z.string().regex(/^[0-9a-f]{40}$/).brand<"BlobOid">();
+export const BlobOidSchema = z
+  .string()
+  .regex(/^[0-9a-f]{40}$/)
+  .brand<"BlobOid">();
 const PositiveLineSchema = z.number().int().positive();
 
 export const ExportBindingSchema = z.discriminatedUnion("kind", [

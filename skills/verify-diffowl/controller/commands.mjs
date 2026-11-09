@@ -2,11 +2,7 @@ import { join } from "node:path";
 import { ControllerError } from "./errors.mjs";
 import { binaryPath, helpersRoot, projectRoot } from "./paths.mjs";
 import { createRun } from "./run-command.mjs";
-import {
-  loadSurfaceRun,
-  readReceipt,
-  updateReceipt,
-} from "./run-store.mjs";
+import { loadSurfaceRun, readReceipt, updateReceipt } from "./run-store.mjs";
 import { snapshot } from "./snapshot-command.mjs";
 import { captureState } from "./state.mjs";
 import { captureRunIdentity, inspectRunIdentity } from "./run-identity.mjs";
@@ -440,10 +436,12 @@ async function cancel(adapter, runIdInput, dryRun) {
   const run = await loadSurfaceRun(adapter, runIdInput, "cancel");
   const ownedProcesses = (
     await Promise.all(
-      (run.manifest.ownedProcesses ?? []).filter(({ state }) => state === "running").map(async (owned) => ({
-        ...owned,
-        ...(await inspectProcess(owned.pid)),
-      })),
+      (run.manifest.ownedProcesses ?? [])
+        .filter(({ state }) => state === "running")
+        .map(async (owned) => ({
+          ...owned,
+          ...(await inspectProcess(owned.pid)),
+        })),
     )
   ).filter(({ alive }) => alive);
   if (dryRun) {
@@ -521,10 +519,12 @@ async function cleanup(adapter, runIdInput, dryRun) {
     receipt.cleanup.target === run.manifest.scratch;
   const running = (
     await Promise.all(
-      (run.manifest.ownedProcesses ?? []).filter(({ state }) => state === "running").map(async (owned) => ({
-        ...owned,
-        ...(await inspectProcess(owned.pid)),
-      })),
+      (run.manifest.ownedProcesses ?? [])
+        .filter(({ state }) => state === "running")
+        .map(async (owned) => ({
+          ...owned,
+          ...(await inspectProcess(owned.pid)),
+        })),
     )
   ).filter(({ alive }) => alive);
 
@@ -647,7 +647,10 @@ async function waitForCleanupSafeState(run, timeout) {
   const deadline = Date.now() + timeout;
   while (true) {
     const receipt = await readReceipt(run);
-    if (receipt.controller.state === "created" || isTerminalControllerState(receipt.controller.state)) {
+    if (
+      receipt.controller.state === "created" ||
+      isTerminalControllerState(receipt.controller.state)
+    ) {
       return receipt;
     }
     const owner = receipt.controller.owner;
@@ -665,7 +668,8 @@ async function waitForCleanupSafeState(run, timeout) {
             expected: "the run controller to reach a terminal state before cleanup",
             observed: "the recorded controller owner exited while the run remained active",
             likelyCause: "The controller was interrupted outside its owned cancellation path.",
-            nextAction: "Inspect retained actions and snapshots; the abandoned run is inconclusive.",
+            nextAction:
+              "Inspect retained actions and snapshots; the abandoned run is inconclusive.",
           };
           current.result = "INCONCLUSIVE";
           current.observed.push({ check: "controller lifecycle completed", ok: false, error });
@@ -690,11 +694,9 @@ async function waitForCleanupSafeState(run, timeout) {
 
 function assertOwnedProcess(owned, command) {
   const commandMatches =
-    owned.expectedCommand?.length > 0 &&
-    owned.command?.includes(owned.expectedCommand);
+    owned.expectedCommand?.length > 0 && owned.command?.includes(owned.expectedCommand);
   const startMatches =
-    owned.launchStartedAt?.length > 0 &&
-    owned.launchStartedAt === owned.processStartedAt;
+    owned.launchStartedAt?.length > 0 && owned.launchStartedAt === owned.processStartedAt;
   const groupMatches =
     Number.isSafeInteger(owned.launchProcessGroupId) &&
     owned.launchProcessGroupId === owned.processGroupId;
@@ -716,8 +718,5 @@ function assertOwnedProcess(owned, command) {
 }
 
 function signalOwnedProcess(owned, signal) {
-  process.kill(
-    owned.processGroup ? -owned.launchProcessGroupId : owned.pid,
-    signal,
-  );
+  process.kill(owned.processGroup ? -owned.launchProcessGroupId : owned.pid, signal);
 }

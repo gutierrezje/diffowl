@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { resetSharedDiffOwlDirForTests } from "./git/state-root.js";
 import {
   loadReviewPreferences,
+  resetReviewBackendModel,
   resetReviewBackendPreference,
   resetReviewBackendReasoning,
   saveReviewBackendModel,
@@ -34,6 +35,91 @@ describe("review preferences", () => {
       selectedBackend: "opencode",
       models: [{ backend: "opencode", model: "provider/legacy" }],
     });
+  });
+
+  it.each([
+    {
+      operation: "saving a backend",
+      mutate: () => saveReviewBackendPreference("codex"),
+      expected: {
+        kind: "current",
+        selectedBackend: "codex",
+        models: [{ backend: "opencode", model: "provider/legacy" }],
+      },
+      serialized: "backend: codex\nmodels:\n  - backend: opencode\n    model: provider/legacy\n",
+    },
+    {
+      operation: "saving another backend model",
+      mutate: () => saveReviewBackendModel("codex", "gpt-5.4"),
+      expected: {
+        kind: "current",
+        models: [
+          { backend: "opencode", model: "provider/legacy" },
+          { backend: "codex", model: "gpt-5.4" },
+        ],
+      },
+      serialized:
+        "models:\n  - backend: opencode\n    model: provider/legacy\n  - backend: codex\n    model: gpt-5.4\n",
+    },
+    {
+      operation: "saving reasoning",
+      mutate: () => saveReviewBackendReasoning("opencode", "thinking"),
+      expected: {
+        kind: "current",
+        models: [
+          {
+            backend: "opencode",
+            model: "provider/legacy",
+            reasoning: { variant: "thinking" },
+          },
+        ],
+      },
+      serialized:
+        "models:\n  - backend: opencode\n    model: provider/legacy\n    reasoning:\n      variant: thinking\n",
+    },
+  ])("migrates a legacy preference when $operation", async ({ mutate, expected, serialized }) => {
+    const repo = await createRepo("diffowl-review-preference-migrate-");
+    const path = join(repo, ".diffowl/preferences.yml");
+    await writeFile(path, "model: provider/legacy\n", "utf8");
+    process.chdir(repo);
+
+    await mutate();
+
+    await expect(loadReviewPreferences()).resolves.toEqual(expected);
+    await expect(readFile(path, "utf8")).resolves.toBe(serialized);
+  });
+
+  it.each([
+    { operation: "resetting the backend", mutate: () => resetReviewBackendPreference() },
+    { operation: "resetting another model", mutate: () => resetReviewBackendModel("codex") },
+    { operation: "resetting reasoning", mutate: () => resetReviewBackendReasoning("opencode") },
+  ])("migrates a legacy preference when $operation", async ({ mutate }) => {
+    const repo = await createRepo("diffowl-review-preference-migrate-reset-");
+    const path = join(repo, ".diffowl/preferences.yml");
+    await writeFile(path, "model: provider/legacy\n", "utf8");
+    process.chdir(repo);
+
+    await mutate();
+
+    await expect(loadReviewPreferences()).resolves.toEqual({
+      kind: "current",
+      models: [{ backend: "opencode", model: "provider/legacy" }],
+    });
+    await expect(readFile(path, "utf8")).resolves.toBe(
+      "models:\n  - backend: opencode\n    model: provider/legacy\n",
+    );
+  });
+
+  it("removes the preference file when resetting the only legacy model", async () => {
+    const repo = await createRepo("diffowl-review-preference-migrate-empty-");
+    const path = join(repo, ".diffowl/preferences.yml");
+    await writeFile(path, "model: provider/legacy\n", "utf8");
+    process.chdir(repo);
+
+    await resetReviewBackendModel("opencode");
+
+    await expect(loadReviewPreferences()).resolves.toEqual({ kind: "none", models: [] });
+    await expect(readFile(path, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("stores discriminated model choices for both backends without overwriting either", async () => {
