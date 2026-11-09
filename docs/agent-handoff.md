@@ -6,6 +6,12 @@ implementation checkout. The [readiness contract](readiness-contract.md) owns
 the policy; every client follows the returned `next_action`. Tests, provider
 success, a quiet findings summary, and saved Markdown are not readiness proofs.
 
+Reading an existing state database requires a writable OS temporary directory
+for a private SQLite snapshot. The query leaves repository state unchanged, but
+a strict read-only execution sandbox can deny that temporary write. Preserve
+the resulting exit 2 and diagnostic; use only temporary-write access permitted
+by the caller's execution policy.
+
 ## Query and act
 
 1. Select the intended base ref. Run
@@ -88,6 +94,9 @@ already contains the machine-verifiable receipt: `schema_version`, exact
 count (`open + regressed + deferred + untracked`) in the accompanying sentence.
 Use full OIDs and durable review IDs, never a mutable `latest.md` alias.
 
+The sum is a finding-blocker total. A dirty worktree or operational error can
+prevent readiness while that sum is zero; report those reasons separately.
+
 For not-ready or error, attach the actual response and name the unresolved
 action/diagnostic. If no valid response exists, include the command, process
 failure, and stderr instead; do not fabricate proof fields. Verification results
@@ -111,6 +120,10 @@ table or readiness calculation:
 | Claude Code | In `CLAUDE.md`, add: “Before completion, read and follow the DiffOwl section in AGENTS.md.” Its optional SessionStart findings summary supplies context only. |
 | Cursor | In a project rule, add: “Before completion, read and follow the DiffOwl section in AGENTS.md.” |
 | Generic agent | Load the DiffOwl section of AGENTS.md into the task instructions and capture both stdout and exit status from the CLI. |
+
+Live headless Codex, Claude Code, and Cursor CLI runs followed these adapters
+for ready and dirty checkouts. The Cursor editor itself was not exercised. See the
+[2026-10-28 verification record](verification/cross-client-2026-10-28.md).
 
 For this repository, [AGENTS.md](../AGENTS.md) points directly to this workflow.
 All clients use the same CLI response and lifecycle; no MCP or forge is required.

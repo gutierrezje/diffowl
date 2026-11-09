@@ -11,7 +11,7 @@ verification artifacts; product-state mutations stay in the scratch.
 | --- | --- |
 | `diffowl -V`, top-level and leaf `--help` | `cli-version-help` |
 | Unknown commands and invalid option combinations | `cli-invalid-command` |
-| Default `diffowl review` and `review --staged|--commit|--base` | Routed to the Codex or OpenCode map, or the [Cursor manual recipe](cursor-sdk.md), selected by `--backend` or preference |
+| Default `diffowl review` and `review --staged|--commit|--base` | Routed to the Codex or OpenCode map, or the [Claude](claude-code.md) / [Cursor](cursor-sdk.md) manual recipes, selected by `--backend` or preference |
 | `diffowl init` model and project setup | `init-codex-setup`, `init-agent-path` |
 | `diffowl backend|model|reasoning` view and set | `preference-select`, `preference-model-options`, `preference-preserve-policy` |
 | `diffowl backend|model|reasoning --reset` | `preference-reset` |
@@ -26,6 +26,8 @@ verification artifacts; product-state mutations stay in the scratch.
 | State migrations, retention, and linked-worktree storage | Manual [durable-state recipe](durable-state.md); no dedicated controller ID |
 | Hidden `hook-run` and `hook-worker` | Manual background review journey using the configured provider; see [hook lifecycle](hook-lifecycle.md) |
 | `diffowl cursor login/status/models` | [Cursor manual recipe](cursor-sdk.md); login writes the SDK credential store outside the scratch and requires explicit sign-in. |
+| Same fixture through Codex, Claude, and Cursor backends | Manual [cross-client recipe](cross-client.md) |
+| Native client handoff (Codex, Claude Code, Cursor) following installed AGENTS.md | Manual [cross-client recipe](cross-client.md) |
 | Hidden `eval` | Excluded: the eval harness has its own corpus and gate verification surface |
 
 A newly discovered CLI command without a row is a coverage gap. Name the gap and
@@ -59,3 +61,4 @@ the changed branch even when its feature ID has an automated driver.
 - [Interactive setup](init.md): `init-codex-setup`, `init-agent-path`.
 - [Durable state](durable-state.md): migrations, retention, and worktree storage.
 - [Readiness](readiness.md): committed coverage, lifecycle blockers, and read-only proof.
+- [Cross-client](cross-client.md): one fixture across backends and live client handoff.
