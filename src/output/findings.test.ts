@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatFindingDetail,
   formatFindingList,
   renderFindingListJson,
   renderFindingSummaryJson,
@@ -17,6 +18,7 @@ const baseFinding: FindingRecord = {
   lastReviewId: "rev_test",
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
+  archivedAt: null,
 };
 
 const baseObservation: FindingObservationRecord = {
@@ -160,6 +162,31 @@ describe("formatFindingList", () => {
     expect(output).toContain("unknown");
     expect(output).toContain("2x");
     expect(output).toContain("(no observation)");
+  });
+});
+
+describe("archived findings output", () => {
+  const archivedAt = "2026-02-01T00:00:00.000Z";
+
+  it("labels an archived list and points at show instead of fix", () => {
+    const output = formatFindingList(
+      [listItem({ finding: { status: "fixed", archivedAt } })],
+      { columns: 100, color: false, archived: true },
+    );
+
+    expect(output).toContain("Archived findings: 1");
+    expect(output).toContain("no longer matched against new reviews");
+    expect(output).toContain("diffowl findings show <id>");
+    expect(output).not.toContain("unarchive");
+    expect(output).not.toContain("findings fix");
+  });
+
+  it("shows when a finding was archived in its detail", () => {
+    const detail = { finding: { ...baseFinding, status: "fixed" as const, archivedAt },
+      observation: baseObservation, events: [], occurrence_count: 1 };
+
+    expect(formatFindingDetail(detail)).toContain(`Archived: ${archivedAt}`);
+    expect(formatFindingDetail({ ...detail, finding: baseFinding })).not.toContain("Archived:");
   });
 });
 

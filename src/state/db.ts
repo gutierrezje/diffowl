@@ -11,6 +11,7 @@ import { MIGRATION_005_REVIEW_INPUT_IDENTITY } from "./migrations/005-review-inp
 import { MIGRATION_006_REVIEW_OPERATIONS } from "./migrations/006-review-operations.js";
 import { MIGRATION_007_REVIEW_RUNTIME_AND_MIGRATION_IDENTITY } from "./migrations/007-review-runtime-and-migration-identity.js";
 import { MIGRATION_008_REVIEW_COVERAGE } from "./migrations/008-review-coverage.js";
+import { MIGRATION_009_FINDING_ARCHIVE } from "./migrations/009-finding-archive.js";
 import { openSqliteDatabase, type SqliteDatabase } from "./sqlite.js";
 import { CURRENT_SCHEMA_VERSION } from "./types.js";
 
@@ -38,9 +39,23 @@ const MIGRATIONS: MigrationRegistry = {
     sql: MIGRATION_007_REVIEW_RUNTIME_AND_MIGRATION_IDENTITY,
   },
   8: { name: "008-review-coverage", sql: MIGRATION_008_REVIEW_COVERAGE },
+  9: { name: "009-finding-archive", sql: MIGRATION_009_FINDING_ARCHIVE },
 };
 
 const CURRENT_SCHEMA_TABLE_COLUMNS = {
+  findings: {
+    table: "findings",
+    columns: [
+      "id",
+      "fingerprint",
+      "status",
+      "first_review_id",
+      "last_review_id",
+      "created_at",
+      "updated_at",
+      "archived_at",
+    ],
+  },
   reviewCoverage: {
     table: "review_coverage",
     columns: ["review_id", "policy_sha256", "input_verified", "untracked_actionable_count"],

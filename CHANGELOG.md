@@ -7,6 +7,16 @@ increments that may include backward-compatible features and fixes.
 
 ## [Unreleased]
 
+### Added
+
+- Resolved findings (`fixed` or `dismissed`) are archived after
+  `retention.finding_recurrence_days` days without a sighting or disposition
+  (default `14`, `0` disables it). Archived findings leave the active list and no
+  longer match new reviews, so a later report of the same code starts a new
+  finding. `open`, `regressed`, and `deferred` findings are never archived. Each
+  archive is recorded as an `archived` finding event, shown by `diffowl findings show`.
+  State schema 9 adds the archive columns.
+
 ### Fixed
 
 - The Claude Code backend now authenticates in Claude Code cloud sessions, which

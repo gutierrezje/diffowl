@@ -210,7 +210,7 @@ function reviewExecutorOptions(model: string, effort?: "high" | "max") {
           effort === undefined
             ? { kind: "backend-default" as const }
             : { kind: "variant" as const, value: effort },
-        retention: { hook_log_kb: 1024, failed_execution_days: 14, failed_execution_limit: 200 },
+        retention: { hook_log_kb: 1024, failed_execution_days: 14, failed_execution_limit: 200, finding_recurrence_days: 14 },
         gate: { fail_on_findings: false },
         timeout: 300,
         min_confidence: "medium" as const,

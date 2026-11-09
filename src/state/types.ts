@@ -21,7 +21,7 @@ import type {
   ReviewOperation,
 } from "../review/operation.js";
 
-export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_SCHEMA_VERSION = 9;
 
 export type ReviewTargetKind = "staged" | "commit" | "last-commit" | "base";
 export type FindingStatus = "open" | "deferred" | "dismissed" | "fixed" | "regressed";
@@ -32,7 +32,8 @@ export type FindingEventType =
   | "deferred"
   | "fixed"
   | "reopened"
-  | "regressed";
+  | "regressed"
+  | "archived";
 export type FindingActor = "user" | "agent";
 export type ReviewSeverity = "error" | "warning" | "info";
 export type ReviewConfidence = "low" | "medium" | "high";
@@ -150,6 +151,8 @@ export interface FindingRecord {
   lastReviewId: string;
   createdAt: string;
   updatedAt: string;
+  /** Set once the finding ages past the recurrence window; archived findings are never matched. */
+  archivedAt: string | null;
 }
 
 export interface InsertFindingInput {
