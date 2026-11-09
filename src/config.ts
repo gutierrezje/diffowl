@@ -48,7 +48,7 @@ const DEFAULT_CONFIG = {
   verbose: false,
 };
 
-const CONFIG_FILENAME = ".diffowl.yml";
+export const CONFIG_FILENAME = ".diffowl.yml";
 
 const stringArraySchema = z.array(z.string().trim().min(1));
 
@@ -152,11 +152,23 @@ export async function loadConfigWithDiagnostics(): Promise<LoadedConfig> {
 
 export async function loadConfigWithDiagnosticsFromRoot(root: string): Promise<LoadedConfig> {
   const configPath = join(root, CONFIG_FILENAME);
-  if (!existsSync(configPath)) {
-    return { config: DiffOwlConfigSchema.parse({}), diagnostics: [] };
-  }
+  if (!existsSync(configPath)) return parseProjectConfig(null, configPath);
+  let raw: string;
   try {
-    const raw = await readFile(configPath, "utf-8");
+    raw = await readFile(configPath, "utf-8");
+  } catch (err) {
+    throw new Error(`Failed to load ${configPath}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return parseProjectConfig(raw, configPath);
+}
+
+/**
+ * Parses `.diffowl.yml` content from any source (working tree or a git revision).
+ * `null` means the file does not exist and yields the defaults.
+ */
+export function parseProjectConfig(raw: string | null, source: string): LoadedConfig {
+  if (raw === null) return { config: DiffOwlConfigSchema.parse({}), diagnostics: [] };
+  try {
     const input = parse(raw) ?? {};
     const legacyInput = LegacyProjectConfigInputSchema.parse(input);
     const { model: legacyModel, reasoning: legacyReasoning, ...projectInput } = legacyInput;
@@ -176,7 +188,7 @@ export async function loadConfigWithDiagnosticsFromRoot(root: string): Promise<L
         : err instanceof Error
           ? err.message
           : String(err);
-    throw new Error(`Failed to load ${configPath}: ${message}`);
+    throw new Error(`Failed to load ${source}: ${message}`);
   }
 }
 

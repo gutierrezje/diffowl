@@ -235,7 +235,7 @@ describe("readiness CLI", () => {
     expect(await query()).toEqual({
       schema_version: 1, result: "ready", reason: "ready", exit_code: 0, next_action: "handoff",
       target: { base_commit: base, merge_base_commit: base, head_commit: head },
-      policy_sha256: policy, worktree_clean: true,
+      policy_sha256: policy, policy_change: null, worktree_clean: true,
       coverage: { checkpoint_review_id: checkpoint, repair_review_ids: [], uncovered_commits: [] },
       blockers: { open: 0, regressed: 0, deferred: 0, untracked: 0 }, diagnostic: null,
     });
@@ -283,6 +283,23 @@ describe("readiness CLI", () => {
     expect(error.exitCode).toBe(2);
     expect(JSON.parse(error.stdout)).toMatchObject({ result: "error", reason: "operational-error", exit_code: 2 });
     expect(await readFile(join(repo, ".diffowl", "state.db"), "utf8")).toBe("invalid database");
+  });
+
+  it("refuses to acknowledge a policy change without an interactive terminal", async () => {
+    const repo = await createRepo("diffowl-policy-accept-cli-", { localModel: false });
+    const commit = (message: string) => execa("git", ["-c", "commit.gpgsign=false", "-c", "core.hooksPath=", "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-am", message], { cwd: repo });
+    await writeFile(join(repo, ".gitignore"), ".diffowl/\n");
+    await execa("git", ["add", "."], { cwd: repo });
+    await commit("base");
+    await execa("git", ["checkout", "-b", "feature"], { cwd: repo });
+    await writeFile(join(repo, ".diffowl.yml"), "min_confidence: low\n");
+    await execa("git", ["add", ".diffowl.yml"], { cwd: repo });
+    await commit("loosen policy");
+    // execa gives the child pipes, not a terminal, exactly like an agent's shell tool.
+    const accept = await execa(process.execPath, [cliPath, "policy", "accept", "--base", "main"], { cwd: repo, reject: false, input: "accept\n" });
+    expect(accept.exitCode).toBe(1);
+    expect(accept.stderr).toContain("requires an interactive terminal");
+    await expect(readdir(join(repo, ".diffowl"))).resolves.not.toContain("policy-acknowledgements.json");
   });
 });
 
