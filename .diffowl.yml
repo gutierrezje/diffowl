@@ -1,4 +1,3 @@
-model: opencode-go/deepseek-v4-pro
 server:
   port: 4096
   auto_start: true
