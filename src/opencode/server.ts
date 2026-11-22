@@ -223,6 +223,18 @@ async function spawnServer(port: number, dependencies: ServerDependencies): Prom
 }
 
 /**
+ * PID that `spawnServer` last recorded for this checkout, or null when none is recorded.
+ * Comparing it before and after an operation shows whether that operation spawned a server.
+ */
+export async function readManagedServerPid(
+  dependencies: ServerDependencies = defaultDependencies,
+): Promise<string | null> {
+  const pidFile = join(dependencies.getDiffOwlDir(), "server.pid");
+  if (!dependencies.existsSync(pidFile)) return null;
+  return dependencies.readFile(pidFile, "utf-8").catch(() => null);
+}
+
+/**
  * Stop the OpenCode server on the configured port.
  * Tries the managed PID file first, then any opencode serve listener on the port.
  */
@@ -380,17 +392,24 @@ async function findListenerPidsWindows(
 ): Promise<number[]> {
   try {
     const { stdout } = await dependencies.execa("netstat", ["-ano"], { timeout: 5000 });
-    const portToken = `:${port}`;
     const lines = (stdout ?? "").split(/\r?\n/);
     const pids = new Set<number>();
 
     for (const line of lines) {
-      if (!line.includes("LISTENING") || !line.includes(portToken)) {
+      // Columns: Proto, Local Address, Foreign Address, State, PID. Only the local endpoint's
+      // complete port may match, so 4096 never selects 40960 or a foreign endpoint on 4096.
+      const parts = line.trim().split(/\s+/);
+      // `netstat -p tcpv6` labels IPv6 rows TCPv6; plain `-ano` rows are TCP with `[::]` endpoints.
+      if (parts.length < 5 || !/^TCP(v6)?$/i.test(parts[0] ?? "")) {
+        continue;
+      }
+      const localEndpoint = parts[1] ?? "";
+      const localPort = localEndpoint.slice(localEndpoint.lastIndexOf(":") + 1);
+      if (parts[3]?.toUpperCase() !== "LISTENING" || localPort !== String(port)) {
         continue;
       }
 
-      const parts = line.trim().split(/\s+/);
-      const pid = parseInt(parts[parts.length - 1] ?? "", 10);
+      const pid = parseInt(parts[4] ?? "", 10);
       if (!Number.isInteger(pid) || pid <= 0) {
         continue;
       }
