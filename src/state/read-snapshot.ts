@@ -24,13 +24,15 @@ export async function readStateSnapshot<T>(
   if (!database.equals(databaseAfter) || !equalOptionalBytes(wal, walAfter)) {
     throw new StateDatabaseError("Review state changed during the readiness query. Query again.");
   }
-  const scratch = await mkdtemp(join(tmpdir(), "diffowl-read-snapshot-")).catch((cause: unknown) => {
-    const detail = cause instanceof Error ? cause.message : String(cause);
-    throw new StateDatabaseError(
-      `Readiness requires a writable OS temporary directory for its private SQLite snapshot. Run the query where temporary writes are permitted by the execution policy. ${detail}`,
-      { cause },
-    );
-  });
+  const scratch = await mkdtemp(join(tmpdir(), "diffowl-read-snapshot-")).catch(
+    (cause: unknown) => {
+      const detail = cause instanceof Error ? cause.message : String(cause);
+      throw new StateDatabaseError(
+        `Readiness requires a writable OS temporary directory for its private SQLite snapshot. Run the query where temporary writes are permitted by the execution policy. ${detail}`,
+        { cause },
+      );
+    },
+  );
   try {
     await writeFile(getStateDbPath(scratch), database);
     if (wal !== undefined) await writeFile(`${getStateDbPath(scratch)}-wal`, wal);
