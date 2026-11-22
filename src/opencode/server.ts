@@ -223,6 +223,18 @@ async function spawnServer(port: number, dependencies: ServerDependencies): Prom
 }
 
 /**
+ * PID that `spawnServer` last recorded for this checkout, or null when none is recorded.
+ * Comparing it before and after an operation shows whether that operation spawned a server.
+ */
+export async function readManagedServerPid(
+  dependencies: ServerDependencies = defaultDependencies,
+): Promise<string | null> {
+  const pidFile = join(dependencies.getDiffOwlDir(), "server.pid");
+  if (!dependencies.existsSync(pidFile)) return null;
+  return dependencies.readFile(pidFile, "utf-8").catch(() => null);
+}
+
+/**
  * Stop the OpenCode server on the configured port.
  * Tries the managed PID file first, then any opencode serve listener on the port.
  */
