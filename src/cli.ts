@@ -151,6 +151,7 @@ import { inspectReviewRuntimes } from "./review/runtime.js";
 import { getReviewBackendFailureGuidance } from "./review/guidance.js";
 import { getReadiness, type ReadinessOptions } from "./review/readiness.js";
 import { renderReadiness } from "./output/readiness.js";
+import { acceptPolicyChange, type AcceptPolicyChangeOptions, type AcceptPolicyChangeResult } from "./review/policy-change.js";
 
 import { execa } from "execa";
 import { z } from "zod";
@@ -194,12 +195,68 @@ program
   .option("--format <format>", "Output format: text or json", "text")
   .action(async (options: { base?: string; depth?: string; format: string }) => {
     const format = resolveReviewOutputFormat(options.format);
-    const request: ReadinessOptions = { projectRoot: getProjectRoot() };
+    const request: ReadinessOptions = { projectRoot: getProjectRoot(), cwd: process.cwd() };
     if (options.base !== undefined) request.base = options.base;
     if (options.depth !== undefined) request.depth = parseReviewContextDepth(options.depth);
     const result = await getReadiness(request);
     console.log(format === "json" ? JSON.stringify(result) : renderReadiness(result));
     process.exitCode = result.exit_code;
+  });
+
+const policyCmd = program.command("policy").description("Manage the review policy gate");
+
+policyCmd
+  .command("accept")
+  .description("Acknowledge that this branch changed the review policy since it split from its base (terminal only)")
+  .option("--base <ref>", "Base ref; defaults to the locally detected default branch")
+  .option("--depth <depth>", "Expected review context depth: shallow or default")
+  .action(async (options: { base?: string; depth?: string }) => {
+    const request: AcceptPolicyChangeOptions = { projectRoot: getProjectRoot(), cwd: process.cwd() };
+    if (options.base !== undefined) request.base = options.base;
+    if (options.depth !== undefined) request.depth = parseReviewContextDepth(options.depth);
+    let result: AcceptPolicyChangeResult;
+    try {
+      result = await acceptPolicyChange(request, {
+        // Acknowledgement is a human decision: refuse unless a person is at a terminal.
+        interactive: process.stdin.isTTY === true && process.stdout.isTTY === true,
+        async confirm(change) {
+          console.log(chalk.bold("This branch changes the review policy relative to where it split from the base:"));
+          for (const difference of change.differences) {
+            console.log(`  ${chalk.cyan(difference.field)}`);
+            console.log(`    base:   ${JSON.stringify(difference.base)}`);
+            console.log(`    branch: ${JSON.stringify(difference.branch)}`);
+          }
+          console.log(chalk.dim(`  base policy   ${change.base_policy_sha256}`));
+          console.log(chalk.dim(`  branch policy ${change.branch_policy_sha256}`));
+          console.log(chalk.dim(`  merge base    ${change.merge_base_commit}`));
+          const rl = createInterface({ input: process.stdin, output: process.stdout });
+          try {
+            return (await rl.question(chalk.yellow("Type 'accept' to allow reviews under this policy: "))).trim() === "accept";
+          } finally {
+            rl.close();
+          }
+        },
+      });
+    } catch (error) {
+      // Git failures (an unknown --base, or no merge base in a shallow or unrelated history) end here.
+      console.error(chalk.red(`Could not check the review policy change: ${error instanceof Error ? error.message : String(error)}`));
+      process.exit(1);
+    }
+    switch (result.kind) {
+      case "not-interactive":
+        console.error(chalk.red("`diffowl policy accept` requires an interactive terminal. A person must run it; agents and scripts must not acknowledge a policy change."));
+        process.exit(1);
+      case "unchanged":
+        console.log("The branch's review policy matches the policy where it split from its base. Nothing to accept.");
+        return;
+      case "declined":
+        console.log("Policy change not accepted.");
+        process.exitCode = 1;
+        return;
+      case "accepted":
+        console.log(chalk.green("✓ Policy change accepted for this base and branch policy pair. Any further policy edit requires a new acknowledgement."));
+        return;
+    }
   });
 
 // Default command: review last commit

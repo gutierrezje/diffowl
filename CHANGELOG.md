@@ -7,6 +7,14 @@ increments that may include backward-compatible features and fixes.
 
 ## [Unreleased]
 
+### Added
+
+- `diffowl readiness` now compares the branch's review policy with the policy at the
+  merge base, where the branch split from its base. Policy edits made only on the base
+  branch are not flagged. A branch that changes it reports `policy-changed-on-branch` until a
+  person runs `diffowl policy accept` in a terminal. The JSON adds a `policy_change`
+  field; `schema_version` stays 1.
+
 ### Fixed
 
 - The Claude Code backend now authenticates in Claude Code cloud sessions, which

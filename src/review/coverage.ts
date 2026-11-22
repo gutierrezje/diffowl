@@ -30,8 +30,11 @@ export async function readReviewCheckout(projectRoot: string): Promise<{ head: s
   return { head, status };
 }
 
-export function reviewPolicySha256(config: DiffOwlConfig, depth: ReviewContextDepth): string {
-  return createHash("sha256").update(JSON.stringify({
+export type ReviewPolicyInput = ReturnType<typeof reviewPolicyInput>;
+
+/** The effective review policy. Anything that changes review scope or judgment belongs here. */
+export function reviewPolicyInput(config: DiffOwlConfig, depth: ReviewContextDepth) {
+  return {
     version: REVIEW_POLICY_VERSION,
     depth,
     include: config.include,
@@ -39,5 +42,9 @@ export function reviewPolicySha256(config: DiffOwlConfig, depth: ReviewContextDe
     rules: config.rules,
     minConfidence: config.min_confidence,
     skipDocOnly: config.skip_doc_only,
-  })).digest("hex");
+  };
+}
+
+export function reviewPolicySha256(config: DiffOwlConfig, depth: ReviewContextDepth): string {
+  return createHash("sha256").update(JSON.stringify(reviewPolicyInput(config, depth))).digest("hex");
 }
