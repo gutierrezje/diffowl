@@ -797,7 +797,8 @@
       "databaseId": 37152512529,
       "headBranch": "feature/claude-adapter",
       "headSha": "a20003663529ecd5543e6c10acb2291865f31872",
-      "url": "https://github.com/gutierrezje/diffowl/actions/runs/37152512529"
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/37152512529",
+      "failedJobs": ["Build & Test (windows-2022, Node 22.14.0)"]
     },
     {
       "conclusion": "success",
@@ -877,7 +878,8 @@
       "databaseId": 35472820982,
       "headBranch": "feature/90-readiness",
       "headSha": "e229be19fff341e534e98f16fad3e600e8a1b124",
-      "url": "https://github.com/gutierrezje/diffowl/actions/runs/35472820982"
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/35472820982",
+      "failedJobs": ["Build & Test (windows-2022, Node 22.14.0)"]
     },
     {
       "conclusion": "failure",
@@ -885,7 +887,8 @@
       "databaseId": 35470118239,
       "headBranch": "feature/90-readiness",
       "headSha": "b7a6351c6b1eabadef24b471b748e047e9ba6b64",
-      "url": "https://github.com/gutierrezje/diffowl/actions/runs/35470118239"
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/35470118239",
+      "failedJobs": ["Build & Test (windows-2022, Node 22.14.0)"]
     },
     {
       "conclusion": "failure",
@@ -893,7 +896,8 @@
       "databaseId": 35423661291,
       "headBranch": "main",
       "headSha": "6c0a6858eb66496474c4d01245cb31838237fd54",
-      "url": "https://github.com/gutierrezje/diffowl/actions/runs/35423661291"
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/35423661291",
+      "failedJobs": ["Build & Test (windows-2022, Node 22.14.0)"]
     },
     {
       "conclusion": "success",
@@ -925,7 +929,8 @@
       "databaseId": 35417181482,
       "headBranch": "feature/162-cursor-sdk",
       "headSha": "d9599f968c964df0b79a6dcce10eb7d54b667bdc",
-      "url": "https://github.com/gutierrezje/diffowl/actions/runs/35417181482"
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/35417181482",
+      "failedJobs": ["Build & Test (windows-2022, Node 22.14.0)"]
     },
     {
       "conclusion": "failure",
@@ -933,7 +938,8 @@
       "databaseId": 34177380054,
       "headBranch": "main",
       "headSha": "3d821e56d145d5a507ac65d8ab9dc6803d93f85b",
-      "url": "https://github.com/gutierrezje/diffowl/actions/runs/34177380054"
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/34177380054",
+      "failedJobs": ["Build & Test (ubuntu-latest, Node 22.14.0)"]
     },
     {
       "conclusion": "success",
@@ -965,7 +971,8 @@
       "databaseId": 33694450046,
       "headBranch": "bugfix/husky-local-launcher",
       "headSha": "3e1b8fcd98ea651bfff589e53ee767f298fcdfe3",
-      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33694450046"
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33694450046",
+      "failedJobs": ["Build & Test (windows-2022, Node 22.14.0)"]
     },
     {
       "conclusion": "failure",
@@ -973,7 +980,8 @@
       "databaseId": 33691517894,
       "headBranch": "bugfix/husky-local-launcher",
       "headSha": "f0f9631d26452c76e3102d0907d1521cf8e15656",
-      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33691517894"
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33691517894",
+      "failedJobs": ["Build & Test (windows-2022, Node 22.14.0)"]
     },
     {
       "conclusion": "success",
@@ -1101,7 +1109,8 @@
       "databaseId": 33581338731,
       "headBranch": "feature/168-latency-eval",
       "headSha": "a3494822294985e28fac33e0935a45ae9558ea44",
-      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33581338731"
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33581338731",
+      "failedJobs": ["Build & Test (windows-2022, Node 22.14.0)"]
     },
     {
       "conclusion": "failure",
@@ -1109,7 +1118,11 @@
       "databaseId": 33580818912,
       "headBranch": "feature/168-latency-eval",
       "headSha": "7c4dd07260dc3c542e1afcd69baa84f8f0211215",
-      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33580818912"
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33580818912",
+      "failedJobs": [
+        "Build & Test (ubuntu-latest, Node 22.14.0)",
+        "Build & Test (windows-2022, Node 22.14.0)"
+      ]
     },
     {
       "conclusion": "failure",
@@ -1117,7 +1130,8 @@
       "databaseId": 33579843522,
       "headBranch": "feature/168-latency-eval",
       "headSha": "679c8f9f5bd0522f8fbf8134a1878570212bba37",
-      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33579843522"
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33579843522",
+      "failedJobs": ["Build & Test (windows-2022, Node 22.14.0)"]
     },
     {
       "conclusion": "failure",
@@ -1125,7 +1139,8 @@
       "databaseId": 33579699656,
       "headBranch": "feature/168-latency-eval",
       "headSha": "d8db41ab5549230779d9e593d3fc0820e2553f81",
-      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33579699656"
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33579699656",
+      "failedJobs": ["Build & Test (windows-2022, Node 22.14.0)"]
     },
     {
       "conclusion": "success",
@@ -1197,7 +1212,12 @@
       "databaseId": 33472624232,
       "headBranch": "bugfix/review-merge-commit-scope",
       "headSha": "69c85a3ddc2fc7062cd48abd6e6634a20c2bcfd1",
-      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33472624232"
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33472624232",
+      "failedJobs": [
+        "Build & Test (ubuntu-latest, Node 22.14.0)",
+        "Build & Test (windows-2022, Node 22.14.0)",
+        "Build & Test (ubuntu-latest, Node 24.x)"
+      ]
     },
     {
       "conclusion": "failure",
@@ -1205,7 +1225,12 @@
       "databaseId": 33471503253,
       "headBranch": "bugfix/review-merge-commit-scope",
       "headSha": "ed80a12489eef348a13d7fe33c8f8ed8f9240f52",
-      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33471503253"
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33471503253",
+      "failedJobs": [
+        "Build & Test (ubuntu-latest, Node 22.14.0)",
+        "Build & Test (ubuntu-latest, Node 24.x)",
+        "Build & Test (windows-2022, Node 22.14.0)"
+      ]
     },
     {
       "conclusion": "failure",
@@ -1213,7 +1238,12 @@
       "databaseId": 33469971944,
       "headBranch": "bugfix/review-merge-commit-scope",
       "headSha": "ec62c22fbc2acdec165b9b17417150d3899fc5aa",
-      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33469971944"
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33469971944",
+      "failedJobs": [
+        "Build & Test (windows-2022, Node 22.14.0)",
+        "Build & Test (ubuntu-latest, Node 24.x)",
+        "Build & Test (ubuntu-latest, Node 22.14.0)"
+      ]
     },
     {
       "conclusion": "success",
@@ -1229,7 +1259,8 @@
       "databaseId": 33293751268,
       "headBranch": "feature/162-cursor-backend",
       "headSha": "91d016931832f8f3c9863f23f79a18e6e1a5bac5",
-      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33293751268"
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33293751268",
+      "failedJobs": ["Build & Test (windows-2022, Node 22.14.0)"]
     },
     {
       "conclusion": "success",
@@ -1269,7 +1300,8 @@
       "databaseId": 33110832982,
       "headBranch": "main",
       "headSha": "74a5efb914a999d8ada49428ad1d41df22999e1e",
-      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33110832982"
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33110832982",
+      "failedJobs": ["Build & Test (windows-2022, Node 22.14.0)"]
     },
     {
       "conclusion": "success",
@@ -1317,7 +1349,8 @@
       "databaseId": 33055422711,
       "headBranch": "main",
       "headSha": "de06d6393591c9e1c38720d2601beaf3fba1884a",
-      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33055422711"
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/33055422711",
+      "failedJobs": ["Build & Test (ubuntu-latest, Node 22.14.0)"]
     },
     {
       "conclusion": "success",
@@ -1533,7 +1566,8 @@
       "databaseId": 32595277456,
       "headBranch": "refactor/config-runtime-anti-slop",
       "headSha": "365eb349f63329287baa786c46d80d1451b52303",
-      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32595277456"
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32595277456",
+      "failedJobs": ["Build & Test (ubuntu-latest, Node 22.14.0)"]
     },
     {
       "conclusion": "success",
@@ -1573,7 +1607,8 @@
       "databaseId": 32591313845,
       "headBranch": "main",
       "headSha": "92bf5c4665352dda8d08b743b4949805b1515512",
-      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32591313845"
+      "url": "https://github.com/gutierrezje/diffowl/actions/runs/32591313845",
+      "failedJobs": ["Build & Test (ubuntu-latest, Node 22.14.0)"]
     },
     {
       "conclusion": "success",
@@ -1589,5 +1624,9 @@
     "Local timing is not a hosted Windows benchmark.",
     "Dedicated-suite mutations only, not full mutation coverage.",
     "No live provider tests enabled."
-  ]
+  ],
+  "ciFailedJobsSource": {
+    "retrievedAt": "2026-11-09",
+    "method": "GitHub Actions jobs API: names of jobs with conclusion failure for each failed run in ciHistory"
+  }
 }
