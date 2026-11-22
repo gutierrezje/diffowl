@@ -56,11 +56,13 @@ describe("buildEvalManifest", () => {
     });
 
     expect(manifest.corpus_version).toBe(corpus.version);
-    expect(manifest.cases).toEqual([{
-      id: "missing-validation",
-      case_json_hash: caseJsonHash,
-      patch_hash: patchHash,
-    }]);
+    expect(manifest.cases).toEqual([
+      {
+        id: "missing-validation",
+        case_json_hash: caseJsonHash,
+        patch_hash: patchHash,
+      },
+    ]);
     expect(manifest.model).toBe("override/model");
     expect(manifest.reasoning).toBeNull();
     expect(explicitBackendDefaultVariant.reasoning).toBe("backend-default");

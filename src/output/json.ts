@@ -119,8 +119,10 @@ export interface ReviewJsonExecutionV3 extends Omit<ReviewJsonExecutionV2, "sche
   context_manifest_sha256: string;
 }
 
-export interface ReviewJsonExecutionV4
-  extends Omit<ReviewJsonExecutionV3, "schema_version" | "input"> {
+export interface ReviewJsonExecutionV4 extends Omit<
+  ReviewJsonExecutionV3,
+  "schema_version" | "input"
+> {
   schema_version: 4;
   input: ReviewJsonInputIdentityV2;
 }
@@ -132,13 +134,11 @@ export interface ReviewJsonExecutionTelemetryV1 {
   updated_at: string;
   completed_at: string | null;
   active_phase: ReviewExecutionTelemetry["activePhase"];
-  terminal:
-    | {
-        outcome: NonNullable<ReviewExecutionTelemetry["terminal"]>["outcome"];
-        phase: NonNullable<ReviewExecutionTelemetry["terminal"]>["phase"];
-        at: string;
-      }
-    | null;
+  terminal: {
+    outcome: NonNullable<ReviewExecutionTelemetry["terminal"]>["outcome"];
+    phase: NonNullable<ReviewExecutionTelemetry["terminal"]>["phase"];
+    at: string;
+  } | null;
   transitions: Array<{
     sequence: number;
     phase: ReviewExecutionTelemetry["transitions"][number]["phase"];
@@ -165,8 +165,10 @@ export interface ReviewJsonExecutionTelemetryV1 {
   };
 }
 
-export interface ReviewJsonExecutionV5
-  extends Omit<ReviewJsonExecutionV4, "schema_version" | "context_manifest_sha256"> {
+export interface ReviewJsonExecutionV5 extends Omit<
+  ReviewJsonExecutionV4,
+  "schema_version" | "context_manifest_sha256"
+> {
   schema_version: 5;
   context_manifest_sha256: string | null;
   telemetry: ReviewJsonExecutionTelemetryV1;

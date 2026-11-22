@@ -94,9 +94,7 @@ function getNamedDeclarationNode(
     ts.isMethodDeclaration(node) ||
     ts.isPropertyDeclaration(node)
   ) {
-    return node.name && ts.isIdentifier(node.name)
-      ? { node, name: node.name.text }
-      : undefined;
+    return node.name && ts.isIdentifier(node.name) ? { node, name: node.name.text } : undefined;
   }
 
   if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {

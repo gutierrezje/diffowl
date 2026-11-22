@@ -2,11 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import chalk from "chalk";
 import ora, { type Ora } from "ora";
-import {
-  loadConfigFromRoot,
-  parseReviewContextDepth,
-  ReviewConfidenceSchema,
-} from "../config.js";
+import { loadConfigFromRoot, parseReviewContextDepth, ReviewConfidenceSchema } from "../config.js";
 import { parseReasoningVariant } from "../review/reasoning.js";
 import { getInstalledOpencodeVersion } from "../opencode/server.js";
 import type { EvalCase, EvalCorpus } from "./case-types.js";
@@ -305,11 +301,7 @@ async function loadEvalGateThresholds(gatePath: string) {
   return parseEvalGateThresholds(raw);
 }
 
-function failEval(
-  deps: EvalCommandDependencies,
-  format: EvalOutputFormat,
-  cause: unknown,
-): void {
+function failEval(deps: EvalCommandDependencies, format: EvalOutputFormat, cause: unknown): void {
   const message = cause instanceof Error ? cause.message : String(cause);
   if (format === "json") {
     deps.stderrWrite(`${message}\n`);

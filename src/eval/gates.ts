@@ -51,14 +51,15 @@ export function computeCaseMustDetectRecall(
   entry: EvalCaseResultV1,
   modeResult: EvalCaseModeResultV1 | undefined,
 ): number | null {
-  const recalls = modeResult?.score.trials.flatMap((trial) => {
-    const truePositives = trial.truePositives.filter((match) => {
-      return entry.expected[match.expectedIndex]?.must_detect === true;
-    }).length;
-    const falseNegatives = trial.falseNegatives.filter((finding) => finding.must_detect).length;
-    const denominator = truePositives + falseNegatives;
-    return denominator === 0 ? [] : [truePositives / denominator];
-  }) ?? [];
+  const recalls =
+    modeResult?.score.trials.flatMap((trial) => {
+      const truePositives = trial.truePositives.filter((match) => {
+        return entry.expected[match.expectedIndex]?.must_detect === true;
+      }).length;
+      const falseNegatives = trial.falseNegatives.filter((finding) => finding.must_detect).length;
+      const denominator = truePositives + falseNegatives;
+      return denominator === 0 ? [] : [truePositives / denominator];
+    }) ?? [];
 
   if (recalls.length === 0) {
     return null;
@@ -76,9 +77,7 @@ export function evaluateEvalGates(
   if (thresholds.min_precision !== undefined) {
     const precision = aggregate?.precision?.mean ?? null;
     if (precision === null || precision < thresholds.min_precision) {
-      failures.push(
-        `precision ${precision ?? "n/a"} is below minimum ${thresholds.min_precision}`,
-      );
+      failures.push(`precision ${precision ?? "n/a"} is below minimum ${thresholds.min_precision}`);
     }
   }
 

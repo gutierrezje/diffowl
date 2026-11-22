@@ -428,10 +428,7 @@ describe("runHookReview", () => {
 
     const worker = execaHookWorkerProcess.start({
       command: process.execPath,
-      args: [
-        "-e",
-        'setTimeout(() => process.stdout.write("detached output\\n"), 50)',
-      ],
+      args: ["-e", 'setTimeout(() => process.stdout.write("detached output\\n"), 50)'],
       options: { detached: true, cleanup: false, stdio },
     });
     await worker.spawned;

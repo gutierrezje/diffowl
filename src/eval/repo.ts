@@ -88,7 +88,10 @@ export async function resolveEvalHeadSha(workDir: string): Promise<string> {
   return stdout.trim();
 }
 
-export async function finalizeEvalCaseTarget(workDir: string, evalCase: EvalCase): Promise<ReviewTarget> {
+export async function finalizeEvalCaseTarget(
+  workDir: string,
+  evalCase: EvalCase,
+): Promise<ReviewTarget> {
   await execa("git", ["add", "-A"], { cwd: workDir });
   if (evalCase.target === "staged") {
     return { kind: "staged" };

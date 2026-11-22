@@ -35,9 +35,7 @@ export const ReviewContextDegradationCodeSchema = z.enum([
   "related-file-truncated",
 ]);
 
-export type ReviewContextDegradationCode = z.output<
-  typeof ReviewContextDegradationCodeSchema
->;
+export type ReviewContextDegradationCode = z.output<typeof ReviewContextDegradationCodeSchema>;
 
 export interface ReviewContextDegradation {
   code: ReviewContextDegradationCode;

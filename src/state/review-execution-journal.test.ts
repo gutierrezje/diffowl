@@ -11,7 +11,10 @@ import {
   captureReviewOperation,
   createUnavailableContextReviewOperation,
 } from "../review/operation.js";
-import { createRunningReviewExecutionProvenance, createSingleReviewAssignment } from "../review/provenance.js";
+import {
+  createRunningReviewExecutionProvenance,
+  createSingleReviewAssignment,
+} from "../review/provenance.js";
 import { selectReasoningVariant } from "../review/reasoning.js";
 import type { ReviewContext } from "../review/context.js";
 import { closeStateDatabase, openStateDatabase } from "./db.js";
@@ -35,26 +38,36 @@ describe("review execution journal", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-08-01T00:00:00.000Z"));
     const running = await startReviewExecutionJournal(dir, {
-      operation: capturedOperation("op_long_running"), assignment: assignment(),
+      operation: capturedOperation("op_long_running"),
+      assignment: assignment(),
       telemetry: createReviewExecutionTelemetry(),
     });
     const finishing = await startReviewExecutionJournal(dir, {
-      operation: capturedOperation("op_recent_finish"), assignment: assignment(),
-      telemetry: createReviewExecutionTelemetry({ clock: {
-        read: () => ({ wallTime: new Date().toISOString(), elapsedMs: Date.now() - Date.parse("2026-08-01T00:00:00.000Z") }),
-      } }),
+      operation: capturedOperation("op_recent_finish"),
+      assignment: assignment(),
+      telemetry: createReviewExecutionTelemetry({
+        clock: {
+          read: () => ({
+            wallTime: new Date().toISOString(),
+            elapsedMs: Date.now() - Date.parse("2026-08-01T00:00:00.000Z"),
+          }),
+        },
+      }),
     });
     try {
       vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"));
       finishing.finish({
-        ...createRunningReviewExecutionProvenance(assignment()), terminalOutcome: "failed",
+        ...createRunningReviewExecutionProvenance(assignment()),
+        terminalOutcome: "failed",
       });
       const state = await openStateDatabase(dir);
       try {
-        expect(listReviewExecutionsByOperationId(state.db, "op_long_running"))
-          .toEqual([expect.objectContaining({ terminalOutcome: "running" })]);
-        expect(listReviewExecutionsByOperationId(state.db, "op_recent_finish"))
-          .toEqual([expect.objectContaining({ terminalOutcome: "failed" })]);
+        expect(listReviewExecutionsByOperationId(state.db, "op_long_running")).toEqual([
+          expect.objectContaining({ terminalOutcome: "running" }),
+        ]);
+        expect(listReviewExecutionsByOperationId(state.db, "op_recent_finish")).toEqual([
+          expect.objectContaining({ terminalOutcome: "failed" }),
+        ]);
       } finally {
         closeStateDatabase(state);
       }
@@ -68,7 +81,8 @@ describe("review execution journal", () => {
     const dir = await createTempDir();
     for (let index = 0; index < 2; index++) {
       const journal = await startReviewExecutionJournal(dir, {
-        operation: capturedOperation(`op_cleanup_failure_${index}`), assignment: assignment(),
+        operation: capturedOperation(`op_cleanup_failure_${index}`),
+        assignment: assignment(),
         telemetry: createReviewExecutionTelemetry(),
         retention: { failed_execution_days: 0, failed_execution_limit: 1 },
       });
@@ -79,9 +93,12 @@ describe("review execution journal", () => {
             BEGIN SELECT RAISE(ABORT, 'injected cleanup failure'); END`);
           closeStateDatabase(setup);
         }
-        expect(journal.finish({
-          ...createRunningReviewExecutionProvenance(assignment()), terminalOutcome: "failed",
-        })).toMatchObject({ terminalOutcome: "failed", ownerLease: null });
+        expect(
+          journal.finish({
+            ...createRunningReviewExecutionProvenance(assignment()),
+            terminalOutcome: "failed",
+          }),
+        ).toMatchObject({ terminalOutcome: "failed", ownerLease: null });
       } finally {
         journal.close();
       }
@@ -89,8 +106,9 @@ describe("review execution journal", () => {
     const state = await openStateDatabase(dir);
     try {
       for (let index = 0; index < 2; index++) {
-        expect(listReviewExecutionsByOperationId(state.db, `op_cleanup_failure_${index}`))
-          .toEqual([expect.objectContaining({ terminalOutcome: "failed", ownerLease: null })]);
+        expect(listReviewExecutionsByOperationId(state.db, `op_cleanup_failure_${index}`)).toEqual([
+          expect.objectContaining({ terminalOutcome: "failed", ownerLease: null }),
+        ]);
       }
     } finally {
       closeStateDatabase(state);
@@ -108,7 +126,10 @@ describe("review execution journal", () => {
       });
       try {
         journal.finish({
-          ...createRunningReviewExecutionProvenance(assignment()), effectiveModel: null, sessionId: null, terminalOutcome: "failed",
+          ...createRunningReviewExecutionProvenance(assignment()),
+          effectiveModel: null,
+          sessionId: null,
+          terminalOutcome: "failed",
         });
       } finally {
         journal.close();
@@ -118,8 +139,9 @@ describe("review execution journal", () => {
     try {
       expect(listReviewExecutionsByOperationId(state.db, "op_retention_0")).toEqual([]);
       expect(listReviewExecutionsByOperationId(state.db, "op_retention_2")).toHaveLength(1);
-      expect(state.db.prepare("SELECT COUNT(*) AS count FROM review_executions").get())
-        .toEqual({ count: 2 });
+      expect(state.db.prepare("SELECT COUNT(*) AS count FROM review_executions").get()).toEqual({
+        count: 2,
+      });
     } finally {
       closeStateDatabase(state);
     }
@@ -282,63 +304,65 @@ describe("review execution journal", () => {
   it.each(["provider", "tool"] as const)(
     "coalesces bursty %s activity writes and flushes the final count",
     async (activity) => {
-    const dir = await createTempDir();
-    const operation = capturedOperation(`op_${activity}_activity_flush`);
-    const clock = manualTelemetryClock();
-    const telemetry = createReviewExecutionTelemetry({ clock });
-    telemetry.record({ type: "phase", phase: "turn-start", attempt: 1 });
-    const journal = await startReviewExecutionJournal(dir, {
-      operation,
-      assignment: assignment(),
-      telemetry,
-    });
+      const dir = await createTempDir();
+      const operation = capturedOperation(`op_${activity}_activity_flush`);
+      const clock = manualTelemetryClock();
+      const telemetry = createReviewExecutionTelemetry({ clock });
+      telemetry.record({ type: "phase", phase: "turn-start", attempt: 1 });
+      const journal = await startReviewExecutionJournal(dir, {
+        operation,
+        assignment: assignment(),
+        telemetry,
+      });
 
-    journal.record({ type: "activity", activity });
-    journal.record({ type: "activity", activity });
-    clock.advanceTo(999);
-    journal.record({ type: "activity", activity });
+      journal.record({ type: "activity", activity });
+      journal.record({ type: "activity", activity });
+      clock.advanceTo(999);
+      journal.record({ type: "activity", activity });
 
-    const coalescedState = await openStateDatabase(dir);
-    try {
-      expect(listReviewExecutionsByOperationId(coalescedState.db, operation.id)[0]?.telemetry)
-        .toMatchObject({ activity: { count: 1 } });
-      expect(journal.snapshot()).toMatchObject({ activity: { count: 3 } });
-    } finally {
-      closeStateDatabase(coalescedState);
-    }
+      const coalescedState = await openStateDatabase(dir);
+      try {
+        expect(
+          listReviewExecutionsByOperationId(coalescedState.db, operation.id)[0]?.telemetry,
+        ).toMatchObject({ activity: { count: 1 } });
+        expect(journal.snapshot()).toMatchObject({ activity: { count: 3 } });
+      } finally {
+        closeStateDatabase(coalescedState);
+      }
 
-    clock.advanceTo(1_000);
-    journal.record({ type: "activity", activity });
-    journal.record({ type: "activity", activity });
+      clock.advanceTo(1_000);
+      journal.record({ type: "activity", activity });
+      journal.record({ type: "activity", activity });
 
-    const intervalFlushedState = await openStateDatabase(dir);
-    try {
-      expect(listReviewExecutionsByOperationId(intervalFlushedState.db, operation.id)[0]?.telemetry)
-        .toMatchObject({ activity: { count: 4 } });
-      expect(journal.snapshot()).toMatchObject({ activity: { count: 5 } });
-    } finally {
-      closeStateDatabase(intervalFlushedState);
-    }
+      const intervalFlushedState = await openStateDatabase(dir);
+      try {
+        expect(
+          listReviewExecutionsByOperationId(intervalFlushedState.db, operation.id)[0]?.telemetry,
+        ).toMatchObject({ activity: { count: 4 } });
+        expect(journal.snapshot()).toMatchObject({ activity: { count: 5 } });
+      } finally {
+        closeStateDatabase(intervalFlushedState);
+      }
 
-    const execution = journal.finish({
-      cohortId: null,
-      reviewerId: ReviewerIdSchema.parse("single"),
-      role: "single",
-      backend: "codex",
-      requestedModel: "gpt-5.6-luna",
-      effectiveModel: null,
-      preferenceSource: { backend: "local", model: "local" },
-      reasoningEffort: "high",
-      sessionId: "thread-1",
-      terminalOutcome: "completed",
-    });
-    journal.close();
+      const execution = journal.finish({
+        cohortId: null,
+        reviewerId: ReviewerIdSchema.parse("single"),
+        role: "single",
+        backend: "codex",
+        requestedModel: "gpt-5.6-luna",
+        effectiveModel: null,
+        preferenceSource: { backend: "local", model: "local" },
+        reasoningEffort: "high",
+        sessionId: "thread-1",
+        terminalOutcome: "completed",
+      });
+      journal.close();
 
-    expect(execution.telemetry).toMatchObject({
-      terminal: { outcome: "completed", phase: "completion" },
-      transitions: expect.arrayContaining([expect.objectContaining({ phase: "completion" })]),
-      activity: { count: 5, toolCount: activity === "tool" ? 5 : 0 },
-    });
+      expect(execution.telemetry).toMatchObject({
+        terminal: { outcome: "completed", phase: "completion" },
+        transitions: expect.arrayContaining([expect.objectContaining({ phase: "completion" })]),
+        activity: { count: 5, toolCount: activity === "tool" ? 5 : 0 },
+      });
     },
   );
 
@@ -362,11 +386,12 @@ describe("review execution journal", () => {
 
     const state = await openStateDatabase(dir);
     try {
-      expect(listReviewExecutionsByOperationId(state.db, operation.id)[0]?.telemetry)
-        .toMatchObject({
+      expect(listReviewExecutionsByOperationId(state.db, operation.id)[0]?.telemetry).toMatchObject(
+        {
           activity: { count: 2 },
           provider: { window: { kind: "active", attempt: 2 } },
-        });
+        },
+      );
       expect(journal.snapshot()).toMatchObject({ activity: { count: 3 } });
     } finally {
       closeStateDatabase(state);

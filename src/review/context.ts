@@ -236,9 +236,12 @@ async function buildChangedFileContext(
   const analysisContent = contentResult.fullContent;
   const astResult = extractAstSymbols(file.path, analysisContent, changedLines);
   const degradations: ReviewContextDegradation[] = [];
-  const render = astResult.symbols.length > 0
-    ? "ast-symbols"
-    : shouldRenderFullFileContent(file, analysisContent) ? "full" : "diff-only";
+  const render =
+    astResult.symbols.length > 0
+      ? "ast-symbols"
+      : shouldRenderFullFileContent(file, analysisContent)
+        ? "full"
+        : "diff-only";
   if (contentResult.truncated && render === "full") {
     degradations.push({ code: "changed-file-truncated", count: 1 });
   }

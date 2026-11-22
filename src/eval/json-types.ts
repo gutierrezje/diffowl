@@ -4,13 +4,7 @@ export interface EvalJsonObject {
   readonly [key: string]: EvalJsonValue;
 }
 
-export type EvalJsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | EvalJsonValue[]
-  | EvalJsonObject;
+export type EvalJsonValue = null | boolean | number | string | EvalJsonValue[] | EvalJsonObject;
 
 export const EvalJsonValueSchema: z.ZodType<EvalJsonValue> = z.lazy(() =>
   z.union([

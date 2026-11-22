@@ -9,11 +9,7 @@ import {
 } from "./json.js";
 import type { BuildReviewJsonInput } from "./json.js";
 import type { PersistReviewRunResult } from "../state/persist.js";
-import type {
-  PersistedObservation,
-  ReviewExecutionRecord,
-  ReviewRecord,
-} from "../state/types.js";
+import type { PersistedObservation, ReviewExecutionRecord, ReviewRecord } from "../state/types.js";
 import type { ReviewFinding } from "../review/types.js";
 import { createReviewExecutionTelemetry } from "../review/execution-telemetry.js";
 import {

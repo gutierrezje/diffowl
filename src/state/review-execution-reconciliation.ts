@@ -23,10 +23,7 @@ export async function reconcileStaleReviewExecutions(state: StateDatabase): Prom
     for (const execution of stale) {
       const current = getReviewExecutionById(state.db, execution.id);
       if (current === undefined || current.terminalOutcome !== "running") continue;
-      const telemetry = finishPersistedReviewExecutionTelemetry(
-        current.telemetry,
-        "interrupted",
-      );
+      const telemetry = finishPersistedReviewExecutionTelemetry(current.telemetry, "interrupted");
       finalizeReviewExecution(
         state.db,
         current.id,

@@ -16,10 +16,7 @@ import type {
 } from "../review/provenance.js";
 import type { ReviewExecutionTelemetry } from "../review/execution-telemetry.js";
 import type { ProcessLease } from "./process-lease.js";
-import type {
-  CapturedReviewOperation,
-  ReviewOperation,
-} from "../review/operation.js";
+import type { CapturedReviewOperation, ReviewOperation } from "../review/operation.js";
 
 export const CURRENT_SCHEMA_VERSION = 8;
 

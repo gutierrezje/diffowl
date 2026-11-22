@@ -251,9 +251,7 @@ function compareCaseRuns(
     regressions: [],
   };
 
-  comparison.regressions.push(
-    ...detectCaseRegressions(referenceEntry, currentEntry),
-  );
+  comparison.regressions.push(...detectCaseRegressions(referenceEntry, currentEntry));
   return comparison;
 }
 
@@ -267,11 +265,7 @@ function detectCaseRegressions(
   if (referenceEntry.category !== "clean" && mustDetect) {
     const referenceRecall = computeCaseMustDetectRecall(referenceEntry, referenceEntry.diffowl);
     const currentRecall = computeCaseMustDetectRecall(currentEntry, currentEntry.diffowl);
-    if (
-      referenceRecall !== null &&
-      currentRecall !== null &&
-      currentRecall < referenceRecall
-    ) {
+    if (referenceRecall !== null && currentRecall !== null && currentRecall < referenceRecall) {
       regressions.push(
         `must-detect recall dropped from ${referenceRecall.toFixed(3)} to ${currentRecall.toFixed(3)}`,
       );

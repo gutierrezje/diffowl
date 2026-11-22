@@ -83,8 +83,8 @@ describe("released state migrations", () => {
     ).toBeLessThanOrEqual(LATEST_RELEASED_SCHEMA_VERSION + 1);
 
     const migrationVersions = readdirSync(new URL(".", import.meta.url))
-      .filter(name => /^\d{3}-.+\.ts$/.test(name) && !name.endsWith(".test.ts"))
-      .map(name => Number(name.slice(0, 3)))
+      .filter((name) => /^\d{3}-.+\.ts$/.test(name) && !name.endsWith(".test.ts"))
+      .map((name) => Number(name.slice(0, 3)))
       .sort((left, right) => left - right);
     expect(migrationVersions, "Migration files must match the supported schema sequence.").toEqual(
       Array.from({ length: CURRENT_SCHEMA_VERSION }, (_, index) => index + 1),

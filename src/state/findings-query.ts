@@ -6,11 +6,7 @@ import {
   resolveFindingIdFromCandidates,
   resolveLatestOrdinalFindingId,
 } from "../output/locator.js";
-import {
-  closeStateDatabase,
-  openStateDatabaseForRead,
-  runInTransaction,
-} from "./db.js";
+import { closeStateDatabase, openStateDatabaseForRead, runInTransaction } from "./db.js";
 import { openStateDatabaseForWrite } from "./write-database.js";
 import { deferFinding, dismissFinding, fixFinding, reopenFinding } from "./lifecycle.js";
 import { countObservationsByFindingIds } from "./repositories/observations.js";

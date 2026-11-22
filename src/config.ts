@@ -4,10 +4,7 @@ import { join, dirname } from "node:path";
 import { parse, stringify } from "yaml";
 import { z, ZodError } from "zod";
 import { OpenCodeModelSchema } from "./review/backend-selection.js";
-import {
-  ReasoningVariantSchema,
-  type ReasoningVariant,
-} from "./review/reasoning.js";
+import { ReasoningVariantSchema, type ReasoningVariant } from "./review/reasoning.js";
 
 export const ReviewConfidenceSchema = z.enum(["low", "medium", "high"]);
 export const ReviewContextDepthSchema = z.enum(["shallow", "default"]);
@@ -70,8 +67,16 @@ export const DiffOwlConfigSchema = z
     retention: z
       .object({
         hook_log_kb: z.number().int().nonnegative().default(DEFAULT_CONFIG.retention.hook_log_kb),
-        failed_execution_days: z.number().int().nonnegative().default(DEFAULT_CONFIG.retention.failed_execution_days),
-        failed_execution_limit: z.number().int().nonnegative().default(DEFAULT_CONFIG.retention.failed_execution_limit),
+        failed_execution_days: z
+          .number()
+          .int()
+          .nonnegative()
+          .default(DEFAULT_CONFIG.retention.failed_execution_days),
+        failed_execution_limit: z
+          .number()
+          .int()
+          .nonnegative()
+          .default(DEFAULT_CONFIG.retention.failed_execution_limit),
       })
       .strict()
       .default(DEFAULT_CONFIG.retention),

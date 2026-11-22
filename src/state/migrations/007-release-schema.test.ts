@@ -36,13 +36,29 @@ describe("release schema migration", () => {
     const old = await openSqliteDatabase(getStateDbPath(dir));
     applyMigrations(old, 7);
     const review = insertTestReview(old, {
-      targetKind: "base", baseCommit: "a".repeat(40), mergeBaseCommit: "a".repeat(40),
-      targetCommit: "b".repeat(40), diffHash: "legacy-diff", model: "test", reasoning: null,
-      depth: "default", sessionId: "legacy", summary: "Legacy review", reportPath: "legacy.md",
+      targetKind: "base",
+      baseCommit: "a".repeat(40),
+      mergeBaseCommit: "a".repeat(40),
+      targetCommit: "b".repeat(40),
+      diffHash: "legacy-diff",
+      model: "test",
+      reasoning: null,
+      depth: "default",
+      sessionId: "legacy",
+      summary: "Legacy review",
+      reportPath: "legacy.md",
     });
-    const finding = reconcileReviewFindings(old, review.id, [{ file: "price.ts", line: 1,
-      severity: "warning", confidence: "high", title: "Price", body: "Unexpected price",
-      evidence: "const price = 12;" }]).observations[0]!.finding;
+    const finding = reconcileReviewFindings(old, review.id, [
+      {
+        file: "price.ts",
+        line: 1,
+        severity: "warning",
+        confidence: "high",
+        title: "Price",
+        body: "Unexpected price",
+        evidence: "const price = 12;",
+      },
+    ]).observations[0]!.finding;
     dismissFinding(old, finding.id, { actor: "user", reason: "Intended pricing" });
     const before = {
       findings: old.prepare("SELECT * FROM findings").all(),
@@ -54,12 +70,16 @@ describe("release schema migration", () => {
     const state = await openStateDatabase(dir);
     try {
       expect(state.db.prepare("SELECT * FROM findings").all()).toEqual(before.findings);
-      expect(state.db.prepare("SELECT * FROM finding_observations").all()).toEqual(before.observations);
+      expect(state.db.prepare("SELECT * FROM finding_observations").all()).toEqual(
+        before.observations,
+      );
       expect(state.db.prepare("SELECT * FROM finding_events").all()).toEqual(before.events);
       expect(state.db.prepare("SELECT * FROM reviews").all()).toEqual(before.reviews);
       expect(state.db.prepare("SELECT * FROM review_coverage").all()).toEqual([]);
       expect(state.db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
-    } finally { closeStateDatabase(state); }
+    } finally {
+      closeStateDatabase(state);
+    }
   });
 
   it("upgrades the published schema 6 through identified additive migrations", async () => {

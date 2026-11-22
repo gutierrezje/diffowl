@@ -118,176 +118,178 @@ export async function executeRun({ adapter, featureId, options }) {
     };
   });
   try {
-  const identityBefore = await inspectRunIdentity(run);
-  if (!identityBefore.ok) {
-    const error = identityFailure(identityBefore, "before feature actions");
-    await terminalizeRunFailure(
-      run,
-      error,
-      identityBefore.checks.map((check) => ({ ...check, phase: "preflight" })),
-    );
-    const receipt = await readReceipt(run);
-    const receiptPath = join(run.evidence, "receipt.json");
-    return {
-      schemaVersion: 1,
-      command: "run",
-      success: false,
-      surface: adapter.surface,
-      runId: run.manifest.runId,
-      result: "INCONCLUSIVE",
-      observedTarget: { scratch: run.manifest.scratch },
-      evidence: run.evidence,
-      receipt: receiptPath,
-      verification: { identityBound: false },
-      artifacts: receipt.artifacts,
-      cleanup: receipt.cleanup,
-      error: error.details,
-      human: `INCONCLUSIVE: ${featureId}\nReceipt: ${receiptPath}`,
-    };
-  }
-  run.manifest.requestedModel = requestedModel ?? null;
-  run.manifest.requestedReasoning = options.reasoning ?? run.manifest.requestedReasoning;
-  await writeManifest(run, run.manifest);
-  const featureOptions = { ...options, model: requestedModel ?? undefined };
+    const identityBefore = await inspectRunIdentity(run);
+    if (!identityBefore.ok) {
+      const error = identityFailure(identityBefore, "before feature actions");
+      await terminalizeRunFailure(
+        run,
+        error,
+        identityBefore.checks.map((check) => ({ ...check, phase: "preflight" })),
+      );
+      const receipt = await readReceipt(run);
+      const receiptPath = join(run.evidence, "receipt.json");
+      return {
+        schemaVersion: 1,
+        command: "run",
+        success: false,
+        surface: adapter.surface,
+        runId: run.manifest.runId,
+        result: "INCONCLUSIVE",
+        observedTarget: { scratch: run.manifest.scratch },
+        evidence: run.evidence,
+        receipt: receiptPath,
+        verification: { identityBound: false },
+        artifacts: receipt.artifacts,
+        cleanup: receipt.cleanup,
+        error: error.details,
+        human: `INCONCLUSIVE: ${featureId}\nReceipt: ${receiptPath}`,
+      };
+    }
+    run.manifest.requestedModel = requestedModel ?? null;
+    run.manifest.requestedReasoning = options.reasoning ?? run.manifest.requestedReasoning;
+    await writeManifest(run, run.manifest);
+    const featureOptions = { ...options, model: requestedModel ?? undefined };
 
-  const preparation = adapter.prepareFeature
-    ? await adapter.prepareFeature({
+    const preparation = adapter.prepareFeature
+      ? await adapter.prepareFeature({
+          featureId,
+          projectRoot,
+          binaryPath,
+          run,
+          options: featureOptions,
+        })
+      : { mutationRecords: [] };
+    run = await loadRun(run.manifest.runId, "run");
+    const before = await snapshot(adapter, run.manifest.runId, "before");
+    let feature;
+    try {
+      feature = await adapter.executeFeature({
         featureId,
         projectRoot,
         binaryPath,
         run,
         options: featureOptions,
-      })
-    : { mutationRecords: [] };
-  run = await loadRun(run.manifest.runId, "run");
-  const before = await snapshot(adapter, run.manifest.runId, "before");
-  let feature;
-  try {
-    feature = await adapter.executeFeature({
-      featureId,
-      projectRoot,
-      binaryPath,
-      run,
-      options: featureOptions,
-      capture: (action) =>
-        action.owned ? captureOwnedAction(run, action) : captureAction(run, action),
-      recordOwnedProcess: (record) => recordOwnedProcess(run, record),
-    });
-  } catch (error) {
-    feature = inconclusiveFeature(error);
-  }
-  run = await loadRun(run.manifest.runId, "run");
-  const after = await snapshot(adapter, run.manifest.runId, "after");
-  const repositoryImmutable = JSON.stringify(before.state.git) === JSON.stringify(after.state.git);
-  const processes = await Promise.all(
-    (run.manifest.ownedProcesses ?? []).map(async (owned) => ({
-      ...owned,
-      ...(await inspectProcess(owned.pid)),
-    })),
-  );
-  const teardown = processes.every(({ alive }) => !alive);
-  const preservation = await preserveRunArtifacts(run, feature.artifacts);
-  const requirementsAgree =
-    feature.behavior &&
-    repositoryImmutable &&
-    teardown &&
-    preservation.complete &&
-    (feature.report === true || feature.report === "not-required") &&
-    (feature.database === true || feature.database === "not-required");
-  run.manifest.effectiveBackend = feature.effectiveBackend ?? null;
-  run.manifest.effectiveModel = feature.effectiveModel;
-  run.manifest.sessionId = feature.sessionId ?? null;
-  run.manifest.turnId = feature.turnId ?? null;
-  await writeManifest(run, run.manifest);
-  const runtimeIdentity = await adapter.observeRuntime({
-    manifest: run.manifest,
-    server: { pid: null, port: run.manifest.reservedPort, alive: false, command: null },
-  });
-  const runtime = JSON.stringify({
-    surface: adapter.surface,
-    ...runtimeIdentity,
-    children: processes,
-  });
-  const identityAfter = await inspectRunIdentity(run);
-  const result =
-    feature.result === "INCONCLUSIVE"
-      ? "INCONCLUSIVE"
-      : !identityAfter.ok
-        ? "INCONCLUSIVE"
-        : requirementsAgree
-          ? "VERIFIED"
-          : "NOT VERIFIED";
-  const current = await updateReceipt(run, (receipt) => {
-    receipt.result = result;
-    receipt.observed.push(...feature.observed, {
-      check: "repository immutable",
-      ok: repositoryImmutable,
-      before: before.state.git,
-      after: after.state.git,
-    });
-    receipt.observed.push(
-      ...identityBefore.checks.map((check) => ({ ...check, phase: "preflight" })),
-      ...identityAfter.checks.map((check) => ({ ...check, phase: "postflight" })),
-    );
-    receipt.observed.push({ check: "owned process teardown", ok: teardown, processes });
-    receipt.observed.push({
-      check: "durable artifacts retained byte-for-byte",
-      ok: preservation.complete,
-      failed: preservation.failed,
-    });
-    receipt.artifacts.push(
-      ...preservation.paths.filter((artifact) => !receipt.artifacts.includes(artifact)),
-    );
-    receipt.mutation.records.push(...preparation.mutationRecords, ...feature.mutationRecords);
-    receipt.cleanup.running = processes.filter(({ alive }) => alive).map(({ pid }) => ({ pid }));
-    receipt.confounds.push(...feature.confounds);
-    if (!identityAfter.ok) {
-      receipt.confounds.push(identityFailure(identityAfter, "after feature actions").details);
+        capture: (action) =>
+          action.owned ? captureOwnedAction(run, action) : captureAction(run, action),
+        recordOwnedProcess: (record) => recordOwnedProcess(run, record),
+      });
+    } catch (error) {
+      feature = inconclusiveFeature(error);
     }
-    receipt.controller.state = "completed";
-    receipt.controller.finishedAt = new Date().toISOString();
-    receipt.target.runtime = runtime;
-  });
+    run = await loadRun(run.manifest.runId, "run");
+    const after = await snapshot(adapter, run.manifest.runId, "after");
+    const repositoryImmutable =
+      JSON.stringify(before.state.git) === JSON.stringify(after.state.git);
+    const processes = await Promise.all(
+      (run.manifest.ownedProcesses ?? []).map(async (owned) => ({
+        ...owned,
+        ...(await inspectProcess(owned.pid)),
+      })),
+    );
+    const teardown = processes.every(({ alive }) => !alive);
+    const preservation = await preserveRunArtifacts(run, feature.artifacts);
+    const requirementsAgree =
+      feature.behavior &&
+      repositoryImmutable &&
+      teardown &&
+      preservation.complete &&
+      (feature.report === true || feature.report === "not-required") &&
+      (feature.database === true || feature.database === "not-required");
+    run.manifest.effectiveBackend = feature.effectiveBackend ?? null;
+    run.manifest.effectiveModel = feature.effectiveModel;
+    run.manifest.sessionId = feature.sessionId ?? null;
+    run.manifest.turnId = feature.turnId ?? null;
+    await writeManifest(run, run.manifest);
+    const runtimeIdentity = await adapter.observeRuntime({
+      manifest: run.manifest,
+      server: { pid: null, port: run.manifest.reservedPort, alive: false, command: null },
+    });
+    const runtime = JSON.stringify({
+      surface: adapter.surface,
+      ...runtimeIdentity,
+      children: processes,
+    });
+    const identityAfter = await inspectRunIdentity(run);
+    const result =
+      feature.result === "INCONCLUSIVE"
+        ? "INCONCLUSIVE"
+        : !identityAfter.ok
+          ? "INCONCLUSIVE"
+          : requirementsAgree
+            ? "VERIFIED"
+            : "NOT VERIFIED";
+    const current = await updateReceipt(run, (receipt) => {
+      receipt.result = result;
+      receipt.observed.push(...feature.observed, {
+        check: "repository immutable",
+        ok: repositoryImmutable,
+        before: before.state.git,
+        after: after.state.git,
+      });
+      receipt.observed.push(
+        ...identityBefore.checks.map((check) => ({ ...check, phase: "preflight" })),
+        ...identityAfter.checks.map((check) => ({ ...check, phase: "postflight" })),
+      );
+      receipt.observed.push({ check: "owned process teardown", ok: teardown, processes });
+      receipt.observed.push({
+        check: "durable artifacts retained byte-for-byte",
+        ok: preservation.complete,
+        failed: preservation.failed,
+      });
+      receipt.artifacts.push(
+        ...preservation.paths.filter((artifact) => !receipt.artifacts.includes(artifact)),
+      );
+      receipt.mutation.records.push(...preparation.mutationRecords, ...feature.mutationRecords);
+      receipt.cleanup.running = processes.filter(({ alive }) => alive).map(({ pid }) => ({ pid }));
+      receipt.confounds.push(...feature.confounds);
+      if (!identityAfter.ok) {
+        receipt.confounds.push(identityFailure(identityAfter, "after feature actions").details);
+      }
+      receipt.controller.state = "completed";
+      receipt.controller.finishedAt = new Date().toISOString();
+      receipt.target.runtime = runtime;
+    });
 
-  const receiptPath = join(run.evidence, "receipt.json");
-  const runResult = {
-    schemaVersion: 1,
-    command: "run",
-    success: result === "VERIFIED",
-    surface: adapter.surface,
-    runId: run.manifest.runId,
-    result,
-    observedTarget: { scratch: run.manifest.scratch },
-    evidence: run.evidence,
-    receipt: receiptPath,
-    verification: {
-      behavior: feature.behavior,
-      report: feature.report,
-      database: feature.database,
-      repositoryImmutable,
-      teardown,
-      artifactsPreserved: preservation.complete,
-      identityBound: identityAfter.ok,
-    },
-    artifacts: current.artifacts,
-    cleanup: current.cleanup,
-    scalar: receiptPath,
-    human: `${result}: ${featureId}\nReceipt: ${receiptPath}`,
-  };
-  if (result !== "VERIFIED") {
-    runResult.error = !identityAfter.ok
-      ? identityFailure(identityAfter, "after feature actions").details
-      : {
-          expected: "behavior, report, database, repository immutability, and teardown checks to agree",
-          observed: JSON.stringify(runResult.verification),
-          likelyCause:
-            result === "INCONCLUSIVE"
-              ? "A prerequisite or observable identity required by the feature was unavailable."
-              : "At least one product result or durable-state check contradicted the feature recipe.",
-          nextAction: `Inspect ${receiptPath}, console, and snapshots before cleanup.`,
-        };
-  }
-  return runResult;
+    const receiptPath = join(run.evidence, "receipt.json");
+    const runResult = {
+      schemaVersion: 1,
+      command: "run",
+      success: result === "VERIFIED",
+      surface: adapter.surface,
+      runId: run.manifest.runId,
+      result,
+      observedTarget: { scratch: run.manifest.scratch },
+      evidence: run.evidence,
+      receipt: receiptPath,
+      verification: {
+        behavior: feature.behavior,
+        report: feature.report,
+        database: feature.database,
+        repositoryImmutable,
+        teardown,
+        artifactsPreserved: preservation.complete,
+        identityBound: identityAfter.ok,
+      },
+      artifacts: current.artifacts,
+      cleanup: current.cleanup,
+      scalar: receiptPath,
+      human: `${result}: ${featureId}\nReceipt: ${receiptPath}`,
+    };
+    if (result !== "VERIFIED") {
+      runResult.error = !identityAfter.ok
+        ? identityFailure(identityAfter, "after feature actions").details
+        : {
+            expected:
+              "behavior, report, database, repository immutability, and teardown checks to agree",
+            observed: JSON.stringify(runResult.verification),
+            likelyCause:
+              result === "INCONCLUSIVE"
+                ? "A prerequisite or observable identity required by the feature was unavailable."
+                : "At least one product result or durable-state check contradicted the feature recipe.",
+            nextAction: `Inspect ${receiptPath}, console, and snapshots before cleanup.`,
+          };
+    }
+    return runResult;
   } catch (error) {
     await terminalizeRunFailure(run, error).catch(() => undefined);
     throw error;
@@ -319,7 +321,8 @@ async function terminalizeRunFailure(run, error, observed) {
 function identityFailure(identity, phase) {
   return new ControllerError({
     command: "run",
-    expected: "source, controller, and binary identity recorded by this run to match the current checkout",
+    expected:
+      "source, controller, and binary identity recorded by this run to match the current checkout",
     observed: identity.problems.join("; "),
     likelyCause: `The run identity changed or could not be read ${phase}.`,
     nextAction: "Retain this evidence, create a new run from the current checkout, and retry.",
@@ -405,8 +408,8 @@ export async function createRun(adapter, featureId, options) {
   }
   const sourceIdentityStable = Boolean(
     sourceIdentityAfterBuild &&
-      sourceIdentityBeforeBuild.head === sourceIdentityAfterBuild.head &&
-      sourceIdentityBeforeBuild.hash === sourceIdentityAfterBuild.hash,
+    sourceIdentityBeforeBuild.head === sourceIdentityAfterBuild.head &&
+    sourceIdentityBeforeBuild.hash === sourceIdentityAfterBuild.hash,
   );
   const sourceBoundaryCheck = {
     check: "source identity stable across build",
@@ -431,7 +434,8 @@ export async function createRun(adapter, featureId, options) {
           error: sourceIdentityError,
         }),
         likelyCause: "Source changed or became unreadable while the helper built the run binary.",
-        nextAction: "Retain this failed run evidence, restore a stable checkout, and create a new run.",
+        nextAction:
+          "Retain this failed run evidence, restore a stable checkout, and create a new run.",
       });
   const requestedBackend = adapter.surface === "cli" ? null : adapter.surface;
   const requestedModel = options.model ?? null;

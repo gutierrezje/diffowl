@@ -1,12 +1,4 @@
-import {
-  appendFile,
-  mkdir,
-  readFile,
-  readdir,
-  rename,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import {
   closeSync,
   existsSync,
@@ -325,7 +317,8 @@ export async function runHookReview(options: RunHookReviewOptions = {}): Promise
     try {
       await subprocess.spawned;
     } catch (error) {
-      const failure = error instanceof Error ? error : new Error("Unknown hook worker spawn error.");
+      const failure =
+        error instanceof Error ? error : new Error("Unknown hook worker spawn error.");
       const detail = `Hook worker failed to spawn: ${failure.message}`;
       await Promise.all([
         appendFile(logFile, `diffowl: ${detail}\n`, "utf-8").catch(() => {}),
@@ -482,9 +475,7 @@ export async function enqueuePendingReview(dir: string, sha: string): Promise<vo
   );
 }
 
-export async function listPendingReviews(
-  dir: string,
-): Promise<PendingReview[]> {
+export async function listPendingReviews(dir: string): Promise<PendingReview[]> {
   const pendingDir = join(dir, "pending-reviews");
   let files: string[];
   try {
@@ -561,11 +552,7 @@ async function markActiveHookReview(dir: string, sha: string): Promise<void> {
   const path = join(dir, ACTIVE_HOOK_REVIEW_FILE);
   const temporaryPath = `${path}.${process.pid}.tmp`;
   try {
-    await writeFile(
-      temporaryPath,
-      JSON.stringify({ sha, pid: process.pid }, null, 2),
-      "utf-8",
-    );
+    await writeFile(temporaryPath, JSON.stringify({ sha, pid: process.pid }, null, 2), "utf-8");
     await rename(temporaryPath, path);
   } finally {
     await unlink(temporaryPath).catch(() => {});

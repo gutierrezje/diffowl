@@ -1,9 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { loadEvalCorpus } from "./corpus.js";
-import {
-  parseEvalCorpusManifest,
-  type EvalCorpusManifest,
-} from "./corpus-manifest-types.js";
+import { parseEvalCorpusManifest, type EvalCorpusManifest } from "./corpus-manifest-types.js";
 import { parseEvalJson, type EvalJsonValue } from "./json-types.js";
 
 export async function loadCorpusManifest(manifestPath: string): Promise<EvalCorpusManifest> {
@@ -11,9 +8,7 @@ export async function loadCorpusManifest(manifestPath: string): Promise<EvalCorp
   try {
     raw = parseEvalJson(await readFile(manifestPath, "utf8"));
   } catch (error) {
-    throw new Error(
-      `Failed to read corpus manifest at ${manifestPath}: ${describeError(error)}`,
-    );
+    throw new Error(`Failed to read corpus manifest at ${manifestPath}: ${describeError(error)}`);
   }
 
   return parseEvalCorpusManifest(raw);

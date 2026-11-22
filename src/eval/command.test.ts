@@ -295,9 +295,7 @@ describe("runEvalCommand", () => {
     const baselinePath = join(baselineDir, "eval-results.json");
     const outDir = await mkdtemp(join(tmpdir(), "diffowl-eval-out-"));
     await writeFile(baselinePath, `${JSON.stringify(reference, null, 2)}\n`, "utf8");
-    const referenceRuns = new Map(
-      reference.cases.map((entry) => [entry.id, entry.diffowl!.run]),
-    );
+    const referenceRuns = new Map(reference.cases.map((entry) => [entry.id, entry.diffowl!.run]));
 
     const stderr: string[] = [];
     const writeResults = vi.fn(async (targetDir: string) => {

@@ -8,11 +8,7 @@ import {
 } from "../../review/ids.js";
 import { StateDatabaseError } from "../db.js";
 import type { SqliteDatabase } from "../sqlite.js";
-import {
-  createReviewId,
-  type InsertReviewInput,
-  type ReviewRecord,
-} from "../types.js";
+import { createReviewId, type InsertReviewInput, type ReviewRecord } from "../types.js";
 
 const reviewColumns = `
   review.id,

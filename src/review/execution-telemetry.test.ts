@@ -93,7 +93,12 @@ describe("review execution telemetry", () => {
       expect.objectContaining({ sequence: 4, phase: "provider-work", durationMs: 350, attempt: 1 }),
       expect.objectContaining({ sequence: 5, phase: "tool-activity", durationMs: 100, attempt: 1 }),
       expect.objectContaining({ sequence: 6, phase: "provider-work", durationMs: 300, attempt: 1 }),
-      expect.objectContaining({ sequence: 7, phase: "validation-repair", durationMs: 50, attempt: 1 }),
+      expect.objectContaining({
+        sequence: 7,
+        phase: "validation-repair",
+        durationMs: 50,
+        attempt: 1,
+      }),
       expect.objectContaining({ sequence: 8, phase: "persistence", durationMs: 400 }),
       expect.objectContaining({ sequence: 9, phase: "completion", durationMs: 0 }),
     ]);

@@ -92,10 +92,9 @@ describe("createSelectedReviewExecutor", () => {
 
   it("routes Claude through its CLI adapter with a bare model and executable", () => {
     const createClaudeFactory = vi.fn((input: ClaudeReviewExecutorOptions) => {
-        void input;
-        return openCodeExecutor;
-      },
-    );
+      void input;
+      return openCodeExecutor;
+    });
 
     createSelectedReviewExecutor(
       createSingleReviewAssignment(
@@ -134,7 +133,12 @@ describe("createSelectedReviewExecutor", () => {
     );
     const executor = createSelectedReviewExecutor(
       assignment,
-      { createOpenCode: () => openCodeExecutor, createCodex: () => adapter, createCursor, createClaude },
+      {
+        createOpenCode: () => openCodeExecutor,
+        createCodex: () => adapter,
+        createCursor,
+        createClaude,
+      },
       {},
     );
 
@@ -165,7 +169,12 @@ describe("createSelectedReviewExecutor", () => {
         },
         { kind: "variant", value: "high" },
       ),
-      { createOpenCode: () => adapter, createCodex: () => codexExecutor, createCursor, createClaude },
+      {
+        createOpenCode: () => adapter,
+        createCodex: () => codexExecutor,
+        createCursor,
+        createClaude,
+      },
     );
 
     const result = await executor.execute(reviewExecutorOptions("provider/model", "high"));

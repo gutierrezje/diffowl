@@ -161,15 +161,11 @@ export const codexAdapter = {
       document.review?.target?.kind === expectedTarget &&
       document.review?.effective_model !== null;
     const report = document
-      ? await validateReviewReport(
-          run.manifest.scratch,
-          document.review.report_path,
-          {
-            reviewId: document.review.id,
-            sessionId: document.review.session_id,
-            targetKind: document.review.target.kind,
-          },
-        )
+      ? await validateReviewReport(run.manifest.scratch, document.review.report_path, {
+          reviewId: document.review.id,
+          sessionId: document.review.session_id,
+          targetKind: document.review.target.kind,
+        })
       : null;
     const reportPath = report?.path ?? null;
     const reportPersisted = reportPath !== null;

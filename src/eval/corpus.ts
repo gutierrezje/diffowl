@@ -36,7 +36,10 @@ export async function loadEvalCase(caseDir: string): Promise<EvalCase> {
 
   const steps = resolveEvalCaseSteps(caseDir, caseJson);
   for (const [index, step] of steps.entries()) {
-    await assertFile(step.patchPath, `Case "${id}" is missing step ${index} patch (${step.patchPath}).`);
+    await assertFile(
+      step.patchPath,
+      `Case "${id}" is missing step ${index} patch (${step.patchPath}).`,
+    );
   }
 
   return {
@@ -108,10 +111,7 @@ export async function applyCaseStep(
   }
 }
 
-export async function materializeCaseWorkspace(
-  evalCase: EvalCase,
-  workDir: string,
-): Promise<void> {
+export async function materializeCaseWorkspace(evalCase: EvalCase, workDir: string): Promise<void> {
   await copyCaseBase(evalCase, workDir);
   await applyCasePatch(evalCase, workDir);
 }

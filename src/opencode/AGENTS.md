@@ -7,14 +7,14 @@ Manages the OpenCode server lifecycle and SSE session streaming for the review b
 
 ## Where to Look
 
-| Task                                                    | Location                                |
-| ------------------------------------------------------- | --------------------------------------- |
-| Run a review end-to-end                                 | `client.ts`                             |
-| Spawn / stop / health-check server                      | `server.ts`                             |
-| Use shared review prompt/document contracts              | `../review/prompt.ts`, `../review/document.ts` |
-| Timeout / settlement / reconciliation logic             | `settlement.ts`                         |
-| Tool policy (read/search only) and permission rejection | `tools.ts`                              |
-| Model metadata / reasoning variant resolution           | `client.ts` (`resolveReasoningVariant`) |
+| Task                                                    | Location                                       |
+| ------------------------------------------------------- | ---------------------------------------------- |
+| Run a review end-to-end                                 | `client.ts`                                    |
+| Spawn / stop / health-check server                      | `server.ts`                                    |
+| Use shared review prompt/document contracts             | `../review/prompt.ts`, `../review/document.ts` |
+| Timeout / settlement / reconciliation logic             | `settlement.ts`                                |
+| Tool policy (read/search only) and permission rejection | `tools.ts`                                     |
+| Model metadata / reasoning variant resolution           | `client.ts` (`resolveReasoningVariant`)        |
 
 ## Conventions
 

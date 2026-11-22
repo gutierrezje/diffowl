@@ -1,7 +1,11 @@
 import { performance } from "node:perf_hooks";
 import { ReviewCancelledError } from "../review/errors.js";
 import { formatReasoningVariantGuidance } from "../review/reasoning.js";
-import { findCodexModel, formatMissingCodexModelWarning, type ModelListParams } from "./model-availability.js";
+import {
+  findCodexModel,
+  formatMissingCodexModelWarning,
+  type ModelListParams,
+} from "./model-availability.js";
 import { CodexTimeoutError, codexProtocolError } from "./errors.js";
 import { isRecord, isText, type CodexJsonObject, type CodexJsonValue } from "./types.js";
 
@@ -86,9 +90,7 @@ function parseSupportedReasoningEfforts(model: CodexJsonObject): string[] {
     }
     const effort = candidate["reasoningEffort"];
     if (!isText(effort)) {
-      throw codexProtocolError(
-        `model/list.supportedReasoningEfforts[${index}].reasoningEffort`,
-      );
+      throw codexProtocolError(`model/list.supportedReasoningEfforts[${index}].reasoningEffort`);
     }
     return effort === "" ? [] : [effort];
   });

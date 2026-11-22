@@ -2,11 +2,19 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { closeStateDatabase, getStateDbPath, openStateDatabaseForRead, StateDatabaseError } from "./db.js";
+import {
+  closeStateDatabase,
+  getStateDbPath,
+  openStateDatabaseForRead,
+  StateDatabaseError,
+} from "./db.js";
 import type { SqliteDatabase } from "./sqlite.js";
 
 /** SQLite WAL readers can create sidecars even with readOnly=true. Query only a private copy. */
-export async function readStateSnapshot<T>(directory: string, read: (db: SqliteDatabase) => T): Promise<T | undefined> {
+export async function readStateSnapshot<T>(
+  directory: string,
+  read: (db: SqliteDatabase) => T,
+): Promise<T | undefined> {
   const path = getStateDbPath(directory);
   const database = await readOptionalFile(path);
   if (database === undefined) return undefined;
@@ -16,30 +24,41 @@ export async function readStateSnapshot<T>(directory: string, read: (db: SqliteD
   if (!database.equals(databaseAfter) || !equalOptionalBytes(wal, walAfter)) {
     throw new StateDatabaseError("Review state changed during the readiness query. Query again.");
   }
-  const scratch = await mkdtemp(join(tmpdir(), "diffowl-read-snapshot-")).catch((cause: unknown) => {
-    const detail = cause instanceof Error ? cause.message : String(cause);
-    throw new StateDatabaseError(
-      `Readiness requires a writable OS temporary directory for its private SQLite snapshot. Run the query where temporary writes are permitted by the execution policy. ${detail}`,
-      { cause },
-    );
-  });
+  const scratch = await mkdtemp(join(tmpdir(), "diffowl-read-snapshot-")).catch(
+    (cause: unknown) => {
+      const detail = cause instanceof Error ? cause.message : String(cause);
+      throw new StateDatabaseError(
+        `Readiness requires a writable OS temporary directory for its private SQLite snapshot. Run the query where temporary writes are permitted by the execution policy. ${detail}`,
+        { cause },
+      );
+    },
+  );
   try {
     await writeFile(getStateDbPath(scratch), database);
     if (wal !== undefined) await writeFile(`${getStateDbPath(scratch)}-wal`, wal);
     const state = await openStateDatabaseForRead(scratch);
     let result: T;
-    try { result = state.db.transaction(() => read(state.db))(); }
-    finally { closeStateDatabase(state, { checkpoint: false }); }
-    if (!database.equals(await readFile(path)) || !equalOptionalBytes(wal, await readOptionalFile(`${path}-wal`))) {
+    try {
+      result = state.db.transaction(() => read(state.db))();
+    } finally {
+      closeStateDatabase(state, { checkpoint: false });
+    }
+    if (
+      !database.equals(await readFile(path)) ||
+      !equalOptionalBytes(wal, await readOptionalFile(`${path}-wal`))
+    ) {
       throw new StateDatabaseError("Review state changed during the readiness query. Query again.");
     }
     return result;
-  } finally { await rm(scratch, { recursive: true, force: true }); }
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
 }
 
 async function readOptionalFile(path: string): Promise<Buffer | undefined> {
-  try { return await readFile(path); }
-  catch (error) {
+  try {
+    return await readFile(path);
+  } catch (error) {
     if (z.object({ code: z.literal("ENOENT") }).safeParse(error).success) return undefined;
     throw error;
   }

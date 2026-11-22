@@ -163,8 +163,16 @@ export function renderPossibleDuplicateDetailJson(item: PossibleDuplicateDetail)
 }
 
 function formatPossibleDuplicateLines(item: PossibleDuplicateDetail): string[] {
-  const candidate = formatDuplicateFinding(item.candidateFinding.id, item.candidateFinding.status, item.candidateObservation);
-  const matched = formatDuplicateFinding(item.matchedFinding.id, item.matchedFinding.status, item.matchedObservation);
+  const candidate = formatDuplicateFinding(
+    item.candidateFinding.id,
+    item.candidateFinding.status,
+    item.candidateObservation,
+  );
+  const matched = formatDuplicateFinding(
+    item.matchedFinding.id,
+    item.matchedFinding.status,
+    item.matchedObservation,
+  );
   const lines = [
     `- ${item.id} (${item.status}, lexical score ${item.score.toFixed(2)}, ${item.signals.matchKind})`,
     `  candidate ${candidate}`,
@@ -208,8 +216,16 @@ function possibleDuplicateJson(item: PossibleDuplicateDetail) {
     matched_observation_id: item.matchedObservationId,
     source_disposition_event_id: item.sourceDispositionEventId,
     suggested_source_status: item.suggestedSourceStatus,
-    candidate: duplicateFindingJson(item.candidateFinding.id, item.candidateFinding.status, item.candidateObservation),
-    matched: duplicateFindingJson(item.matchedFinding.id, item.matchedFinding.status, item.matchedObservation),
+    candidate: duplicateFindingJson(
+      item.candidateFinding.id,
+      item.candidateFinding.status,
+      item.candidateObservation,
+    ),
+    matched: duplicateFindingJson(
+      item.matchedFinding.id,
+      item.matchedFinding.status,
+      item.matchedObservation,
+    ),
     source_disposition_event: duplicateEventJson(item.sourceDispositionEvent),
     inherited_disposition_event_id: item.inheritedDispositionEventId,
     inherited_disposition_event: item.inheritedDispositionEvent

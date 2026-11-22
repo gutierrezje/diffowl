@@ -146,13 +146,11 @@ export function confirmPossibleDuplicate(
       matched.status === "dismissed"
         ? dismissFindingWithoutDuplicateExpiry(db, candidate.id, {
             actor: input.actor,
-            reason:
-              `${reason} Inherited dismissed from matched finding ${matched.id} via possible duplicate ${duplicateId}.`,
+            reason: `${reason} Inherited dismissed from matched finding ${matched.id} via possible duplicate ${duplicateId}.`,
           })
         : deferFindingWithoutDuplicateExpiry(db, candidate.id, {
             actor: input.actor,
-            reason:
-              `${reason} Inherited deferred from matched finding ${matched.id} via possible duplicate ${duplicateId}.`,
+            reason: `${reason} Inherited deferred from matched finding ${matched.id} via possible duplicate ${duplicateId}.`,
           });
 
     updatePossibleDuplicateDecision(db, duplicateId, {
@@ -335,7 +333,9 @@ function loadDetail(
     (inheritedDispositionEvent.findingId !== candidateFinding.id ||
       inheritedDispositionEvent.eventType !== link.inheritedStatus)
   ) {
-    throw new StateDatabaseError(`Possible duplicate ${link.id} has mismatched inherited provenance.`);
+    throw new StateDatabaseError(
+      `Possible duplicate ${link.id} has mismatched inherited provenance.`,
+    );
   }
   validatePinnedSignals(link, candidateObservation, matchedObservation);
   return {
@@ -445,7 +445,9 @@ function normalizeSignalSymbol(
     return null;
   }
   if (normalized.length === prefix[0].length) {
-    throw new StateDatabaseError(`Possible duplicate ${linkId} has an invalid ${side} signal symbol.`);
+    throw new StateDatabaseError(
+      `Possible duplicate ${linkId} has an invalid ${side} signal symbol.`,
+    );
   }
   return normalized;
 }

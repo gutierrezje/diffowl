@@ -8,7 +8,11 @@ import type { ReviewExecutionRuntimeProvenance } from "../review/provenance.js";
 import { ReviewerIdSchema } from "../review/ids.js";
 import type { ReviewContext } from "../review/context.js";
 import { closeStateDatabase, openStateDatabase } from "./db.js";
-import { persistCanonicalReview, persistReviewExecutionAttempt, persistSkippedReview } from "./persist.js";
+import {
+  persistCanonicalReview,
+  persistReviewExecutionAttempt,
+  persistSkippedReview,
+} from "./persist.js";
 import { getReviewOperationById } from "./repositories/review-operations.js";
 import { listReviewExecutionsByOperationId } from "./repositories/review-executions.js";
 import { removeTempStateDir } from "./test-helpers.js";
@@ -29,15 +33,18 @@ describe("review operation persistence", () => {
       vi.useFakeTimers({ toFake: ["Date"] });
       vi.setSystemTime(new Date("2026-08-01T00:00:00.000Z"));
       await persistReviewExecutionAttempt(dir, {
-        operation: capturedOperation("op_old"), execution: runtimeProvenance(outcome),
+        operation: capturedOperation("op_old"),
+        execution: runtimeProvenance(outcome),
       });
       vi.setSystemTime(new Date("2026-08-02T00:00:00.000Z"));
       await persistReviewExecutionAttempt(dir, {
-        operation: capturedOperation("op_boundary"), execution: runtimeProvenance(outcome),
+        operation: capturedOperation("op_boundary"),
+        execution: runtimeProvenance(outcome),
       });
       vi.setSystemTime(new Date("2026-08-16T00:00:00.000Z"));
       await persistReviewExecutionAttempt(dir, {
-        operation: capturedOperation("op_recent"), execution: runtimeProvenance(outcome),
+        operation: capturedOperation("op_recent"),
+        execution: runtimeProvenance(outcome),
         retention: { failed_execution_days: 14, failed_execution_limit: 0 },
       });
       const state = await openStateDatabase(dir);
@@ -55,7 +62,8 @@ describe("review operation persistence", () => {
   it("protects ledger-referenced failures even when the reference would cascade", async () => {
     const dir = await createTempDir();
     const protectedExecution = await persistReviewExecutionAttempt(dir, {
-      operation: capturedOperation("op_ledger"), execution: runtimeProvenance("failed"),
+      operation: capturedOperation("op_ledger"),
+      execution: runtimeProvenance("failed"),
     });
     const state = await openStateDatabase(dir);
     try {
@@ -68,17 +76,20 @@ describe("review operation persistence", () => {
     }
     for (let index = 0; index < 3; index++) {
       await persistReviewExecutionAttempt(dir, {
-        operation: capturedOperation(`op_unreferenced_${index}`), execution: runtimeProvenance("failed"),
+        operation: capturedOperation(`op_unreferenced_${index}`),
+        execution: runtimeProvenance("failed"),
         retention: { failed_execution_days: 0, failed_execution_limit: 1 },
       });
     }
     const retained = await openStateDatabase(dir);
     try {
       expect(listReviewExecutionsByOperationId(retained.db, "op_ledger")).toHaveLength(1);
-      expect(retained.db.prepare("SELECT * FROM verification_ledger").all())
-        .toEqual([{ execution_id: protectedExecution.id }]);
-      expect(retained.db.prepare("SELECT COUNT(*) AS count FROM review_executions").get())
-        .toEqual({ count: 2 });
+      expect(retained.db.prepare("SELECT * FROM verification_ledger").all()).toEqual([
+        { execution_id: protectedExecution.id },
+      ]);
+      expect(retained.db.prepare("SELECT COUNT(*) AS count FROM review_executions").get()).toEqual({
+        count: 2,
+      });
     } finally {
       closeStateDatabase(retained);
     }
@@ -90,32 +101,48 @@ describe("review operation persistence", () => {
     vi.setSystemTime(new Date("2026-08-01T00:00:00.000Z"));
     const operation = capturedOperation("op_canonical");
     const completed = await persistReviewExecutionAttempt(dir, {
-      operation, execution: runtimeProvenance("completed"),
+      operation,
+      execution: runtimeProvenance("completed"),
     });
     await persistCanonicalReview(dir, {
-      operation, source: { kind: "persisted-execution", executionId: completed.id },
-      summary: "No findings.", diagnostics: [], timings: [], findings: [],
+      operation,
+      source: { kind: "persisted-execution", executionId: completed.id },
+      summary: "No findings.",
+      diagnostics: [],
+      timings: [],
+      findings: [],
     });
     await persistReviewExecutionAttempt(dir, {
-      operation, execution: runtimeProvenance("failed"),
+      operation,
+      execution: runtimeProvenance("failed"),
     });
     await persistReviewExecutionAttempt(dir, {
-      operation: capturedOperation("op_completed_only"), execution: runtimeProvenance("completed"),
+      operation: capturedOperation("op_completed_only"),
+      execution: runtimeProvenance("completed"),
     });
     await persistSkippedReview(dir, {
-      operation: capturedOperation("op_skipped"), model: "model", reasoning: null,
-      sessionId: "", skippedReason: "No changes.", summary: "Skipped.",
-      diagnostics: [], timings: [], findings: [],
+      operation: capturedOperation("op_skipped"),
+      model: "model",
+      reasoning: null,
+      sessionId: "",
+      skippedReason: "No changes.",
+      summary: "Skipped.",
+      diagnostics: [],
+      timings: [],
+      findings: [],
     });
     await persistReviewExecutionAttempt(dir, {
-      operation: capturedOperation("op_skipped"), execution: runtimeProvenance("failed"),
+      operation: capturedOperation("op_skipped"),
+      execution: runtimeProvenance("failed"),
     });
     await persistReviewExecutionAttempt(dir, {
-      operation: capturedOperation("op_shared"), execution: runtimeProvenance("failed"),
+      operation: capturedOperation("op_shared"),
+      execution: runtimeProvenance("failed"),
     });
     vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"));
     await persistReviewExecutionAttempt(dir, {
-      operation: capturedOperation("op_shared"), execution: runtimeProvenance("failed"),
+      operation: capturedOperation("op_shared"),
+      execution: runtimeProvenance("failed"),
       retention: { failed_execution_days: 14, failed_execution_limit: 1 },
     });
     const state = await openStateDatabase(dir);
@@ -143,14 +170,16 @@ describe("review operation persistence", () => {
       for (let index = 1; index <= 3; index++) {
         vi.setSystemTime(new Date(`2026-0${index}-01T00:00:00.000Z`));
         await persistReviewExecutionAttempt(dir, {
-          operation: capturedOperation(`op_disabled_${index}`), execution: runtimeProvenance("failed"),
+          operation: capturedOperation(`op_disabled_${index}`),
+          execution: runtimeProvenance("failed"),
           retention: { failed_execution_days: 0, failed_execution_limit: 0 },
         });
       }
       const state = await openStateDatabase(dir);
       try {
-        expect(state.db.prepare("SELECT COUNT(*) AS count FROM review_executions").get())
-          .toEqual({ count: 3 });
+        expect(state.db.prepare("SELECT COUNT(*) AS count FROM review_executions").get()).toEqual({
+          count: 3,
+        });
         expect(messages).not.toHaveBeenCalled();
       } finally {
         closeStateDatabase(state);
@@ -163,7 +192,8 @@ describe("review operation persistence", () => {
   it("rolls back all cleanup on failure without losing the committed attempt", async () => {
     const dir = await createTempDir();
     const old = await persistReviewExecutionAttempt(dir, {
-      operation: capturedOperation("op_before_cleanup"), execution: runtimeProvenance("failed"),
+      operation: capturedOperation("op_before_cleanup"),
+      execution: runtimeProvenance("failed"),
     });
     const setup = await openStateDatabase(dir);
     setup.db.exec(`CREATE TRIGGER fail_operation_cleanup BEFORE DELETE ON review_operations
@@ -174,29 +204,42 @@ describe("review operation persistence", () => {
     diagnostics.subscribe(messages);
     try {
       const persisted = await persistReviewExecutionAttempt(dir, {
-        operation: capturedOperation("op_after_cleanup"), execution: runtimeProvenance("failed"),
+        operation: capturedOperation("op_after_cleanup"),
+        execution: runtimeProvenance("failed"),
         retention: { failed_execution_days: 0, failed_execution_limit: 1 },
       });
       const state = await openStateDatabase(dir);
       try {
         expect(listReviewExecutionsByOperationId(state.db, "op_before_cleanup")).toEqual([old]);
-        expect(listReviewExecutionsByOperationId(state.db, "op_after_cleanup")).toEqual([persisted]);
-        expect(messages).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-          kind: "cleanup-failed", message: expect.stringContaining("injected cleanup failure"),
-        }), "diffowl.state.retention");
+        expect(listReviewExecutionsByOperationId(state.db, "op_after_cleanup")).toEqual([
+          persisted,
+        ]);
+        expect(messages).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({
+            kind: "cleanup-failed",
+            message: expect.stringContaining("injected cleanup failure"),
+          }),
+          "diffowl.state.retention",
+        );
         state.db.exec("DROP TRIGGER fail_operation_cleanup");
       } finally {
         closeStateDatabase(state);
       }
       messages.mockClear();
       await persistReviewExecutionAttempt(dir, {
-        operation: capturedOperation("op_recovery"), execution: runtimeProvenance("failed"),
+        operation: capturedOperation("op_recovery"),
+        execution: runtimeProvenance("failed"),
         retention: { failed_execution_days: 0, failed_execution_limit: 1 },
       });
-      expect(messages).toHaveBeenCalledExactlyOnceWith({
-        kind: "cleanup", databasePath: join(dir, "state.db"),
-        deletedExecutions: 2, deletedOperations: 2,
-      }, "diffowl.state.retention");
+      expect(messages).toHaveBeenCalledExactlyOnceWith(
+        {
+          kind: "cleanup",
+          databasePath: join(dir, "state.db"),
+          deletedExecutions: 2,
+          deletedOperations: 2,
+        },
+        "diffowl.state.retention",
+      );
     } finally {
       diagnostics.unsubscribe(messages);
     }
@@ -208,9 +251,12 @@ describe("review operation persistence", () => {
     setup.db.exec(`CREATE TRIGGER fail_attempt_insert BEFORE INSERT ON review_executions
       BEGIN SELECT RAISE(ABORT, 'injected persistence failure'); END`);
     closeStateDatabase(setup);
-    await expect(persistReviewExecutionAttempt(dir, {
-      operation: capturedOperation("op_rollback"), execution: runtimeProvenance("failed"),
-    })).rejects.toThrow("injected persistence failure");
+    await expect(
+      persistReviewExecutionAttempt(dir, {
+        operation: capturedOperation("op_rollback"),
+        execution: runtimeProvenance("failed"),
+      }),
+    ).rejects.toThrow("injected persistence failure");
     const state = await openStateDatabase(dir);
     try {
       expect(getReviewOperationById(state.db, "op_rollback")).toBeUndefined();
@@ -229,10 +275,12 @@ describe("review operation persistence", () => {
       });
       const state = await openStateDatabase(dir);
       try {
-        expect(state.db.prepare("SELECT COUNT(*) AS count FROM review_executions").get())
-          .toEqual({ count: Math.min(index + 1, 3) });
-        expect(state.db.prepare("SELECT COUNT(*) AS count FROM review_operations").get())
-          .toEqual({ count: Math.min(index + 1, 3) });
+        expect(state.db.prepare("SELECT COUNT(*) AS count FROM review_executions").get()).toEqual({
+          count: Math.min(index + 1, 3),
+        });
+        expect(state.db.prepare("SELECT COUNT(*) AS count FROM review_operations").get()).toEqual({
+          count: Math.min(index + 1, 3),
+        });
       } finally {
         closeStateDatabase(state);
       }

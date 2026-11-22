@@ -34,7 +34,7 @@ pnpm run eval -- \
 ```
 
 Do not pass `--gate` for exploratory runs or baseline captures — a baseline
-*defines* the level, so "failing" a threshold is not a meaningful outcome
+_defines_ the level, so "failing" a threshold is not a meaningful outcome
 there. See Gates below.
 
 Use `--case <id>` to run a subset. `--format json` prints the full results document to stdout.
@@ -45,12 +45,12 @@ Local run artifacts go to `eval/results/` (gitignored) unless `--out` is set.
 
 Committed baselines live under `eval/baselines/<label>/`:
 
-| File | Purpose |
-| --- | --- |
-| `manifest.json` | Run config, `corpus_version`, model, trials, tool versions |
+| File                | Purpose                                                                    |
+| ------------------- | -------------------------------------------------------------------------- |
+| `manifest.json`     | Run config, `corpus_version`, model, trials, tool versions                 |
 | `eval-metrics.json` | Compact metrics-first results for reading, dashboards, and baseline review |
-| `eval-results.json` | Full schema v1 report with raw runs, scores, and debug details |
-| `eval-summary.md` | Human-readable summary focused on aggregate and per-case results |
+| `eval-results.json` | Full schema v1 report with raw runs, scores, and debug details             |
+| `eval-summary.md`   | Human-readable summary focused on aggregate and per-case results           |
 
 ### Capture Policy
 

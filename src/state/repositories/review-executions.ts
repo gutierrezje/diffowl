@@ -28,10 +28,7 @@ import {
 } from "../../review/execution-telemetry.js";
 import type { ReviewOperation } from "../../review/operation.js";
 import { StateDatabaseError } from "../db.js";
-import {
-  ProcessLeaseSchema,
-  type ProcessLease,
-} from "../process-lease.js";
+import { ProcessLeaseSchema, type ProcessLease } from "../process-lease.js";
 import type { SqliteDatabase } from "../sqlite.js";
 import {
   createReviewExecutionId,
@@ -119,7 +116,8 @@ export function insertReviewExecution(
   );
   const createdAt = input.createdAt ?? new Date().toISOString();
   const record = {
-    id: input.id === undefined ? createReviewExecutionId() : ReviewExecutionIdSchema.parse(input.id),
+    id:
+      input.id === undefined ? createReviewExecutionId() : ReviewExecutionIdSchema.parse(input.id),
     operationId: input.operation.id,
     createdAt,
     updatedAt: createdAt,
@@ -175,10 +173,7 @@ export function updateReviewExecutionTelemetry(
       `Review execution ${executionId} telemetry does not match its lifecycle state.`,
     );
   }
-  if (
-    telemetry.terminal !== null &&
-    telemetry.terminal.outcome !== existing.terminalOutcome
-  ) {
+  if (telemetry.terminal !== null && telemetry.terminal.outcome !== existing.terminalOutcome) {
     throw new StateDatabaseError(
       `Review execution ${executionId} telemetry has a conflicting terminal outcome.`,
     );
@@ -299,7 +294,9 @@ export function getReviewExecutionById(
       `Review execution ${executionId} contains invalid execution provenance.`,
     );
   }
-  return row === undefined ? undefined : mapReviewExecutionRow(row, `Review execution ${executionId}`);
+  return row === undefined
+    ? undefined
+    : mapReviewExecutionRow(row, `Review execution ${executionId}`);
 }
 
 export function listReviewExecutionsByOperationId(
@@ -403,10 +400,7 @@ function mapReviewExecutionRow(
     };
   }
 
-  if (
-    recordIdentity.ownerProcessId !== null ||
-    recordIdentity.ownerLease !== null
-  ) {
+  if (recordIdentity.ownerProcessId !== null || recordIdentity.ownerLease !== null) {
     throw new StateDatabaseError(`${owner} contains an owner process on a terminal execution.`);
   }
   const terminalIdentity = {
@@ -595,16 +589,14 @@ function nextAttemptNumber(
   operationId: ReviewOperationId,
   reviewerId: string,
 ): number {
-  const row = z
-    .object({ nextAttemptNumber: z.number().int().positive() })
-    .parse(
-      db
-        .prepare(`
+  const row = z.object({ nextAttemptNumber: z.number().int().positive() }).parse(
+    db
+      .prepare(`
           SELECT COALESCE(MAX(attempt_number), 0) + 1 AS nextAttemptNumber
           FROM review_executions
           WHERE operation_id = ? AND reviewer_id = ?
         `)
-        .get(operationId, reviewerId),
-    );
+      .get(operationId, reviewerId),
+  );
   return row.nextAttemptNumber;
 }

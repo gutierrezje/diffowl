@@ -145,10 +145,10 @@ export function finishPersistedReviewExecutionTelemetry(
       ? { ...transition, durationMs: transition.durationMs + elapsedSinceUpdateMs }
       : transition,
   );
-  const activityReference = telemetry.activity.lastAt ??
-    [...telemetry.transitions]
-      .reverse()
-      .find((transition) => transition.phase === "turn-start")?.startedAt ??
+  const activityReference =
+    telemetry.activity.lastAt ??
+    [...telemetry.transitions].reverse().find((transition) => transition.phase === "turn-start")
+      ?.startedAt ??
     telemetry.startedAt;
   const activityAgeMs = Math.max(0, Date.parse(completedAt) - Date.parse(activityReference));
   const provider = {
@@ -268,11 +268,7 @@ export function createReviewExecutionTelemetry(
       }
       closeProviderWindow(reading.elapsedMs);
       providerWindow = { kind: "queued", attempt, started: reading };
-    } else if (
-      phase === "validation-repair" ||
-      phase === "persistence" ||
-      phase === "completion"
-    ) {
+    } else if (phase === "validation-repair" || phase === "persistence" || phase === "completion") {
       closeProviderWindow(reading.elapsedMs);
     }
     transitions.push({
@@ -286,10 +282,7 @@ export function createReviewExecutionTelemetry(
     activePhase = phase;
   };
 
-  const recordActivity = (
-    activity: "provider" | "tool",
-    reading: TelemetryClockReading,
-  ): void => {
+  const recordActivity = (activity: "provider" | "tool", reading: TelemetryClockReading): void => {
     activityCount += 1;
     if (activity === "tool") toolActivityCount += 1;
     firstActivity ??= reading;
@@ -354,11 +347,7 @@ export function createReviewExecutionTelemetry(
         (providerWindow.kind === "queued" ? providerWindow.started.elapsedMs : started.elapsedMs);
       const activityAgeMs = Math.max(0, reading.elapsedMs - activityReference);
       const activityStatus =
-        lastActivity === null
-          ? "silent"
-          : activityAgeMs >= stallIntervalMs
-            ? "stalled"
-            : "active";
+        lastActivity === null ? "silent" : activityAgeMs >= stallIntervalMs ? "stalled" : "active";
       const pendingQueueWaitMs =
         providerWindow.kind === "queued" ? reading.elapsedMs - providerWindow.started.elapsedMs : 0;
       const pendingExecutionMs =
@@ -426,6 +415,8 @@ function normalizeReading(
   const elapsedMs = Math.max(minimumElapsedMs, reading.elapsedMs);
   return {
     elapsedMs,
-    wallTime: new Date(Date.parse(reading.wallTime) + (elapsedMs - reading.elapsedMs)).toISOString(),
+    wallTime: new Date(
+      Date.parse(reading.wallTime) + (elapsedMs - reading.elapsedMs),
+    ).toISOString(),
   };
 }

@@ -16,8 +16,6 @@ export async function removeTempDir(dir: string): Promise<void> {
 
 export function isRetryableFsError(cause: unknown): boolean {
   return (
-    cause instanceof Error &&
-    "code" in cause &&
-    (cause.code === "EBUSY" || cause.code === "EPERM")
+    cause instanceof Error && "code" in cause && (cause.code === "EBUSY" || cause.code === "EPERM")
   );
 }

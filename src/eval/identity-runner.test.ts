@@ -74,17 +74,21 @@ describe("runEvalIdentityTrial", () => {
     let stateDbSeen = false;
 
     const evalCase = await createTwoStepCase();
-    const result = await runEvalIdentityTrial(evalCase, {}, {
-      getFindingsForStep: pipelineStep(
-        [[{ ...repeatedFinding, line: 4 }], [{ ...repeatedFinding, line: 18 }]],
-        async (ctx) => {
-          if (ctx.stepIndex === 1) {
-            await access(join(ctx.diffOwlDir, "state.db"));
-            stateDbSeen = true;
-          }
-        },
-      ),
-    });
+    const result = await runEvalIdentityTrial(
+      evalCase,
+      {},
+      {
+        getFindingsForStep: pipelineStep(
+          [[{ ...repeatedFinding, line: 4 }], [{ ...repeatedFinding, line: 18 }]],
+          async (ctx) => {
+            if (ctx.stepIndex === 1) {
+              await access(join(ctx.diffOwlDir, "state.db"));
+              stateDbSeen = true;
+            }
+          },
+        ),
+      },
+    );
 
     expect(result.error).toBeUndefined();
     expect(result.identitySteps).toHaveLength(2);
@@ -92,31 +96,43 @@ describe("runEvalIdentityTrial", () => {
     expect(result.identitySteps![1]?.classifications).toEqual(["existing"]);
     expect(result.identitySteps![0]?.durableIds[0]).toBeDefined();
     expect(result.identitySteps![1]?.durableIds[0]).toBe(result.identitySteps![0]?.durableIds[0]);
-    expect(result.identitySteps![0]?.fingerprints[0]).toBe(result.identitySteps![1]?.fingerprints[0]);
+    expect(result.identitySteps![0]?.fingerprints[0]).toBe(
+      result.identitySteps![1]?.fingerprints[0],
+    );
     expect(result.findings[0]?.durable?.classification).toBe("existing");
     expect(stateDbSeen).toBe(true);
   });
 
   it("assigns distinct durable ids for different findings across steps", async () => {
     const evalCase = await createTwoStepCase();
-    const result = await runEvalIdentityTrial(evalCase, {}, {
-      getFindingsForStep: pipelineStep([[repeatedFinding], [otherFinding]]),
-    });
+    const result = await runEvalIdentityTrial(
+      evalCase,
+      {},
+      {
+        getFindingsForStep: pipelineStep([[repeatedFinding], [otherFinding]]),
+      },
+    );
 
     expect(result.error).toBeUndefined();
     expect(result.identitySteps).toHaveLength(2);
     expect(result.identitySteps![0]?.classifications).toEqual(["new"]);
     expect(result.identitySteps![1]?.classifications).toEqual(["new"]);
-    expect(result.identitySteps![0]?.durableIds[0]).not.toBe(result.identitySteps![1]?.durableIds[0]);
+    expect(result.identitySteps![0]?.durableIds[0]).not.toBe(
+      result.identitySteps![1]?.durableIds[0],
+    );
   });
 
   it("collapses colliding fingerprints the way a real review does", async () => {
     const evalCase = await createTwoStepCase();
     const duplicateA = { ...repeatedFinding, line: 4 };
     const duplicateB = { ...repeatedFinding, line: 5 };
-    const result = await runEvalIdentityTrial(evalCase, {}, {
-      getFindingsForStep: pipelineStep([[duplicateA, duplicateB]]),
-    });
+    const result = await runEvalIdentityTrial(
+      evalCase,
+      {},
+      {
+        getFindingsForStep: pipelineStep([[duplicateA, duplicateB]]),
+      },
+    );
 
     expect(result.error).toBeUndefined();
     const first = result.identitySteps![0]!;
@@ -136,9 +152,13 @@ describe("runEvalIdentityTrial", () => {
 
   it("carries the pre-dedup snapshot when reported findings have distinct fingerprints", async () => {
     const evalCase = await createTwoStepCase();
-    const result = await runEvalIdentityTrial(evalCase, {}, {
-      getFindingsForStep: pipelineStep([[repeatedFinding, otherFinding]]),
-    });
+    const result = await runEvalIdentityTrial(
+      evalCase,
+      {},
+      {
+        getFindingsForStep: pipelineStep([[repeatedFinding, otherFinding]]),
+      },
+    );
 
     expect(result.error).toBeUndefined();
     // Nothing merged: the snapshot and the surviving findings are the same size.
@@ -148,9 +168,13 @@ describe("runEvalIdentityTrial", () => {
 
   it("rejects multi-step cases with staged target", async () => {
     const evalCase = await createTwoStepCase({ target: "staged" });
-    const result = await runEvalIdentityTrial(evalCase, {}, {
-      getFindingsForStep: pipelineStep([[repeatedFinding]]),
-    });
+    const result = await runEvalIdentityTrial(
+      evalCase,
+      {},
+      {
+        getFindingsForStep: pipelineStep([[repeatedFinding]]),
+      },
+    );
 
     expect(result.error).toMatch(/target "commit"/);
     expect(result.identitySteps).toBeUndefined();

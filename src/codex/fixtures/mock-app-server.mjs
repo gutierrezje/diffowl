@@ -309,8 +309,7 @@ function handleMarker(message) {
       });
       return;
     }
-    if (mode === "reasoning-paginated" && params.cursor !== "page-2")
-      return markerError(message);
+    if (mode === "reasoning-paginated" && params.cursor !== "page-2") return markerError(message);
     markerStep = 3.5;
     if (mode === "reasoning-model-list-timeout") return;
     if (mode === "reasoning-model-list-error") {
@@ -599,7 +598,14 @@ function handleMarker(message) {
         });
       }
     }
-    if (["turn-failed", "turn-failed-usage-limit", "turn-failed-empty-info", "turn-failed-mutates"].includes(mode)) {
+    if (
+      [
+        "turn-failed",
+        "turn-failed-usage-limit",
+        "turn-failed-empty-info",
+        "turn-failed-mutates",
+      ].includes(mode)
+    ) {
       if (mode === "turn-failed-mutates") writeFileSync("codex-mutated.txt", "provider mutation\n");
       send({
         method: "turn/completed",

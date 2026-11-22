@@ -135,11 +135,11 @@ Pass the selected model and reasoning effort through unchanged. A user who choos
 
 Reasoning effort and review depth should remain separate:
 
-| Setting | Controls |
-| --- | --- |
-| Model and reasoning effort | How much internal reasoning the selected model performs |
-| Review depth | Which context, passes, and validation stages DiffOwl makes available |
-| Timeout and backstop | When the system interrupts a stalled or runaway execution |
+| Setting                    | Controls                                                             |
+| -------------------------- | -------------------------------------------------------------------- |
+| Model and reasoning effort | How much internal reasoning the selected model performs              |
+| Review depth               | Which context, passes, and validation stages DiffOwl makes available |
+| Timeout and backstop       | When the system interrupts a stalled or runaway execution            |
 
 This separation also survives faster future models. A faster model can do more useful work before a wall-clock deadline, while the outcome and evidence contract stays the same.
 
@@ -167,16 +167,16 @@ The research did not support merging the eight-tool ceiling as the product fix f
 
 The final private replays support that decision. Their source and project identifiers remain outside the DiffOwl repository and test corpus:
 
-| Review | Tool-activity phases | Total | Accepted regressions found |
-| --- | ---: | ---: | ---: |
-| Original Luna/max incident | 33 | 807.8s | 2/2 |
-| Luna/medium before this work | 19 | 190.2s | 1/2 |
-| Final evidence-focused prompt, Luna/medium | 6 | 60.2s | 1/2 |
-| Final evidence-focused prompt, Luna/max sample 1 | 20 | 431.3s | 2/2 |
-| Final evidence-focused prompt, Luna/max sample 2 | 21 | 472.5s | 1/2 |
-| Final evidence-focused prompt, Luna/max sample 3 | 22 | 330.0s | 1/2 |
-| Final evidence-focused prompt, Luna/max sample 4 | 32 | 492.5s | 2/2 |
-| Final evidence-focused prompt, OpenCode `openai/gpt-5.6-luna` max | Not exposed | 393.2s | 1/2 |
+| Review                                                            | Tool-activity phases |  Total | Accepted regressions found |
+| ----------------------------------------------------------------- | -------------------: | -----: | -------------------------: |
+| Original Luna/max incident                                        |                   33 | 807.8s |                        2/2 |
+| Luna/medium before this work                                      |                   19 | 190.2s |                        1/2 |
+| Final evidence-focused prompt, Luna/medium                        |                    6 |  60.2s |                        1/2 |
+| Final evidence-focused prompt, Luna/max sample 1                  |                   20 | 431.3s |                        2/2 |
+| Final evidence-focused prompt, Luna/max sample 2                  |                   21 | 472.5s |                        1/2 |
+| Final evidence-focused prompt, Luna/max sample 3                  |                   22 | 330.0s |                        1/2 |
+| Final evidence-focused prompt, Luna/max sample 4                  |                   32 | 492.5s |                        2/2 |
+| Final evidence-focused prompt, OpenCode `openai/gpt-5.6-luna` max |          Not exposed | 393.2s |                        1/2 |
 
 The four Luna/max samples ranged from 330.0 to 492.5 seconds with a 451.9-second median. Tool-activity phases ranged from 20 to 32 with a 21.5 median. Every run found the easier known regression, but only two found the harder one. All four samples were faster than the single incident, and three used materially fewer tool phases, but the single original sample does not prove a causal speedup. The repeated quality result is more important: the prompt did not preserve the harder finding reliably. The OpenCode replay also found only one known regression, and the backend did not return an effective-model identity or detailed tool-activity telemetry.
 
