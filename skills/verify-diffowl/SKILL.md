@@ -10,7 +10,8 @@ feature recipes:
 
 - [verify-diffowl-cli](../../.agents/skills/verify-diffowl-cli/SKILL.md) for
   configuration, preferences, hooks, findings, worktree state, and ordinary CLI
-  output.
+  output. Its manual recipes also cover the Claude and Cursor backends,
+  same-fixture checks across backends, and native-client handoff.
 - [verify-diffowl-opencode](../../.agents/skills/verify-diffowl-opencode/SKILL.md)
   for the OpenCode server and review path.
 - [verify-diffowl-codex](../../.agents/skills/verify-diffowl-codex/SKILL.md) for

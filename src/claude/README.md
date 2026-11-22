@@ -68,6 +68,8 @@ changes; it does not prove that no transient write occurred or scan every ignore
 file. Restricted tools are a runtime policy rather than an OS or network sandbox.
 
 Offline process and CLI fixtures test transport, validation, persistence, and
-failure paths. Live Claude compatibility needs a separate disposable review with
-working authentication; a fake process or an authentication failure does not
-establish successful provider output.
+failure paths. A fake process or an authentication failure does not establish
+successful provider output. One live disposable review with Claude Code 2.1.312
+and `sonnet` passed in the
+[2026-10-28 cross-client check](../../docs/verification/cross-client-2026-10-28.md);
+that run did not exercise cancellation or deadline paths.

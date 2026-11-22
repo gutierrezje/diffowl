@@ -39,4 +39,5 @@ review (wait/re-query), missing and commit-only coverage (branch review), HEAD
 and base movement, explicit fix/dismiss/defer and regression events, an omitted
 finding, and operational read failure. Retain the final exact JSON proof and
 blocker total. These are deterministic contract tests, not evidence of live
-agent compliance or model review quality.
+agent compliance or model review quality. For live client compliance, use the
+[cross-client recipe](cross-client.md).
