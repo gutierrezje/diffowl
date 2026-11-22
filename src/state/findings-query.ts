@@ -18,6 +18,7 @@ import { listFindingEvents } from "./repositories/events.js";
 import {
   getFindingById,
   listAllFindings,
+  listArchivedFindings,
   listFindingsByStatuses,
 } from "./repositories/findings.js";
 import {
@@ -75,6 +76,11 @@ export function listUnresolvedFindings(db: SqliteDatabase): FindingListItem[] {
   return listFindingsByStatuses(db, ["open", "regressed"]).map((finding) =>
     toFindingListItem(db, finding),
   );
+}
+
+/** Findings aged past the recurrence window: kept for lookup, outside matching and the backlog. */
+export function listArchivedFindingItems(db: SqliteDatabase): FindingListItem[] {
+  return listArchivedFindings(db).map((finding) => toFindingListItem(db, finding));
 }
 
 export function getFindingDetail(db: SqliteDatabase, findingId: string): FindingDetail | undefined {

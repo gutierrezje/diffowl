@@ -27,6 +27,7 @@ const DEFAULT_CONFIG = {
     hook_log_kb: 1024,
     failed_execution_days: 14,
     failed_execution_limit: 200,
+    finding_recurrence_days: 14,
   },
   gate: {
     fail_on_findings: false,
@@ -72,6 +73,7 @@ export const DiffOwlConfigSchema = z
         hook_log_kb: z.number().int().nonnegative().default(DEFAULT_CONFIG.retention.hook_log_kb),
         failed_execution_days: z.number().int().nonnegative().default(DEFAULT_CONFIG.retention.failed_execution_days),
         failed_execution_limit: z.number().int().nonnegative().default(DEFAULT_CONFIG.retention.failed_execution_limit),
+        finding_recurrence_days: z.number().int().nonnegative().default(DEFAULT_CONFIG.retention.finding_recurrence_days),
       })
       .strict()
       .default(DEFAULT_CONFIG.retention),

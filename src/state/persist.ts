@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ReviewCoverageEvidence } from "../review/coverage.js";
 import { retainFailedExecutions, type ExecutionRetention } from "./execution-retention.js";
+import { archiveStaleFindingsSafely, type FindingRetention } from "./finding-archive.js";
 import type {
   CompletedReviewExecutionProvenance,
   ReviewExecutionRuntimeProvenance,
@@ -50,6 +51,7 @@ interface PersistReviewOutputInput {
 
 export interface PersistCanonicalReviewInput extends PersistReviewOutputInput {
   operation: CapturedReviewOperation;
+  retention?: FindingRetention;
   source:
     | { kind: "new-execution"; execution: CompletedReviewExecutionProvenance }
     | { kind: "persisted-execution"; executionId: ReviewExecutionId }
@@ -328,6 +330,9 @@ async function persistReviewOutput(
         }
       }
 
+      // Findings past the recurrence window must already be archived when this review reconciles.
+      // Skipped reviews carry no findings and no configured window, so only canonical ones sweep.
+      if (input.kind === "canonical") archiveStaleFindingsSafely(state, review, input.retention);
       const uniqueIdentifiable = deduplicateReviewFindings(identifiable);
       const mergeCount = identifiable.length - uniqueIdentifiable.length;
       const reconcile = reconcileReviewFindings(

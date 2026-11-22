@@ -37,6 +37,7 @@ const config: DiffOwlConfig = {
     hook_log_kb: 1024,
     failed_execution_days: 14,
     failed_execution_limit: 200,
+    finding_recurrence_days: 14,
   },
   gate: {
     fail_on_findings: false,

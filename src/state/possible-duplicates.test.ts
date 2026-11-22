@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ReviewFinding } from "../review/types.js";
 import { closeStateDatabase, openStateDatabase, StateDatabaseError } from "./db.js";
+import { archiveStaleFindings } from "./finding-archive.js";
 import { deferFinding, dismissFinding, fixFinding } from "./lifecycle.js";
 import {
   confirmPossibleDuplicate,
@@ -163,6 +164,22 @@ describe("possible duplicate suggestions", () => {
     expect(result.possibleDuplicateSuggestions[0]?.matchedFindingId).toBe(matchedId);
     expect(result.actionableFindings).toHaveLength(1);
     expect(result.reconcile.observations[0]?.finding.status).toBe("open");
+  });
+
+  it("does not suggest an archived finding as a duplicate match", async () => {
+    const dir = await createStateDir();
+    const matchedId = await seedResolvedFinding(dir, makeFinding(), "ts-v1|function:handle");
+    const state = await openStateDatabase(dir);
+    try {
+      expect(archiveStaleFindings(state.db, 14, new Date(Date.now() + 15 * 86_400_000))).toBe(1);
+      expect(getFindingById(state.db, matchedId)?.archivedAt).not.toBeNull();
+    } finally {
+      closeStateDatabase(state);
+    }
+
+    const result = await persistQuoteDrift(dir);
+
+    expect(result.possibleDuplicateSuggestions).toEqual([]);
   });
 
   it("does not treat two punctuation-only observations as lexically similar", async () => {
@@ -741,6 +758,26 @@ describe("possible duplicate decisions", () => {
       }
     },
   );
+
+  it("refuses to confirm a duplicate whose matched finding was archived after suggestion", async () => {
+    const dir = await createStateDir();
+    const matchedId = await seedResolvedFinding(dir, makeFinding(), "ts-v1|function:handle");
+    const result = await persistQuoteDrift(dir);
+    const link = result.possibleDuplicateSuggestions[0]!;
+    const candidateId = result.reconcile.observations[0]!.finding.id;
+    const state = await openStateDatabase(dir);
+    try {
+      archiveStaleFindings(state.db, 14, new Date(Date.now() + 15 * 86_400_000));
+      expect(getFindingById(state.db, matchedId)?.archivedAt).not.toBeNull();
+
+      expect(() =>
+        confirmPossibleDuplicate(state.db, link.id, { actor: "user", reason: "late" }),
+      ).toThrow(/archived/);
+      expect(getFindingById(state.db, candidateId)?.status).toBe("open");
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
 
   it("automatically expires a stale candidate before confirmation", async () => {
     const dir = await createStateDir();

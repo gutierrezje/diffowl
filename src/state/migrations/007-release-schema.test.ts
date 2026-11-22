@@ -12,8 +12,8 @@ import {
 } from "../db.js";
 import { openSqliteDatabase } from "../sqlite.js";
 import { insertTestReview, removeTempStateDir } from "../test-helpers.js";
-import { reconcileReviewFindings } from "../reconcile.js";
-import { dismissFinding } from "../lifecycle.js";
+import { insertFindingEvent } from "../repositories/events.js";
+import { insertObservation } from "../repositories/observations.js";
 import { CURRENT_SCHEMA_VERSION } from "../types.js";
 import { getReviewExecutionById } from "../repositories/review-executions.js";
 import { MIGRATION_001_INITIAL_SCHEMA } from "./001-initial-schema.js";
@@ -40,10 +40,16 @@ describe("release schema migration", () => {
       targetCommit: "b".repeat(40), diffHash: "legacy-diff", model: "test", reasoning: null,
       depth: "default", sessionId: "legacy", summary: "Legacy review", reportPath: "legacy.md",
     });
-    const finding = reconcileReviewFindings(old, review.id, [{ file: "price.ts", line: 1,
+    // Schema 7 has no archived_at, so the legacy rows are written directly rather than through
+    // repositories that target the current schema.
+    old.prepare(`INSERT INTO findings (id, fingerprint, status, first_review_id, last_review_id,
+      created_at, updated_at) VALUES ('fnd_legacy', 'v2:legacy', 'dismissed', ?, ?, ?, ?)`)
+      .run(review.id, review.id, "2026-01-01T00:00:00.000Z", "2026-01-02T00:00:00.000Z");
+    insertObservation(old, { reviewId: review.id, findingId: "fnd_legacy", file: "price.ts", line: 1,
       severity: "warning", confidence: "high", title: "Price", body: "Unexpected price",
-      evidence: "const price = 12;" }]).observations[0]!.finding;
-    dismissFinding(old, finding.id, { actor: "user", reason: "Intended pricing" });
+      evidence: "const price = 12;", symbolKey: null, ordinal: 1, classification: "new" });
+    insertFindingEvent(old, { findingId: "fnd_legacy", reviewId: review.id, eventType: "dismissed",
+      actor: "user", reason: "Intended pricing" });
     const before = {
       findings: old.prepare("SELECT * FROM findings").all(),
       observations: old.prepare("SELECT * FROM finding_observations").all(),
@@ -53,7 +59,11 @@ describe("release schema migration", () => {
     closeDatabaseConnection(old);
     const state = await openStateDatabase(dir);
     try {
-      expect(state.db.prepare("SELECT * FROM findings").all()).toEqual(before.findings);
+      const migrated = state.db.prepare("SELECT * FROM findings").all();
+      expect(migrated.map(({ archived_at: archivedAt }) => archivedAt)).toEqual([null]);
+      expect(migrated.map(({ archived_at: _archivedAt, ...legacy }) => legacy)).toEqual(
+        before.findings,
+      );
       expect(state.db.prepare("SELECT * FROM finding_observations").all()).toEqual(before.observations);
       expect(state.db.prepare("SELECT * FROM finding_events").all()).toEqual(before.events);
       expect(state.db.prepare("SELECT * FROM reviews").all()).toEqual(before.reviews);
@@ -73,7 +83,7 @@ describe("release schema migration", () => {
 
     const state = await openStateDatabase(dir);
     try {
-      expect(CURRENT_SCHEMA_VERSION).toBe(8);
+      expect(CURRENT_SCHEMA_VERSION).toBe(9);
       const migrations = state.db
         .prepare("SELECT version, name, sha256 FROM schema_migrations ORDER BY version ASC")
         .all();
@@ -89,6 +99,7 @@ describe("release schema migration", () => {
           name: "007-review-runtime-and-migration-identity",
         }),
         expect.objectContaining({ version: 8, name: "008-review-coverage" }),
+        expect.objectContaining({ version: 9, name: "009-finding-archive" }),
       ]);
       for (const migration of migrations) {
         expect(migration).toEqual(

@@ -9,6 +9,13 @@ import {
   saveConfig,
 } from "./config.js";
 
+const retentionDefaults = {
+  hook_log_kb: 1024,
+  failed_execution_days: 14,
+  failed_execution_limit: 200,
+  finding_recurrence_days: 14,
+};
+
 const originalCwd = process.cwd();
 let tempDirs: string[] = [];
 
@@ -20,9 +27,11 @@ afterEach(async () => {
 
 describe("config", () => {
   it.each([
-    ["failed_execution_days", 0, { hook_log_kb: 1024, failed_execution_days: 0, failed_execution_limit: 200 }],
-    ["failed_execution_limit", 7, { hook_log_kb: 1024, failed_execution_days: 14, failed_execution_limit: 7 }],
-    ["failed_execution_limit", 0, { hook_log_kb: 1024, failed_execution_days: 14, failed_execution_limit: 0 }],
+    ["failed_execution_days", 0, { ...retentionDefaults, failed_execution_days: 0 }],
+    ["failed_execution_limit", 7, { ...retentionDefaults, failed_execution_limit: 7 }],
+    ["failed_execution_limit", 0, { ...retentionDefaults, failed_execution_limit: 0 }],
+    ["finding_recurrence_days", 30, { ...retentionDefaults, finding_recurrence_days: 30 }],
+    ["finding_recurrence_days", 0, { ...retentionDefaults, finding_recurrence_days: 0 }],
   ])("deep-merges retention.%s = %s", async (key, value, expected) => {
     const root = await mkdtemp(join(tmpdir(), "diffowl-retention-config-"));
     tempDirs.push(root);
@@ -34,7 +43,7 @@ describe("config", () => {
     expect((await loadConfig()).retention).toEqual(expected);
   });
 
-  it.each(["failed_execution_days", "failed_execution_limit"])(
+  it.each(["failed_execution_days", "failed_execution_limit", "finding_recurrence_days"])(
     "rejects negative and fractional retention.%s", async (key) => {
       const root = await mkdtemp(join(tmpdir(), "diffowl-retention-config-"));
       tempDirs.push(root);
@@ -129,7 +138,7 @@ describe("config", () => {
     expect(config.min_confidence).toBe("medium");
     expect(config.context.depth).toBe("default");
     expect(config).not.toHaveProperty("reasoning");
-    expect(config.retention).toEqual({ hook_log_kb: 1024, failed_execution_days: 14, failed_execution_limit: 200 });
+    expect(config.retention).toEqual(retentionDefaults);
     expect(config.gate).toEqual({ fail_on_findings: false });
     expect(config.skip_doc_only).toBe(false);
     expect(config.verbose).toBe(false);
@@ -280,7 +289,7 @@ describe("config", () => {
       ["model: provider/model", "retention:", "  hook_log_kb: 256"].join("\n"),
       "utf-8",
     );
-    expect((await loadConfig()).retention).toEqual({ hook_log_kb: 256, failed_execution_days: 14, failed_execution_limit: 200 });
+    expect((await loadConfig()).retention).toEqual({ ...retentionDefaults, hook_log_kb: 256 });
 
     await writeFile(
       configPath,

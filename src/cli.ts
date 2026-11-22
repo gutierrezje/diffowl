@@ -111,6 +111,7 @@ import {
   deferFindingByLocator,
   dismissFindingByLocator,
   fixFindingByLocator,
+  listArchivedFindingItems,
   listUnresolvedFindings,
   LocatorAmbiguousError,
   LocatorNotFoundError,
@@ -1439,19 +1440,24 @@ findingsCmd
   .command("list", { isDefault: true })
   .description("List unresolved findings")
   .option("--format <format>", "Output format: text or json", "text")
-  .action(async (options: { format?: string }) => {
+  .option("--archived", "List findings archived past the recurrence window instead")
+  .action(async (options: { format?: string; archived?: boolean }) => {
     await loadConfigOrExit();
     const format = resolveReviewOutputFormat(options.format);
-    const items = await withFindingDatabase(await getSharedDiffOwlDir(), listUnresolvedFindings);
+    const archived = options.archived === true;
+    const items = await withFindingDatabase(
+      await getSharedDiffOwlDir(),
+      archived ? listArchivedFindingItems : listUnresolvedFindings,
+    );
     if (format === "json") {
       process.stdout.write(renderFindingListJson(items));
       return;
     }
     if (items.length === 0) {
-      console.log(chalk.green("No unresolved findings."));
+      console.log(chalk.green(archived ? "No archived findings." : "No unresolved findings."));
       return;
     }
-    console.log(formatFindingList(items));
+    console.log(formatFindingList(items, { archived }));
   });
 
 findingsCmd

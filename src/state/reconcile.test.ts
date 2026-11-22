@@ -3,6 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { closeStateDatabase, openStateDatabase } from "./db.js";
+import { archiveStaleFindings } from "./finding-archive.js";
+import { dismissFinding, fixFinding } from "./lifecycle.js";
+import { getFindingById } from "./repositories/findings.js";
 import { computeFindingFingerprint } from "./fingerprint.js";
 import { isActionableStatus, reconcileReviewFindings } from "./reconcile.js";
 import { insertTestReview as insertReview, removeTempStateDir } from "./test-helpers.js";
@@ -184,6 +187,83 @@ describe("reconcileReviewFindings", () => {
     } finally {
       closeStateDatabase(state);
     }
+  });
+
+  describe("re-detecting an archived fingerprint", () => {
+    it("starts a fresh open finding instead of regressing an archived fixed one", async () => {
+      const dir = await createTempDir();
+      const state = await openStateDatabase(dir);
+
+      try {
+        const original = reconcileReviewFindings(
+          state.db,
+          insertReview(state.db, baseReview("session-archived-1")).id,
+          [candidate],
+        ).observations[0]!.finding;
+        const fixed = fixFinding(state.db, original.id, {
+          actor: "user",
+          note: "Added validation.",
+          verifiedBy: ["pnpm run test"],
+        });
+        archiveStaleFindings(state.db, 14, new Date(Date.now() + 15 * 86_400_000));
+
+        const second = reconcileReviewFindings(
+          state.db,
+          insertReview(state.db, { ...baseReview("session-archived-2"), diffHash: "again" }).id,
+          [candidate],
+        ).observations[0]!;
+
+        expect(second.finding.id).not.toBe(original.id);
+        expect(second.finding.status).toBe("open");
+        expect(second.observation.classification).toBe("new");
+        expect(second.suppressed).toBe(false);
+        expect(second.finding.fingerprint).toBe(original.fingerprint);
+        // The archived record is history: re-detection must not rewrite it.
+        expect(getFindingById(state.db, original.id)).toMatchObject({
+          status: "fixed",
+          lastReviewId: fixed.lastReviewId,
+          updatedAt: fixed.updatedAt,
+        });
+        expect(getFindingById(state.db, original.id)?.archivedAt).not.toBeNull();
+
+        const third = reconcileReviewFindings(
+          state.db,
+          insertReview(state.db, { ...baseReview("session-archived-3"), diffHash: "third" }).id,
+          [candidate],
+        ).observations[0]!;
+        expect(third.finding.id).toBe(second.finding.id);
+        expect(third.observation.classification).toBe("existing");
+      } finally {
+        closeStateDatabase(state);
+      }
+    });
+
+    it("no longer suppresses a dismissed finding once it is archived", async () => {
+      const dir = await createTempDir();
+      const state = await openStateDatabase(dir);
+
+      try {
+        const original = reconcileReviewFindings(
+          state.db,
+          insertReview(state.db, baseReview("session-dismissed-1")).id,
+          [candidate],
+        ).observations[0]!.finding;
+        dismissFinding(state.db, original.id, { actor: "user", reason: "Accepted risk." });
+        archiveStaleFindings(state.db, 14, new Date(Date.now() + 15 * 86_400_000));
+
+        const result = reconcileReviewFindings(
+          state.db,
+          insertReview(state.db, { ...baseReview("session-dismissed-2"), diffHash: "again" }).id,
+          [candidate],
+        );
+
+        expect(result.observations[0]?.suppressed).toBe(false);
+        expect(result.observations[0]?.finding.status).toBe("open");
+        expect(result.suppressedCounts).toEqual({ dismissed: 0, deferred: 0 });
+      } finally {
+        closeStateDatabase(state);
+      }
+    });
   });
 });
 

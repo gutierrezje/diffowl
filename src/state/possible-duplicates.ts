@@ -132,6 +132,11 @@ export function confirmPossibleDuplicate(
         `Cannot confirm possible duplicate ${duplicateId}: candidate finding is ${candidate.status}.`,
       );
     }
+    if (matched.archivedAt !== null) {
+      throw new InvalidFindingTransitionError(
+        `Cannot confirm possible duplicate ${duplicateId}: matched finding ${matched.id} is archived.`,
+      );
+    }
     if (
       matched.status !== link.suggestedSourceStatus ||
       sourceEvent.eventType !== matched.status ||
