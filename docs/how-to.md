@@ -132,7 +132,7 @@ Branch review compares the merge base with `HEAD`. It does not include staged or
    diffowl findings reopen fnd_abc --reason "The bug returned in a new path."
    ```
 
-`fix` requires at least one `--verified-by` command. Recording an outcome does not run a review. To get new model analysis, run `diffowl review` again.
+`fix` requires at least one `--verified-by` command. A deferred finding still blocks readiness; when you are ready to handle it, `reopen` it, then `fix` or `dismiss` it. Recording an outcome does not run a review. To get new model analysis, run `diffowl review` again.
 
 ## Have a coding agent resolve findings
 

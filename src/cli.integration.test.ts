@@ -374,6 +374,29 @@ describe("readiness CLI", () => {
         expect.objectContaining({ actor: "agent", reason: "Needs product decision" }),
       ]),
     );
+    const reopened = await run(
+      "findings",
+      "reopen",
+      findingId,
+      "--reason",
+      "Decision made",
+      "--actor",
+      "agent",
+    );
+    expect(reopened.exitCode, reopened.stderr).toBe(0);
+    const refixed = await run(
+      "findings",
+      "fix",
+      findingId,
+      "--note",
+      "Applied decision",
+      "--verified-by",
+      "fixture assertion: price is 13",
+      "--actor",
+      "agent",
+    );
+    expect(refixed.exitCode, refixed.stderr).toBe(0);
+    expect(await query()).toMatchObject({ result: "ready", blockers: { deferred: 0 } });
   }, 60_000);
 
   it("emits one deterministic JSON document and distinguishes missing evidence from operational failure", async () => {

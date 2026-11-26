@@ -140,14 +140,17 @@ export function reopenFinding(
   findingId: string,
   input: LifecycleMutationInput & { reason: string },
 ): FindingRecord {
-  return transitionFinding(db, findingId, {
-    allowedFrom: ["fixed"],
-    to: "open",
-    eventType: "reopened",
-    actor: input.actor,
-    reason: input.reason,
-    expireSuggestedDuplicates: false,
-  }).finding;
+  // Deferred findings block readiness, so reopen is their only route back to fix or dismiss.
+  return runInTransaction(db, () =>
+    transitionFinding(db, findingId, {
+      allowedFrom: ["fixed", "deferred"],
+      to: "open",
+      eventType: "reopened",
+      actor: input.actor,
+      reason: input.reason,
+      expireSuggestedDuplicates: false,
+    }),
+  ).finding;
 }
 
 function transitionFinding(

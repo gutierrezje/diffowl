@@ -100,6 +100,39 @@ describe("finding lifecycle", () => {
     }
   });
 
+  it("reopens a deferred finding so it can be fixed", async () => {
+    const dir = await createTempDir();
+    const state = await openStateDatabase(dir);
+
+    try {
+      const review = insertReview(state.db, baseReview());
+      const created = reconcileReviewFindings(state.db, review.id, [candidate]);
+      const findingId = created.observations[0]?.finding.id;
+      if (!findingId) {
+        throw new Error("Expected a finding id.");
+      }
+
+      deferFinding(state.db, findingId, { actor: "agent", reason: "Needs upstream change." });
+      const reopened = reopenFinding(state.db, findingId, {
+        actor: "agent",
+        reason: "Upstream change landed.",
+      });
+      expect(reopened.status).toBe("open");
+
+      const fixed = fixFinding(state.db, findingId, {
+        actor: "agent",
+        note: "Guarded the path.",
+        verifiedBy: ["pnpm run test src/state"],
+      });
+      expect(fixed.status).toBe("fixed");
+
+      const events = listFindingEvents(state.db, findingId).map((event) => event.eventType);
+      expect(events).toEqual(["observed", "deferred", "reopened", "fixed"]);
+    } finally {
+      closeStateDatabase(state);
+    }
+  });
+
   it("rejects invalid lifecycle transitions without changing status", async () => {
     const dir = await createTempDir();
     const state = await openStateDatabase(dir);
@@ -131,6 +164,13 @@ describe("finding lifecycle", () => {
           reason: "Still broken.",
         }),
       ).not.toThrow();
+
+      expect(() =>
+        reopenFinding(state.db, findingId, {
+          actor: "user",
+          reason: "Already open.",
+        }),
+      ).toThrow(InvalidFindingTransitionError);
 
       const events = listFindingEvents(state.db, findingId).map((event) => event.eventType);
       expect(events).toEqual(["observed", "fixed", "reopened"]);
