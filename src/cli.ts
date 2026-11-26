@@ -1753,7 +1753,7 @@ findingsCmd
 
 findingsCmd
   .command("reopen")
-  .description("Reopen a fixed finding")
+  .description("Reopen a fixed or deferred finding")
   .argument("<locator>", "Finding id, id prefix, or latest:N")
   .requiredOption("--reason <text>", "Reopen reason")
   .option("--actor <actor>", "Actor: user or agent", "user")

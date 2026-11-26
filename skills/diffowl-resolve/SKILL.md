@@ -81,6 +81,12 @@ diffowl findings dismiss <locator> --reason <text> --actor agent
 diffowl findings defer <locator> --reason <text> --actor agent
 ```
 
+To resolve a finding deferred earlier, reopen it first, then fix or dismiss it as above:
+
+```bash
+diffowl findings reopen <locator> --reason <why it is actionable now> --actor agent
+```
+
 7. Rerun `diffowl findings` and confirm resolved items no longer appear in the unresolved backlog.
 8. Before handoff, follow the installed DiffOwl section of AGENTS.md (the shared
    [agent handoff workflow](https://github.com/gutierrezje/diffowl/blob/main/docs/agent-handoff.md))

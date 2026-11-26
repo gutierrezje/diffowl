@@ -60,9 +60,10 @@ and lifecycle events. The list exposes open/regressed findings, not deferred
 ones. If `blockers.deferred` is nonzero, retain IDs from prior lifecycle receipts
 and inspect them with `show` when available. If IDs are unavailable, report the
 returned deferred count and the discovery limitation as an explicit blocker;
-an empty list is not evidence of readiness. The current lifecycle cannot reopen
-deferred findings, so this path requires a lifecycle capability change rather
-than another review or automatic dismissal. Select relevant findings for the
+an empty list is not evidence of readiness. To act on a deferred finding, run
+`diffowl findings reopen <fnd_id> --reason '<why it is actionable now>'`, then
+fix or dismiss it; do not run another review or dismiss it automatically. Select
+relevant findings for the
 target branch; the backlog can also contain unrelated work. Correlate known
 finding IDs with the exact review/finding receipts available for this task.
 Readiness returns counts, and the finding detail does not expose review target
@@ -77,8 +78,9 @@ diffowl findings defer <fnd_id> --reason '<reason and follow-up>' --actor agent
 ```
 
 Verify a fix before recording it; add `--commit <sha>` only when that commit
-exists. A deferral is auditable but still blocks version 1 readiness. Do not
-dismiss a real issue merely to obtain ready, infer resolution from a later
+exists. A deferral is auditable but still blocks version 1 readiness until the
+finding is reopened and fixed or dismissed. Do not dismiss a real issue merely
+to obtain ready, infer resolution from a later
 review's omission, or change immutable Markdown reports. For an untracked
 blocker there is no lifecycle ID: report that limitation explicitly. Re-running
 a review that omits it does not clear it.

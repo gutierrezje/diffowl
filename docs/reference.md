@@ -79,12 +79,14 @@ When a review reports a `dismissed` or `deferred` finding again, the finding kee
 
 ### Disposition commands
 
-| Command                                                           | Result      |
-| ----------------------------------------------------------------- | ----------- |
-| `diffowl findings fix <id> --note <text> --verified-by <command>` | `fixed`     |
-| `diffowl findings dismiss <id> --reason <text>`                   | `dismissed` |
-| `diffowl findings defer <id> --reason <text>`                     | `deferred`  |
-| `diffowl findings reopen <id> --reason <text>`                    | `open`      |
+| Command                                                           | Accepts             | Result      |
+| ----------------------------------------------------------------- | ------------------- | ----------- |
+| `diffowl findings fix <id> --note <text> --verified-by <command>` | `open`, `regressed` | `fixed`     |
+| `diffowl findings dismiss <id> --reason <text>`                   | `open`, `regressed` | `dismissed` |
+| `diffowl findings defer <id> --reason <text>`                     | `open`, `regressed` | `deferred`  |
+| `diffowl findings reopen <id> --reason <text>`                    | `fixed`, `deferred` | `open`      |
+
+A deferred finding blocks readiness until you reopen it and then fix or dismiss it.
 
 `--verified-by` can repeat. `fix` also accepts `--commit <ref>`. Every disposition command accepts `--actor user` or `--actor agent`, and prints JSON by default.
 
